@@ -16,11 +16,17 @@ public struct LaunchOptions: Equatable, Sendable {
     public enum ParseError: Error, Equatable, CustomStringConvertible {
         case missingValue(String)
         case invalidValue(String, String)
+        /// The first switch only works together with the second.
+        case missingSwitch(String, requiredBy: String)
+        /// The two switches cannot be used together.
+        case conflictingSwitches(String, String)
 
         public var description: String {
             switch self {
             case .missingValue(let name): return "\(name) needs a value"
             case .invalidValue(let name, let value): return "\(name)=\(value) is not a valid value"
+            case .missingSwitch(let name, let other): return "\(other) needs \(name)"
+            case .conflictingSwitches(let first, let second): return "\(first) and \(second) cannot be used together"
             }
         }
     }
@@ -30,11 +36,25 @@ public struct LaunchOptions: Equatable, Sendable {
     /// How the smoke run quits (`--smoke-quit=terminate|menu|close-window`). Defaults to `terminate`.
     public var smokeQuit: QuitMethod = .terminate
 
-    public var isSmokeTest: Bool { smokeInput != nil }
+    /// The e2e scenario to run (`--e2e=<scenario>`, or `all`). Nil outside e2e runs.
+    public var e2eScenario: String?
+    /// The folder an e2e run writes its report and temporary profile to (`--e2e-out=<path>`).
+    /// Required with `--e2e`; a relative path is relative to the working directory.
+    public var e2eOutput: String?
 
-    public init(smokeInput: String? = nil, smokeQuit: QuitMethod = .terminate) {
+    public var isSmokeTest: Bool { smokeInput != nil }
+    public var isE2E: Bool { e2eScenario != nil }
+
+    public init(
+        smokeInput: String? = nil,
+        smokeQuit: QuitMethod = .terminate,
+        e2eScenario: String? = nil,
+        e2eOutput: String? = nil
+    ) {
         self.smokeInput = smokeInput
         self.smokeQuit = smokeQuit
+        self.e2eScenario = e2eScenario
+        self.e2eOutput = e2eOutput
     }
 
     /// Parses `arguments` (the first one is the program path). Switches it does not know are ignored, because
@@ -49,8 +69,15 @@ public struct LaunchOptions: Equatable, Sendable {
                     throw .invalidValue("--smoke-quit", value)
                 }
                 options.smokeQuit = method
+            } else if let value = try value(of: "--e2e-out", in: argument) {
+                options.e2eOutput = value
+            } else if let value = try value(of: "--e2e", in: argument) {
+                options.e2eScenario = value
             }
         }
+        if options.isE2E && options.e2eOutput == nil { throw .missingSwitch("--e2e-out", requiredBy: "--e2e") }
+        if !options.isE2E && options.e2eOutput != nil { throw .missingSwitch("--e2e", requiredBy: "--e2e-out") }
+        if options.isE2E && options.isSmokeTest { throw .conflictingSwitches("--smoke-test", "--e2e") }
         return options
     }
 

@@ -5,6 +5,11 @@ import BowCore
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private static let homeURL = URL(string: "https://www.google.com")!
+    /// Chromium's profiles and caches for normal and smoke runs.
+    private static var dataDirectory: URL {
+        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("Bow", isDirectory: true)
+    }
     private static let smokeTestTimeout: TimeInterval = 30
     /// A smoke run fails with `BowEngineQuitTimeoutExitCode` if quitting takes longer than this.
     private static let smokeQuitTimeout: TimeInterval = 2
@@ -12,29 +17,59 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private static let usageExitCode: Int32 = 64
 
     private var windowControllers: [BrowserWindowController] = []
+    private var options = LaunchOptions()
+    #if BOW_E2E
+        private var e2eHarness: E2EHarness?  // E2E seam
+    #endif
     private var smokeTimer: Timer?
     private var smokeFinished = false
+
+    /// Called by main before Chromium starts: reads the launch switches and says how to start the engine.
+    /// Returns nil, with `BowEngine.exitCode` set, when the switches are unusable and the app should exit.
+    @objc func engineConfiguration() -> BowEngineConfiguration? {
+        do {
+            options = try LaunchOptions.parse(ProcessInfo.processInfo.arguments)
+            if options.isE2E {
+                // E2E seam: the harness in App/E2E sets up the run and the engine.
+                #if BOW_E2E
+                    let harness = try E2EHarness(options: options)
+                    e2eHarness = harness
+                    return harness.engineConfiguration
+                #else
+                    FileHandle.standardError.write(
+                        Data("bow: --e2e needs a Debug build; this one has no e2e harness\n".utf8))
+                    BowEngine.exitCode = Self.usageExitCode
+                    return nil
+                #endif
+            }
+        } catch {
+            FileHandle.standardError.write(Data("bow: \(error)\n".utf8))
+            BowEngine.exitCode = Self.usageExitCode
+            return nil
+        }
+
+        let configuration = BowEngineConfiguration(rootDataDirectory: Self.dataDirectory.path)
+        if options.isSmokeTest {
+            configuration.quitTimeout = Self.smokeQuitTimeout
+            configuration.reportsQuitTime = true
+        }
+        return configuration
+    }
 
     /// Called by the engine once Chromium is ready to create browsers.
     @objc func engineDidStart() {
         NSApp.mainMenu = MainMenu.make()
-
-        let options: LaunchOptions
-        do {
-            options = try LaunchOptions.parse(ProcessInfo.processInfo.arguments)
-        } catch {
-            FileHandle.standardError.write(Data("bow: \(error)\n".utf8))
-            BowEngine.exitCode = Self.usageExitCode
-            // Wait for the message loop to be running, so ending it takes effect.
-            DispatchQueue.main.async { BowEngine.quit() }
-            return
-        }
+        #if BOW_E2E
+            // E2E seam: an e2e run hands control to its harness.
+            if let e2eHarness {
+                e2eHarness.start(delegate: self)
+                return
+            }
+        #endif
 
         let startURL = options.smokeInput.flatMap(AddressInput.resolve) ?? Self.homeURL
         let controller = openWindow(url: startURL)
         if options.isSmokeTest {
-            BowEngine.quitTimeout = Self.smokeQuitTimeout
-            BowEngine.reportsQuitTime = true
             // Stay in the background so a smoke run never takes the keyboard from whoever is typing.
             controller.window?.orderBack(nil)
             runSmokeTest(in: controller, quitting: options.smokeQuit)
@@ -44,12 +79,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    /// Called by main after the engine has shut down, just before the process exits with `BowEngine.exitCode`.
+    @objc func engineDidStop() {
+        #if BOW_E2E
+            e2eHarness?.engineDidStop()  // E2E seam
+        #endif
+    }
+
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
         true
     }
 
-    private func openWindow(url: URL) -> BrowserWindowController {
-        let controller = BrowserWindowController(url: url)
+    /// Opens `url` in a new browser window, or in `window` when given (e2e runs pass an off-screen one).
+    func openWindow(url: URL, window: BrowserWindow? = nil) -> BrowserWindowController {
+        let controller = BrowserWindowController(url: url, window: window)
         controller.onClose = { [weak self] closed in
             self?.windowControllers.removeAll { $0 === closed }
         }

@@ -4,9 +4,11 @@ export DEVELOPER_DIR ?= /Applications/Xcode.app/Contents/Developer
 BUILD_DIR := build
 APP := $(BUILD_DIR)/Build/Products/Debug/Bow.app
 SMOKE_URL ?= https://example.com
-SWIFT_SOURCES := App/UI BowCore
+SWIFT_SOURCES := App/UI App/E2E BowCore
+# The e2e scenario `make e2e` runs: all, or one name such as app.quit.
+E2E ?= all
 
-.PHONY: bootstrap hooks project build test run smoke format lint verify clean
+.PHONY: bootstrap hooks project build test run smoke e2e format lint verify clean
 
 bootstrap: hooks
 	./scripts/bootstrap-cef.sh
@@ -30,6 +32,12 @@ run: build
 
 smoke: build
 	$(APP)/Contents/MacOS/Bow --smoke-test=$(SMOKE_URL)
+
+# Runs the app off screen with a throwaway profile; each run writes to its own build/e2e/<time>-<pid> folder.
+e2e: build
+	@run="$(BUILD_DIR)/e2e/$$(date +%Y%m%d-%H%M%S)-$$$$"; \
+	echo "e2e: $$run"; \
+	$(APP)/Contents/MacOS/Bow --e2e=$(E2E) --e2e-out="$$run"
 
 format:
 	swift format --in-place --recursive $(SWIFT_SOURCES)

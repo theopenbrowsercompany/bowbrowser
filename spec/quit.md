@@ -36,6 +36,7 @@ People rely on it every day, and every automated run relies on the app exiting o
 4. Open Bow normally, press Cmd+Q: the window closes and the process ends within 2 seconds with exit code 0.
 5. Open Bow normally, click the window's close button: the window closes and the process ends within 2 seconds with exit code 0.
 6. Run the built app with `--smoke-quit=later`: it prints an error, opens no window, and exits with code 64.
+7. Run `make e2e`: the `app.quit` scenario loads a page in an off-screen window, quits, and prints `PASS app.quit: seconds<2` and `E2E: PASS 1/1`, exiting with code 0.
 
 ## Out of scope
 
