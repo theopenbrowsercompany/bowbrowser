@@ -10,11 +10,15 @@ Start every session in `~/code/GitHub/bowbrowser`: the maintainer's `.claude/set
 
 ## Layout
 
-- `App/Engine/`: the Objective-C++ bridge to CEF and the app entry point. It and `App/E2E/Engine/` are the only code that includes CEF or C++ headers; everything else talks to the engine through the Objective-C API in their headers.
+- `App/Engine/`: the Objective-C++ bridge to CEF and the app entry point. It and `E2E/Engine/` are the only code that includes CEF or C++ headers; everything else talks to the engine through the Objective-C API in their headers.
 - `App/UI/`: Swift and AppKit windows, menus and the views that host web pages.
-- `App/E2E/`: the `make e2e` harness, kept apart from the app: `Runner/` (Swift runner and scenarios), `Engine/` (DevTools calls and the fixture server), `Fixtures/` (pages served at `https://bow.test/`).
-  App code reaches it only through seams marked `E2E seam`, compiled under `BOW_E2E` in Debug builds only; Release builds leave out the harness and its fixtures.
-  Scenarios drive the app only through `E2EApp` and `E2EPage` (`Runner/E2EPage.swift`); `Runner/E2EAppAdapter.swift` is the one file that knows the bridge.
+- `E2E/`: the `make e2e` harness, compiled into Debug builds only (Release leaves out its code and fixtures).
+  - `E2E/Harness/`: the runner, waits, PASS and FAIL report, watchdog, off-screen window, the page protocol (`E2EApp`, `E2EPage`) and `E2EAppAdapter.swift`, the one file that knows the bridge.
+  - `E2E/Engine/`: Objective-C++ helpers, the DevTools session and the `https://bow.test/` fixture server.
+  - `E2E/Tests/`: one Swift file per area holding its tests (`App.swift` holds `app.quit`); list each area in `E2ETests.all`.
+  - `E2E/Fixtures/`: one folder per area (`Fixtures/app/`), served at `https://bow.test/<area>/`.
+- `App/Engine/BowE2EHooks.h`: the single engine seam header, declaring what the harness needs from the engine and nothing the app uses, behind `BOW_E2E`.
+  Harness code never holds app logic, and app code never depends on the harness: `App/` and `BowCore/` reach `E2E/` only through `BowE2EHooks.h` and lines marked `E2E seam` under `#if BOW_E2E`, which `make verify` checks.
 - `App/Helper/`: the CEF helper process. The build packages it as the helper apps Chromium needs (GPU, renderer, plugin, alerts).
 - `BowCore/`: a Swift package for browser logic that needs no UI or engine (today: address and search input). Its tests run in seconds.
 - `cef.lock`: the pinned CEF version and checksum. `Vendor/cef` links to one shared copy outside the repository and is gitignored.
@@ -27,13 +31,13 @@ Start every session in `~/code/GitHub/bowbrowser`: the maintainer's `.claude/set
 - `make hooks`: turn on the git hooks in `.githooks/`, which refuse pushes that add private paths or recordings.
 - `make test`: BowCore unit tests.
 - `make build`: build the app into `build/`.
-- `make e2e`: build Debug and run the e2e scenarios in the real app (`make e2e E2E=app.quit` runs one).
+- `make e2e`: build Debug and run the e2e tests in the real app (`make e2e E2E=app.quit` runs one).
   Agents use it, not `make smoke`, for "Done when" checks: the window stays off screen, the app never takes focus or shows in the Dock, the profile and settings are throwaway, the network is blocked, and it runs from any worktree, beside a normal Bow and while other worktrees build.
   It prints one `PASS <check>` or `FAIL <check>: <reason>` line per check and a final `E2E: PASS n/n` (or `E2E: FAIL passed/n`) line, also saved in `build/e2e/<run>/report.txt`.
   Exit code 0 means every check passed, 1 a check failed, 2 a step timed out (`E2E: TIMEOUT <step>`); a failed run keeps its profile in the run folder.
 - `make smoke`: build, open the app in a background window on one page (`make smoke SMOKE_URL=https://example.org` picks it), print the load status and title, quit.
   The window appears on the maintainer's screen, so run it only when the maintainer asks; the lead runs it for agents working in parallel.
-- `make verify`: lint, tests and build.
+- `make verify`: lint, the e2e seam check (`scripts/check-e2e-seams.sh`), tests and build.
   A change is done when this and its end-to-end check pass.
 - `make format`: format Swift sources.
 

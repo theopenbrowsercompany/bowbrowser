@@ -4,9 +4,11 @@
 
 #include <cstdio>
 #include <map>
-#include <vector>
 
 #include "BowEngine+Internal.h"
+#if BOW_E2E
+#include "BowE2EHooks.h"  // E2E seam
+#endif
 #include "include/cef_app.h"
 
 const int BowEngineQuitTimeoutExitCode = 3;
@@ -59,17 +61,19 @@ void StartQuitWatchdog() {
 
 }  // namespace
 
-NSNotificationName const BowEngineBrowserCreatedNotification = @"BowEngineBrowserCreatedNotification";
-
 void BowEngineStart(BowEngineConfiguration* configuration) {
   gConfiguration = configuration;
 }
+
+#if BOW_E2E  // E2E seam: the hooks declared in BowE2EHooks.h.
+NSNotificationName const BowEngineBrowserCreatedNotification = @"BowEngineBrowserCreatedNotification";
 
 std::vector<CefRefPtr<CefBrowser>> BowEngineOpenBrowsers() {
   std::vector<CefRefPtr<CefBrowser>> browsers;
   for (const auto& [identifier, entry] : gBrowsers) browsers.push_back(entry.browser);
   return browsers;
 }
+#endif
 
 void BowEngineBrowserCreationStarted() {
   gPendingCreations++;
@@ -84,7 +88,9 @@ void BowEngineBrowserCreated(CefRefPtr<CefBrowser> browser) {
   // Popups are created by CEF, not requested through BowEngineBrowserCreationStarted.
   if (!browser->IsPopup() && gPendingCreations > 0) gPendingCreations--;
   gBrowsers[browser->GetIdentifier()] = BrowserEntry{browser};
+#if BOW_E2E  // E2E seam
   [[NSNotificationCenter defaultCenter] postNotificationName:BowEngineBrowserCreatedNotification object:nil];
+#endif
   if (gQuitting) {
     // Not from inside OnAfterCreated: close on a later main thread task.
     dispatch_async(dispatch_get_main_queue(), ^{

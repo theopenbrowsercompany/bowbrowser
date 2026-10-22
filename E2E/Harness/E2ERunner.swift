@@ -1,14 +1,14 @@
 import AppKit
 import BowCore
 
-/// Runs e2e scenarios inside the real app (`Bow --e2e=<scenario or all> --e2e-out=<folder>`).
+/// Runs e2e tests inside the real app (`Bow --e2e=<test or all> --e2e-out=<folder>`).
 ///
 /// The run uses a throwaway Chromium root and UserDefaults suite, an off-screen window that never takes focus,
 /// no network and fixture pages at `https://bow.test/`. It prints one `PASS name` or `FAIL name: reason` line
 /// per check and a final `E2E: PASS n/n` (or `E2E: FAIL passed/n`) line, to stdout and `<folder>/report.txt`.
 /// Exit codes: 0 when every check passed, 1 when one failed, 2 when a step timed out.
 @MainActor
-final class E2EHarness {
+final class E2ERunner {
     static let failureExitCode: Int32 = 1
     /// Generous, because parallel builds in other worktrees can starve Chromium's start.
     static let engineStartTimeout: TimeInterval = 60
@@ -17,7 +17,7 @@ final class E2EHarness {
 
     let engineConfiguration: BowEngineConfiguration
 
-    private let scenarios: [any E2EScenario]
+    private let tests: [any E2ETest]
     private let profileDirectory: URL
     private let fixtureDirectory: URL
     private let defaultsSuiteName: String
@@ -26,18 +26,25 @@ final class E2EHarness {
     private var checks: [(name: String, passed: Bool)] = []
     private var quitCheck: (name: String, limit: TimeInterval)?
 
-    /// Prepares a run before the engine starts. Throws for an unknown scenario or an unusable output folder.
+    /// Prepares a run before the engine starts. Throws for an unknown test or an unusable output folder.
     init(options: LaunchOptions) throws {
-        guard let selection = options.e2eScenario, let outputPath = options.e2eOutput else {
+        guard let selection = options.e2eTest, let outputPath = options.e2eOutput else {
             throw E2EError("not an e2e run")
         }
-        scenarios = try Self.scenarios(named: selection)
+        tests = try Self.tests(named: selection)
 
         let fileManager = FileManager.default
-        let runDirectory = URL(fileURLWithPath: outputPath, isDirectory: true).standardizedFileURL
-        profileDirectory = runDirectory.appendingPathComponent("profile", isDirectory: true)
+        var runDirectory = URL(fileURLWithPath: outputPath, isDirectory: true).standardizedFileURL
         do {
             try fileManager.createDirectory(at: runDirectory, withIntermediateDirectories: true)
+            // Chromium needs the real path: with a symlink in it (/tmp, a linked checkout) it silently keeps the
+            // profile in memory. Resolve it once the folder exists.
+            // (resolvingSymlinksInPath would turn /private/tmp back into /tmp, so use realpath.)
+            if let realPath = realpath(runDirectory.path, nil) {
+                runDirectory = URL(fileURLWithPath: String(cString: realPath), isDirectory: true)
+                free(realPath)
+            }
+            profileDirectory = runDirectory.appendingPathComponent("profile", isDirectory: true)
             if fileManager.fileExists(atPath: profileDirectory.path) {
                 try fileManager.removeItem(at: profileDirectory)
             }
@@ -87,18 +94,18 @@ final class E2EHarness {
         watchdog.arm("engine.start", timeout: Self.engineStartTimeout)
     }
 
-    /// Runs the scenarios once the engine has started, then quits.
+    /// Runs the tests once the engine has started, then quits.
     func start(delegate: AppDelegate) {
         watchdog.disarm()
         BowFixtureServer.serveDirectory(fixtureDirectory.path)
         let app = E2EAppAdapter(delegate: delegate)
         Task {
-            for scenario in scenarios {
-                let run = E2ERun(harness: self, scenario: scenario.name, app: app)
+            for test in tests {
+                let run = E2ERun(runner: self, test: test.name, app: app)
                 do {
-                    try await scenario.run(run)
+                    try await test.run(run)
                 } catch {
-                    record(scenario.name, passed: false, detail: "\(run.currentStep): \(error)")
+                    record(test.name, passed: false, detail: "\(run.currentStep): \(error)")
                 }
                 watchdog.disarm()
             }
@@ -143,12 +150,12 @@ final class E2EHarness {
         watchdog.arm(step, timeout: timeout)
     }
 
-    private static func scenarios(named selection: String) throws -> [any E2EScenario] {
-        if selection == "all" { return E2EScenarios.all }
-        let matching = E2EScenarios.all.filter { $0.name == selection }
+    private static func tests(named selection: String) throws -> [any E2ETest] {
+        if selection == "all" { return E2ETests.all }
+        let matching = E2ETests.all.filter { $0.name == selection }
         guard !matching.isEmpty else {
-            let known = E2EScenarios.all.map(\.name).joined(separator: ", ")
-            throw E2EError("--e2e=\(selection) is not a scenario; use all or one of: \(known)")
+            let known = E2ETests.all.map(\.name).joined(separator: ", ")
+            throw E2EError("--e2e=\(selection) is not a test; use all or one of: \(known)")
         }
         return matching
     }
@@ -175,37 +182,37 @@ final class E2EHarness {
     }
 }
 
-/// What a scenario uses while it runs: the app, timed steps and checks.
+/// What a test uses while it runs: the app, timed steps and checks.
 @MainActor
 final class E2ERun {
     let app: any E2EApp
     /// The step running now, for FAIL lines.
     private(set) var currentStep = "start"
 
-    private unowned let harness: E2EHarness
-    private let scenario: String
+    private unowned let runner: E2ERunner
+    private let test: String
 
-    fileprivate init(harness: E2EHarness, scenario: String, app: any E2EApp) {
-        self.harness = harness
-        self.scenario = scenario
+    fileprivate init(runner: E2ERunner, test: String, app: any E2EApp) {
+        self.runner = runner
+        self.test = test
         self.app = app
     }
 
     /// Runs one step. If it has not finished after `timeout` seconds, the run ends with `E2E: TIMEOUT`.
     func step<T>(_ name: String, timeout: TimeInterval, _ body: () async throws -> T) async throws -> T {
         currentStep = name
-        harness.arm("\(scenario): \(name)", timeout: timeout)
+        runner.arm("\(test): \(name)", timeout: timeout)
         return try await body()
     }
 
     /// Records a check, printing `PASS name: detail` or `FAIL name: detail`.
     func check(_ name: String, passed: Bool, _ detail: String) {
-        harness.record(name, passed: passed, detail: detail)
+        runner.record(name, passed: passed, detail: detail)
     }
 
     /// Checks, after the engine has shut down, that quitting took less than `limit` seconds.
-    /// The app quits once every scenario has run, so this is reported after all other checks.
+    /// The app quits once every test has run, so this is reported after all other checks.
     func expectQuit(_ name: String, within limit: TimeInterval) {
-        harness.expectQuit(name, within: limit)
+        runner.expectQuit(name, within: limit)
     }
 }

@@ -44,12 +44,12 @@ import Testing
 
     @Test func readsAnE2ERun() throws {
         let options = try LaunchOptions.parse(["/Bow", "--e2e=all", "--e2e-out=build/e2e/run"])
-        #expect(options.e2eScenario == "all")
+        #expect(options.e2eTest == "all")
         #expect(options.e2eOutput == "build/e2e/run")
         #expect(options.isE2E)
         #expect(!options.isSmokeTest)
         let reversed = try LaunchOptions.parse(["/Bow", "--e2e-out=/tmp/run", "--e2e=app.quit"])
-        #expect(reversed == LaunchOptions(e2eScenario: "app.quit", e2eOutput: "/tmp/run"))
+        #expect(reversed == LaunchOptions(e2eTest: "app.quit", e2eOutput: "/tmp/run"))
     }
 
     @Test func rejectsIncompleteOrMixedE2ERuns() {

@@ -1,6 +1,6 @@
 #import "BowDevToolsSession.h"
 
-#include "BowEngine+Internal.h"
+#include "BowE2EHooks.h"
 #include "include/cef_devtools_message_observer.h"
 #include "include/cef_parser.h"
 #include "include/cef_registration.h"
