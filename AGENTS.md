@@ -10,8 +10,11 @@ Start every session in `~/code/GitHub/bowbrowser`: the maintainer's `.claude/set
 
 ## Layout
 
-- `App/Engine/`: the Objective-C++ bridge to CEF and the app entry point. It is the only code that includes CEF or C++ headers; everything else talks to the engine through the Objective-C API in its headers.
+- `App/Engine/`: the Objective-C++ bridge to CEF and the app entry point. It and `App/E2E/Engine/` are the only code that includes CEF or C++ headers; everything else talks to the engine through the Objective-C API in their headers.
 - `App/UI/`: Swift and AppKit windows, menus and the views that host web pages.
+- `App/E2E/`: the `make e2e` harness, kept apart from the app: `Runner/` (Swift runner and scenarios), `Engine/` (DevTools calls and the fixture server), `Fixtures/` (pages served at `https://bow.test/`).
+  App code reaches it only through seams marked `E2E seam`, compiled under `BOW_E2E` in Debug builds only; Release builds leave out the harness and its fixtures.
+  Scenarios drive the app only through `E2EApp` and `E2EPage` (`Runner/E2EPage.swift`); `Runner/E2EAppAdapter.swift` is the one file that knows the bridge.
 - `App/Helper/`: the CEF helper process. The build packages it as the helper apps Chromium needs (GPU, renderer, plugin, alerts).
 - `BowCore/`: a Swift package for browser logic that needs no UI or engine (today: address and search input). Its tests run in seconds.
 - `cef.lock`: the pinned CEF version and checksum. `Vendor/cef` links to one shared copy outside the repository and is gitignored.
@@ -20,13 +23,16 @@ Start every session in `~/code/GitHub/bowbrowser`: the maintainer's `.claude/set
 
 ## Commands
 
-- `make bootstrap`: link the pinned CEF build (downloading and building it once into `~/Library/Caches/bowbrowser`), turn on the git hooks and generate the Xcode project. Run it in every new checkout or worktree, and again after `cef.lock` changes.
+- `make bootstrap`: link the pinned CEF build (downloading the prebuilt CEF build and compiling its small C++ wrapper library once into `~/Library/Caches/bowbrowser`; Chromium itself is never compiled), turn on the git hooks and generate the Xcode project. Run it in every new checkout or worktree, and again after `cef.lock` changes.
 - `make hooks`: turn on the git hooks in `.githooks/`, which refuse pushes that add private paths or recordings.
 - `make test`: BowCore unit tests.
 - `make build`: build the app into `build/`.
+- `make e2e`: build Debug and run the e2e scenarios in the real app (`make e2e E2E=app.quit` runs one).
+  Agents use it, not `make smoke`, for "Done when" checks: the window stays off screen, the app never takes focus or shows in the Dock, the profile and settings are throwaway, the network is blocked, and it runs from any worktree, beside a normal Bow and while other worktrees build.
+  It prints one `PASS <check>` or `FAIL <check>: <reason>` line per check and a final `E2E: PASS n/n` (or `E2E: FAIL passed/n`) line, also saved in `build/e2e/<run>/report.txt`.
+  Exit code 0 means every check passed, 1 a check failed, 2 a step timed out (`E2E: TIMEOUT <step>`); a failed run keeps its profile in the run folder.
 - `make smoke`: build, open the app in a background window on one page (`make smoke SMOKE_URL=https://example.org` picks it), print the load status and title, quit.
-  It is the end-to-end check until `make e2e` exists.
-  The window appears on the maintainer's screen, so say so before running it, and run one at a time: when several agents work in parallel, the lead runs it for them.
+  The window appears on the maintainer's screen, so run it only when the maintainer asks; the lead runs it for agents working in parallel.
 - `make verify`: lint, tests and build.
   A change is done when this and its end-to-end check pass.
 - `make format`: format Swift sources.
@@ -34,7 +40,7 @@ Start every session in `~/code/GitHub/bowbrowser`: the maintainer's `.claude/set
 ## Working rules
 
 - Put browser behavior in `BowCore` whenever it does not need the engine or UI.
-- Verify each change end to end in the running app with the command its last "Done when" item names (`make e2e`, or `make smoke` until that exists).
+- Verify each change end to end in the running app with the command its last "Done when" item names (usually `make e2e`).
   Add a unit test only for logic an end-to-end check cannot reach.
 - When behavior changes, update its spec in the same change.
 - The installed Arc app and `~/Library/Application Support/Arc` are the maintainer's real browser and profile: do not open, quit, script or read them.

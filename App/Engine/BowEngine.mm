@@ -4,6 +4,7 @@
 
 #include <cstdio>
 #include <map>
+#include <vector>
 
 #include "BowEngine+Internal.h"
 #include "include/cef_app.h"
@@ -30,8 +31,8 @@ CFAbsoluteTime gQuitStart = 0;
 dispatch_source_t gQuitWatchdog = nil;
 
 int gExitCode = 0;
-NSTimeInterval gQuitTimeout = 0;
-BOOL gReportsQuitTime = NO;
+NSTimeInterval gQuitDuration = 0;
+BowEngineConfiguration* gConfiguration = nil;
 
 void QuitMessageLoopIfDone() {
   if (!gQuitting || gMessageLoopQuit || !gBrowsers.empty() || gPendingCreations > 0) return;
@@ -41,9 +42,9 @@ void QuitMessageLoopIfDone() {
 }
 
 void StartQuitWatchdog() {
-  if (gQuitTimeout <= 0) return;
+  NSTimeInterval timeout = gConfiguration.quitTimeout;
+  if (timeout <= 0) return;
   // Runs off the main thread so it still fires if the main thread is stuck, for example inside CefShutdown.
-  NSTimeInterval timeout = gQuitTimeout;
   gQuitWatchdog =
       dispatch_source_create(DISPATCH_SOURCE_TYPE_TIMER, 0, 0, dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0));
   dispatch_source_set_timer(gQuitWatchdog, dispatch_time(DISPATCH_TIME_NOW, (int64_t)(timeout * NSEC_PER_SEC)),
@@ -58,6 +59,18 @@ void StartQuitWatchdog() {
 
 }  // namespace
 
+NSNotificationName const BowEngineBrowserCreatedNotification = @"BowEngineBrowserCreatedNotification";
+
+void BowEngineStart(BowEngineConfiguration* configuration) {
+  gConfiguration = configuration;
+}
+
+std::vector<CefRefPtr<CefBrowser>> BowEngineOpenBrowsers() {
+  std::vector<CefRefPtr<CefBrowser>> browsers;
+  for (const auto& [identifier, entry] : gBrowsers) browsers.push_back(entry.browser);
+  return browsers;
+}
+
 void BowEngineBrowserCreationStarted() {
   gPendingCreations++;
 }
@@ -71,6 +84,7 @@ void BowEngineBrowserCreated(CefRefPtr<CefBrowser> browser) {
   // Popups are created by CEF, not requested through BowEngineBrowserCreationStarted.
   if (!browser->IsPopup() && gPendingCreations > 0) gPendingCreations--;
   gBrowsers[browser->GetIdentifier()] = BrowserEntry{browser};
+  [[NSNotificationCenter defaultCenter] postNotificationName:BowEngineBrowserCreatedNotification object:nil];
   if (gQuitting) {
     // Not from inside OnAfterCreated: close on a later main thread task.
     dispatch_async(dispatch_get_main_queue(), ^{
@@ -102,8 +116,9 @@ void BowEngineDidShutDown() {
     dispatch_source_cancel(gQuitWatchdog);
     gQuitWatchdog = nil;
   }
-  if (gReportsQuitTime && gQuitStart > 0) {
-    fprintf(stderr, "quit: seconds=%.2f\n", CFAbsoluteTimeGetCurrent() - gQuitStart);
+  if (gQuitStart > 0) gQuitDuration = CFAbsoluteTimeGetCurrent() - gQuitStart;
+  if (gConfiguration.reportsQuitTime && gQuitStart > 0) {
+    fprintf(stderr, "quit: seconds=%.2f\n", gQuitDuration);
     fflush(stderr);
   }
 }
@@ -118,20 +133,8 @@ void BowEngineDidShutDown() {
   gExitCode = exitCode;
 }
 
-+ (NSTimeInterval)quitTimeout {
-  return gQuitTimeout;
-}
-
-+ (void)setQuitTimeout:(NSTimeInterval)quitTimeout {
-  gQuitTimeout = quitTimeout;
-}
-
-+ (BOOL)reportsQuitTime {
-  return gReportsQuitTime;
-}
-
-+ (void)setReportsQuitTime:(BOOL)reportsQuitTime {
-  gReportsQuitTime = reportsQuitTime;
++ (NSTimeInterval)quitDuration {
+  return gQuitDuration;
 }
 
 + (void)startQuitClock {

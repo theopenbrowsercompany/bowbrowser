@@ -1,8 +1,9 @@
 // App entry point. Chromium has to load and start before AppKit runs, so main lives in the engine.
 #import <Cocoa/Cocoa.h>
 
-#import "Bow-Swift.h"
 #import "BowEngine.h"
+#import "BowEngineConfiguration.h"
+#import "Bow-Swift.h"
 #include "BowEngine+Internal.h"
 #include "include/cef_app.h"
 #include "include/cef_application_mac.h"
@@ -39,12 +40,21 @@
 
 class BowCefApp : public CefApp, public CefBrowserProcessHandler {
  public:
+  explicit BowCefApp(BowEngineConfiguration* configuration) : configuration_(configuration) {}
+
   CefRefPtr<CefBrowserProcessHandler> GetBrowserProcessHandler() override { return this; }
 
   void OnBeforeCommandLineProcessing(const CefString& processType,
                                      CefRefPtr<CefCommandLine> commandLine) override {
     // Keep Chromium out of the login keychain until saved passwords are designed.
     commandLine->AppendSwitch("use-mock-keychain");
+    [configuration_.extraSwitches enumerateKeysAndObjectsUsingBlock:^(NSString* name, NSString* value, BOOL*) {
+      if (value.length == 0) {
+        commandLine->AppendSwitch(name.UTF8String);
+      } else {
+        commandLine->AppendSwitchWithValue(name.UTF8String, value.UTF8String);
+      }
+    }];
   }
 
   void OnContextInitialized() override {
@@ -52,6 +62,8 @@ class BowCefApp : public CefApp, public CefBrowserProcessHandler {
   }
 
  private:
+  BowEngineConfiguration* configuration_;
+
   IMPLEMENT_REFCOUNTING(BowCefApp);
 };
 
@@ -66,19 +78,27 @@ int main(int argc, char* argv[]) {
     AppDelegate* delegate = [[AppDelegate alloc] init];
     NSApp.delegate = delegate;
 
-    NSString* support = [NSSearchPathForDirectoriesInDomains(NSApplicationSupportDirectory, NSUserDomainMask, YES)
-                             .firstObject stringByAppendingPathComponent:@"Bow"];
+    // The delegate reads the launch switches and says how to start the engine; nil means it cannot start.
+    BowEngineConfiguration* configuration = [delegate engineConfiguration];
+    if (!configuration) return BowEngine.exitCode;
+    BowEngineStart(configuration);
+
+    NSString* root = configuration.rootDataDirectory;
     CefSettings settings;
     // Phase 0 runs without Chromium's sandbox; it must be enabled before any release.
     settings.no_sandbox = true;
-    CefString(&settings.root_cache_path) = support.UTF8String;
-    CefString(&settings.cache_path) = [support stringByAppendingPathComponent:@"Default"].UTF8String;
+    CefString(&settings.root_cache_path) = root.UTF8String;
+    CefString(&settings.cache_path) = [root stringByAppendingPathComponent:@"Default"].UTF8String;
+    if (configuration.keychainServiceName) {
+      CefString(&settings.keychain_service_name) = configuration.keychainServiceName.UTF8String;
+    }
 
-    CefRefPtr<BowCefApp> app(new BowCefApp);
+    CefRefPtr<BowCefApp> app(new BowCefApp(configuration));
     if (!CefInitialize(mainArgs, settings, app.get(), nullptr)) return CefGetExitCode();
     CefRunMessageLoop();
     CefShutdown();
     BowEngineDidShutDown();
+    [delegate engineDidStop];
     exitCode = BowEngine.exitCode;
   }
   return exitCode;
