@@ -1,0 +1,18 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(make:*)",
+      "Bash(swift build:*)",
+      "Bash(swift test:*)",
+      "Bash(xcodegen:*)",
+      "Bash(xcodebuild:*)"
+    ],
+    "ask": [
+      "Bash(git push:*)"
+    ],
+    "deny": [
+      "Read(~/Library/Application Support/Arc/**)",
+      "Read(//Applications/Arc.app/**)"
+    ]
+  }
+}

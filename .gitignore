@@ -1,0 +1,15 @@
+.DS_Store
+
+# Generated or downloaded
+Bow.xcodeproj/
+Generated/
+build/
+Vendor/
+BowCore/.build/
+.swiftpm/
+*.xcuserstate
+xcuserdata/
+
+# Claude Code
+.claude/worktrees/
+.claude/settings.local.json

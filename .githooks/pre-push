@@ -1,0 +1,55 @@
+#!/bin/sh
+# Refuses pushes whose commits add private paths or recordings and binaries.
+# Enable with `make hooks`. Bracketed letters keep this file from matching its own patterns.
+
+content_pattern='/[U]sers/|Application Support/[A]rc|bowbrowser-private/[A-Za-z0-9_.]'
+file_pattern='\.(app|dmg|ipsw|mov|mp4|har|saz)(/|$)'
+failed=0
+
+fail() {
+	echo "pre-push: commit $(git rev-parse --short "$1") $2" >&2
+	failed=1
+}
+
+check_commit() {
+	added_files=$(git diff-tree --root --no-commit-id --name-only -r --diff-filter=A "$1" | grep -iE "$file_pattern")
+	if [ -n "$added_files" ]; then
+		fail "$1" "adds a disallowed file type:"
+		echo "$added_files" | sed 's/^/    /' >&2
+	fi
+
+	added_lines=$(git diff-tree --root --no-commit-id -r -p -U0 --no-color --no-ext-diff "$1" -- . \
+		':(exclude)AGENTS.md' ':(exclude).claude/settings.json' |
+		grep '^+' | grep -v '^+++ ' | grep -E "$content_pattern")
+	if [ -n "$added_lines" ]; then
+		fail "$1" "adds a home directory, Arc profile or private repository path:"
+		echo "$added_lines" | sed 's/^+/    /' >&2
+	fi
+}
+
+while read -r local_ref local_sha remote_ref remote_sha; do
+	# Deleting a remote branch pushes nothing.
+	case $local_sha in *[!0]*) ;; *) continue ;; esac
+
+	# New branch, or a remote tip we do not have: check everything not on any remote.
+	case $remote_sha in
+	*[!0]*)
+		if git cat-file -e "$remote_sha^{commit}" 2>/dev/null; then
+			commits=$(git rev-list "$remote_sha..$local_sha")
+		else
+			commits=$(git rev-list "$local_sha" --not --remotes)
+		fi
+		;;
+	*) commits=$(git rev-list "$local_sha" --not --remotes) ;;
+	esac
+
+	for commit in $commits; do
+		check_commit "$commit"
+	done
+done
+
+if [ "$failed" -ne 0 ]; then
+	echo "pre-push: push refused. Remove the lines or files above from those commits and push again." >&2
+	exit 1
+fi
+exit 0

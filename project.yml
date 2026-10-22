@@ -1,0 +1,71 @@
+# XcodeGen spec. Bow.xcodeproj is generated from this file: edit here, then run `make project`.
+name: Bow
+options:
+  bundleIdPrefix: dev.bowbrowser
+  deploymentTarget:
+    macOS: "14.0"
+  createIntermediateGroups: true
+
+packages:
+  BowCore:
+    path: BowCore
+
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    CLANG_CXX_LANGUAGE_STANDARD: c++20
+    CODE_SIGN_IDENTITY: "-"
+    CODE_SIGN_STYLE: Manual
+    ENABLE_HARDENED_RUNTIME: NO
+    # The packaging script reads the CEF download in Vendor/.
+    ENABLE_USER_SCRIPT_SANDBOXING: NO
+    # System header path, so warnings inside CEF's headers stay out of our build output.
+    SYSTEM_HEADER_SEARCH_PATHS: $(SRCROOT)/Vendor/cef
+    # The CEF wrapper library is a release build; match its assertions setting.
+    GCC_PREPROCESSOR_DEFINITIONS: ["$(inherited)", "NDEBUG=1"]
+    OTHER_LDFLAGS: ["$(SRCROOT)/Vendor/cef/build/libcef_dll_wrapper/libcef_dll_wrapper.a"]
+
+targets:
+  Bow Helper:
+    type: application
+    platform: macOS
+    sources: [App/Helper]
+    info:
+      path: Generated/Helper-Info.plist
+      properties:
+        LSUIElement: true
+        LSFileQuarantineEnabled: true
+        NSSupportsAutomaticGraphicsSwitching: true
+    settings:
+      PRODUCT_NAME: Bow Helper
+      PRODUCT_BUNDLE_IDENTIFIER: dev.bowbrowser.Bow.helper
+
+  Bow:
+    type: application
+    platform: macOS
+    sources: [App/Engine, App/UI]
+    dependencies:
+      - target: Bow Helper
+        embed: false
+      - package: BowCore
+    info:
+      path: Generated/Bow-Info.plist
+      properties:
+        CFBundleDisplayName: Bow
+        NSSupportsAutomaticGraphicsSwitching: true
+    settings:
+      PRODUCT_NAME: Bow
+      PRODUCT_BUNDLE_IDENTIFIER: dev.bowbrowser.Bow
+      SWIFT_OBJC_BRIDGING_HEADER: App/Engine/Bow-Bridging-Header.h
+    postBuildScripts:
+      - name: Package CEF
+        script: '"$SRCROOT/scripts/package-cef.sh"'
+        basedOnDependencyAnalysis: false
+
+schemes:
+  Bow:
+    build:
+      targets:
+        Bow: all
+    run:
+      config: Debug
