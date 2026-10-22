@@ -66,6 +66,7 @@ int gNextMessageID = 1;
   // Calls made before the browser existed, run in order once it does.
   NSMutableArray<BowDevToolsWaitingCall*>* _waitingForBrowser;
   NSMutableDictionary<NSNumber*, BowDevToolsCompletion>* _completions;
+  BOOL _closed;
 }
 
 - (instancetype)initWithHostView:(NSView*)view {
@@ -99,6 +100,7 @@ int gNextMessageID = 1;
 // Finds the browser whose Chromium view sits in the host view, starts listening to it and sends waiting calls.
 - (BOOL)attachIfPossible {
   if (_browser) return YES;
+  if (_closed) return NO;
   NSView* hostView = _hostView;
   if (!hostView) return NO;
   for (const CefRefPtr<CefBrowser>& browser : BowEngineOpenBrowsers()) {
@@ -119,7 +121,7 @@ int gNextMessageID = 1;
 - (void)callMethod:(NSString*)method
             params:(NSDictionary<NSString*, id>*)params
         completion:(BowDevToolsCompletion)completion {
-  if (_browser && !_browser->IsValid()) {
+  if (_closed || (_browser && !_browser->IsValid())) {
     completion(nil, SessionError([NSString stringWithFormat:@"%@: the browser has closed", method]));
     return;
   }
@@ -180,6 +182,15 @@ int gNextMessageID = 1;
   for (BowDevToolsCompletion completion in completions.allValues) {
     completion(nil, SessionError(@"DevTools detached before answering, for example because the browser closed"));
   }
+}
+
+- (void)close {
+  if (_closed) return;
+  _closed = YES;
+  [[NSNotificationCenter defaultCenter] removeObserver:self];
+  _registration = nullptr;
+  _browser = nullptr;
+  [self failEverything:@"the browser has closed"];
 }
 
 - (void)failEverything:(NSString*)message {

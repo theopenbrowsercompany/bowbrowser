@@ -1,4 +1,4 @@
-import Foundation
+import AppKit
 
 // The small protocol e2e tests use to drive the app. Tests never touch engine or window types directly:
 // E2EAppAdapter.swift implements these on today's bridge, so reshaping the bridge swaps that one file.
@@ -9,6 +9,8 @@ protocol E2EApp: AnyObject {
     /// Opens a browser window on `url`, off screen and never key, and returns its page.
     /// Throws when the window would be visible on a screen or the app could take focus.
     func openWindow(at url: URL) throws -> any E2EPage
+    /// The page opened last, which the run's final.png shows; nil before any window opened and after quit().
+    var lastOpenedPage: (any E2EPage)? { get }
     /// Quits the way the app's Quit menu item does.
     func quit()
 }
@@ -25,6 +27,8 @@ protocol E2EPage: AnyObject {
     func waitForLoad(after finishedLoads: Int) async throws -> Int
     /// Calls a Chrome DevTools protocol method and returns its result object.
     func devTools(_ method: String, _ params: [String: Any]) async throws -> [String: Any]
+    /// The view that shows the page's web content, for screenshots; nil once it is gone.
+    var contentView: NSView? { get }
 }
 
 extension E2EPage {

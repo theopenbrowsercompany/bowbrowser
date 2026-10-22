@@ -12,7 +12,7 @@ protocol E2ETest {
 @MainActor
 enum E2ETests {
     /// Every test, in the order `--e2e=all` runs them. Add each area's tests here.
-    static let all: [any E2ETest] = AppTests.all + SandboxTests.all
+    static let all: [any E2ETest] = AppTests.all + SandboxTests.all + InputTests.all
 }
 
 /// Step timeouts shared by tests.
@@ -47,5 +47,27 @@ enum E2EWaits {
             """
         )
         guard (frames as? Int) == 3 else { throw E2EError("requestAnimationFrame counted \(frames ?? "nothing")") }
+    }
+
+    /// Waits until the JavaScript expression `condition` is truthy in the page, checking it once per animation
+    /// frame, and returns its value. It never sleeps: a condition that never holds runs into the step's timeout,
+    /// and one that throws fails the step with its error.
+    @discardableResult
+    static func until(_ page: any E2EPage, _ condition: String) async throws -> Any? {
+        try await page.evaluate(
+            """
+            new Promise((resolve, reject) => {
+              const check = () => {
+                try {
+                  const value = (\(condition));
+                  value ? resolve(value) : requestAnimationFrame(check);
+                } catch (error) {
+                  reject(error);
+                }
+              };
+              check();
+            })
+            """
+        )
     }
 }

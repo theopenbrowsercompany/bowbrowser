@@ -6,6 +6,8 @@ import BowCore
 /// The run uses a throwaway Chromium root and UserDefaults suite, an off-screen window that never takes focus,
 /// no network and fixture pages at `https://bow.test/`. It prints one `PASS name` or `FAIL name: reason` line
 /// per check and a final `E2E: PASS n/n` (or `E2E: FAIL passed/n`) line, to stdout and `<folder>/report.txt`.
+/// Before quitting it writes `<folder>/final.png`, a screenshot of the last opened window, pass or fail
+/// (a run that times out has none).
 /// Exit codes: 0 when every check passed, 1 when one failed, 2 when a step timed out.
 @MainActor
 final class E2ERunner {
@@ -16,12 +18,15 @@ final class E2ERunner {
     static let quitHangTimeout: TimeInterval = 15
     /// The file that marks a folder as an e2e run folder, which a later run may reuse.
     static let runMarkerName = ".bow-e2e-run"
+    /// A screenshot slower than this is given up, without failing the run.
+    static let screenshotTimeout: TimeInterval = 10
 
     let engineConfiguration: BowEngineConfiguration
 
     private let tests: [any E2ETest]
     private let profileDirectory: URL
     private let fixtureDirectory: URL
+    private let screenshotURL: URL
     private let defaultsSuiteName: String
     private let output: E2EOutput
     private let watchdog: E2EWatchdog
@@ -72,6 +77,7 @@ final class E2ERunner {
         }
 
         fixtureDirectory = fixtures
+        screenshotURL = runDirectory.appendingPathComponent("final.png")
         output = E2EOutput(reportURL: runDirectory.appendingPathComponent("report.txt"))
         watchdog = E2EWatchdog(output: output)
         Self.removeStaleDefaultsSuites()
@@ -124,6 +130,7 @@ final class E2ERunner {
                 }
                 watchdog.disarm()
             }
+            await writeScreenshot(app)
             watchdog.arm(quitCheck?.name ?? "app.quit", timeout: Self.quitHangTimeout)
             app.quit()
         }
@@ -152,6 +159,41 @@ final class E2ERunner {
         UserDefaults.standard.removePersistentDomain(forName: defaultsSuiteName)
         // Keep the profile of a failed run for debugging.
         if allPassed { try? FileManager.default.removeItem(at: profileDirectory) }
+    }
+
+    /// Writes final.png of the last opened page, whether the tests passed or failed, and prints where it went.
+    /// A run that times out ends without one: the watchdog exits at once.
+    /// A screenshot is evidence, not a check, so failing to take one is reported without failing the run.
+    private func writeScreenshot(_ app: any E2EApp) async {
+        guard let page = app.lastOpenedPage else { return }
+        let url = screenshotURL
+        // Not timed by the watchdog, which would end the run: whichever comes first, the screenshot or the
+        // timeout, resumes the run. The file is written only when the screenshot wins, so a late one is dropped.
+        let result: Result<Void, E2EError> = await withCheckedContinuation { continuation in
+            var resumed = false
+            let finish = { (result: Result<Void, E2EError>) in
+                guard !resumed else { return }
+                resumed = true
+                continuation.resume(returning: result)
+            }
+            Task {
+                do {
+                    let png = try await E2EScreenshot.png(page)
+                    guard !resumed else { return }
+                    try png.write(to: url)
+                    finish(.success(()))
+                } catch {
+                    finish(.failure(error as? E2EError ?? E2EError("\(error)")))
+                }
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + Self.screenshotTimeout) {
+                finish(.failure(E2EError("no screenshot after \(Int(Self.screenshotTimeout)) seconds")))
+            }
+        }
+        switch result {
+        case .success: output.line("screenshot: \(url.path)")
+        case .failure(let error): output.line("screenshot: not written: \(error)")
+        }
     }
 
     fileprivate func record(_ name: String, passed: Bool, detail: String) {
