@@ -9,9 +9,9 @@ Plans, the issue board and architecture notes live in the maintainer's private r
 ## Layout
 
 - `App/Engine/`: the Objective-C++ bridge to CEF and the app entry point. It is the only code that includes CEF or C++ headers; everything else talks to the engine through the Objective-C API in its headers.
-- `App/UI/`: Swift and AppKit: windows, sidebar, web view hosting.
+- `App/UI/`: Swift and AppKit windows, menus and the views that host web pages.
 - `App/Helper/`: the CEF helper process. The build packages it as the helper apps Chromium needs (GPU, renderer, plugin, alerts).
-- `BowCore/`: a Swift package with the browser model (tabs, spaces, saving). No UI and no engine imports, so its tests run in seconds.
+- `BowCore/`: a Swift package for browser logic that needs no UI or engine (today: address and search input). Its tests run in seconds.
 - `Engine/cef.lock`: the pinned CEF version and checksum. `Vendor/` holds the download and is gitignored.
 - `project.yml`: XcodeGen spec. `Bow.xcodeproj` is generated from it and not committed, so edit `project.yml`, never the project file.
 
@@ -21,7 +21,7 @@ Plans, the issue board and architecture notes live in the maintainer's private r
 - `make hooks`: turn on the git hooks in `.githooks/`, which refuse pushes that add private paths or recordings (`make bootstrap` runs it).
 - `make test`: BowCore unit tests.
 - `make build`: build the app into `build/`.
-- `make smoke`: build, open the app on a test page, print the page title, quit.
+- `make smoke`: build, open the app in a background window on a test page, print the result, quit. It puts a window on the maintainer's screen, so run it only when asked.
 - `make verify`: lint, tests and build. A change is done when this passes.
 - `make format`: format Swift sources.
 
