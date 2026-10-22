@@ -1,34 +1,27 @@
 #import <AppKit/AppKit.h>
 
+@class BowTab;
+
 NS_ASSUME_NONNULL_BEGIN
 
-/// A view that shows one Chromium browser. Create it after the engine has started.
-/// The browser is created when the view first moves into a window and lives until it is closed, independent of
-/// the window: closing the browser tears down Chromium's view without closing the window.
+/// A view that shows whichever tab is attached to it. Switching tabs is detaching one and attaching another;
+/// the pages keep running and are never reloaded. A detached tab is kept by the engine out of every window, so the
+/// page counts as hidden until it is attached again.
+NS_SWIFT_UI_ACTOR
 @interface BowWebView : NSView
 
-- (instancetype)initWithFrame:(NSRect)frame url:(NSString *)url NS_DESIGNATED_INITIALIZER;
-- (instancetype)initWithFrame:(NSRect)frame NS_UNAVAILABLE;
+- (instancetype)initWithFrame:(NSRect)frame NS_DESIGNATED_INITIALIZER;
 - (nullable instancetype)initWithCoder:(NSCoder *)coder NS_UNAVAILABLE;
 
-- (void)loadURL:(NSString *)url;
+/// The tab shown now, or nil.
+@property(nonatomic, readonly, nullable) BowTab *attachedTab;
 
-/// Call from the window's `windowShouldClose:`. Returns YES when the browser is gone and the window may close
-/// now. Otherwise it starts closing the browser (running the page's unload handlers) and returns NO;
-/// `onBrowserClosed` is called once the browser is gone, and the window should close then.
-- (BOOL)shouldCloseWindow;
+/// Shows `tab`, detaching the tab shown before. A tab attached to another host view is moved here; moving a tab
+/// between windows is not supported yet. Does nothing for a closed tab.
+- (void)attachTab:(BowTab *)tab NS_SWIFT_NAME(attach(_:));
 
-@property(nonatomic, readonly, copy) NSString *title;
-@property(nonatomic, readonly, copy) NSString *currentURL;
-
-@property(nonatomic, copy, nullable) void (^onTitleChange)(NSString *title);
-@property(nonatomic, copy, nullable) void (^onAddressChange)(NSString *url);
-/// Called when the main frame finishes loading, with its HTTP status code.
-@property(nonatomic, copy, nullable) void (^onLoadEnd)(NSInteger httpStatusCode);
-/// Called when the main frame fails to load.
-@property(nonatomic, copy, nullable) void (^onLoadError)(NSInteger errorCode, NSString *errorText, NSString *failedURL);
-/// Called once, after the browser has been destroyed, whether the close came from the window or from quitting.
-@property(nonatomic, copy, nullable) void (^onBrowserClosed)(void);
+/// Stops showing the attached tab, which keeps running hidden.
+- (void)detachTab NS_SWIFT_NAME(detach());
 
 @end
 

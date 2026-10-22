@@ -9,7 +9,7 @@ NS_ASSUME_NONNULL_BEGIN
 /// The Swift face of the fixture server.
 @interface BowFixtureServer : NSObject
 
-/// Serves `directory` at `https://bow.test/` in the global request context (the default profile).
+/// Serves `directory` at `https://bow.test/` in every profile: those that exist now and each one created later.
 /// Call after the engine has started and before opening a window on a fixture page.
 + (void)serveDirectory:(NSString *)directory;
 

@@ -12,7 +12,8 @@ protocol E2ETest {
 @MainActor
 enum E2ETests {
     /// Every test, in the order `--e2e=all` runs them. Add each area's tests here.
-    static let all: [any E2ETest] = AppTests.all + SandboxTests.all + InputTests.all
+    static let all: [any E2ETest] =
+        AppTests.all + SandboxTests.all + InputTests.all + TabsTests.all + ProfilesTests.all
 }
 
 /// Step timeouts shared by tests.

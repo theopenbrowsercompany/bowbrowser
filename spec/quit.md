@@ -8,10 +8,11 @@ People rely on it every day, and every automated run relies on the app exiting o
 ## Behavior
 
 - Choosing Bow > Quit Bow or pressing Cmd+Q closes every window and the app exits within 2 seconds with exit code 0.
-- Closing the last window (its close button, Window > Close or Cmd+W) closes that page, then the app quits the same way.
-- Closing a window that is not the last one closes only that window's page and leaves the app running.
+- Closing the last window (its close button, Window > Close or Cmd+W) closes every page (tab) in it, then the app quits the same way.
+- Closing a window that is not the last one closes only that window's pages and leaves the app running.
 - A page's own "leave this page?" prompt still appears when quitting or closing its window.
-  Choosing to stay keeps the page and the app open, and quitting again asks again.
+  Choosing to stay keeps that page open and cancels the quit, so the app keeps running; quitting again asks again.
+  When a window has several pages, the pages that agree to close do close, and the window stays open with the page that asked to stay.
 - Quitting twice in a row (for example pressing Cmd+Q again while windows are closing) does not slow quitting down or change the result.
 - A smoke run (`Bow --smoke-test=<address>`) opens one window in the background without taking keyboard focus, loads the address, prints exactly one result line, then quits.
   - The result line is `smoke: status=<code> title="<title>" url=<url>` when the page loads, `smoke: error=<code> <text> url=<url>` when it fails, or `smoke: timed out` after 30 seconds.
@@ -36,7 +37,7 @@ People rely on it every day, and every automated run relies on the app exiting o
 4. Open Bow normally, press Cmd+Q: the window closes and the process ends within 2 seconds with exit code 0.
 5. Open Bow normally, click the window's close button: the window closes and the process ends within 2 seconds with exit code 0.
 6. Run the built app with `--smoke-quit=later`: it prints an error, opens no window, and exits with code 64.
-7. Run `make e2e`: the `app.quit` test loads a page in an off-screen window, quits, and prints `PASS app.quit: seconds<2` and `E2E: PASS 1/1`, exiting with code 0.
+7. Run `make e2e`: the `app.quit` test loads a page in an off-screen window, quits, and prints `PASS app.quit: seconds<2` after every other check and a final `E2E: PASS n/n`, exiting with code 0.
 
 ## Out of scope
 

@@ -49,73 +49,38 @@ int gNextMessageID = 1;
 
 }  // namespace
 
-// A call made before the browser existed.
-@interface BowDevToolsWaitingCall : NSObject
-@property(nonatomic, copy) NSString* method;
-@property(nonatomic, copy, nullable) NSDictionary<NSString*, id>* params;
-@property(nonatomic, copy) BowDevToolsCompletion completion;
-@end
-
-@implementation BowDevToolsWaitingCall
-@end
-
 @implementation BowDevToolsSession {
-  __weak NSView* _hostView;
+  uint64_t _tabID;
   CefRefPtr<CefBrowser> _browser;
   CefRefPtr<CefRegistration> _registration;
-  // Calls made before the browser existed, run in order once it does.
-  NSMutableArray<BowDevToolsWaitingCall*>* _waitingForBrowser;
   NSMutableDictionary<NSNumber*, BowDevToolsCompletion>* _completions;
   BOOL _closed;
 }
 
-- (instancetype)initWithHostView:(NSView*)view {
+- (instancetype)initWithTabID:(uint64_t)tabID {
   self = [super init];
   if (self) {
-    _hostView = view;
-    _waitingForBrowser = [NSMutableArray array];
+    _tabID = tabID;
     _completions = [NSMutableDictionary dictionary];
-    [[NSNotificationCenter defaultCenter] addObserver:self
-                                             selector:@selector(browserCreated:)
-                                                 name:BowEngineBrowserCreatedNotification
-                                               object:nil];
   }
   return self;
 }
 
 - (void)dealloc {
-  [[NSNotificationCenter defaultCenter] removeObserver:self];
   // Every call gets an answer, so nothing waiting on one hangs.
   [self failEverything:@"the DevTools session was released"];
 }
 
-- (void)browserCreated:(NSNotification*)notification {
-  // Chromium's view joins the host view right after creation; look for it on a later main thread task.
-  __weak BowDevToolsSession* weakSelf = self;
-  dispatch_async(dispatch_get_main_queue(), ^{
-    [weakSelf attachIfPossible];
-  });
-}
-
-// Finds the browser whose Chromium view sits in the host view, starts listening to it and sends waiting calls.
+// Finds the tab's browser and starts listening to it. A tab owns one browser for its whole life, attached to a
+// window or not, so the browser found first stays the session's browser.
 - (BOOL)attachIfPossible {
   if (_browser) return YES;
   if (_closed) return NO;
-  NSView* hostView = _hostView;
-  if (!hostView) return NO;
-  for (const CefRefPtr<CefBrowser>& browser : BowEngineOpenBrowsers()) {
-    NSView* browserView = (__bridge NSView*)browser->GetHost()->GetWindowHandle();
-    if (![browserView isDescendantOf:hostView]) continue;
-    _browser = browser;
-    _registration = browser->GetHost()->AddDevToolsMessageObserver(new ResultObserver(self));
-    NSArray<BowDevToolsWaitingCall*>* waiting = [_waitingForBrowser copy];
-    [_waitingForBrowser removeAllObjects];
-    for (BowDevToolsWaitingCall* call in waiting) {
-      [self callMethod:call.method params:call.params completion:call.completion];
-    }
-    return YES;
-  }
-  return NO;
+  CefRefPtr<CefBrowser> browser = BowEngineBrowserForTabID(_tabID);
+  if (!browser) return NO;
+  _browser = browser;
+  _registration = browser->GetHost()->AddDevToolsMessageObserver(new ResultObserver(self));
+  return YES;
 }
 
 - (void)callMethod:(NSString*)method
@@ -126,11 +91,23 @@ int gNextMessageID = 1;
     return;
   }
   if (![self attachIfPossible]) {
-    BowDevToolsWaitingCall* call = [[BowDevToolsWaitingCall alloc] init];
-    call.method = method;
-    call.params = params;
-    call.completion = completion;
-    [_waitingForBrowser addObject:call];
+    if (!BowEngineTabIsOpening(_tabID)) {
+      completion(nil, SessionError([NSString stringWithFormat:@"%@: no open tab has ID %llu", method, _tabID]));
+      return;
+    }
+    // The tab's browser is still being created (a new persistent profile starts up on disk first): try again
+    // shortly. The test step's own timeout bounds the wait.
+    __weak BowDevToolsSession* weakSelf = self;
+    NSDictionary<NSString*, id>* paramsCopy = [params copy];
+    BowDevToolsCompletion completionCopy = [completion copy];
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 20 * NSEC_PER_MSEC), dispatch_get_main_queue(), ^{
+      BowDevToolsSession* session = weakSelf;
+      if (!session) {
+        completionCopy(nil, SessionError(@"the DevTools session was released"));
+        return;
+      }
+      [session callMethod:method params:paramsCopy completion:completionCopy];
+    });
     return;
   }
 
@@ -187,7 +164,6 @@ int gNextMessageID = 1;
 - (void)close {
   if (_closed) return;
   _closed = YES;
-  [[NSNotificationCenter defaultCenter] removeObserver:self];
   _registration = nullptr;
   _browser = nullptr;
   [self failEverything:@"the browser has closed"];
@@ -197,9 +173,6 @@ int gNextMessageID = 1;
   NSDictionary<NSNumber*, BowDevToolsCompletion>* completions = [_completions copy];
   [_completions removeAllObjects];
   for (BowDevToolsCompletion completion in completions.allValues) completion(nil, SessionError(message));
-  NSArray<BowDevToolsWaitingCall*>* waiting = [_waitingForBrowser copy];
-  [_waitingForBrowser removeAllObjects];
-  for (BowDevToolsWaitingCall* call in waiting) call.completion(nil, SessionError(message));
 }
 
 @end

@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Tab</title>
+  <style>
+    body { margin: 0; font: 16px -apple-system, sans-serif; background: #fff; color: #111; }
+    h1 { margin: 0; padding: 24px; background: #2f6fde; color: #fff; }
+  </style>
+  <script>
+    // Counts every load of this page in this tab, so a hidden reload (or a new page in place of the old one)
+    // shows up: sessionStorage survives reloads in one tab, and bowLoadID changes with every new document.
+    const loads = Number(sessionStorage.getItem("loads") || 0) + 1;
+    sessionStorage.setItem("loads", String(loads));
+    window.bowLoadID = String(Math.random()).slice(2) + "-" + Date.now();
+    const name = new URLSearchParams(location.search).get("name") || "?";
+    document.title = "Tab " + name;
+  </script>
+</head>
+<body>
+  <h1>Tab fixture</h1>
+  <p>Counts its own loads for the tab switching checks.</p>
+</body>
+</html>

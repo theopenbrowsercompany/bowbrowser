@@ -85,12 +85,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
-        true
+        // An e2e run quits when its tests are done, even if a test closes every window on the way.
+        !options.isE2E
     }
 
-    /// Opens `url` in a new browser window, or in `window` when given (e2e runs pass an off-screen one).
-    func openWindow(url: URL, window: BrowserWindow? = nil) -> BrowserWindowController {
-        let controller = BrowserWindowController(url: url, window: window)
+    /// Opens `url` in a new browser window on `profile`, or in `window` when given (e2e runs pass an off-screen
+    /// one).
+    func openWindow(
+        url: URL,
+        profile: BowProfile = BowEngine.shared.defaultProfile,
+        window: BrowserWindow? = nil
+    ) -> BrowserWindowController {
+        let controller = BrowserWindowController(url: url, profile: profile, window: window)
         controller.onClose = { [weak self] closed in
             self?.windowControllers.removeAll { $0 === closed }
         }
@@ -101,13 +107,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Loads the start page, prints one result line, and quits the way `quitMethod` says,
     /// with exit code 0 when the page loaded.
     private func runSmokeTest(in controller: BrowserWindowController, quitting quitMethod: LaunchOptions.QuitMethod) {
-        let webView = controller.webView
-        webView.onLoadEnd = { [weak self, unowned webView, weak controller] status in
+        guard let tab = controller.selectedTab else {
+            finishSmokeTest("no tab opened", exitCode: 1, window: controller.window, quitMethod: quitMethod)
+            return
+        }
+        tab.onLoadEnd = { [weak self, unowned tab, weak controller] status in
             let ok = (200..<400).contains(status)
-            let line = "status=\(status) title=\"\(webView.title)\" url=\(webView.currentURL)"
+            let url = tab.state.url?.absoluteString ?? ""
+            let line = "status=\(status) title=\"\(tab.state.title)\" url=\(url)"
             self?.finishSmokeTest(line, exitCode: ok ? 0 : 1, window: controller?.window, quitMethod: quitMethod)
         }
-        webView.onLoadError = { [weak self, weak controller] code, text, url in
+        tab.onLoadError = { [weak self, weak controller] code, text, url in
             let line = "error=\(code) \(text) url=\(url)"
             self?.finishSmokeTest(line, exitCode: 1, window: controller?.window, quitMethod: quitMethod)
         }

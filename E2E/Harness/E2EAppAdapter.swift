@@ -1,7 +1,8 @@
 import AppKit
 
-// The only e2e file that knows the bridge (BowWebView, BowDevToolsSession) and the window controllers.
-// When the bridge changes shape, rewrite this file to keep E2EApp and E2EPage working; tests stay as they are.
+// The only e2e file that knows the bridge (BowEngine, BowTab, BowWebView, BowDevToolsSession) and the window
+// controllers. When the bridge changes shape, rewrite this file to keep E2EApp and E2EPage working; tests stay as
+// they are.
 
 @MainActor
 final class E2EAppAdapter: E2EApp {
@@ -15,14 +16,20 @@ final class E2EAppAdapter: E2EApp {
         self.delegate = delegate
     }
 
-    func openWindow(at url: URL) throws -> any E2EPage {
+    func openWindow(at url: URL, newProfile profile: E2EProfile?) throws -> any E2EPage {
+        let bowProfile: BowProfile
+        if let profile {
+            bowProfile = try BowEngine.shared.createProfile(id: profile.id, persistent: profile.isPersistent)
+        } else {
+            bowProfile = BowEngine.shared.defaultProfile
+        }
         let window = OffscreenBrowserWindow(
             contentRect: Self.windowFrame,
             styleMask: BrowserWindowController.styleMask,
             backing: .buffered,
             defer: false
         )
-        let controller = delegate.openWindow(url: url, window: window)
+        let controller = delegate.openWindow(url: url, profile: bowProfile, window: window)
         guard let window = controller.window else { throw E2EError("the window controller has no window") }
         // Creating a titled window moves it onto a screen; put it back where it belongs.
         window.setFrame(window.frameRect(forContentRect: Self.windowFrame), display: false)
@@ -31,8 +38,36 @@ final class E2EAppAdapter: E2EApp {
         // Ordered in without activating the app or becoming key, so it composites like a visible window.
         window.orderFrontRegardless()
         try Self.checkInvisible(window)
-        let page = WebViewPage(webView: controller.webView)
+        guard let tab = controller.selectedTab else { throw E2EError("the window opened without a tab") }
+        let page = TabPage(tab: tab, controller: controller)
         lastOpenedPage = page
+        return page
+    }
+
+    func openTab(at url: URL, besides page: any E2EPage, select: Bool) throws -> any E2EPage {
+        let controller = try Self.tabPage(page).controller
+        let tab = controller.openTab(url: url, select: select)
+        return TabPage(tab: tab, controller: controller)
+    }
+
+    func select(_ page: any E2EPage) throws {
+        let page = try Self.tabPage(page)
+        page.controller.select(page.tab)
+        guard page.isShown else { throw E2EError("tab \(page.tab.tabID) is not shown after selecting it") }
+    }
+
+    func closeWindow(of page: any E2EPage) async throws {
+        let controller = try Self.tabPage(page).controller
+        guard let window = controller.window else { throw E2EError("the page has no window") }
+        window.performClose(nil)
+        // The window closes once its last tab has; the caller's step timeout bounds the wait.
+        while window.isVisible {
+            try await Task.sleep(nanoseconds: 20_000_000)
+        }
+    }
+
+    private static func tabPage(_ page: any E2EPage) throws -> TabPage {
+        guard let page = page as? TabPage else { throw E2EError("the page did not come from this app") }
         return page
     }
 
@@ -56,10 +91,11 @@ final class E2EAppAdapter: E2EApp {
     }
 }
 
-/// E2EPage over a BowWebView and a DevTools session on its browser.
+/// E2EPage over one tab and a DevTools session on its browser.
 @MainActor
-private final class WebViewPage: E2EPage {
-    private(set) weak var contentView: NSView?
+private final class TabPage: E2EPage {
+    let tab: BowTab
+    let controller: BrowserWindowController
     private let devToolsSession: BowDevToolsSession
     /// Every finished main frame load, in order; load number n is `loads[n - 1]`.
     private var loads: [Result<Int, E2EError>] = []
@@ -68,28 +104,33 @@ private final class WebViewPage: E2EPage {
     /// too, which belongs to the same failed load and must not count as another one.
     private var failedURL: String?
 
-    init(webView: BowWebView) {
-        contentView = webView
-        devToolsSession = BowDevToolsSession(hostView: webView)
-        webView.onLoadEnd = { [weak self, unowned webView] status in
+    init(tab: BowTab, controller: BrowserWindowController) {
+        self.tab = tab
+        self.controller = controller
+        devToolsSession = BowDevToolsSession(tabID: tab.tabID)
+        tab.onLoadEnd = { [weak self, unowned tab] status in
             guard let self else { return }
-            let isErrorPage = failedURL == webView.currentURL
+            let isErrorPage = failedURL != nil && failedURL == tab.state.url?.absoluteString
             failedURL = nil
             if !isErrorPage { loadFinished(.success(status)) }
         }
-        webView.onLoadError = { [weak self] code, text, url in
+        tab.onLoadError = { [weak self] code, text, url in
             self?.failedURL = url
             self?.loadFinished(.failure(E2EError("loading \(url) failed: \(code) \(text)")))
         }
-        // Let go of a browser that closes during the run. At quit this comes too late (it runs after the engine
-        // may have shut down), so quit() also drops the last page, and with it the session, before quitting.
-        let onBrowserClosed = webView.onBrowserClosed
-        webView.onBrowserClosed = { [weak devToolsSession] in
+        // Let go of a tab that closes during the run. At quit this comes too late (it runs after the engine may
+        // have shut down), so quit() also drops the last page, and with it the session, before quitting.
+        let onClose = tab.onClose
+        tab.onClose = { [weak devToolsSession] in
             devToolsSession?.close()
-            onBrowserClosed?()
+            onClose?()
         }
     }
 
+    var isShown: Bool { controller.webView.attachedTab === tab }
+    /// The window's web view while it shows this tab; nil while another tab is shown or once the window is gone.
+    var contentView: NSView? { isShown && controller.window != nil ? controller.webView : nil }
+    var isClosed: Bool { tab.isClosed }
     var finishedLoads: Int { loads.count }
 
     func waitForLoad(after finishedLoads: Int) async throws -> Int {

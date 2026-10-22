@@ -1,6 +1,8 @@
 #import "BowFixtureServer.h"
 #include "BowFixtureServer+Internal.h"
 
+#include "BowE2EHooks.h"
+
 #include <sys/stat.h>
 
 #include <string>
@@ -71,7 +73,8 @@ void BowServeFixtures(CefRefPtr<CefRequestContext> context, NSString* directory)
 @implementation BowFixtureServer
 
 + (void)serveDirectory:(NSString*)directory {
-  BowServeFixtures(CefRequestContext::GetGlobalContext(), directory);
+  NSString* root = [directory copy];
+  BowEngineObserveProfileContexts([root](CefRefPtr<CefRequestContext> context) { BowServeFixtures(context, root); });
 }
 
 @end
