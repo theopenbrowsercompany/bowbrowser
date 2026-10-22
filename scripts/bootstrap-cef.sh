@@ -2,7 +2,7 @@
 # Download the pinned CEF build into Vendor/cef and build its C++ wrapper library.
 set -eu
 cd "$(dirname "$0")/.."
-. Engine/cef.lock
+. ./cef.lock
 
 name="cef_binary_${CEF_VERSION}_${CEF_PLATFORM}_${CEF_DIST}"
 archive="Vendor/downloads/${name}.tar.bz2"
