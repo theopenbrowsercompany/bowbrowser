@@ -6,4 +6,5 @@
 #if BOW_E2E
 #import "BowDevToolsSession.h"  // E2E seam: the harness's engine helpers in E2E/Engine.
 #import "BowFixtureServer.h"    // E2E seam
+#import "BowChildProcess.h"     // E2E seam
 #endif

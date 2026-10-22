@@ -85,8 +85,6 @@ int main(int argc, char* argv[]) {
 
     NSString* root = configuration.rootDataDirectory;
     CefSettings settings;
-    // Phase 0 runs without Chromium's sandbox; it must be enabled before any release.
-    settings.no_sandbox = true;
     CefString(&settings.root_cache_path) = root.UTF8String;
     CefString(&settings.cache_path) = [root stringByAppendingPathComponent:@"Default"].UTF8String;
     if (configuration.keychainServiceName) {

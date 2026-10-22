@@ -19,7 +19,7 @@ Start every session in `~/code/GitHub/bowbrowser`: the maintainer's `.claude/set
   - `E2E/Fixtures/`: one folder per area (`Fixtures/app/`), served at `https://bow.test/<area>/`.
 - `App/Engine/BowE2EHooks.h`: the single engine seam header, declaring what the harness needs from the engine and nothing the app uses, behind `BOW_E2E`.
   Harness code never holds app logic, and app code never depends on the harness: `App/` and `BowCore/` reach `E2E/` only through `BowE2EHooks.h` and lines marked `E2E seam` inside an `#if BOW_E2E` block, which `make guards` checks; `make release` checks that Release builds leave the harness out.
-- `App/Helper/`: the CEF helper process. The build packages it as the helper apps Chromium needs (GPU, renderer, plugin, alerts).
+- `App/Helper/`: the CEF helper process. It starts Chromium's macOS sandbox before loading CEF, and the build packages it as the ad hoc signed helper apps Chromium needs (GPU, renderer, plugin, alerts).
 - `BowCore/`: a Swift package for browser logic that needs no UI or engine (today: address and search input). Its tests run in seconds.
 - `cef.lock`: the pinned CEF version and checksum. `Vendor/cef` links to one shared copy outside the repository and is gitignored.
 - `project.yml`: XcodeGen spec. `Bow.xcodeproj` is generated from it and not committed, so edit `project.yml`, never the project file.
