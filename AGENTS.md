@@ -11,6 +11,7 @@ Start every session in `~/code/GitHub/bowbrowser`: the maintainer's `.claude/set
 ## Layout
 
 - `App/Engine/`: the Objective-C++ bridge to CEF and the app entry point. It and `E2E/Engine/` are the only code that includes CEF or C++ headers; everything else talks to the engine through the Objective-C API in their headers.
+  Headers Swift sees (the bridging header and everything it imports) stay plain Objective-C, with browsers addressed by ID and never by pointer; C++ declarations go in `+Internal.h` headers, and `make verify` checks this.
 - `App/UI/`: Swift and AppKit windows, menus and the views that host web pages.
 - `E2E/`: the `make e2e` harness, compiled into Debug builds only (Release leaves out its code and fixtures).
   - `E2E/Harness/`: the runner, waits, PASS and FAIL report, watchdog, off-screen window, the page protocol (`E2EApp`, `E2EPage`) and `E2EAppAdapter.swift`, the one file that knows the bridge.
@@ -39,7 +40,7 @@ Start every session in `~/code/GitHub/bowbrowser`: the maintainer's `.claude/set
   Exit code 0 means every check passed, 1 a check failed, 2 a step timed out (`E2E: TIMEOUT <step>`); a failed run keeps its profile in the run folder.
 - `make smoke`: build, open the app in a background window on one page (`make smoke SMOKE_URL=https://example.org` picks it), print the load status and title, quit.
   The window appears on the maintainer's screen, so run it only when the maintainer asks; the lead runs it for agents working in parallel.
-- `make verify`: lint, guards (`make guards`, the e2e seam check in `scripts/check-e2e-seams.sh`), tests, the Debug build, and a Release build that must carry no e2e harness code or fixtures (`make release`).
+- `make verify`: lint, guards (`make guards`: the e2e seam check in `scripts/check-e2e-seams.sh` and the Swift header check in `scripts/check-swift-headers.sh`), tests, the Debug build, and a Release build that must carry no e2e harness code or fixtures (`make release`).
   A change is done when this and its end-to-end check pass.
 - `make format`: format Swift sources.
 

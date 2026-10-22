@@ -1,8 +1,13 @@
-// Objective-C engine API visible to Swift. Only plain Objective-C headers belong here, never C++.
+// Objective-C engine API visible to Swift. Only plain Objective-C headers belong here, never C++ or CEF:
+// scripts/check-swift-headers.sh (part of make verify) checks this file and everything it imports.
 #import "BowEngine.h"
 #import "BowEngineConfiguration.h"
+#import "BowNavigation.h"
 #import "BowProfile.h"
 #import "BowTab.h"
+#import "BowTabNavigationDelegate.h"
+#import "BowTabUIDelegate.h"
+#import "BowTabUIRequests.h"
 #import "BowWebView.h"
 
 #if BOW_E2E
