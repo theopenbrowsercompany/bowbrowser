@@ -3,8 +3,7 @@
 #import "BowEngineConfiguration.h"
 #import "BowWebView.h"
 
-// E2E seam: the e2e harness's engine helpers in App/E2E/Engine.
 #if BOW_E2E
-#import "BowDevToolsSession.h"
-#import "BowFixtureServer.h"
+#import "BowDevToolsSession.h"  // E2E seam: the harness's engine helpers in E2E/Engine.
+#import "BowFixtureServer.h"    // E2E seam
 #endif

@@ -36,24 +36,24 @@ public struct LaunchOptions: Equatable, Sendable {
     /// How the smoke run quits (`--smoke-quit=terminate|menu|close-window`). Defaults to `terminate`.
     public var smokeQuit: QuitMethod = .terminate
 
-    /// The e2e scenario to run (`--e2e=<scenario>`, or `all`). Nil outside e2e runs.
-    public var e2eScenario: String?
+    /// The e2e test to run (`--e2e=<test>`, or `all`). Nil outside e2e runs.
+    public var e2eTest: String?
     /// The folder an e2e run writes its report and temporary profile to (`--e2e-out=<path>`).
     /// Required with `--e2e`; a relative path is relative to the working directory.
     public var e2eOutput: String?
 
     public var isSmokeTest: Bool { smokeInput != nil }
-    public var isE2E: Bool { e2eScenario != nil }
+    public var isE2E: Bool { e2eTest != nil }
 
     public init(
         smokeInput: String? = nil,
         smokeQuit: QuitMethod = .terminate,
-        e2eScenario: String? = nil,
+        e2eTest: String? = nil,
         e2eOutput: String? = nil
     ) {
         self.smokeInput = smokeInput
         self.smokeQuit = smokeQuit
-        self.e2eScenario = e2eScenario
+        self.e2eTest = e2eTest
         self.e2eOutput = e2eOutput
     }
 
@@ -72,7 +72,7 @@ public struct LaunchOptions: Equatable, Sendable {
             } else if let value = try value(of: "--e2e-out", in: argument) {
                 options.e2eOutput = value
             } else if let value = try value(of: "--e2e", in: argument) {
-                options.e2eScenario = value
+                options.e2eTest = value
             }
         }
         if options.isE2E && options.e2eOutput == nil { throw .missingSwitch("--e2e-out", requiredBy: "--e2e") }

@@ -4,11 +4,11 @@ export DEVELOPER_DIR ?= /Applications/Xcode.app/Contents/Developer
 BUILD_DIR := build
 APP := $(BUILD_DIR)/Build/Products/Debug/Bow.app
 SMOKE_URL ?= https://example.com
-SWIFT_SOURCES := App/UI App/E2E BowCore
-# The e2e scenario `make e2e` runs: all, or one name such as app.quit.
+SWIFT_SOURCES := App/UI E2E BowCore
+# The e2e test `make e2e` runs: all, or one name such as app.quit.
 E2E ?= all
 
-.PHONY: bootstrap hooks project build test run smoke e2e format lint verify clean
+.PHONY: bootstrap hooks project build test run smoke e2e format lint seams verify clean
 
 bootstrap: hooks
 	./scripts/bootstrap-cef.sh
@@ -45,7 +45,11 @@ format:
 lint:
 	swift format lint --strict --recursive $(SWIFT_SOURCES)
 
-verify: lint test build
+# App code may reach the e2e harness only through its marked seams.
+seams:
+	./scripts/check-e2e-seams.sh
+
+verify: lint seams test build
 
 clean:
 	rm -rf $(BUILD_DIR) Bow.xcodeproj Generated

@@ -1,7 +1,7 @@
 import AppKit
 
 // The only e2e file that knows the bridge (BowWebView, BowDevToolsSession) and the window controllers.
-// When the bridge changes shape, rewrite this file to keep E2EApp and E2EPage working; scenarios stay as they are.
+// When the bridge changes shape, rewrite this file to keep E2EApp and E2EPage working; tests stay as they are.
 
 @MainActor
 final class E2EAppAdapter: E2EApp {

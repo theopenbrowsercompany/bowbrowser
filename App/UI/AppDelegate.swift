@@ -19,7 +19,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var windowControllers: [BrowserWindowController] = []
     private var options = LaunchOptions()
     #if BOW_E2E
-        private var e2eHarness: E2EHarness?  // E2E seam
+        private var e2eRunner: E2ERunner?  // E2E seam
     #endif
     private var smokeTimer: Timer?
     private var smokeFinished = false
@@ -30,11 +30,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         do {
             options = try LaunchOptions.parse(ProcessInfo.processInfo.arguments)
             if options.isE2E {
-                // E2E seam: the harness in App/E2E sets up the run and the engine.
                 #if BOW_E2E
-                    let harness = try E2EHarness(options: options)
-                    e2eHarness = harness
-                    return harness.engineConfiguration
+                    let runner = try E2ERunner(options: options)  // E2E seam: the runner sets up the run.
+                    e2eRunner = runner
+                    return runner.engineConfiguration
                 #else
                     FileHandle.standardError.write(
                         Data("bow: --e2e needs a Debug build; this one has no e2e harness\n".utf8))
@@ -60,9 +59,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc func engineDidStart() {
         NSApp.mainMenu = MainMenu.make()
         #if BOW_E2E
-            // E2E seam: an e2e run hands control to its harness.
-            if let e2eHarness {
-                e2eHarness.start(delegate: self)
+            if let e2eRunner {  // E2E seam: an e2e run hands control to its runner.
+                e2eRunner.start(delegate: self)
                 return
             }
         #endif
@@ -82,7 +80,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Called by main after the engine has shut down, just before the process exits with `BowEngine.exitCode`.
     @objc func engineDidStop() {
         #if BOW_E2E
-            e2eHarness?.engineDidStop()  // E2E seam
+            e2eRunner?.engineDidStop()  // E2E seam
         #endif
     }
 

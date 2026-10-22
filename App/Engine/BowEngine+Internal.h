@@ -1,23 +1,11 @@
 // C++ hooks shared by the engine's Objective-C++ files. Never import this from Swift.
 #pragma once
 
-#import <Foundation/Foundation.h>
-
-#include <vector>
-
 #import "BowEngineConfiguration.h"
 #include "include/cef_browser.h"
 
 /// Called by main before CefInitialize, with the configuration Chromium is started from.
 void BowEngineStart(BowEngineConfiguration* configuration);
-
-// E2E seam: the e2e DevTools session (App/E2E/Engine) finds browsers with these two.
-
-/// Every browser that has been created and not closed yet, popups included.
-std::vector<CefRefPtr<CefBrowser>> BowEngineOpenBrowsers();
-
-/// Posted on the main thread after each browser is created (after BowEngineBrowserCreated), with no object.
-extern NSNotificationName const BowEngineBrowserCreatedNotification;
 
 // The engine tracks every browser from creation to destruction, so quitting waits for each one to close
 // and ends the message loop exactly once, after the last OnBeforeClose. Call these on the main thread.

@@ -46,10 +46,10 @@ targets:
     sources:
       - App/Engine
       - App/UI
-      - path: App/E2E
+      - path: E2E
         excludes: [Fixtures]
       # Fixture pages for `make e2e`, copied as one folder into the app's Resources.
-      - path: App/E2E/Fixtures
+      - path: E2E/Fixtures
         type: folder
         buildPhase: resources
     dependencies:
@@ -68,12 +68,18 @@ targets:
         SWIFT_OBJC_BRIDGING_HEADER: App/Engine/Bow-Bridging-Header.h
       configs:
         # Debug builds carry the e2e harness: BOW_E2E compiles the seams marked "E2E seam" that hand
-        # `--e2e` runs to App/E2E. Release builds leave out the harness, its fixtures and the seams.
+        # `--e2e` runs to E2E/. Release builds leave out the harness, its fixtures and the seams.
         Debug:
           GCC_PREPROCESSOR_DEFINITIONS: ["$(inherited)", "BOW_E2E=1"]
           SWIFT_ACTIVE_COMPILATION_CONDITIONS: ["$(inherited)", "BOW_E2E"]
         Release:
-          EXCLUDED_SOURCE_FILE_NAMES: ["$(SRCROOT)/App/E2E/Runner/*", "$(SRCROOT)/App/E2E/Engine/*", "Fixtures"]
+          # Everything under E2E/, at any depth up to four folders (a pattern's * does not cross folders).
+          EXCLUDED_SOURCE_FILE_NAMES:
+            - "$(SRCROOT)/E2E/*"
+            - "$(SRCROOT)/E2E/*/*"
+            - "$(SRCROOT)/E2E/*/*/*"
+            - "$(SRCROOT)/E2E/*/*/*/*"
+            - "Fixtures"
     postBuildScripts:
       - name: Package CEF
         script: '"$SRCROOT/scripts/package-cef.sh"'

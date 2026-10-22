@@ -1,9 +1,9 @@
 import Foundation
 
-// The small protocol e2e scenarios use to drive the app. Scenarios never touch engine or window types directly:
+// The small protocol e2e tests use to drive the app. Tests never touch engine or window types directly:
 // E2EAppAdapter.swift implements these on today's bridge, so reshaping the bridge swaps that one file.
 
-/// The app as a scenario sees it.
+/// The app as a test sees it.
 @MainActor
 protocol E2EApp: AnyObject {
     /// Opens a browser window on `url`, off screen and never key, and returns its page.
