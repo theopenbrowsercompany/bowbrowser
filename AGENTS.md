@@ -4,7 +4,7 @@ An Arc-inspired desktop browser for macOS, built by Arc fans and not affiliated 
 A native Swift app (AppKit) runs on Chromium, which comes in as a prebuilt engine (CEF, the Chromium Embedded Framework) behind a thin bridge.
 This follows the pattern Arc and ChatGPT Atlas use: engineers and agents never compile Chromium, so app builds take minutes.
 `spec/` has the behavior specs.
-Plans, the issue board and architecture notes live in the maintainer's private repository at `../bowbrowser-private` when it is present (start with its `PLAN.md`); keep them out of this repository.
+Plans, the issue board and architecture notes live in the maintainer's private repository at `../bowbrowser-private` when it is present (start with its `PLAN.md` and `WORKFLOW.md`, which says how issues are planned, reviewed and closed); keep them out of this repository.
 
 ## Layout
 
