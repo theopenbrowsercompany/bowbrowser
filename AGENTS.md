@@ -1,6 +1,6 @@
 # bowbrowser
 
-An Arc-style desktop browser for macOS.
+An Arc-inspired desktop browser for macOS, built by Arc fans and not affiliated with Arc, The Browser Company of New York, or Atlassian.
 A native Swift app (AppKit) runs on Chromium, which comes in as a prebuilt engine (CEF, the Chromium Embedded Framework) behind a thin bridge.
 This follows the pattern Arc and ChatGPT Atlas use: engineers and agents never compile Chromium, so app builds take minutes.
 `spec/` has the behavior specs.
