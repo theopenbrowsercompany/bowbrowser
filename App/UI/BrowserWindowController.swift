@@ -1,17 +1,24 @@
 import AppKit
 
-/// A browser window holding one web view.
+/// A browser window: its tabs, and one host view that shows the selected tab.
 @MainActor
 final class BrowserWindowController: NSWindowController, NSWindowDelegate {
     static let styleMask: NSWindow.StyleMask = [.titled, .closable, .miniaturizable, .resizable]
 
+    /// Shows the selected tab. Switching tabs attaches another tab here; pages are never reloaded by a switch.
     let webView: BowWebView
+    /// The window's open tabs, in order.
+    private(set) var tabs: [BowTab] = []
     /// Called when the window has closed, so the owner can let go of this controller.
     var onClose: ((BrowserWindowController) -> Void)?
 
+    private let profile: BowProfile
+
+    var selectedTab: BowTab? { webView.attachedTab }
+
     /// Opens `url` in a new centered window, or in `window` when given (e2e runs pass an off-screen one),
     /// which is not cascaded: the caller places it.
-    init(url: URL, window givenWindow: BrowserWindow? = nil) {
+    init(url: URL, profile: BowProfile = BowEngine.shared.defaultProfile, window givenWindow: BrowserWindow? = nil) {
         let window =
             givenWindow
             ?? BrowserWindow(
@@ -21,7 +28,8 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
                 defer: false
             )
         let contentSize = window.contentRect(forFrameRect: window.frame).size
-        webView = BowWebView(frame: NSRect(origin: .zero, size: contentSize), url: url.absoluteString)
+        webView = BowWebView(frame: NSRect(origin: .zero, size: contentSize))
+        self.profile = profile
         window.title = "Bow"
         window.isReleasedWhenClosed = false
         window.contentView = webView
@@ -32,14 +40,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
             shouldCascadeWindows = false
         }
         window.delegate = self
-
-        webView.onTitleChange = { [weak window] title in
-            window?.title = title.isEmpty ? "Bow" : title
-        }
-        // The browser closes first (from this window's close button or from quitting); the window follows.
-        webView.onBrowserClosed = { [weak window] in
-            window?.close()
-        }
+        openTab(url: url)
     }
 
     @available(*, unavailable)
@@ -47,8 +48,58 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
         fatalError("init(coder:) is not supported")
     }
 
+    /// Opens `url` in a new tab of this window's profile, selecting it unless `select` is false.
+    @discardableResult
+    func openTab(url: URL, select: Bool = true) -> BowTab {
+        let tab = profile.createTab(url: url)
+        tabs.append(tab)
+        tab.onStateChange = { [weak self, weak tab] _ in
+            guard let self, let tab, tab === self.selectedTab else { return }
+            self.updateTitle()
+        }
+        // A tab closes from this window, from quitting or from its page; the window follows its last tab.
+        tab.onClose = { [weak self, weak tab] in
+            guard let self, let tab else { return }
+            self.tabClosed(tab)
+        }
+        if select || selectedTab == nil { self.select(tab) }
+        return tab
+    }
+
+    /// Shows `tab`, one of this window's tabs.
+    func select(_ tab: BowTab) {
+        guard tabs.contains(where: { $0 === tab }) else { return }
+        webView.attach(tab)
+        updateTitle()
+    }
+
+    private func tabClosed(_ tab: BowTab) {
+        guard let index = tabs.firstIndex(where: { $0 === tab }) else { return }
+        tabs.remove(at: index)
+        if selectedTab == nil, !tabs.isEmpty {
+            select(tabs[min(index, tabs.count - 1)])
+        }
+        if tabs.isEmpty {
+            window?.close()
+        } else {
+            updateTitle()
+        }
+    }
+
+    private func updateTitle() {
+        let title = selectedTab?.state.title ?? ""
+        window?.title = title.isEmpty ? "Bow" : title
+    }
+
     func windowShouldClose(_ sender: NSWindow) -> Bool {
-        webView.shouldCloseWindow()
+        if tabs.isEmpty { return true }
+        // Close every tab, each running its page's unload handlers; the window closes once the last one has.
+        // A page the person chooses to stay on keeps its tab and the window open. Each close request asks the
+        // pages again, as quitting again does.
+        for tab in tabs {
+            tab.close { _ in }
+        }
+        return false
     }
 
     func windowWillClose(_ notification: Notification) {

@@ -6,18 +6,42 @@ import AppKit
 /// The app as a test sees it.
 @MainActor
 protocol E2EApp: AnyObject {
-    /// Opens a browser window on `url`, off screen and never key, and returns its page.
+    /// Opens a browser window on `url`, off screen and never key, and returns its page (the window's first tab).
+    /// `profile` names a profile to create for the window; nil uses the default profile.
     /// Throws when the window would be visible on a screen or the app could take focus.
-    func openWindow(at url: URL) throws -> any E2EPage
-    /// The page opened last, which the run's final.png shows; nil before any window opened and after quit().
+    func openWindow(at url: URL, newProfile profile: E2EProfile?) throws -> any E2EPage
+    /// Opens `url` in a new tab of the window `page` is in, selected unless `select` is false.
+    func openTab(at url: URL, besides page: any E2EPage, select: Bool) throws -> any E2EPage
+    /// Selects the tab `page` is in, showing it in its window.
+    func select(_ page: any E2EPage) throws
+    /// Closes the window `page` is in the way its close button does, and returns once the window has closed.
+    func closeWindow(of page: any E2EPage) async throws
+    /// The first page of the window opened last, which the run's final.png shows when that page is still the one
+    /// its window shows; nil before any window opened and after quit().
     var lastOpenedPage: (any E2EPage)? { get }
     /// Quits the way the app's Quit menu item does.
     func quit()
 }
 
-/// One web page in a browser window.
+extension E2EApp {
+    func openWindow(at url: URL) throws -> any E2EPage {
+        try openWindow(at: url, newProfile: nil)
+    }
+}
+
+/// A profile for `E2EApp.openWindow` to create: on disk when persistent, in memory otherwise.
+struct E2EProfile {
+    var id: String
+    var isPersistent: Bool
+}
+
+/// One web page: a tab in a browser window.
 @MainActor
 protocol E2EPage: AnyObject {
+    /// True while the page's tab is the one its window shows.
+    var isShown: Bool { get }
+    /// True once the page's tab has closed.
+    var isClosed: Bool { get }
     /// How many main frame loads have finished (or failed) in this page so far, starting at 0 when the window
     /// opens. Read it before starting a navigation and pass it to `waitForLoad(after:)`.
     var finishedLoads: Int { get }
@@ -27,7 +51,8 @@ protocol E2EPage: AnyObject {
     func waitForLoad(after finishedLoads: Int) async throws -> Int
     /// Calls a Chrome DevTools protocol method and returns its result object.
     func devTools(_ method: String, _ params: [String: Any]) async throws -> [String: Any]
-    /// The view that shows the page's web content, for screenshots; nil once it is gone.
+    /// The view that shows the page's web content, for screenshots; nil while another tab of its window is shown
+    /// and once it is gone.
     var contentView: NSView? { get }
 }
 

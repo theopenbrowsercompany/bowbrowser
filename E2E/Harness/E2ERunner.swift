@@ -24,7 +24,7 @@ final class E2ERunner {
     let engineConfiguration: BowEngineConfiguration
 
     private let tests: [any E2ETest]
-    private let profileDirectory: URL
+    fileprivate let profileDirectory: URL
     private let fixtureDirectory: URL
     private let screenshotURL: URL
     private let defaultsSuiteName: String
@@ -247,6 +247,8 @@ final class E2ERun {
     let app: any E2EApp
     /// The step running now (or `after <step>` between steps), for FAIL and TIMEOUT lines.
     private(set) var currentStep = "before the first step"
+    /// The run's throwaway Chromium root, where persistent profiles keep their folders.
+    var dataDirectory: URL { runner.profileDirectory }
 
     private unowned let runner: E2ERunner
     private let test: String
