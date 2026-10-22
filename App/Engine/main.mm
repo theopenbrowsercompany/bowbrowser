@@ -3,6 +3,7 @@
 
 #import "Bow-Swift.h"
 #import "BowEngine.h"
+#include "BowEngine+Internal.h"
 #include "include/cef_app.h"
 #include "include/cef_application_mac.h"
 #include "include/wrapper/cef_library_loader.h"
@@ -28,7 +29,8 @@
   [super sendEvent:event];
 }
 
-// Quitting closes the browsers first; the engine then ends the message loop and main returns.
+// Every way of quitting (Cmd+Q, closing the last window, smoke runs) ends here. The engine closes the browsers
+// first, then ends the message loop and main returns. Calling it again while quitting is harmless.
 - (void)terminate:(id)sender {
   [BowEngine quit];
 }
@@ -76,6 +78,7 @@ int main(int argc, char* argv[]) {
     if (!CefInitialize(mainArgs, settings, app.get(), nullptr)) return CefGetExitCode();
     CefRunMessageLoop();
     CefShutdown();
+    BowEngineDidShutDown();
     exitCode = BowEngine.exitCode;
   }
   return exitCode;
