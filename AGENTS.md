@@ -14,6 +14,7 @@ Start every session in `~/code/GitHub/bowbrowser`: the maintainer's `.claude/set
 - `App/UI/`: Swift and AppKit windows, menus and the views that host web pages.
 - `E2E/`: the `make e2e` harness, compiled into Debug builds only (Release leaves out its code and fixtures).
   - `E2E/Harness/`: the runner, waits, PASS and FAIL report, watchdog, off-screen window, the page protocol (`E2EApp`, `E2EPage`) and `E2EAppAdapter.swift`, the one file that knows the bridge.
+    Page input (`E2EInput.swift`: click, type, keys) goes through the DevTools Input domain with focus emulation on; app shortcuts go through the app's menu, never DevTools.
   - `E2E/Engine/`: Objective-C++ helpers, the DevTools session and the `https://bow.test/` fixture server.
   - `E2E/Tests/`: one Swift file per area holding its tests (`App.swift` holds `app.quit`); list each area in `E2ETests.all`.
   - `E2E/Fixtures/`: one folder per area (`Fixtures/app/`), served at `https://bow.test/<area>/`.
@@ -34,6 +35,7 @@ Start every session in `~/code/GitHub/bowbrowser`: the maintainer's `.claude/set
 - `make e2e`: build Debug and run the e2e tests in the real app (`make e2e E2E=app.quit` runs one).
   Agents use it, not `make smoke`, for "Done when" checks: the window stays off screen, the app never takes focus or shows in the Dock, the profile and settings are throwaway, the network is blocked, and it runs from any worktree, beside a normal Bow and while other worktrees build.
   It prints one `PASS <check>` or `FAIL <check>: <reason>` line per check and a final `E2E: PASS n/n` (or `E2E: FAIL passed/n`) line, also saved in `build/e2e/<run>/report.txt`.
+  Before quitting, pass or fail (but not after a timeout), it writes `build/e2e/<run>/final.png`: the last opened window, AppKit chrome and web content together, as evidence to look at, not to compare pixels.
   Exit code 0 means every check passed, 1 a check failed, 2 a step timed out (`E2E: TIMEOUT <step>`); a failed run keeps its profile in the run folder.
 - `make smoke`: build, open the app in a background window on one page (`make smoke SMOKE_URL=https://example.org` picks it), print the load status and title, quit.
   The window appears on the maintainer's screen, so run it only when the maintainer asks; the lead runs it for agents working in parallel.

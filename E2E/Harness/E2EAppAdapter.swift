@@ -8,6 +8,7 @@ final class E2EAppAdapter: E2EApp {
     /// Far from every screen. The window subclass keeps AppKit from moving it back on screen.
     static let windowFrame = NSRect(x: -20_000, y: -20_000, width: 1280, height: 800)
 
+    private(set) var lastOpenedPage: (any E2EPage)?
     private unowned let delegate: AppDelegate
 
     init(delegate: AppDelegate) {
@@ -30,7 +31,9 @@ final class E2EAppAdapter: E2EApp {
         // Ordered in without activating the app or becoming key, so it composites like a visible window.
         window.orderFrontRegardless()
         try Self.checkInvisible(window)
-        return WebViewPage(webView: controller.webView)
+        let page = WebViewPage(webView: controller.webView)
+        lastOpenedPage = page
+        return page
     }
 
     private static func checkInvisible(_ window: NSWindow) throws {
@@ -46,6 +49,9 @@ final class E2EAppAdapter: E2EApp {
     }
 
     func quit() {
+        // Tests no longer hold their pages; releasing the last one here frees its DevTools session (and the
+        // Chromium objects it holds) while the engine still runs.
+        lastOpenedPage = nil
         NSApp.terminate(nil)
     }
 }
@@ -53,6 +59,7 @@ final class E2EAppAdapter: E2EApp {
 /// E2EPage over a BowWebView and a DevTools session on its browser.
 @MainActor
 private final class WebViewPage: E2EPage {
+    private(set) weak var contentView: NSView?
     private let devToolsSession: BowDevToolsSession
     /// Every finished main frame load, in order; load number n is `loads[n - 1]`.
     private var loads: [Result<Int, E2EError>] = []
@@ -62,6 +69,7 @@ private final class WebViewPage: E2EPage {
     private var failedURL: String?
 
     init(webView: BowWebView) {
+        contentView = webView
         devToolsSession = BowDevToolsSession(hostView: webView)
         webView.onLoadEnd = { [weak self, unowned webView] status in
             guard let self else { return }
@@ -72,6 +80,13 @@ private final class WebViewPage: E2EPage {
         webView.onLoadError = { [weak self] code, text, url in
             self?.failedURL = url
             self?.loadFinished(.failure(E2EError("loading \(url) failed: \(code) \(text)")))
+        }
+        // Let go of a browser that closes during the run. At quit this comes too late (it runs after the engine
+        // may have shut down), so quit() also drops the last page, and with it the session, before quitting.
+        let onBrowserClosed = webView.onBrowserClosed
+        webView.onBrowserClosed = { [weak devToolsSession] in
+            devToolsSession?.close()
+            onBrowserClosed?()
         }
     }
 

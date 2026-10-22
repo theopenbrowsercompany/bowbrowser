@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Bow input fixture</title>
+  <style>
+    body { margin: 0; font: 16px -apple-system, sans-serif; background: #fff; color: #111; }
+    h1 { margin: 0; padding: 24px; background: #2f6fde; color: #fff; }
+    form { display: flex; gap: 12px; align-items: center; padding: 24px; }
+    input { font: inherit; padding: 8px 10px; width: 240px; border: 1px solid #888; border-radius: 6px; }
+    button { font: inherit; padding: 8px 16px; border: 0; border-radius: 6px; background: #2f6fde; color: #fff; }
+    output { display: block; padding: 0 24px; font-weight: 600; }
+  </style>
+</head>
+<body>
+  <h1>Bow input fixture</h1>
+  <form>
+    <label for="name">Name</label>
+    <input id="name" name="name" autocomplete="off">
+    <button id="submit" type="button">Submit</button>
+  </form>
+  <output id="result">Not submitted</output>
+  <script>
+    // The e2e test waits on window.submitted, set only by a click on the button.
+    window.submitted = null;
+    document.getElementById('submit').addEventListener('click', () => {
+      window.submitted = document.getElementById('name').value;
+      document.getElementById('result').textContent = 'Submitted: ' + window.submitted;
+    });
+  </script>
+</body>
+</html>

@@ -22,6 +22,11 @@ NS_SWIFT_UI_ACTOR
         completion:(void (^)(NSDictionary<NSString *, id> *_Nullable result, NSError *_Nullable error))completion
     NS_SWIFT_DISABLE_ASYNC;
 
+/// Lets go of the browser and stops listening to it, failing calls still waiting; later calls fail at once.
+/// Call when the browser closes, so no Chromium object outlives it (releasing one after the engine has shut down
+/// crashes).
+- (void)close;
+
 @end
 
 NS_ASSUME_NONNULL_END
