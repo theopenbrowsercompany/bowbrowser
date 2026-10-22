@@ -39,6 +39,8 @@ Start every session in `~/code/GitHub/bowbrowser`: the maintainer's `.claude/set
 - When behavior changes, update its spec in the same change.
 - The installed Arc app and `~/Library/Application Support/Arc` are the maintainer's real browser and profile: do not open, quit, script or read them.
 - Work in a worktree or branch named after the feature, for example `tab-model`, and commit locally. Pushing, tagging and releases happen only after the maintainer approves.
+- Commit as `WesleyBLDC <WesleyBLDC@users.noreply.github.com>`, and push and open pull requests with the `WesleyBLDC` GitHub account, never another account on this machine.
+  If a push is refused as another account, push through gh's credential instead: `git -c credential.helper= -c 'credential.helper=!gh auth git-credential' push`.
 
 ## Plane
 
