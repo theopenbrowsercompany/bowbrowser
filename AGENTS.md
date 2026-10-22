@@ -5,7 +5,7 @@ A native Swift app (AppKit) runs on Chromium, which comes in as a prebuilt engin
 This follows the pattern Arc and ChatGPT Atlas use: engineers and agents never compile Chromium, so app builds take minutes.
 
 The maintainer's plan, issue board, research and architecture notes live in a private repository checked out at `../bowbrowser-private`; keep their content out of this repository.
-Start sessions with `claude --add-dir ../bowbrowser-private` so they can read it without permission prompts.
+The maintainer's `.claude/settings.local.json` adds that folder to every session here; elsewhere, start with `claude --add-dir ../bowbrowser-private`.
 
 ## Layout
 
