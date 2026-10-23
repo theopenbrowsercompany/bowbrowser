@@ -32,7 +32,7 @@ import Testing
         let items = ContextMenuPolicy.items(for: request(link: link, image: image))
         #expect(
             titles(items) == [
-                "Open Link in New Tab", "Copy Link Address", "-", "Copy Image Address", "-", "Inspect",
+                "Open Link in New Tab", "Copy Link Address", "-", "Copy Image", "Copy Image Address", "-", "Inspect",
             ])
     }
 

@@ -30,7 +30,7 @@ This spec covers what those hooks promise; the features that use them have their
 - Sign in and certificates: a site asking for a user name and password, or a page whose certificate fails to verify, asks the app; with no answer the sign in is cancelled and the page fails with the engine's error page.
 - Context menus: a right click (or Control-click) in a page asks the app what to show, with what is under the pointer: the link and its address, an image's address, the selected text, whether it is a field the person can type in and what that field can do now (undo, cut, copy, paste and so on), the frame's address, the position and the tab's profile.
   The app answers with its own items, the engine's own menu, or nothing; either menu shows as a native macOS menu at the pointer.
-  With no feature answering, a window shows Bow's own menu, built the way Chromium based browsers and Arc build theirs: Open Link in New Tab and Copy Link Address on a link, Copy Image Address on an image, editing items in a field, Copy on a selection, Back, Forward and Reload on a bare page, and Inspect last.
+  With no feature answering, a window shows Bow's own menu, built the way Chromium based browsers and Arc build theirs: Open Link in New Tab and Copy Link Address on a link, Copy Image and Copy Image Address on an image, editing items in a field, Copy on a selection, Back, Forward and Reload on a bare page, and Inspect last.
   The chosen item goes to the app first and otherwise runs in the engine.
   Open Link in New Tab opens the link as a new today tab right after the tab, in the background, as a Cmd-click does.
 - DevTools: Inspect opens DevTools for the tab and inspects the element under the pointer.
