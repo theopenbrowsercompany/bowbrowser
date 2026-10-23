@@ -160,7 +160,7 @@ extension EngineTab {
     func tab(_ tab: any EngineTab, didOpenPopup newTab: any EngineTab, request: PopupRequest)
 
     /// A key event is about to reach the page; true claims it, so the page never sees it. Asked synchronously.
-    /// Defaults to false.
+    /// Claiming a key down also claims the character and key up of the same press. Defaults to false.
     func tab(_ tab: any EngineTab, handleKeyBeforePage event: EngineKeyEvent) -> Bool
 
     /// A server asked for a user name and password. Answer with credentials, or nil to cancel (the page then

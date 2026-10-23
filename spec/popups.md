@@ -25,8 +25,7 @@ That connection is what sign in popups (for example Google or GitHub sign in) us
 1. Run `make e2e`: the `nav.popup` check opens a sized popup and a plain `window.open` page from a fixture, both report back through `window.opener`, and it prints `PASS nav.popup: opener=kept`.
 2. Open a page with a `target="_blank"` link and click it: the linked page opens in a new window.
 3. Sign in to a site with a "Sign in with Google" popup: the popup closes after signing in and the site shows you signed in.
-
-4. Run `make e2e`: the `engine.popup` check has the app take a `window.open` page as a background tab and prints `PASS engine.popup: requests=1 target=opened.html disposition=foregroundTab opener=kept`.
+4. Run `make e2e`: the `engine.popup` check has the app take a `window.open` page as a background tab (the page itself asked for a foreground tab, the disposition shown) and prints `PASS engine.popup: requests=1 target=opened.html disposition=foregroundTab opener=kept`.
 
 ## Out of scope
 

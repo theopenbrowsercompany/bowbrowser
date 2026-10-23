@@ -85,11 +85,11 @@ class BowTabClient;
   // tabDidUnload: instead of tabDidClose:.
   BOOL _unloading;
 }
-/// A tab for a popup browser CEF is about to create with this tab's client, in the opener's profile. Its browser
-/// arrives in OnAfterCreated as for any tab.
-- (instancetype)initForPopupWithProfileID:(NSString*)profileID
-                          downloadHandler:(CefRefPtr<CefDownloadHandler>)downloadHandler;
-/// CEF did not create the popup browser this tab was made for.
+/// A tab whose browser is created next with its client: by `initWithProfile:url:`, or by CEF for a popup the app
+/// takes as a tab, in the opener's profile. The engine keeps it alive from now on; its browser arrives in
+/// OnAfterCreated.
+- (instancetype)initWithProfileID:(NSString*)profileID downloadHandler:(CefRefPtr<CefDownloadHandler>)downloadHandler;
+/// CEF did not create the popup browser this tab was made for. Does nothing once it has a browser.
 - (void)popupCreationFailed;
 - (void)mediaCaptureChangedVideo:(BOOL)video audio:(BOOL)audio;
 @property(nonatomic, readwrite) BowTabState* state;
@@ -290,9 +290,12 @@ class BowTabClient : public CefClient,
   /// it is a popup the engine opened in a window of its own, which keeps CEF's defaults.
   bool IsOwn(CefRefPtr<CefBrowser> browser) const { return ownBrowserID_ != 0 && browser->GetIdentifier() == ownBrowserID_; }
 
- private:
   __weak BowTab* tab_;
+
+ private:
   int ownBrowserID_ = 0;
+  // The native key code of the key down the app claimed last, until its key up.
+  int claimedKeyCode_ = 0;
   // Tabs made for popups decided as tabs, by popup ID, until CEF creates their browser or gives up.
   NSMapTable<NSNumber*, BowTab*>* pendingPopupTabs_ = [NSMapTable strongToWeakObjectsMapTable];
   CefRefPtr<CefDownloadHandler> downloadHandler_;

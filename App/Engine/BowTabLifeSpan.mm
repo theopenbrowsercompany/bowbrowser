@@ -79,7 +79,7 @@ bool BowTabClient::OnBeforePopup(CefRefPtr<CefBrowser> browser,
     case BowPopupDecisionForegroundTab:
     case BowPopupDecisionBackgroundTab: {
       // The new tab's own client receives the popup browser, so it is that tab's own browser from the start.
-      BowTab* newTab = [[BowTab alloc] initForPopupWithProfileID:tab.profileID downloadHandler:downloadHandler_];
+      BowTab* newTab = [[BowTab alloc] initWithProfileID:tab.profileID downloadHandler:downloadHandler_];
       NSView* parkingView = BowEngineParkingView();
       windowInfo.SetAsChild((__bridge void*)parkingView,
                             CefRect(0, 0, parkingView.bounds.size.width, parkingView.bounds.size.height));
@@ -129,7 +129,12 @@ bool BowTabClient::DoClose(CefRefPtr<CefBrowser> browser) {
 }
 
 void BowTabClient::OnBeforeClose(CefRefPtr<CefBrowser> browser) {
-  if (IsOwn(browser)) [tab_ browserClosed];
+  if (IsOwn(browser)) {
+    // CEF skips OnBeforePopupAborted once the opener is gone, so popup tabs still waiting for a browser end here.
+    for (BowTab* newTab in pendingPopupTabs_.objectEnumerator.allObjects) [newTab popupCreationFailed];
+    [pendingPopupTabs_ removeAllObjects];
+    [tab_ browserClosed];
+  }
   BowEngineBrowserClosed(browser);
 }
 
