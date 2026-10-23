@@ -49,9 +49,9 @@ struct FavoritesGridTest: E2ETest {
             return page
         }
         let (b, c) = try await run.step("new tabs B and C", timeout: E2ETimeouts.firstLoad) {
-            let b = try app.clickNewTab(besides: a, opening: url("B"))
+            let b = try await app.clickNewTab(besides: a, opening: url("B"))
             _ = try await b.waitForLoad(after: 0)
-            let c = try app.clickNewTab(besides: a, opening: url("C"))
+            let c = try await app.clickNewTab(besides: a, opening: url("C"))
             _ = try await c.waitForLoad(after: 0)
             // Each row shows its site icon, which the grid keeps when the tab becomes a Favorite.
             try await SidebarWaits.rows(app, of: a) {
@@ -178,7 +178,7 @@ struct FavoritesActiveTabTest: E2ETest {
         let (a, d) = try await run.step("open A and D", timeout: E2ETimeouts.firstLoad) {
             let a = try await run.app.openWindow(at: url("A"))
             _ = try await a.waitForLoad(after: 0)
-            let d = try app.clickNewTab(besides: a, opening: url("D"))
+            let d = try await app.clickNewTab(besides: a, opening: url("D"))
             _ = try await d.waitForLoad(after: 0)
             try await SidebarWaits.rows(app, of: a) { SidebarWaits.summary($0) == "tabs=[A,D] active=D" }
             return (a, d)

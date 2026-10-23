@@ -75,7 +75,7 @@ struct SidebarTabsTest: E2ETest {
             _ = try await a.waitForLoad(after: 0)
         }
         let b = try await run.step("new tab B", timeout: E2ETimeouts.firstLoad) {
-            let b = try app.clickNewTab(besides: a, opening: E2EFixture.url("sidebar/page.html?name=B"))
+            let b = try await app.clickNewTab(besides: a, opening: E2EFixture.url("sidebar/page.html?name=B"))
             _ = try await b.waitForLoad(after: 0)
             return b
         }
@@ -126,7 +126,7 @@ struct SidebarTabsTest: E2ETest {
         run.check(name, passed: problems.isEmpty && summary == "tabs=[A,B] active=B", detail)
 
         let button = try await run.step("close with the button", timeout: E2ETimeouts.firstLoad) {
-            let c = try app.clickNewTab(besides: a, opening: E2EFixture.url("sidebar/page.html?name=C"))
+            let c = try await app.clickNewTab(besides: a, opening: E2EFixture.url("sidebar/page.html?name=C"))
             _ = try await c.waitForLoad(after: 0)
             try await SidebarWaits.rows(app, of: a) { $0.map(\.title) == ["A", "B", "C"] }
             try app.clickSidebarClose(of: c)
@@ -134,7 +134,7 @@ struct SidebarTabsTest: E2ETest {
             return SidebarWaits.summary(try await SidebarWaits.rows(app, of: a) { $0.count == 2 })
         }
         let commandW = try await run.step("close with Command-W", timeout: E2ETimeouts.firstLoad) {
-            let d = try app.clickNewTab(besides: a, opening: E2EFixture.url("sidebar/page.html?name=D"))
+            let d = try await app.clickNewTab(besides: a, opening: E2EFixture.url("sidebar/page.html?name=D"))
             _ = try await d.waitForLoad(after: 0)
             try await SidebarWaits.rows(app, of: a) { $0.map(\.title) == ["A", "B", "D"] }
             try app.chooseMenuItem(commandKey: "w", in: d)
@@ -201,7 +201,7 @@ struct SidebarMenuShortcutsTest: E2ETest {
             return page
         }
         let command = try await run.step("close B with Command-W", timeout: E2ETimeouts.firstLoad) {
-            let b = try sidebar.clickNewTab(besides: a, opening: E2EFixture.url("sidebar/page.html?name=B"))
+            let b = try await sidebar.clickNewTab(besides: a, opening: E2EFixture.url("sidebar/page.html?name=B"))
             _ = try await b.waitForLoad(after: 0)
             try await SidebarWaits.rows(sidebar, of: a) { $0.map(\.title) == ["A", "B"] }
             try app.chooseMenuItem(key: "w", modifiers: .command, in: b)

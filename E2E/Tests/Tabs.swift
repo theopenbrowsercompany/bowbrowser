@@ -107,10 +107,10 @@ struct TabsModelTest: E2ETest {
         }
 
         let (two, three) = try await run.step("open", timeout: E2ETimeouts.firstLoad) {
-            let two = try app.clickNewTab(besides: one, opening: url("2"))
+            let two = try await app.clickNewTab(besides: one, opening: url("2"))
             _ = try await two.waitForLoad(after: 0)
             try app.clickSidebarRow(of: one)
-            let three = try app.clickNewTab(besides: one, opening: url("3"))
+            let three = try await app.clickNewTab(besides: one, opening: url("3"))
             _ = try await three.waitForLoad(after: 0)
             try await expect("open", "tabs=[Tab 1,Tab 3,Tab 2] active=Tab 3", shown: three)
             return (two, three)

@@ -1,12 +1,9 @@
 import AppKit
 import BowCore
 
-/// What the sidebar view asks of its window beyond the actions every sidebar action may take.
+/// What the sidebar view asks of its window: the actions every sidebar action may take.
 @MainActor
-protocol SidebarViewDelegate: SidebarActionContext {
-    /// The New Tab button was clicked.
-    func sidebarNewTab()
-}
+protocol SidebarViewDelegate: SidebarActionContext {}
 
 /// What the sidebar shows: the window's sidebar, what each listed tab's page last reported, and the active tab.
 struct SidebarContent {
@@ -506,7 +503,7 @@ final class SidebarView: NSView, NSOutlineViewDataSource, NSOutlineViewDelegate,
     }
 
     @objc private func newTabClicked(_ sender: Any?) {
-        delegate?.sidebarNewTab()
+        delegate?.openNewTab()
     }
 
     // MARK: Clicks and drops

@@ -30,9 +30,12 @@ protocol E2ESidebarApp: E2EApp {
     func clickSidebarRow(of page: any E2EPage) throws
     /// Clicks the close button on the sidebar row of `page`'s tab; throws when the button is not showing.
     func clickSidebarClose(of page: any E2EPage) throws
-    /// Clicks the sidebar's New Tab button in the window `page` is in, with the window set to open `url` in new
-    /// tabs, and returns the new tab's page.
-    func clickNewTab(besides page: any E2EPage, opening url: URL) throws -> any E2EPage
+    /// Clicks the sidebar's New Tab row in the window `page` is in, which opens the command bar as Cmd+T does,
+    /// without choosing anything. Throws when the row cannot be clicked.
+    func clickNewTabRow(in page: any E2EPage) throws
+    /// Clicks the New Tab row in the window `page` is in, types `url` into the command bar it opens, presses Enter
+    /// on the address row and returns the new tab's page. Throws when the bar does not open or opens no tab.
+    func clickNewTab(besides page: any E2EPage, opening url: URL) async throws -> any E2EPage
     /// Chooses the menu item whose shortcut is Command with `key` (for example "w" for Close Tab), sent to the
     /// window `page` is in, as the shortcut does when that window is key. Throws when no menu item has it.
     func chooseMenuItem(commandKey key: String, in page: any E2EPage) throws

@@ -25,9 +25,14 @@ extension E2ETestApp: E2ESidebarApp {
         try adapter.clickSidebarClose(of: page)
     }
 
-    func clickNewTab(besides page: any E2EPage, opening url: URL) throws -> any E2EPage {
-        try adapter.requireActive(token, "click the New Tab button")
-        return try adapter.clickNewTab(besides: page, opening: url, token: token)
+    func clickNewTabRow(in page: any E2EPage) throws {
+        try adapter.requireActive(token, "click the New Tab row")
+        try adapter.clickNewTabRow(in: page)
+    }
+
+    func clickNewTab(besides page: any E2EPage, opening url: URL) async throws -> any E2EPage {
+        try adapter.requireActive(token, "click the New Tab row")
+        return try await adapter.clickNewTab(besides: page, opening: url, token: token)
     }
 
     func chooseMenuItem(commandKey key: String, in page: any E2EPage) throws {
@@ -118,13 +123,32 @@ extension E2EAppAdapter {
         try Self.click(view.closeButton)
     }
 
-    func clickNewTab(besides page: any E2EPage, opening url: URL, token: Int) throws -> any E2EPage {
+    func clickNewTabRow(in page: any E2EPage) throws {
         let controller = try Self.tabPage(page).controller
-        let before = Set(controller.tabs.map(\.tabID))
-        controller.newTabURL = url
         try Self.click(controller.e2eSidebar.newTabButton)
+    }
+
+    func clickNewTab(besides page: any E2EPage, opening url: URL, token: Int) async throws -> any E2EPage {
+        let page = try Self.tabPage(page)
+        let controller = page.controller
+        guard let window = controller.window else { throw E2EError("the page has no window") }
+        let before = Set(controller.tabs.map(\.tabID))
+        try clickNewTabRow(in: page)
+        let bar = WindowCommandBar(page: page, window: window)
+        guard bar.isShown, bar.hasKeyboard else {
+            throw E2EError("the New Tab row did not open the command bar with the keyboard in it")
+        }
+        try bar.type(url.absoluteString)
+        let rows = try await bar.waitForResults()
+        guard rows.first?.kind == "navigate" else {
+            throw E2EError(
+                "the command bar's first row for \(url.absoluteString) is \(rows.first?.description ?? "none")")
+        }
+        // The tab opens within this key press and the engine reports on later main thread tasks, so the page is
+        // tracked before anything waits again.
+        try bar.press(.enter)
         guard let tab = controller.tabs.first(where: { !before.contains($0.tabID) }) else {
-            throw E2EError("the New Tab button opened no tab")
+            throw E2EError("choosing the address in the command bar opened no tab")
         }
         return track(tab, in: controller, token: token)
     }

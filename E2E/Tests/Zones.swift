@@ -33,7 +33,7 @@ struct ZonesTest: E2ETest {
             return page
         }
         let b = try await run.step("new tab B", timeout: E2ETimeouts.firstLoad) {
-            let b = try app.clickNewTab(besides: a, opening: url("B"))
+            let b = try await app.clickNewTab(besides: a, opening: url("B"))
             _ = try await b.waitForLoad(after: 0)
             try await SidebarWaits.rows(app, of: a) { $0.map(\.title) == ["A", "B"] }
             return b

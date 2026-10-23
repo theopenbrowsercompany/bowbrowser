@@ -293,7 +293,7 @@ final class SidebarFeature: NSResponder, BrowserWindowFeature, SidebarViewDelega
         sidebar.slideOutline(direction, change: change)
     }
 
-    func sidebarNewTab() {
+    func openNewTab() {
         window.newTab(sidebar)
     }
 

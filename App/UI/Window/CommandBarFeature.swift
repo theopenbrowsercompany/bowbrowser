@@ -96,9 +96,10 @@ final class CommandBarFeature: NSResponder, BrowserWindowFeature, NSMenuItemVali
 
     // MARK: Commands
 
-    /// File > New Tab and Cmd+T from the menu. The sidebar's New Tab button keeps opening a tab directly.
+    /// File > New Tab and Cmd+T from the menu, and the sidebar's New Tab button (Arc's button opens the command bar
+    /// too). Other callers (the start screen's button) open a tab directly.
     func handleNewTab(_ sender: Any?) -> Bool {
-        guard sender is NSMenuItem else { return false }
+        guard sender is NSMenuItem || sender is SidebarView else { return false }
         open(.newTab)
         return true
     }
