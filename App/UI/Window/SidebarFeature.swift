@@ -180,13 +180,15 @@ final class SidebarFeature: NSResponder, BrowserWindowFeature, SidebarViewDelega
         let owner = window
         Task { [weak self] in
             defer { self?.deletingFolders.remove(item) }
-            while let self {
+            // Whether the folder is still in the Space on screen, the only one whose open pages can be found.
+            @MainActor func inPlace() -> Bool {
                 let graph = owner.store.graph
-                guard graph[item] != nil, graph.activeSpaceID == space, graph.spaceID(containing: item) == space else {
-                    return
-                }
+                return graph[item] != nil && graph.activeSpaceID == space && graph.spaceID(containing: item) == space
+            }
+            while let self, inPlace() {
+                let graph = owner.store.graph
                 let inside = graph.tabIDs(in: space).filter { graph.isDescendant($0, of: item) }
-                guard let tab = inside.first(where: { self.loadedID(of: $0) != nil }), let id = self.loadedID(of: tab)
+                guard let (tab, id) = inside.lazy.compactMap({ tab in self.loadedID(of: tab).map { (tab, $0) } }).first
                 else {
                     // No page in the folder is open: the folder goes with its saved tabs in one change.
                     owner.changeSidebar { try $0.apply([.delete(item)]) }
@@ -194,7 +196,11 @@ final class SidebarFeature: NSResponder, BrowserWindowFeature, SidebarViewDelega
                 }
                 self.moveActiveTab(outOf: item, in: space)
                 guard await owner.closeTab(id: id) else { return }
-                if owner.store.graph[tab] != nil { owner.changeSidebar { try $0.apply([.delete(tab)]) } }
+                // A pinned tab only unloads: it leaves the store unless its folder moved away during the prompt.
+                guard inPlace() else { return }
+                if owner.store.graph.isDescendant(tab, of: item) {
+                    owner.changeSidebar { try $0.apply([.delete(tab)]) }
+                }
             }
         }
     }
