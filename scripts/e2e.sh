@@ -47,6 +47,8 @@ if [ -z "$app" ] || [ ! -x "$binary" ]; then
   echo "E2E: ERROR no build"
   exit 64
 fi
+# list prints one TEST line per test and starts no engine: nothing to run, report or retry.
+[ "$selection" != list ] || exec "$binary" --e2e=list
 case $keep in '' | *[!0-9]*) keep=20 ;; esac
 bundle=$(basename "$app")
 

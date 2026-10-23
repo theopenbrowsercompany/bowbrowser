@@ -215,6 +215,8 @@ check "results: results.json is valid JSON" valid_json "$res"
 E2E_KEEP=3 run pass
 check "keeps the newest E2E_KEEP runs" is "$(find "$BOW_E2E_ROOT" -mindepth 1 -maxdepth 1 -type d | wc -l | tr -d ' ')" 3
 
+check "list: passes the TEST lines through" is "$(FAKE_MODE=pass ./scripts/e2e.sh "$app" list | head -n 1)" "TEST a.one area=a tags=- checks=a.one"
+
 check "no build: exit 64" is "$(./scripts/e2e.sh "$tmp/none.app" >/dev/null 2>&1; echo $?)" 64
 
 [ "$failed" = 0 ] && echo "e2e wrapper: all checks passed" || echo "e2e wrapper: some checks failed"
