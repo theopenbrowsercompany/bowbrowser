@@ -30,19 +30,30 @@ final class OffscreenBrowserWindow: BrowserWindow {
     }
 }
 
-/// Where an e2e window may go: anywhere off every screen.
+/// Where an e2e window may go: anywhere off every screen, its shadow included.
 @MainActor
 enum E2EOffscreenFrame {
-    /// `frame` for `window` when no part of it, or of the child windows that move along with it, would be on a
-    /// screen. Otherwise the move is refused: the window keeps its place with the new size, or goes to the e2e
-    /// windows' place far from every screen if even that would show.
+    /// How far from every screen an e2e window's frame must stay, so the shadow the window server draws around the
+    /// frame stays off every screen too. To show a sheet, AppKit slides the window toward a screen in animation
+    /// steps, and the old rule took each step whose frame missed every screen: in about a third of loaded runs the
+    /// last step left the frame 10 points from the built-in display, the window server drew its shadow there and
+    /// reported the window visible, and `e2e.isolation` failed. Window shadows reach a few dozen points; this keeps
+    /// several times that.
+    static let shadowMargin: CGFloat = 200
+
+    /// `frame` for `window` when no part of it, or of the child windows that move along with it, would come within
+    /// `shadowMargin` of a screen. Otherwise the move is refused: the window keeps its place with the new size, or
+    /// goes to the e2e windows' place far from every screen if even that would come close.
     static func kept(_ frame: NSRect, for window: NSWindow) -> NSRect {
         let current = window.frame
         func shows(_ candidate: NSRect) -> Bool {
             let dx = candidate.minX - current.minX
             let dy = candidate.minY - current.minY
             let moved = [candidate] + (window.childWindows ?? []).map { $0.frame.offsetBy(dx: dx, dy: dy) }
-            return moved.contains { rect in NSScreen.screens.contains { $0.frame.intersects(rect) } }
+            return moved.contains { rect in
+                let shadow = rect.insetBy(dx: -shadowMargin, dy: -shadowMargin)
+                return NSScreen.screens.contains { $0.frame.intersects(shadow) }
+            }
         }
         let resized = NSRect(origin: current.origin, size: frame.size)
         for candidate in [frame, resized] where !shows(candidate) { return candidate }

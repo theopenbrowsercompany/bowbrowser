@@ -56,6 +56,10 @@ final class E2EWindowWatch {
 
     /// Records `window` when it is a test window that is visible and either overlaps a screen or is reported
     /// visible by the window server.
+    ///
+    /// The frame alone is not enough: the window server draws a shadow outside the frame, so a window whose frame
+    /// stops a few points short of a screen still puts pixels on it, and only its occlusion state says so. That
+    /// state can arrive after the window has moved away again, so the frame recorded may be off every screen.
     private func check(_ window: NSWindow) {
         guard window.isVisible, !shownWindows.contains(ObjectIdentifier(window)),
             Self.exemptClasses[NSStringFromClass(type(of: window))] == nil,
