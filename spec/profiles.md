@@ -22,6 +22,16 @@ Every Space shows exactly one profile, and several Spaces may show the same one,
   Two IDs never differ only in letter case, and `default` is taken, so a clash gets a number added: `work`, `work-2`.
   The number never pushes an ID past 48 characters.
   An ID chosen elsewhere, such as an imported Arc profile's (`arc-<name>-<hash>`, up to 47 characters), is kept exactly as given when it is valid; if a different profile already has it in another letter case it is refused, and asking for the same ID again returns the profile that has it.
+- A Space chooses its profile in the Space menu (the context menu of the Space's name), as Arc sets one per Space from the Space's menu ([Arc Help: Profiles](https://resources.arc.net/hc/en-us/articles/19227964556183-Profiles-Separate-Work-Personal-Browsing)).
+  "Profile" lists every profile, the default first, with a check by the one the Space shows, then "New Profile…".
+  "New Profile…" asks for a name in a sheet, creates a persistent profile with that name and puts the Space on it; an empty name or Cancel changes nothing.
+  Choosing "Default" takes a Space back to the default profile.
+- Putting a Space on another profile closes the Space's open pages first, each running its leave prompt, then changes the profile; the active tab loads its address again in the new profile at once, and the other tabs load there when chosen.
+  A page whose person chooses to stay keeps the whole Space on its old profile, so no page runs in a profile its Space does not show.
+  Choosing the profile the Space already shows does nothing.
+- Favorites belong to a profile, not a Space: a Space put on another profile shows that profile's Favorites, and a selected Favorite of the old profile gives way to the Space's own tab.
+- A profile's storage is set up the first time one of its Spaces shows a tab, and checked first: its folder must sit directly in the browser data folder and, if it is already there, be writable.
+  A profile that fails the check opens nothing, and Bow says the Space's profile is not available, rather than running its pages in memory or in another profile.
 - Two Spaces on the same profile share cookies and logins.
   Two Spaces on different profiles share nothing.
 - Moving a tab to another Space of the same profile keeps its live page: it does not reload, and the page keeps its state and logins.
@@ -59,11 +69,12 @@ Every Space shows exactly one profile, and several Spaces may show the same one,
 4. Move a tab from a Work Space to a Personal Space: Bow asks first; agreeing reloads the address there, declining leaves the tab where it was.
 5. Create "work" twice and "WORK" once: the IDs are `work`, `work-2` and `work-3`.
 6. Try to delete a profile a Space still shows: Bow refuses. Move the Space off it, delete the profile, and its folder is still on disk; quit and start Bow again and the folder is gone.
-7. Run `make e2e`: `profiles` prints `PASS profiles: work_cookie=1 personal_cookie=none shared=1` (once the app part lands).
+7. Type in a draft that asks before leaving, then choose "Profile > New Profile…" in its Space's menu and answer Stay: the Space keeps its profile and the draft. Choose the new profile and leave: the active tab loads again in it, and the menu checks it.
+8. Run `make e2e`: `profiles` prints `PASS profiles: work_cookie=1 personal_cookie=none shared=1`, and `profiles.spaces` passes.
 
 ## Out of scope
 
-- Choosing a profile for a Space, the confirmation dialog and the sidebar's drawing of profiles (the app part of this feature).
+- The confirmation dialog when a tab moves to a Space of another profile, deleting profiles from the app, and the sidebar's drawing of profiles (the next part of this feature).
 - Sharing Favorites between Spaces of one profile (see `sidebar-store.md`).
 - Importing Arc profiles into the list (see `arc-import.md`); the import suggests names and this feature turns them into IDs.
 - Clearing a profile's data without deleting it, and moving data between profiles.
