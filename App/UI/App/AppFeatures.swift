@@ -18,5 +18,6 @@ enum AppFeatures {
         ProfileMoves.self,
         ArcImportFeature.self,
         LittleArcCenter.self,
+        AirTrafficControl.self,
     ]
 }
