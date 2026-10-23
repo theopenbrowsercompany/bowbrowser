@@ -53,18 +53,18 @@ bool BowTabClient::GetAuthCredentials(CefRefPtr<CefBrowser> browser,
                                       const CefString& realm,
                                       const CefString& scheme,
                                       CefRefPtr<CefAuthCallback> callback) {
-  // Called on the IO thread, unlike the other handlers: the tab and its delegate are asked on the main thread.
-  if (!IsOwn(browser)) return false;
+  // Called on the IO thread, unlike the other handlers: whether the browser is the tab's, the tab and its delegate
+  // are all asked on the main thread.
   BowAuthChallenge* challenge = [[BowAuthChallenge alloc] initWithURL:BowToNSURL(originURL)
                                                                  host:BowToNSString(host)
                                                                  port:port
                                                                 realm:BowToNSString(realm)
                                                                scheme:BowToNSString(scheme)
                                                             fromProxy:isProxy];
-  __weak BowTab* weakTab = tab_;
+  CefRefPtr<BowTabClient> client(this);
   dispatch_async(dispatch_get_main_queue(), ^{
-    BowTab* tab = weakTab;
-    if (tab && [tab takesUIRequest:@selector(tab:answerAuthChallenge:completionHandler:)]) {
+    BowTab* tab = client->tab_;
+    if (client->IsOwn(browser) && tab && [tab takesUIRequest:@selector(tab:answerAuthChallenge:completionHandler:)]) {
       [tab answerAuthChallenge:challenge callback:callback];
     } else {
       callback->Cancel();

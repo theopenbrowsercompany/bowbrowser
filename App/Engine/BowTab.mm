@@ -186,22 +186,8 @@ void BowTearDownBrowserView(CefRefPtr<CefBrowser> browser) {
 @implementation BowTab
 
 - (instancetype)initWithProfile:(BowProfile*)profile url:(NSURL*)url {
-  self = [super init];
+  self = [self initWithProfileID:profile.profileID downloadHandler:profile.downloads.handler];
   if (self) {
-    _tabID = gNextTabID++;
-    _profileID = [profile.profileID copy];
-    _closeCompletions = [NSMutableArray array];
-    _state = [[BowTabState alloc] initWithTabID:_tabID
-                                            url:nil
-                                          title:@""
-                                     faviconURL:nil
-                                        loading:NO
-                                      canGoBack:NO
-                                   canGoForward:NO
-                                        audible:NO
-                                 capturingVideo:NO
-                                 capturingAudio:NO];
-    _client = new BowTabClient(self, profile.downloads.handler);
 
     // The browser starts out detached, in the engine's parking view, until a host view attaches the tab.
     NSView* parkingView = BowEngineParkingView();
@@ -210,7 +196,6 @@ void BowTearDownBrowserView(CefRefPtr<CefBrowser> browser) {
                           CefRect(0, 0, parkingView.bounds.size.width, parkingView.bounds.size.height));
     windowInfo.runtime_style = CEF_RUNTIME_STYLE_ALLOY;
     CefBrowserSettings settings;
-    BowEngineBrowserCreationStarted(self);
     // Created asynchronously: a new persistent profile's context initializes on disk first, and CEF waits for it.
     // The browser arrives in OnAfterCreated and navigates only after that, so delegates set right after creating
     // the tab see its first navigation.
@@ -225,8 +210,7 @@ void BowTearDownBrowserView(CefRefPtr<CefBrowser> browser) {
   return self;
 }
 
-- (instancetype)initForPopupWithProfileID:(NSString*)profileID
-                          downloadHandler:(CefRefPtr<CefDownloadHandler>)downloadHandler {
+- (instancetype)initWithProfileID:(NSString*)profileID downloadHandler:(CefRefPtr<CefDownloadHandler>)downloadHandler {
   self = [super init];
   if (self) {
     _tabID = gNextTabID++;
@@ -249,7 +233,7 @@ void BowTearDownBrowserView(CefRefPtr<CefBrowser> browser) {
 }
 
 - (void)popupCreationFailed {
-  if (self.closed) return;
+  if (self.closed || _browser) return;
   BowEngineBrowserCreationFailed(self);
   self.closed = YES;
   [self finishCloseCompletions:YES];
@@ -479,6 +463,13 @@ void BowTearDownBrowserView(CefRefPtr<CefBrowser> browser) {
 
 - (void)unloadWithCompletion:(void (^)(BOOL))completion {
   if (self.closed) {
+    dispatch_async(dispatch_get_main_queue(), ^{
+      completion(NO);
+    });
+    return;
+  }
+  // A close already pending stays a close: the unload does not take it over.
+  if (_closeCompletions.count > 0 && !_unloading) {
     dispatch_async(dispatch_get_main_queue(), ^{
       completion(NO);
     });

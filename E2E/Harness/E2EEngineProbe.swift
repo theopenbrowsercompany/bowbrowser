@@ -21,6 +21,8 @@ final class E2EEngineProbe: EngineTabDelegate {
     private(set) var popupRequests: [PopupRequest] = []
     /// Tabs popups arrived as, wrapped as probes the test must close too.
     private(set) var popupTabs: [E2EEngineProbe] = []
+    /// Set once `close` started, so a popup tab arriving late is closed instead of kept.
+    private var isClosing = false
 
     /// Which key events to claim before the page; every one offered is recorded in `keyEvents`.
     var claimsKey: (EngineKeyEvent) -> Bool = { _ in false }
@@ -48,6 +50,7 @@ final class E2EEngineProbe: EngineTabDelegate {
 
     /// Closes the probe's tab and every popup tab it received, and waits until they are closed.
     func close() async {
+        isClosing = true
         for popup in popupTabs { await popup.close() }
         if !tab.isClosed { _ = await tab.close() }
         devToolsSession.close()
@@ -125,6 +128,10 @@ final class E2EEngineProbe: EngineTabDelegate {
     }
 
     func tab(_ tab: any EngineTab, didOpenPopup newTab: any EngineTab, request: PopupRequest) {
+        guard !isClosing else {
+            Task { _ = await newTab.close() }
+            return
+        }
         popupTabs.append(E2EEngineProbe(tab: newTab))
     }
 

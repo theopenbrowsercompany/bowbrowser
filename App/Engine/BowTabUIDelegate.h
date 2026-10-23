@@ -52,7 +52,8 @@ NS_SWIFT_UI_ACTOR
             request:(BowPopupRequest *)request NS_SWIFT_NAME(tab(_:didOpenPopup:request:));
 
 /// A key event is about to reach the page; YES claims it, so the page never sees it. Asked synchronously, inside the
-/// engine callback.
+/// engine callback. Claiming a key down also claims the character and key up of the same press, which are then not
+/// asked about.
 - (BOOL)tab:(BowTab *)tab handleKeyBeforePage:(BowKeyEvent *)event NS_SWIFT_NAME(tab(_:handleKeyBeforePage:));
 
 /// A server asked for a user name and password. Answer with both, or nil to cancel (the page then shows the

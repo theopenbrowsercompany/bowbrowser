@@ -71,16 +71,24 @@ bool BowTabClient::OnBeforeUnloadDialog(CefRefPtr<CefBrowser> browser,
   void (^answer)(BOOL, NSString*) = ^(BOOL leave, NSString*) {
     callback->Continue(leave, CefString());
     // Staying on a reload prompt keeps the page; it says nothing about a pending close.
-    if (!leave && !isReload && browser && BowEngineBrowserCloseCancelled(browser)) {
+    if (!leave && !isReload && browser) {
+      // Staying ends a pending unload too, even when the engine no longer counts a close as pending.
       BowTab* tab = weakSelf;
+      const BOOL wasUnloading = tab && tab->_unloading;
       if (tab) tab->_unloading = NO;
-      [tab finishCloseCompletions:NO];
+      if (BowEngineBrowserCloseCancelled(browser) || wasUnloading) [tab finishCloseCompletions:NO];
     }
   };
   if (_unloading && !isReload) {
-    // An unload never prompts: a page that would ask to stay keeps its tab loaded. Answered outside the callback.
+    // An unload never prompts: a page that would ask to stay keeps its tab loaded. Answered outside the callback,
+    // unless a close asked for since took over, which asks as usual.
     dispatch_async(dispatch_get_main_queue(), ^{
-      answer(NO, nil);
+      BowTab* tab = weakSelf;
+      if (tab && !tab->_unloading) {
+        [tab runBeforeUnloadDialog:request callback:callback];
+      } else {
+        answer(NO, nil);
+      }
     });
     return;
   }
