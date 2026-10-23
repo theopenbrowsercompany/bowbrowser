@@ -1,4 +1,5 @@
 #import "BowLoopbackFixtures.h"
+#import "BowLoopbackFixtures+Identity.h"
 
 #import <Network/Network.h>
 #import <Security/Security.h>
@@ -150,6 +151,10 @@ NSString* HeaderValue(NSString* head, NSString* name) {
 enum class Listener { auth, certificate };
 
 }  // namespace
+
+sec_identity_t BowLoopbackFixtureIdentity(NSError** error) {
+  return MakeIdentity(error);
+}
 
 @implementation BowLoopbackFixtures {
   // Every listener and connection callback runs here.
