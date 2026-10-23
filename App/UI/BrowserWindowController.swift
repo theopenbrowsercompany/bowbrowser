@@ -128,25 +128,21 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
 
     /// Goes back in the selected tab's history (toolbar button, History > Back, Cmd+[).
     @objc func goBack(_ sender: Any?) {
-        guard navigationControls.canGoBack else { return }
         selectedTab?.goBack()
     }
 
     /// Goes forward in the selected tab's history (toolbar button, History > Forward, Cmd+]).
     @objc func goForward(_ sender: Any?) {
-        guard navigationControls.canGoForward else { return }
         selectedTab?.goForward()
     }
 
     /// Reloads the selected tab (toolbar button while idle, View > Reload Page, Cmd+R), also while it loads.
     @objc func reloadPage(_ sender: Any?) {
-        guard navigationControls.canReload else { return }
         selectedTab?.reload()
     }
 
     /// Stops the selected tab's load (toolbar button while loading, View > Stop, Cmd+.).
     @objc func stopLoading(_ sender: Any?) {
-        guard navigationControls.canStop else { return }
         selectedTab?.stop()
     }
 

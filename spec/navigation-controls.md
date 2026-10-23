@@ -22,18 +22,17 @@ They are the most used commands in any browser, so they sit in the window's tool
 ## Edge cases
 
 - A tab that has just opened has no history: Back and Forward are both disabled and Reload is enabled.
-- Stopping a load before the new page appears leaves the previous page showing; Reload then reloads that previous page.
 - Stopping after the new page appears keeps what has loaded so far; Reload loads it again.
 - A window whose tabs have all closed offers no controls.
 - Back and forward history is lost when the app restarts (restoring it is planned for later).
 
 ## Acceptance checks
 
-1. Run `make e2e`: `PASS nav.history: back=A forward=B` shows a tab with pages A then B going back to A and forward to B with the toolbar buttons, with Back and Forward disabled on a fresh tab, Back alone enabled on B, and Forward alone enabled after going back.
+1. Run `make e2e`: `PASS nav.history: back=A forward=B` shows a tab with pages A then B going back to A and forward to B with the toolbar buttons, with Back and Forward disabled on a fresh tab, Back alone enabled on B, Forward alone enabled after going back, a new tab showing both disabled, and switching back to the first tab showing its Back enabled again.
 2. Run `make e2e`: `PASS nav.shortcuts: back=A forward=B disabled-forward=refused` shows Cmd+[ and Cmd+] doing the same through the menu, and History > Forward disabled with nothing ahead.
 3. Run `make e2e`: `PASS nav.reload: toolbar=reloaded shortcut=reloaded` shows the Reload button and Cmd+R each loading a new document.
 4. Run `make e2e`: `PASS nav.stop` shows a page that never finishes loading with Stop in place of Reload, stopped by the button, reloaded by the button (showing Stop again), stopped by Cmd+., and View > Stop disabled once idle.
-5. By hand: open a page, follow a link, and check that Back is enabled and Forward disabled; press Cmd+[ and check that Forward is now enabled.
+5. By hand (the e2e window never takes keyboard focus, so `make e2e` sends shortcuts through the menu rather than as key presses): open a page, follow a link, and check that Back is enabled and Forward disabled; click into the page, press Cmd+[ and check that the previous page shows and Forward is now enabled; press Cmd+R and Cmd+. on a slow page the same way.
 
 ## Out of scope
 
