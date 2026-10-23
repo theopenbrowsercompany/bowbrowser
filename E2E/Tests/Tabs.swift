@@ -15,7 +15,7 @@ struct TabsCloseWindowTest: E2ETest {
     func run(_ run: E2ERun) async throws {
         let url = E2EFixture.url("tabs/counter.html?name=c")
         let pages = try await run.step("open three tabs", timeout: E2ETimeouts.step) {
-            let first = try run.app.openWindow(at: url)
+            let first = try await run.app.openWindow(at: url)
             return [
                 first,
                 try run.app.openTab(at: url, besides: first, select: false),
@@ -45,7 +45,7 @@ struct TabsSwitchTest: E2ETest {
 
     func run(_ run: E2ERun) async throws {
         let first = try await run.step("open window", timeout: E2ETimeouts.step) {
-            try run.app.openWindow(at: E2EFixture.url("tabs/counter.html?name=a"))
+            try await run.app.openWindow(at: E2EFixture.url("tabs/counter.html?name=a"))
         }
         try await run.step("load first tab", timeout: E2ETimeouts.firstLoad) {
             try await Self.expectLoaded(first, name: "a")

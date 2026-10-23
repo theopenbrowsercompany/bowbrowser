@@ -16,7 +16,7 @@ final class E2EAppAdapter: E2EApp {
         self.delegate = delegate
     }
 
-    func openWindow(at url: URL, newProfile profile: E2EProfile?) throws -> any E2EPage {
+    func openWindow(at url: URL, newProfile profile: E2EProfile?) async throws -> any E2EPage {
         let bowProfile: BowProfile
         if let profile {
             bowProfile = try BowEngine.shared.createProfile(id: profile.id, persistent: profile.isPersistent)
@@ -31,15 +31,16 @@ final class E2EAppAdapter: E2EApp {
         )
         let controller = delegate.openWindow(url: url, profile: bowProfile, window: window)
         guard let window = controller.window else { throw E2EError("the window controller has no window") }
+        guard let tab = controller.selectedTab else { throw E2EError("the window opened without a tab") }
+        // Made before the checks below wait, so the page hears every load event.
+        let page = TabPage(tab: tab, controller: controller)
         // Creating a titled window moves it onto a screen; put it back where it belongs.
         window.setFrame(window.frameRect(forContentRect: Self.windowFrame), display: false)
         // Check before ordering the window in, so a broken setup fails instead of showing a window.
-        try Self.checkInvisible(window)
+        try await Self.checkInvisible(window)
         // Ordered in without activating the app or becoming key, so it composites like a visible window.
         window.orderFrontRegardless()
-        try Self.checkInvisible(window)
-        guard let tab = controller.selectedTab else { throw E2EError("the window opened without a tab") }
-        let page = TabPage(tab: tab, controller: controller)
+        try await Self.checkInvisible(window)
         lastOpenedPage = page
         return page
     }
@@ -71,15 +72,33 @@ final class E2EAppAdapter: E2EApp {
         return page
     }
 
-    private static func checkInvisible(_ window: NSWindow) throws {
-        if NSApp.activationPolicy() != .accessory {
-            throw E2EError("the app is not an accessory app, so it could show in the Dock and take focus")
-        }
+    private static func checkInvisible(_ window: NSWindow) async throws {
+        try await checkAccessory()
         if window.canBecomeKey || window.canBecomeMain || window.isKeyWindow {
             throw E2EError("the window can take keyboard focus")
         }
         if let screen = NSScreen.screens.first(where: { $0.frame.intersects(window.frame) }) {
             throw E2EError("the window at \(window.frame) would show on screen \(screen.frame)")
+        }
+    }
+
+    /// How long the activation policy may read as something other than accessory before the check fails.
+    static let policySettleTimeout: TimeInterval = 2
+
+    /// Throws unless the app is an accessory app, waiting out a brief wrong reading first.
+    ///
+    /// The bundle declares a regular app (Chromium reads LSUIElement to tell its helper processes from the browser,
+    /// so the app cannot set it), and the runner switches to accessory at launch. In about a third of runs, macOS
+    /// then reports the declared type again for a few milliseconds, some 30 ms after the first window is ordered in,
+    /// with no policy change from the app; a check landing in that moment failed the run. A policy that stays wrong
+    /// still fails.
+    private static func checkAccessory() async throws {
+        let deadline = Date().addingTimeInterval(policySettleTimeout)
+        while NSApp.activationPolicy() != .accessory {
+            guard Date() < deadline else {
+                throw E2EError("the app is not an accessory app, so it could show in the Dock and take focus")
+            }
+            try await Task.sleep(nanoseconds: 10_000_000)
         }
     }
 

@@ -13,7 +13,7 @@ struct InputTypeTest: E2ETest {
 
     func run(_ run: E2ERun) async throws {
         let page = try await run.step("open window", timeout: E2ETimeouts.step) {
-            try run.app.openWindow(at: E2EFixture.url("input/index.html"))
+            try await run.app.openWindow(at: E2EFixture.url("input/index.html"))
         }
         try await run.step("load fixture", timeout: E2ETimeouts.firstLoad) {
             let status = try await page.waitForLoad(after: 0)
