@@ -16,9 +16,7 @@ extension E2ETestApp: E2EFullscreenApp {
         try adapter.requireActive(token, "read page fullscreen")
         let controller = try E2EAppAdapter.tabPage(page).controller
         let feature = try Self.fullscreenFeature(of: controller)
-        guard let recorder = feature.fullScreen as? E2EWindowFullScreenRecorder else {
-            throw E2EError("the window's full screen is not recorded")
-        }
+        let recorder = try Self.recorder(of: controller)
         let sidebar = controller.feature(SidebarFeature.self)
         let bar = controller.feature(TopTabsLayoutFeature.self)?.strip
         let insets = controller.pageInsets
@@ -29,15 +27,25 @@ extension E2ETestApp: E2EFullscreenApp {
             pageInsets: [insets.top, insets.left, insets.bottom, insets.right].map { Double($0) },
             pageRadius: Double(controller.pageCornerRadius),
             hasShadow: controller.pageShadow != nil && controller.pageShadowContainer?.superview != nil,
-            toggles: recorder.toggles, windowFullScreen: recorder.isFullScreen)
+            toggles: recorder.toggles, windowFullScreen: recorder.isFullScreen,
+            windowTransition: recorder.transition.map { $0 ? "entering" : "exiting" } ?? "none")
     }
 
     func leaveWindowFullScreen(of page: any E2EPage) throws {
         try adapter.requireActive(token, "leave the window's full screen")
-        let controller = try E2EAppAdapter.tabPage(page).controller
-        guard let recorder = try Self.fullscreenFeature(of: controller).fullScreen as? E2EWindowFullScreenRecorder
-        else { throw E2EError("the window's full screen is not recorded") }
-        recorder.systemExit()
+        try Self.recorder(of: E2EAppAdapter.tabPage(page).controller).systemExit()
+    }
+
+    func holdWindowFullScreenTransitions(of page: any E2EPage) throws {
+        try adapter.requireActive(token, "hold the window's full screen transitions")
+        try Self.recorder(of: E2EAppAdapter.tabPage(page).controller).holdsTransitions = true
+    }
+
+    func finishWindowFullScreenTransition(of page: any E2EPage) throws {
+        try adapter.requireActive(token, "finish the window's full screen transition")
+        guard try Self.recorder(of: E2EAppAdapter.tabPage(page).controller).finishTransition() else {
+            throw E2EError("the window's full screen is not in a transition")
+        }
     }
 
     private static func fullscreenFeature(of controller: BrowserWindowController) throws -> PageFullscreenFeature {
@@ -46,15 +54,27 @@ extension E2ETestApp: E2EFullscreenApp {
         }
         return feature
     }
+
+    private static func recorder(of controller: BrowserWindowController) throws -> E2EWindowFullScreenRecorder {
+        guard let recorder = try fullscreenFeature(of: controller).fullScreen as? E2EWindowFullScreenRecorder else {
+            throw E2EError("the window's full screen is not recorded")
+        }
+        return recorder
+    }
 }
 
-/// Stands in for a window's macOS full screen: a toggle flips its state and counts, and leaving posts the window's
-/// did exit full screen notification as the system does once the window is out.
+/// Stands in for a window's macOS full screen, posting the window's full screen notifications as the system does: a
+/// toggle counts, posts will enter or will exit, and (unless transitions are held) takes the new state and posts did
+/// enter or did exit at once. A held transition ignores further toggles, as macOS does, until `finishTransition()`.
 @MainActor
 final class E2EWindowFullScreenRecorder: WindowFullScreen {
     private weak var window: NSWindow?
     private(set) var isFullScreen: Bool
     private(set) var toggles = 0
+    /// True to hold each transition until `finishTransition()`.
+    var holdsTransitions = false
+    /// The held transition: true entering, false exiting, nil none.
+    private(set) var transition: Bool?
 
     init(window: NSWindow?, isFullScreen: Bool) {
         self.window = window
@@ -63,18 +83,36 @@ final class E2EWindowFullScreenRecorder: WindowFullScreen {
 
     func toggle() {
         toggles += 1
-        isFullScreen.toggle()
-        if !isFullScreen { postExit() }
+        guard transition == nil else { return }
+        start(toward: !isFullScreen)
     }
 
     /// The system takes the window out of full screen (the green button), not through `toggle()`.
     func systemExit() {
-        guard isFullScreen else { return }
-        isFullScreen = false
-        postExit()
+        guard isFullScreen, transition == nil else { return }
+        start(toward: false)
     }
 
-    private func postExit() {
-        NotificationCenter.default.post(name: NSWindow.didExitFullScreenNotification, object: window)
+    /// Ends the held transition; false when none is in progress.
+    func finishTransition() -> Bool {
+        guard let target = transition else { return false }
+        transition = nil
+        end(at: target)
+        return true
+    }
+
+    private func start(toward fullScreen: Bool) {
+        if holdsTransitions { transition = fullScreen }
+        post(fullScreen ? NSWindow.willEnterFullScreenNotification : NSWindow.willExitFullScreenNotification)
+        if !holdsTransitions { end(at: fullScreen) }
+    }
+
+    private func end(at fullScreen: Bool) {
+        isFullScreen = fullScreen
+        post(fullScreen ? NSWindow.didEnterFullScreenNotification : NSWindow.didExitFullScreenNotification)
+    }
+
+    private func post(_ name: Notification.Name) {
+        NotificationCenter.default.post(name: name, object: window)
     }
 }
