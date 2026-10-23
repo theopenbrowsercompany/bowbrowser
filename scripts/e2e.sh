@@ -11,6 +11,21 @@
 # BOW_E2E_ROOT  where run folders go (default build/e2e).
 # E2E_RETRY  1 (default) reruns a failed or timed out run once in a fresh app; 0 turns the retry off.
 # E2E_KEEP   run folders to keep in build/e2e (default 20); older ones are deleted.
+# E2E_REPEAT N (a whole number, 1 or more; default 1) runs the selection N times, each a whole run of this script in
+#   its own run folder with the retry off, so a repeat check never hides a flake behind the retry: every repeat that
+#   fails, times out or crashes counts as failed. It prints `REPEAT <test> <passes>/<N>` per test (from the RESULT
+#   lines) and ends with one summary line:
+#     E2E: PASS N/N repeats                                                exit 0
+#     E2E: <FAIL|TIMEOUT|CRASH> <passed>/N repeats passed; failed: repeat <i> (<its summary>), ...
+#                                                exit code of the first failing repeat (1, 2 or 4)
+#     E2E: ERROR repeat <i>/N could not run: ...  exit 64, and the repeats stop (a bad N exits 64 at once)
+#     E2E: ERROR interrupted                      exit 130: a signal ends the repeat running and the rest
+#   E2E_KEEP is raised to N inside the repeats, so none prunes another. list ignores E2E_REPEAT.
+# E2E_QUIET  1 prints short output for agents, 0 the full output; unset, it is 1 when CLAUDECODE=1 (every agent
+#   shell in Claude Code has it). Short output keeps only the FAIL, FLAKY, TIMEOUT and NOT RUN lines, the RESULT
+#   lines of failing tests (a retry's prefixed `retry: `), the app's echoed Chromium ERROR and FATAL lines when a
+#   check failed, the app's own messages when it could not start the run (exit 64), one line naming the run folder
+#   and the summary line. The files written are the same either way.
 #
 # Each run writes build/e2e/<time>-<pid>/: the app's report.txt, chromium.log and final.png, plus results.json
 # from this script. A retry runs in <run>/retry/: the failed, timed out and not run tests when RESULT lines name
@@ -52,10 +67,25 @@ root=${BOW_E2E_ROOT:-$repo/build/e2e}
 marker=.bow-e2e-run
 binary="$app/Contents/MacOS/Bow"
 
-say() { echo "e2e: $*"; }
+repeat=${E2E_REPEAT:-1}
+# Short output for agents (E2E_QUIET wins; unset, CLAUDECODE=1 turns it on).
+quiet=0
+if [ -n "${E2E_QUIET:-}" ]; then [ "$E2E_QUIET" = 1 ] && quiet=1
+elif [ "${CLAUDECODE:-}" = 1 ]; then quiet=1; fi
+# Short output: the file in an attempt's folder that keeps what its app and build lock printed, removed once read.
+output=.output
 
+tell() { echo "e2e: $*"; }
+# Progress lines, left out of short output.
+say() { [ "$quiet" = 1 ] || tell "$@"; }
+
+if ! [[ $repeat =~ ^[1-9][0-9]*$ ]]; then
+  tell "E2E_REPEAT must be a whole number of 1 or more, not '$repeat'"
+  echo "E2E: ERROR bad E2E_REPEAT"
+  exit 64
+fi
 if [ -z "$app" ] || [ ! -x "$binary" ]; then
-  say "no built app at ${app:-<none>}; run make e2e (or make build) first"
+  tell "no built app at ${app:-<none>}; run make e2e (or make build) first"
   echo "E2E: ERROR no build"
   exit 64
 fi
@@ -63,6 +93,89 @@ fi
 # output folder but exits before using it.
 [ "$selection" != list ] || exec "$binary" --e2e=list --e2e-out="${TMPDIR:-/tmp}/bow-e2e-list"
 case $keep in '' | *[!0-9]*) keep=20 ;; esac
+
+# E2E_REPEAT: runs this script N times (each a whole run in its own folder, retry off), tallies each test's passes
+# from the RESULT lines of each repeat's report.txt and prints one summary line. Short output keeps a passing
+# repeat's lines to itself and shows a failing one's.
+if [ "$repeat" != 1 ]; then
+  mkdir -p "$root" && root=$(cd "$root" && pwd -P)
+  repeat_child="" repeat_out=""
+  on_repeat_signal() {
+    trap '' INT TERM HUP
+    # The repeat running ends its app and helpers and writes its interrupted results.json (a background job ignores
+    # INT, so TERM).
+    local rc=0
+    if [ -n "$repeat_child" ] && kill -TERM "$repeat_child" 2>/dev/null; then wait "$repeat_child" 2>/dev/null; rc=$?; fi
+    rm -f ${repeat_out:+"$repeat_out"}
+    # A person's terminal already has the repeat's own summary line.
+    [ "$quiet" = 0 ] && [ "$rc" = 130 ] || echo "E2E: ERROR interrupted"
+    exit 130
+  }
+  trap on_repeat_signal INT TERM HUP
+  # Each repeat keeps every run folder of the repeats before it.
+  [ "$keep" -ge "$repeat" ] || keep=$repeat
+  tally="" failed="" passed=0 first_code="" first_kind="" folders=""
+  for i in $(seq "$repeat"); do
+    say "repeat $i/$repeat"
+    repeat_out=""
+    [ "$quiet" = 0 ] || repeat_out=$(mktemp "$root/.repeat.XXXXXX")
+    # The repeat runs in the background, keeping this script's stdin, so a signal's trap runs at once. Its output
+    # goes to the terminal, or in short output to a file shown only when the repeat fails.
+    if [ -n "$repeat_out" ]; then
+      E2E_REPEAT=1 E2E_RETRY=0 E2E_KEEP=$keep E2E_QUIET=1 "$0" "$app" "$selection" <&0 > "$repeat_out" 2>&1 &
+    else
+      E2E_REPEAT=1 E2E_RETRY=0 E2E_KEEP=$keep E2E_QUIET=0 "$0" "$app" "$selection" <&0 &
+    fi
+    repeat_child=$!
+    wait "$repeat_child"
+    rc=$?
+    pid=$repeat_child
+    repeat_child=""
+    # The repeat's run folder is named <time>-<its pid>.
+    dir=$(cd "$root" && ls -1d -- *-"$pid" 2>/dev/null | head -n 1)
+    line=""
+    [ -z "$dir" ] || line=$(perl -MJSON::PP -e 'local $/; print decode_json(<STDIN>)->{summary} // ""' \
+      < "$root/$dir/results.json" 2>/dev/null)
+    [ -n "$line" ] || line=$( { [ -z "$repeat_out" ] || cat "$repeat_out"; } | grep '^E2E: ' | tail -n 1)
+    [ -n "$line" ] || line="E2E: CRASH exit=$rc without a summary line"
+    folders="$folders${folders:+ }${dir:-?}"
+    if [ -n "$dir" ]; then
+      tally=$tally$(awk '/^RESULT [^ ]+ [^ ]+/ { print $2, $3 } /^NOT RUN [^ ]+/ { print $3, "notrun" }' "$root/$dir/report.txt" 2>/dev/null)$'\n'
+    fi
+    if [ "$rc" = 0 ]; then
+      passed=$((passed + 1))
+      rm -f ${repeat_out:+"$repeat_out"}
+      say "repeat $i/$repeat: $line"
+      continue
+    fi
+    # A failing repeat's short output goes to the terminal.
+    [ -z "$repeat_out" ] || { cat "$repeat_out"; rm -f "$repeat_out"; }
+    repeat_out=""
+    tell "repeat $i/$repeat failed: $line"
+    case $rc in
+      130) echo "E2E: ERROR interrupted"; exit 130 ;;
+      64)
+        echo "E2E: ERROR repeat $i/$repeat could not run: ${line#E2E: ERROR }"
+        exit 64 ;;
+    esac
+    failed="$failed${failed:+, }repeat $i (${line#E2E: })"
+    if [ -z "$first_code" ]; then
+      first_code=$rc
+      case $rc in 1) first_kind=FAIL ;; 2) first_kind=TIMEOUT ;; 3) first_kind=FLAKY ;; *) first_kind=CRASH ;; esac
+    fi
+  done
+  # Each test's passes out of N, in the order the tests first ran; short output lists only those below N.
+  printf '%s' "$tally" | awk -v n="$repeat" -v quiet="$quiet" '
+    NF == 2 { if (!($1 in seen)) { seen[$1]; order[++k] = $1 } if ($2 == "pass") ok[$1]++ }
+    END { for (i = 1; i <= k; i++) { t = order[i]; if (quiet != 1 || ok[t] + 0 < n) printf "REPEAT %s %d/%d\n", t, ok[t], n } }'
+  tell "repeat run folders in $root: $folders"
+  if [ -z "$first_code" ]; then
+    echo "E2E: PASS $repeat/$repeat repeats"
+    exit 0
+  fi
+  echo "E2E: $first_kind $passed/$repeat repeats passed; failed: $failed"
+  exit "$first_code"
+fi
 bundle=$(basename "$app")
 
 # The real path: the runner hands Chromium the run folder's real path, and the sweep matches it.
@@ -174,7 +287,7 @@ on_signal() {
     wait "$child" 2>/dev/null
   fi
   [ -z "$current" ] || sweep "$current"
-  rm -f "$run"/.ps.* ${snapshot:+"$snapshot"} # a snapshot left by a sweep this signal interrupted
+  rm -f "$run"/.ps.* "$run/$output" "$run/retry/$output" ${snapshot:+"$snapshot"} # a snapshot left by a sweep this signal interrupted
   printf '{"status":"interrupted","exitCode":130,"signal":%s,"summary":"E2E: ERROR interrupted","selection":%s,"run":%s,%s}\n' \
     "$(json "$1")" "$(json "$selection")" "$(json "$run")" "$(commit_json)" > "$run/results.json"
   echo "E2E: ERROR interrupted" >&3
@@ -212,7 +325,13 @@ attempt() {
   start=$(now)
   # The stamp tells an exit 64 of the app (it refused the selection) from one of the build lock (it never ran the
   # app). exec keeps the app's pid, exit code and signal.
-  run_child "$repo/scripts/build-lock.sh" --pool e2e /bin/sh -c ': > "$0/'"$started"'"; exec "$@"' "$dir" "$binary" "$@" --e2e-out="$dir"
+  # Short output keeps what the app and the build lock print in a file, read back at the end.
+  if [ "$quiet" = 1 ]; then
+    run_child "$repo/scripts/build-lock.sh" --pool e2e /bin/sh -c ': > "$0/'"$started"'"; exec "$@"' "$dir" "$binary" "$@" --e2e-out="$dir" \
+      > "$dir/$output" 2>&1
+  else
+    run_child "$repo/scripts/build-lock.sh" --pool e2e /bin/sh -c ': > "$0/'"$started"'"; exec "$@"' "$dir" "$binary" "$@" --e2e-out="$dir"
+  fi
   app_code=$?
   seconds=$(perl -e 'printf "%.2f", $ARGV[1] - $ARGV[0]' "$start" "$(now)")
   sweep "$dir"
@@ -359,7 +478,7 @@ if [ "$retry" = 1 ] && { [ "$status" = fail ] || [ "$status" = timeout ]; }; the
     flaky=$failed
     printf '%s\n' "$failed" | while IFS="$us" read -r name reason; do
       [ -n "$name" ] && echo "FLAKY $name: failed then passed ($reason)"
-    done | tee -a "$run/report.txt"
+    done | if [ "$quiet" = 1 ]; then cat >> "$run/report.txt"; else tee -a "$run/report.txt"; fi
     status=flaky
     count=${summary#E2E: PASS }
     if [ -n "$total" ]; then
@@ -424,10 +543,29 @@ attempt_json() {
   printf ']}\n'
 } > "$run/results.json"
 
-if { [ "$status" = timeout ] || [ "$status" = crash ] || [ "$status" = error ]; } && [ -f "$log_dir/chromium.log" ]; then
+if [ "$quiet" = 0 ] && { [ "$status" = timeout ] || [ "$status" = crash ] || [ "$status" = error ]; } && [ -f "$log_dir/chromium.log" ]; then
   say "the end of $log_dir/chromium.log:"
   tail -n 40 "$log_dir/chromium.log"
 fi
-say "$run (build/e2e/latest), results in results.json"
+if [ "$quiet" = 1 ]; then
+  # failing_lines <folder> <prefix>: the FAIL, FLAKY, TIMEOUT and NOT RUN lines and the RESULT lines of failing
+  # tests in the folder's report.txt.
+  failing_lines() {
+    awk -v p="$2" '/^(FAIL|FLAKY) |^E2E: TIMEOUT |^NOT RUN |^RESULT [^ ]+ (fail|timeout)( |$)/ { print p $0 }' \
+      "$1/report.txt" 2>/dev/null
+  }
+  failing_lines "$run" ""
+  if [ -d "$run/retry" ] && ! grep -q '^E2E: PASS ' "$run/retry/report.txt" 2>/dev/null; then failing_lines "$run/retry" "retry: "; fi
+  # The app echoes Chromium's unexpected ERROR and FATAL lines to stderr; they matter only when a check failed.
+  if [ "$status" != pass ]; then
+    cat "$run/$output" "$run/retry/$output" 2>/dev/null | grep -E '(\[|:)(ERROR|FATAL):[^] ]+\] '
+  fi
+  # A run that could not start says why: what the app or the build lock printed.
+  [ "$status" != error ] || grep -v '^[[:space:]]*$' "$run/$output" 2>/dev/null
+  rm -f "$run/$output" "$run/retry/$output"
+  tell "everything is in $run (report.txt, results.json, chromium.log)"
+else
+  say "$run (build/e2e/latest), results in results.json"
+fi
 echo "$summary"
 exit "$code"
