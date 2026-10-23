@@ -46,6 +46,14 @@ protocol BrowserWindowFeature: NSResponder {
     /// updated its own tabs from it.
     func storeChanged(_ graph: SidebarGraph)
 
+    /// The window tried to enter macOS full screen and stayed out (`NSWindowDelegate`; AppKit posts no notification
+    /// for it). Its `willEnterFullScreenNotification` came first, and no did enter notification follows.
+    func windowDidFailToEnterFullScreen()
+
+    /// The window tried to leave macOS full screen and stayed in (`NSWindowDelegate`; AppKit posts no notification
+    /// for it). Its `willExitFullScreenNotification` came first, and no did exit notification follows.
+    func windowDidFailToExitFullScreen()
+
     /// The answer to a permission request from `tab`, or nil to leave it to another feature. The first feature that
     /// answers decides; with none, the request is dismissed.
     func decidePermission(_ request: PermissionRequest, for tab: any EngineTab) async -> PermissionDecision?
@@ -108,6 +116,8 @@ extension BrowserWindowFeature {
     func activeSpaceChanged(_ space: SidebarSpace) {}
     func closeBeforeWindow() -> Task<Bool, Never>? { nil }
     func storeChanged(_ graph: SidebarGraph) {}
+    func windowDidFailToEnterFullScreen() {}
+    func windowDidFailToExitFullScreen() {}
     func decidePermission(_ request: PermissionRequest, for tab: any EngineTab) async -> PermissionDecision? { nil }
     func decideNavigation(_ navigation: EngineNavigation, for tab: any EngineTab) -> NavigationPolicy? { nil }
     func decidePopup(_ request: PopupRequest, from tab: any EngineTab) -> PopupDecision? { nil }
