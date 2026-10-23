@@ -13,5 +13,6 @@ enum WindowFeatures {
         EmptySpaceFeature.self,
         HistoryFeature.self,
         SpacesFeature.self,
+        PopupsFeature.self,
     ]
 }

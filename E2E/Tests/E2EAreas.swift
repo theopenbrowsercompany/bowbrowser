@@ -26,5 +26,6 @@ enum E2EAreas {
         WindowHooksTests.all,
         SpacesAreaTests.all,
         LinksTests.all,
+        PopupsTests.all,
     ]
 }
