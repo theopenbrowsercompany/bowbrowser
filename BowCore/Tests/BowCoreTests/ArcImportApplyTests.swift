@@ -304,21 +304,61 @@ private func favoriteTitles(_ profile: SidebarProfileID, in graph: SidebarGraph)
         }
     }
 
-    @Test func undoWithNewProfilesLeavesOnlyAnEmptyFavoritesSection() throws {
-        try withStore { store, _ in
+    @Test func undoWithNewProfilesRemovesTheEmptyFavoritesSectionItMade() throws {
+        try withStore { store, url in
             let before = store.graph
             let applied = try ArcImporter.apply(
                 try parsed("sidebar-three-spaces"), plan: ArcImportPlan(mode: .arcSpaces), to: store)
+            let profile = SidebarProfileID("arc-profile-1-ef0ccd1ac1")
+            #expect(applied.createdFavoritesProfiles.contains(profile))
             try applied.undo(on: store)
+            #expect(store.graph == before)
+            #expect(store.graph.favoritesContainerIDs[profile] == nil)
+            #expect(store.graph.integrityProblems().isEmpty)
+            #expect(try SidebarStore(fileURL: url).graph == before)
+        }
+    }
+
+    @Test func undoKeepsANewProfilesFavoritesSectionTheUserFilled() throws {
+        try withStore { store, _ in
+            let applied = try ArcImporter.apply(
+                try parsed("sidebar-three-spaces"), plan: ArcImportPlan(mode: .arcSpaces), to: store)
+            let profile = SidebarProfileID("arc-profile-1-ef0ccd1ac1")
+            let mine = try store.addFavorite(url: "https://mine.example.com", title: "Mine", profile: profile)
+            try applied.undo(on: store)
+            #expect(store.graph.favoriteIDs(for: profile) == [mine])
+            #expect(store.graph.integrityProblems().isEmpty)
+        }
+    }
+
+    @Test func aSecondImportDoesNotRepeatFavoritesAndUndoRestoresTheFirst() throws {
+        try withStore { store, _ in
+            let result = try parsed("sidebar-three-spaces")
+            let first = try ArcImporter.apply(result, plan: ArcImportPlan(mode: .arcSpaces), to: store)
+            let afterFirst = store.graph
+            let favoritesAfterFirst = afterFirst.favoritesContainerIDs.keys.map { afterFirst.favoriteIDs(for: $0) }
+            let preview = ArcImporter.preview(result, plan: ArcImportPlan(mode: .arcSpaces), existing: afterFirst)
+            #expect(preview.favorites.isEmpty)
+            #expect(preview.omissions.contains { $0.reason == .favoritesAlreadyThere })
+            let second = try ArcImporter.apply(result, plan: ArcImportPlan(mode: .arcSpaces), to: store)
+            #expect(second.favoriteItemIDs.isEmpty)
+            #expect(second.createdFavoritesProfiles.isEmpty)
             let graph = store.graph
-            #expect(graph.spaces == before.spaces)
-            #expect(graph.activeSpaceID == before.activeSpaceID)
-            #expect(graph.activeTabID == before.activeTabID)
-            #expect(graph.contentItemCount == before.contentItemCount)
-            #expect(graph.items.count == before.items.count + 1)
-            let extra = try #require(graph.favoritesContainerIDs[SidebarProfileID("arc-profile-1-ef0ccd1ac1")])
-            #expect(graph.children(of: extra).isEmpty)
-            #expect(graph.integrityProblems().isEmpty)
+            #expect(graph.favoritesContainerIDs.keys.map { graph.favoriteIDs(for: $0) } == favoritesAfterFirst)
+            try second.undo(on: store)
+            try first.undo(on: store)
+            #expect(store.graph.spaces.count == 1)
+        }
+    }
+
+    @Test func applyDropsRepeatedFavoritesEvenForAPreviewMadeWithoutTheSidebar() throws {
+        try withStore { store, _ in
+            let result = try parsed("sidebar-client-project-phase")
+            try ArcImporter.apply(ArcImporter.preview(result), to: store)
+            let count = store.graph.favoriteIDs(for: .default).count
+            let second = try ArcImporter.apply(ArcImporter.preview(result), to: store)
+            #expect(second.favoriteItemIDs.isEmpty)
+            #expect(store.graph.favoriteIDs(for: .default).count == count)
         }
     }
 

@@ -8,6 +8,9 @@ public struct ArcImportApplied: Equatable, Sendable {
     public var favoriteItemIDs: [SidebarItemID] = []
     /// The Favorites section each of `favoriteItemIDs` was added to.
     public var favoriteContainerIDs: [SidebarItemID: SidebarItemID] = [:]
+    /// The profiles that had no Favorites section before the import and got one from it. Undo removes each one that
+    /// is empty and has no Space left.
+    public var createdFavoritesProfiles: [SidebarProfileID] = []
     /// Every item the import inserted into the Spaces it created (folders, tabs and splits), and nothing else.
     /// Undo removes only these, so whatever else sits in an imported Space is not the import's to delete.
     public var spaceItemIDs: [SidebarItemID] = []
@@ -35,8 +38,8 @@ public struct ArcImportApplied: Equatable, Sendable {
     /// ones is left to take over what the person added. A failure to write the file does not undo the undo: the
     /// change is in the sidebar and the result carries the failure, as `ArcImporter.apply` does.
     ///
-    /// An empty Favorites section that the import created for a new profile stays behind, as it does when any Space
-    /// of that profile is deleted: the sidebar has no change that removes a section.
+    /// A Favorites section the import created for a new profile goes with it when it is empty and no Space uses the
+    /// profile; one the person has since put a Favorite in, or a Space of theirs now uses, stays.
     @discardableResult
     public func undo(on store: SidebarStore) throws -> ArcImportUndone {
         var undone = ArcImportUndone()
@@ -77,6 +80,7 @@ public struct ArcImportApplied: Equatable, Sendable {
                     for space in present { try store.mutate(.deleteSpace(space.id)) }
                     try store.mutate(.reconcileSelectedTab)
                 }
+                for profile in createdFavoritesProfiles { try store.mutate(.deleteEmptyFavorites(profile)) }
                 if let after = store.transactionGraph {
                     undone.removedItemIDs = before.orderedIDs().filter {
                         before.items[$0]?.data.isContainer == false && after.items[$0] == nil
@@ -162,6 +166,7 @@ extension ArcImporter {
         guard !preview.isEmpty else { return applied }
         do {
             try store.transaction {
+                guard let start = store.transactionGraph else { throw SidebarStoreError.noOpenTransaction }
                 var profileOfArcSpace: [String: SidebarProfileID] = [:]
                 for entry in preview.spaces {
                     let id = SidebarSpaceID.make()
@@ -198,12 +203,20 @@ extension ArcImporter {
                     guard let container = store.transactionGraph?.favoritesContainerIDs[profile] else {
                         throw SidebarStoreError.invalidHierarchy("profile \(profile) has no favorites")
                     }
-                    for node in entry.items {
+                    // Favorites the profile already has at the same address are not added again, whichever
+                    // preview this is: a second import of the same file changes nothing.
+                    guard let current = store.transactionGraph else { throw SidebarStoreError.noOpenTransaction }
+                    let fresh = Self.withoutKnownFavorites(entry.items, for: .arcProfile(profile), in: current).fresh
+                    for node in fresh {
                         var inserted: [SidebarItemID] = []
                         try insert(node, under: container, in: store, into: &inserted)
                         applied.favoriteItemIDs.append(contentsOf: inserted)
                         for id in inserted { applied.favoriteContainerIDs[id] = container }
                     }
+                }
+                if let end = store.transactionGraph {
+                    applied.createdFavoritesProfiles = end.favoritesContainerIDs.keys
+                        .filter { start.favoritesContainerIDs[$0] == nil }.sorted()
                 }
             }
         } catch SidebarStoreError.saveFailed(let reason) {
@@ -217,7 +230,7 @@ extension ArcImporter {
     public static func apply(_ result: ArcImportResult, plan: ArcImportPlan, to store: SidebarStore) throws
         -> ArcImportApplied
     {
-        try apply(preview(result, plan: plan), to: store)
+        try apply(preview(result, plan: plan, existing: store.graph), to: store)
     }
 
     /// Inserts a node and everything under it, adding each new item's ID to `inserted`.

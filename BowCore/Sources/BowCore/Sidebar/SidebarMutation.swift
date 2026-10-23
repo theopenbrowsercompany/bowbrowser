@@ -87,6 +87,9 @@ public enum SidebarMutation: Equatable, Sendable {
     case insertSpace(SidebarSpaceID, title: String, index: Int? = nil, profileID: SidebarProfileID = .default)
     /// Deletes a Space and everything in its sections.
     case deleteSpace(SidebarSpaceID)
+    /// Removes the Favorites section of `profile` when it is empty, is not the default profile's and no Space uses
+    /// the profile. In any other case it changes nothing, so it is safe to ask after Spaces were deleted.
+    case deleteEmptyFavorites(SidebarProfileID)
     case moveSpace(SidebarSpaceID, index: Int)
     case renameSpace(SidebarSpaceID, title: String)
     /// Sets or clears a Space's icon.
@@ -201,6 +204,13 @@ extension SidebarGraph {
             removeSubtree(removed.pinnedContainerID)
             removeSubtree(removed.unpinnedContainerID)
             if activeSpaceID == id { activateSpace(spaces[min(position, spaces.count - 1)].id) }
+
+        case .deleteEmptyFavorites(let profile):
+            guard profile != .default, let container = favoritesContainerIDs[profile],
+                items[container]?.childrenIDs.isEmpty == true, !spaces.contains(where: { $0.profileID == profile })
+            else { break }
+            favoritesContainerIDs[profile] = nil
+            items[container] = nil
 
         case .moveSpace(let id, let index):
             guard let position = spaces.firstIndex(where: { $0.id == id }) else { throw .spaceNotFound(id) }
