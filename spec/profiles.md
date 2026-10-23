@@ -34,12 +34,23 @@ Every Space shows exactly one profile, and several Spaces may show the same one,
   A profile that fails the check opens nothing, and Bow says the Space's profile is not available, rather than running its pages in memory or in another profile.
 - Two Spaces on the same profile share cookies and logins.
   Two Spaces on different profiles share nothing.
+- A tab row's menu has "Move to Space", a submenu of every other Space, as Arc's tab menu moves a tab between Spaces.
+  The tab goes to the top of the same section (pinned or today) of that Space, and the Space on screen stays on screen; if the moved tab was selected, the Space selects its own tab instead.
+  Favorites, folders and splits have no "Move to Space" (a Favorite leaves Favorites with "Remove from Favorites").
 - Moving a tab to another Space of the same profile keeps its live page: it does not reload, and the page keeps its state and logins.
-- Moving a tab to a Space of a different profile asks first.
-  If the person agrees, the tab loads its address again in the new profile, so the page starts over there and is not logged in unless that profile is.
-  If they decline, nothing moves.
+- Moving a tab to a Space of a different profile asks first, in a sheet on the window, every time; there is no "don't ask again", because the page loads again under different logins.
+  The sheet names the tab, the Space and both profiles, with Move and Cancel.
+  Move closes the tab's page, running its leave prompt, then moves the tab; it loads its address again in the new profile when it is next shown, so the page starts over there and is not logged in unless that profile is.
+  Cancel, or Stay at the page's leave prompt, leaves the tab where it was with its live page.
+  A move stops, with the tab where it was, when the window closes or Bow quits during it; those close the page themselves, so it is never asked twice.
+- Favorites refuse a tab from another profile: dropping a tab of a Space on another profile into Favorites, putting another profile's Favorite in, and taking a Favorite out into a Space of another profile are all refused and change nothing.
+- A Favorite selected when the person switches to a Space of another profile, which cannot show it, is remembered by the Space being left, so switching back selects it again, as Arc returns each Space to the tab it was on.
+  A Space of the same profile shows the same Favorites, so the Favorite simply stays selected there.
+- The Space menu's "Profile" submenu ends with "Delete Profile…", a submenu of every profile but the default (Arc deletes profiles in its settings, which Bow does not have yet).
+  Only a profile that no Space in any window shows is enabled, and "Delete Profile…" itself is greyed out when there is none.
+  Choosing one asks in a sheet, with a red "Delete Profile" button and Cancel (Return answers Cancel); deleting takes it out of the list at once.
 - A profile that a Space still shows cannot be deleted.
-- Deleting a profile takes it out of the list at once but removes its folder only the next time Bow starts, before any browser opens, because browsers may still be using it until then.
+- Deleting a profile takes it out of the list at once but removes its folder only the next time Bow starts, once its first window is open and before any other profile is set up, because browsers may still be using it until then (a deleted profile is never set up again, so no browser of it exists in the new run).
   A deleted profile's ID is never given to a new profile, not after its folder is gone and not after a relaunch, because history, site permissions and Favorites are saved under the ID and a new profile would inherit them.
   Any `Profile-<id>` folder already on disk also counts as taken when choosing an ID.
   The one way an old ID comes back is an import that puts a Space on that profile again: the profile is registered again under the same ID and its folder, if still there, is kept.
@@ -71,10 +82,16 @@ Every Space shows exactly one profile, and several Spaces may show the same one,
 6. Try to delete a profile a Space still shows: Bow refuses. Move the Space off it, delete the profile, and its folder is still on disk; quit and start Bow again and the folder is gone.
 7. Type in a draft that asks before leaving, then choose "Profile > New Profile…" in its Space's menu and answer Stay: the Space keeps its profile and the draft. Choose the new profile and leave: the active tab loads again in it, and the menu checks it.
 8. Run `make e2e`: `profiles` prints `PASS profiles: work_cookie=1 personal_cookie=none shared=1`, and `profiles.spaces` passes.
+9. Type in a page, then Move to Space to another Space on the same profile: no question, and there the same page shows with the text still typed.
+10. Move to Space to a Space on another profile, answer Cancel, and ask again: it asks again and the tab stays with its page. With a draft that asks before leaving, answer Move and then Stay: the draft stays where it was.
+11. Drop a tab of a Space on another profile onto the Favorites: nothing moves. A tab of a Space on the same profile goes in.
+12. Select a Favorite, switch to a Space on another profile and back: the Favorite is selected again.
+13. Run `make e2e`: `profiles.move_same`, `profiles.move_other`, `profiles.move_cancel`, `profiles.move_stay`, `profiles.favorites_refuse` and `profiles.delete_next_launch` pass.
 
 ## Out of scope
 
-- The confirmation dialog when a tab moves to a Space of another profile, deleting profiles from the app, and the sidebar's drawing of profiles (the next part of this feature).
+- Dragging a tab onto a Space in the Space switcher to move it (Bow has no such drop yet), and the sidebar's drawing of profiles.
+- A settings window listing profiles; deleting happens from the Space menu until there is one.
 - Sharing Favorites between Spaces of one profile (see `sidebar-store.md`).
 - Importing Arc profiles into the list (see `arc-import.md`); the import suggests names and this feature turns them into IDs.
 - Clearing a profile's data without deleting it, and moving data between profiles.
