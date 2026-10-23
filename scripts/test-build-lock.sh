@@ -14,8 +14,8 @@ check() { # check <description> <condition command...>
   shift
   if "$@"; then echo "ok   $what"; else echo "FAIL $what"; failed=1; fi
 }
-slot_count() { find "$BOW_LOCK_DIR/slots" -mindepth 1 -maxdepth 1 -type d | wc -l | tr -d ' '; }
-queue_count() { find "$BOW_LOCK_DIR/queue" -mindepth 1 -type f | wc -l | tr -d ' '; }
+slot_count() { find "$BOW_LOCK_DIR/build/slots" -mindepth 1 -maxdepth 1 -type d | wc -l | tr -d ' '; }
+queue_count() { find "$BOW_LOCK_DIR/build/queue" -mindepth 1 -type f | wc -l | tr -d ' '; }
 is() { [ "$1" = "$2" ]; }
 
 # 1. Four builds, two slots: never more than two at once, served in arrival order.
@@ -24,7 +24,7 @@ for i in 1 2 3 4; do
   $lock sh -c "echo start $i >> $out; sleep 2; echo end $i >> $out" 2> "$BOW_LOCK_DIR/err$i" &
   sleep 0.3
 done
-sleep 1
+sleep 0.3
 check "two slots busy while four builds run" is "$(slot_count)" 2
 wait
 order=$(grep start "$out" | tr -d '\n')
@@ -89,14 +89,26 @@ check "stale slot reclaimed after holder died" test ! -s "$BOW_LOCK_DIR/err5"
 BOW_BUILD_SLOTS=1 $lock sleep 30 &
 pid=$!
 sleep 1
-pkill -9 -P $pid
-kill -9 $pid
+kid=$(pgrep -P $pid)
+kill -9 $pid $kid
 wait $pid 2> /dev/null
 check "dead build left a stale slot" is "$(slot_count)" 1
 start=$SECONDS
 BOW_BUILD_SLOTS=1 $lock true 2> "$BOW_LOCK_DIR/err6"
 check "stale slot reclaimed at once" test $((SECONDS - start)) -le 2
 check "no waiting line for a stale slot" test ! -s "$BOW_LOCK_DIR/err6"
+
+# 7. The e2e pool is separate: a full build pool does not block an e2e run, and BOW_E2E_SLOTS limits it.
+BOW_BUILD_SLOTS=1 $lock sleep 3 &
+sleep 0.5
+start=$SECONDS
+$lock --pool e2e true 2> "$BOW_LOCK_DIR/err7"
+check "e2e run not blocked by a full build pool" test $((SECONDS - start)) -le 1
+BOW_E2E_SLOTS=1 $lock --pool e2e sleep 2 &
+sleep 0.5
+BOW_E2E_SLOTS=1 $lock --pool e2e true 2> "$BOW_LOCK_DIR/err8"
+check "second e2e run waits for the single e2e slot" grep -q "waiting for a e2e slot" "$BOW_LOCK_DIR/err8"
+wait
 
 rm -rf "$BOW_LOCK_DIR"
 [ $failed = 0 ] && echo "build-lock: all tests passed"

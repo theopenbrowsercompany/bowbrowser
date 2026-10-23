@@ -21,6 +21,10 @@ settings:
     ENABLE_HARDENED_RUNTIME: NO
     # The packaging script reads the CEF download in Vendor/.
     ENABLE_USER_SCRIPT_SANDBOXING: NO
+    # Xcode's compilation cache, shared by every worktree (compiles with the same inputs are reused, so a fresh
+    # worktree's first build is faster). It lives beside the CEF copy that `make bootstrap` keeps.
+    COMPILATION_CACHE_ENABLE_CACHING: YES
+    COMPILATION_CACHE_CAS_PATH: $(HOME)/Library/Caches/bowbrowser/compile-cache
     # System header path, so warnings inside CEF's headers stay out of our build output.
     SYSTEM_HEADER_SEARCH_PATHS: $(SRCROOT)/Vendor/cef
     # The CEF wrapper library is a release build; match its assertions setting.

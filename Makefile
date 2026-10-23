@@ -41,7 +41,7 @@ smoke: build
 e2e: build
 	@run="$(BUILD_DIR)/e2e/$$(date +%Y%m%d-%H%M%S)-$$$$"; \
 	echo "e2e: $$run"; \
-	$(APP)/Contents/MacOS/Bow --e2e=$(E2E) --e2e-out="$$run"; code=$$?; \
+	./scripts/build-lock.sh --pool e2e $(APP)/Contents/MacOS/Bow --e2e=$(E2E) --e2e-out="$$run"; code=$$?; \
 	if [ $$code -ne 0 ] && ! grep -q "^E2E: " "$$run/report.txt" 2>/dev/null && [ -f "$$run/chromium.log" ]; then \
 		echo "e2e: the app ended with code $$code; the end of $$run/chromium.log:" >&2; \
 		tail -n 40 "$$run/chromium.log" >&2; \
