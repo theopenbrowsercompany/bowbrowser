@@ -13,6 +13,9 @@ export BOW_E2E_ROOT="$tmp/runs" BOW_LOCK_DIR="$tmp/lock"
 # A person's full output unless a check asks for short output (an agent's shell has CLAUDECODE=1).
 export E2E_QUIET=0
 unset E2E_REPEAT
+# The checks' own quarantine list, empty until a check writes it, so the checked in one changes no outcome here.
+quarantine="$tmp/quarantine.txt"
+export E2E_QUARANTINE="$quarantine"
 app="$tmp/Bow.app"
 mkdir -p "$app/Contents/MacOS"
 # The fake app reads FAKE_MODE and writes report.txt into its --e2e-out folder like the real runner.
@@ -177,6 +180,34 @@ case $FAKE_MODE in
     case $out in
       */retry) echo "FAIL a.one: broken" > "$r"; echo "E2E: FAIL 0/1" >> "$r"; exit 1 ;;
       *) echo "E2E: TIMEOUT a.one: open window" > "$r"; exit 2 ;;
+    esac ;;
+  flakyresult)
+    # Like flaky, with the RESULT lines the real runner prints after each test.
+    case $out in
+      */retry) { echo "PASS a.one: ok"; echo "RESULT a.one pass seconds=0.1 checks=1/1"; echo "E2E: PASS 1/1"; } > "$r"; exit 0 ;;
+      *) { echo "FAIL a.one: slow"; echo "RESULT a.one fail seconds=0.1 checks=0/1"; echo "E2E: FAIL 0/1"; } > "$r"; exit 1 ;;
+    esac ;;
+  twoflaky)
+    # Two tests fail, then both pass on the retry.
+    case $out in
+      */retry) { echo "PASS a.one: ok"; echo "RESULT a.one pass seconds=0.1 checks=1/1"; echo "PASS a.two: ok"
+        echo "RESULT a.two pass seconds=0.1 checks=1/1"; echo "E2E: PASS 2/2"; } > "$r"; exit 0 ;;
+      *) { echo "FAIL a.one: slow"; echo "RESULT a.one fail seconds=0.1 checks=0/1"; echo "FAIL a.two: slow"
+        echo "RESULT a.two fail seconds=0.1 checks=0/1"; echo "E2E: FAIL 0/2"; } > "$r"; exit 1 ;;
+    esac ;;
+  quitflaky)
+    # The quit check (named after its test) fails after a passing RESULT line, then the whole selection passes.
+    case $out in
+      */retry) { echo "RESULT a.one pass seconds=0.1 checks=0/0 quit=pending"; echo "PASS a.one: closed in 1 s"
+        echo "PASS chromium.errors: unexpected=0"; echo "E2E: PASS 2/2"; } > "$r"; exit 0 ;;
+      *) { echo "RESULT a.one pass seconds=0.1 checks=0/0 quit=pending"; echo "FAIL a.one: stopping took 6 s"
+        echo "PASS chromium.errors: unexpected=0"; echo "E2E: FAIL 1/2"; } > "$r"; exit 1 ;;
+    esac ;;
+  failtimeout)
+    # Fails, then times out on the retry.
+    case $out in
+      */retry) echo "E2E: TIMEOUT a.one: open window" > "$r"; exit 2 ;;
+      *) { echo "FAIL a.one: slow"; echo "RESULT a.one fail seconds=0.1 checks=0/1"; echo "E2E: FAIL 0/1"; } > "$r"; exit 1 ;;
     esac ;;
   badjson)
     # The app writes a results.json of its own that is not JSON.
@@ -461,7 +492,108 @@ check "flakes: an empty root exits 1" not ./scripts/e2e-flakes.sh "$tmp/none" 2>
 quit_row() { ./scripts/e2e-flakes.sh "$tmp/repeat-$1" | awk '$1 == "a.one" { print $2, $3, $4, $5, $6 }'; }
 check "flakes: a quit check failing after a passing RESULT fails the test" is "$(quit_row quit)" "3 2 0 1 0"
 check "flakes: a crash after quit=pending fails the test" is "$(quit_row quitcrash)" "3 2 0 1 0"
-export BOW_E2E_ROOT="$tmp/runs"
+
+# The quarantine list (E2E_QUARANTINE): a FLAKY run whose every failure is a listed, unexpired test passes with a
+# note; anything else fails as before, an expired entry is named on every run, and a malformed list stops the run.
+rroot qmain
+list() { printf '%s\n' "$@" > "$quarantine"; }
+today=$(date +%Y-%m-%d)
+list "# known flakes" "" "a.one 2999-01-01 slow under load"
+rroot quarantineflakes
+run flakyresult
+check "quarantine: the flake count still counts a quarantined test as FLAKY" \
+  is "$(./scripts/e2e-flakes.sh "$BOW_E2E_ROOT" | awk '$1 == "a.one" { print $2, $3, $4, $5, $6 }')" "1 0 1 0 0"
+rroot qmain
+run flakyresult
+check "quarantine: a listed FLAKY test passes" is "$code" 0
+check "quarantine: the summary is a pass naming it" is "$last" "E2E: PASS 1/1; quarantined flaky tests passed on the retry: a.one"
+check "quarantine: the FLAKY line stays" says "FLAKY a.one: failed then passed (fail seconds=0.1 checks=0/1)"
+check "quarantine: a QUARANTINED line" says "QUARANTINED a.one (expires 2999-01-01): slow under load"
+check "quarantine: report.txt keeps both lines" has "$BOW_E2E_ROOT/latest/report.txt" "^QUARANTINED a.one (expires 2999-01-01)"
+check "quarantine: results.json status pass" is "$(field "$res" status)" pass
+check "quarantine: results.json exit code 0" is "$(field "$res" exitCode)" 0
+check "quarantine: results.json still lists it as flaky" is "$(field "$res" flaky.0)" a.one
+check "quarantine: results.json names the entry" is "$(field "$res" quarantined.0.name)/$(field "$res" quarantined.0.expires)/$(field "$res" quarantined.0.reason)" "a.one/2999-01-01/slow under load"
+check "quarantine: results.json is valid JSON" valid_json "$res"
+E2E_QUIET=1 run flakyresult
+check "quarantine, short output: exit 0" is "$code" 0
+check "quarantine, short output: the FLAKY line" says "FLAKY a.one: failed then passed (fail seconds=0.1 checks=0/1)"
+check "quarantine, short output: the QUARANTINED line" says "QUARANTINED a.one (expires 2999-01-01): slow under load"
+check "quarantine, short output: ends with the note" is "$last" "E2E: PASS 1/1; quarantined flaky tests passed on the retry: a.one"
+run quitflaky 'a.*'
+check "quarantine: a failed quit check counts as its test's" is "$code" 0
+check "quarantine: the quit check's run reran the whole selection" is "$(cat "$BOW_E2E_ROOT/latest/retry/args")" "e2e=a.*"
+check "quarantine: the quit check's note" is "$last" "E2E: PASS 2/2; quarantined flaky tests passed on the retry: a.one"
+run twoflaky 'a.*'
+check "quarantine: one listed and one unlisted FLAKY test: exit 3" is "$code" 3
+check "quarantine: one listed and one unlisted: the FLAKY summary" is "$last" "E2E: FLAKY 2/2 after retrying a.one,a.two"
+check "quarantine: one listed and one unlisted: no QUARANTINED line" not says_some "^QUARANTINED"
+check "quarantine: one listed and one unlisted: results.json has none" is "$(field "$res" quarantined.0.name)" ""
+run fail
+check "quarantine: a listed test that fails on the retry: exit 1" is "$code" 1
+check "quarantine: a listed test that fails on the retry: summary" is "$last" "E2E: FAIL 0/1"
+run failtimeout
+check "quarantine: a listed test that times out on the retry: exit 1" is "$code" 1
+check "quarantine: a listed test that times out on the retry: summary" is "$last" "E2E: FAIL 0/1 (retry: TIMEOUT a.one: open window)"
+run retrycrash
+check "quarantine: a listed test whose retry crashes: exit 4" is "$code" 4
+run chromium
+check "quarantine: a run-wide check is never quarantined" is "$code" 3
+list "a.two 2999-01-01 slow"
+run mixed 'a.*'
+check "quarantine: a listed test beside a run-wide failure: exit 3" is "$code" 3
+run stuck 'a.*'
+check "quarantine: a first attempt whose main thread was stuck is never quarantined" is "$code" 3
+check "quarantine: after a stuck main thread: the FLAKY summary" is "$last" "E2E: FLAKY 3/3 after retrying a.two"
+list "a.two 2999-01-01 slow"
+run results 'a.*'
+check "quarantine: a listed failed test retried alone passes" is "$last" "E2E: PASS 2/2; quarantined flaky tests passed on the retry: a.two"
+list "a.one 2999-01-01 slow" "a.two 2999-01-01 slow"
+run twoflaky 'a.*'
+check "quarantine: two listed tests: the note names both" is "$last" "E2E: PASS 2/2; quarantined flaky tests passed on the retry: a.one, a.two"
+list "a.two 2999-01-01 slow"
+run flakyresult
+check "quarantine: an unlisted FLAKY test: exit 3" is "$code" 3
+check "quarantine: an unlisted FLAKY test: the FLAKY summary" is "$last" "E2E: FLAKY 1/1 after retrying a.one"
+list "a.one 2000-01-01 slow" "a.two $today due today"
+run flakyresult
+check "quarantine: an expired entry: exit 3" is "$code" 3
+check "quarantine: an expired entry is named" says "QUARANTINE EXPIRED a.one (expired 2000-01-01): remove or renew its entry in $quarantine"
+check "quarantine: an entry has expired on its date" says_some "^QUARANTINE EXPIRED a.two (expired $today)"
+check "quarantine: results.json names the expired entries" is "$(field "$res" quarantineExpired.0)/$(field "$res" quarantineExpired.1)" "a.one/a.two"
+run pass
+check "quarantine: a passing run still names the expired entries" says_some "^QUARANTINE EXPIRED a.one "
+check "quarantine: a passing run with an expired entry still passes" is "$last" "E2E: PASS 1/1"
+E2E_QUIET=1 run pass
+check "quarantine, short output: the expired entries are named on a pass" says_some "^QUARANTINE EXPIRED a.one "
+check "quarantine, short output: only they are added" is "$(printf '%s\n' "$out" | wc -l | tr -d ' ')" 4
+list "a.one 2999-01-01 slow"
+rroot quarantine
+E2E_REPEAT=3 run repeatfail
+check "quarantine: a listed test failing in a repeat still fails" is "$code" 1
+for bad in "a.one 2999-13-01 slow|is not a date in YYYY-MM-DD form" "a.one 2999-02-30 slow|is not a date" \
+  "a.one 30-10-2026 slow|is not a date" "a.one 2999-01-01|want <test name> <YYYY-MM-DD expiry> <reason>" \
+  "a.* 2999-01-01 slow|is not a test name" "aone 2999-01-01 slow|is not a test name" \
+  "chromium.errors 2999-01-01 slow|belongs to the runner" "a.one 2999-01-01 see BOW-12|names a Plane ID"; do
+  list "# a comment" "${bad%%|*}"
+  run pass
+  check "quarantine: '${bad%%|*}' stops the run: exit 64" is "$code" 64
+  check "quarantine: '${bad%%|*}' says why" says_some "^E2E: ERROR bad quarantine list: $quarantine line 2: .*${bad#*|}"
+done
+list "a.one 2999-01-01 slow" "a.one 2000-01-01 again"
+run pass
+check "quarantine: a duplicate entry stops the run" is "$last" "E2E: ERROR bad quarantine list: $quarantine line 2: a.one is listed twice"
+E2E_REPEAT=3 run pass
+check "quarantine: a malformed list stops the repeats before they start" is "$code/$(runs_in)" "64/3"
+check "quarantine: list ignores a malformed list" is "$(FAKE_MODE=pass ./scripts/e2e.sh "$app" list | wc -l | tr -d ' ')" 3
+rroot qmain
+: > "$quarantine"
+run flakyresult
+check "quarantine: an empty list quarantines nothing" is "$code" 3
+rm -f "$quarantine"
+run flakyresult
+check "quarantine: a missing list quarantines nothing" is "$code" 3
+check "quarantine: the checked in list is well formed" is "$(E2E_QUARANTINE="" FAKE_MODE=pass ./scripts/e2e.sh "$app" 2>&1 | tail -n 1)" "E2E: PASS 1/1"
 
 # interrupt <signal> [mode] [tenths]: runs the wrapper on an app that never ends (FAKE_MODE hang), sends the signal
 # once the app runs, and sets stopped (yes when the wrapper ended within tenths of a second, default 100), code, last,

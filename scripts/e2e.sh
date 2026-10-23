@@ -23,10 +23,22 @@
 #     E2E: ERROR interrupted                      exit 130: a signal ends the repeat running and the rest
 #   E2E_KEEP is raised to N inside the repeats, so none prunes another. list ignores E2E_REPEAT.
 # E2E_QUIET  1 prints short output for agents, 0 the full output; unset, it is 1 when CLAUDECODE=1 (every agent
-#   shell in Claude Code has it). Short output keeps only the FAIL, FLAKY, TIMEOUT and NOT RUN lines, the RESULT
-#   lines of failing tests (a retry's prefixed `retry: `), the app's echoed Chromium ERROR and FATAL lines when a
-#   check failed, the app's own messages when it could not start the run (exit 64), one line naming the run folder
+#   shell in Claude Code has it). Short output keeps only the FAIL, FLAKY, QUARANTINED, QUARANTINE EXPIRED, TIMEOUT
+#   and NOT RUN lines, the RESULT lines of failing tests (a retry's prefixed `retry: `), the app's echoed Chromium
+#   ERROR and FATAL lines when a check failed (a quarantined pass included), the app's own messages when it could not start the run (exit 64), one line naming the run folder
 #   and the summary line. The files written are the same either way.
+# E2E_QUARANTINE  the quarantine list to read (default scripts/e2e-quarantine.txt; a missing file is an empty list).
+#   One entry per line, `<test name> <YYYY-MM-DD expiry> <reason>`, and # comments. An entry counts until its
+#   expiry date and has expired on that date. When every test whose failure the retry passed is listed and
+#   unexpired, the run passes (exit 0): it prints `QUARANTINED <test> (expires <date>): <reason>` per test after
+#   the FLAKY lines and ends with `E2E: PASS n/n; quarantined flaky tests passed on the retry: <tests>`, and
+#   results.json keeps the FLAKY names in "flaky" and the entries in "quarantined". Never quarantined: a failure
+#   that is no test's (chromium.errors, e2e.isolation, a timeout between tests), a first attempt whose main thread
+#   was stuck (an `E2E: TIMEOUT` line), a FAIL, TIMEOUT or crash on the retry, and the repeats (the retry is off
+#   there). A failed quit check is named after its test (app.quit) and counts as that test's. Each expired entry
+#   prints `QUARANTINE EXPIRED <test> (expired <date>): ...` on every run until it is removed or renewed, and a
+#   malformed list (a bad name or date, no reason, a duplicate test, a run-wide check, a Plane ID) stops the run
+#   before it starts with `E2E: ERROR bad quarantine list: ...` (exit 64).
 #
 # Each run writes build/e2e/<time>-<pid>/: the app's report.txt, chromium.log and final.png, plus results.json
 # from this script. A retry runs in <run>/retry/: the failed, timed out and not run tests when RESULT lines name
@@ -94,6 +106,56 @@ fi
 # output folder but exits before using it.
 [ "$selection" != list ] || exec "$binary" --e2e=list --e2e-out="${TMPDIR:-/tmp}/bow-e2e-list"
 case $keep in '' | *[!0-9]*) keep=20 ;; esac
+
+# Fields in the lines below are split by the unit separator, not a tab: bash's read merges runs of tabs (IFS
+# whitespace), so an empty field would shift the ones after it.
+us=$'\037'
+
+# The quarantine list: quarantine and expired hold name<US>expiry<US>reason lines of its unexpired and expired
+# entries. A malformed list stops the run before anything starts, so a bad entry is caught by the change adding it.
+quarantine_file=${E2E_QUARANTINE:-$repo/scripts/e2e-quarantine.txt}
+quarantine_name=$quarantine_file
+[ -n "${E2E_QUARANTINE:-}" ] || quarantine_name=scripts/e2e-quarantine.txt
+quarantine="" expired=""
+if [ -e "$quarantine_file" ]; then
+  if ! entries=$(perl -MTime::Local=timegm -e '
+    my ($file, $today) = @ARGV;
+    open(my $fh, "<", $file) or do { print "cannot be read: $!\n"; exit 1 };
+    my (%seen, @out);
+    while (my $line = <$fh>) {
+      $line =~ s/\r?\n\z//;
+      next if $line =~ /^\s*(#|\z)/;
+      my $at = "line $.";
+      my ($name, $date, $reason) = $line =~ /^\s*(\S+)\s+(\S+)\s+(.*\S)\s*\z/
+        or do { print "$at: want <test name> <YYYY-MM-DD expiry> <reason>, got \"$line\"\n"; exit 1 };
+      $name =~ /^[A-Za-z0-9_-]+(\.[A-Za-z0-9_-]+)+\z/
+        or do { print "$at: \"$name\" is not a test name (an area, a dot and the rest; no globs or commas)\n"; exit 1 };
+      $name ne "chromium.errors" && $name ne "e2e.isolation"
+        or do { print "$at: $name belongs to the runner, and a run-wide check is never quarantined\n"; exit 1 };
+      my @ymd = $date =~ /^(\d{4})-(\d\d)-(\d\d)\z/;
+      @ymd && eval { timegm(0, 0, 0, $ymd[2], $ymd[1] - 1, $ymd[0]); 1 }
+        or do { print "$at: \"$date\" is not a date in YYYY-MM-DD form\n"; exit 1 };
+      $reason !~ /\bBOW-\d+/i
+        or do { print "$at: the reason names a Plane ID; say it in plain words\n"; exit 1 };
+      !$seen{$name}++
+        or do { print "$at: $name is listed twice\n"; exit 1 };
+      $reason =~ s/[\x00-\x1f]/ /g;
+      push @out, join("\037", $date gt $today ? "Q" : "E", $name, $date, $reason) . "\n";
+    }
+    # Printed only once the whole list is well formed, so an error is the only line printed.
+    print @out;' "$quarantine_file" "$(date +%Y-%m-%d)"); then
+    echo "E2E: ERROR bad quarantine list: $quarantine_name ${entries:-cannot be read}"
+    exit 64
+  fi
+  quarantine=$(printf '%s\n' "$entries" | awk -F "$us" '$1 == "Q" { print $2 FS $3 FS $4 }')
+  expired=$(printf '%s\n' "$entries" | awk -F "$us" '$1 == "E" { print $2 FS $3 FS $4 }')
+fi
+# expired_lines: one QUARANTINE EXPIRED line per expired entry.
+expired_lines() {
+  printf '%s\n' "$expired" | while IFS="$us" read -r name date reason; do
+    [ -n "$name" ] && echo "QUARANTINE EXPIRED $name (expired $date): remove or renew its entry in $quarantine_name"
+  done
+}
 
 # E2E_REPEAT: runs this script N times (each a whole run in its own folder, retry off), tallies each test's passes
 # from the RESULT lines of each repeat's report.txt and prints one summary line. Short output keeps a passing
@@ -185,6 +247,8 @@ if [ "$repeat" != 1 ]; then
   printf '%s' "$tally" | awk -v n="$repeat" -v quiet="$quiet" '
     NF == 2 { if (!($1 in seen)) { seen[$1]; order[++k] = $1 } if ($2 == "pass") ok[$1]++ }
     END { for (i = 1; i <= k; i++) { t = order[i]; if (quiet != 1 || ok[t] + 0 < n) printf "REPEAT %s %d/%d\n", t, ok[t], n } }'
+  # Short output hides passing repeats, each of which names the expired entries; a person saw every repeat's.
+  [ "$quiet" = 0 ] || expired_lines
   tell "repeat run folders in $root: $folders"
   if [ -z "$first_code" ]; then
     echo "E2E: PASS $repeat/$repeat repeats"
@@ -391,10 +455,6 @@ attempt() {
   esac
 }
 
-# Fields in the lines below are split by the unit separator, not a tab: bash's read merges runs of tabs (IFS
-# whitespace), so an empty field would shift the ones after it.
-us=$'\037'
-
 # The test names the app knows, from the TEST lines of `--e2e=list` (which starts no engine). Asked only to check
 # the test a TIMEOUT line names; an app without the list selection prints none, so that name is not trusted.
 list_tests() {
@@ -468,6 +528,8 @@ attempt "$run" "${args[@]}"
 first_status=$status first_summary=$summary
 attempts=("$run|$status|$app_code|$signal|$seconds|$summary")
 flaky=""
+# The quarantine entries (name<US>expiry<US>reason) that turned a FLAKY run into a pass.
+quarantined=""
 log_dir=$run
 
 if [ "$retry" = 1 ] && { [ "$status" = fail ] || [ "$status" = timeout ]; }; then
@@ -505,6 +567,35 @@ if [ "$retry" = 1 ] && { [ "$status" = fail ] || [ "$status" = timeout ]; }; the
     else
       summary="E2E: FLAKY retried tests passed $count after retrying $subset (the first attempt printed no total)"
     fi
+    # Quarantine: the run passes when the first attempt's main thread never got stuck, its total is known, and
+    # every failure belongs to a test with an unexpired entry. A failure that is no test's (a C line) belongs to the
+    # test it is named after (the test, or the longest test name it continues with a dot), like the quit check;
+    # the runner's own checks and a timeout between tests belong to none (printed with a leading "!").
+    if [ -n "$quarantine" ] && [ -n "$total" ] && ! grep -q '^E2E: TIMEOUT ' "$run/report.txt" 2>/dev/null; then
+      owners=$(printf '%s\n' "$analysis" | R="$run/report.txt" awk -F "$us" '
+        BEGIN { report = ENVIRON["R"]; while ((getline l < report) > 0) if (split(l, f, " ") >= 3 && f[1] == "RESULT") tests[f[2]] }
+        $1 == "T" { print $2; next }
+        $1 == "C" {
+          c = $2; owner = ""
+          if (c != "chromium.errors" && c != "e2e.isolation" && c != "TIMEOUT")
+            for (t in tests) if ((c == t || index(c, t ".") == 1) && length(t) > length(owner)) owner = t
+          print (owner == "" ? "!" c : owner)
+        }' | awk '!seen[$0]++')
+      held=$(printf '%s\n' "$owners" | Q="$quarantine" awk -F "$us" '
+        BEGIN { n = split(ENVIRON["Q"], lines, "\n"); for (i = 1; i <= n; i++) { split(lines[i], e, FS); entry[e[1]] = lines[i] } }
+        $0 == "" { next }
+        !($0 in entry) { bad = 1; exit }
+        { out = out entry[$0] "\n" }
+        END { if (!bad && out != "") printf "%s", out; exit bad }') || held=""
+      if [ -n "$held" ]; then
+        quarantined=$held
+        printf '%s\n' "$held" | while IFS="$us" read -r name date reason; do
+          echo "QUARANTINED $name (expires $date): $reason"
+        done | if [ "$quiet" = 1 ]; then cat >> "$run/report.txt"; else tee -a "$run/report.txt"; fi
+        status=pass
+        summary="E2E: PASS $total/$total; quarantined flaky tests passed on the retry: $(printf '%s\n' "$held" | awk -F "$us" '{ print $1 }' | paste -sd, - | sed 's/,/, /g')"
+      fi
+    fi
   elif [ "$status" = fail ] || [ "$status" = timeout ]; then
     # Failed again: report the first attempt, whose run covered the whole selection, and name the retry's outcome
     # when it failed the other way.
@@ -520,6 +611,10 @@ if [ "$retry" = 1 ] && { [ "$status" = fail ] || [ "$status" = timeout ]; }; the
   fi
 fi
 load_end=$(load)
+# Every run names the expired entries, so they get removed or renewed.
+if [ -n "$expired" ]; then
+  expired_lines | if [ "$quiet" = 1 ]; then cat >> "$run/report.txt"; else tee -a "$run/report.txt"; fi
+fi
 
 case $status in
   pass) code=0 ;; fail) code=1 ;; timeout) code=2 ;; flaky) code=3 ;; crash) code=4 ;; *) code=64 ;;
@@ -551,6 +646,11 @@ attempt_json() {
   printf '"load":{"start":%s,"end":%s,"cpus":%s},"orphansKilled":%s,"flaky":[' \
     "$load_start" "$load_end" "$(sysctl -n hw.ncpu)" "$orphans_killed"
   printf '%s\n' "$flaky" | awk -F "$us" '{ print $1 }' | { sep=""; while IFS= read -r n; do [ -n "$n" ] && printf '%s%s' "$sep" "$(json "$n")" && sep=,; done; }
+  printf '],"quarantined":['
+  printf '%s\n' "$quarantined" | { sep=""; while IFS="$us" read -r n d r; do
+    [ -n "$n" ] && printf '%s{"name":%s,"expires":%s,"reason":%s}' "$sep" "$(json "$n")" "$(json "$d")" "$(json "$r")" && sep=,; done; }
+  printf '],"quarantineExpired":['
+  printf '%s\n' "$expired" | awk -F "$us" '{ print $1 }' | { sep=""; while IFS= read -r n; do [ -n "$n" ] && printf '%s%s' "$sep" "$(json "$n")" && sep=,; done; }
   printf '],"attempts":['
   sep=""
   for a in "${attempts[@]}"; do
@@ -565,16 +665,16 @@ if [ "$quiet" = 0 ] && { [ "$status" = timeout ] || [ "$status" = crash ] || [ "
   tail -n 40 "$log_dir/chromium.log"
 fi
 if [ "$quiet" = 1 ]; then
-  # failing_lines <folder> <prefix>: the FAIL, FLAKY, TIMEOUT and NOT RUN lines and the RESULT lines of failing
-  # tests in the folder's report.txt.
+  # failing_lines <folder> <prefix>: the FAIL, FLAKY, QUARANTINED, QUARANTINE EXPIRED, TIMEOUT and NOT RUN lines and
+  # the RESULT lines of failing tests in the folder's report.txt.
   failing_lines() {
-    awk -v p="$2" '/^(FAIL|FLAKY) |^E2E: TIMEOUT |^NOT RUN |^RESULT [^ ]+ (fail|timeout)( |$)/ { print p $0 }' \
+    awk -v p="$2" '/^(FAIL|FLAKY|QUARANTINED) |^QUARANTINE EXPIRED |^E2E: TIMEOUT |^NOT RUN |^RESULT [^ ]+ (fail|timeout)( |$)/ { print p $0 }' \
       "$1/report.txt" 2>/dev/null
   }
   failing_lines "$run" ""
   if [ -d "$run/retry" ] && ! grep -q '^E2E: PASS ' "$run/retry/report.txt" 2>/dev/null; then failing_lines "$run/retry" "retry: "; fi
   # The app echoes Chromium's unexpected ERROR and FATAL lines to stderr; they matter only when a check failed.
-  if [ "$status" != pass ]; then
+  if [ "$status" != pass ] || [ -n "$quarantined" ]; then
     cat "$run/$output" "$run/retry/$output" 2>/dev/null | grep -E '(\[|:)(ERROR|FATAL):[^] ]+\] '
   fi
   # A run that could not start says why: what the app or the build lock printed.
