@@ -76,7 +76,8 @@ Bow keeps it in one file of its own, separate from the engine's session data.
 - A pane can leave the split, or be closed.
   The other panes share the freed width in proportion and, if the pane with focus left, focus goes to its neighbour (the pane before it, or the first pane).
   A pane that leaves without being closed becomes a plain tab right after the split.
-- A split left with one tab turns back into that plain tab, in the split's place, however the other tab left (closed, dragged to Favorites, moved to another Space or deleted): a split is for seeing two or more pages together, and one page is just a tab. A split with no tabs goes away. A saved file never holds a split of fewer than two tabs.
+- A split left with one tab turns back into that plain tab, in the split's place, however the other tab left (closed, dragged to Favorites, moved to another Space or deleted): a split is for seeing two or more pages together, and one page is just a tab. A split with no tabs goes away. A saved file never holds a split of fewer than two tabs. The cleanup happens in the same save as the change, and the app can read what it did (a split removed or turned back into a tab) to tell the person.
+- When a pane leaves a split by a plain delete or move, the panes that stay keep their proportions (a split of 2, 1 and 1 that loses the last pane reads as two thirds and one third).
 - Separating a split gives its tabs back as plain tabs in the split's place, in their order, in the section the split was in (so a pinned split gives pinned tabs).
 - Widths are shares of the split and always add up to one whole: setting any positive numbers (for example 2 and 1) is saved as shares (two thirds and one third).
   Bow refuses widths that are not positive numbers, that do not give every pane one number, or that leave a pane under a tenth of the split.
@@ -158,6 +159,7 @@ Bow keeps it in one file of its own, separate from the engine's session data.
     Try to add E: Bow refuses and the split keeps four panes.
 27. Remove B from the four panes: B is a plain tab right after the split, the others share its width, and if B had focus, A has it.
 28. In a split of A and B, remove A (or close either tab): the split is gone and the remaining tab is a plain tab where the split was; if A only left, A follows it.
+28b. In a split of A, B and C with widths 2, 1 and 1, close C: A and B read as two thirds and one third.
 29. Separate a split of three tabs: the three tabs sit where the split was, in order, and the split item is gone.
 30. Try to make a split from one tab, from five tabs, from a Favorite and a tab, from a pinned tab and an unpinned tab, or from a tab already in a split: Bow refuses each and changes nothing.
 31. Edit the file so a split has no tabs, and another has one tab, then relaunch: the empty split is gone, the one-tab split is a plain tab in its place, and the sidebar opens normally.

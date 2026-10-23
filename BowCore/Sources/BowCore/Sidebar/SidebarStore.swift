@@ -38,6 +38,10 @@ public final class SidebarStore {
     public private(set) var graph: SidebarGraph
     /// Whether the committed graph has changes the file does not have yet.
     public private(set) var hasUnsavedChanges: Bool
+    /// What the most recent commit did to split views that a change left with too few tabs (removed, dissolved into
+    /// the remaining tab) or too many. Empty when it did none, and replaced by every commit, so a caller reads it right
+    /// after the commit it cares about.
+    public private(set) var lastCommitRepairs: [SidebarRepair] = []
     public let openReport: OpenReport
     public var isInTransaction: Bool { draft != nil }
 
@@ -136,15 +140,17 @@ public final class SidebarStore {
         // A split left with fewer than two tabs by any change (a move to Favorites or another Space, a delete) is
         // cleaned up here, so no path has to remember it and a committed graph never holds one.
         var splitFixes: [SidebarRepair] = []
-        draft.repairSplits(&splitFixes)
+        draft.repairSplits(&splitFixes, previous: graph)
         guard draft != graph else {
             // Nothing changed, but retry a write an earlier commit could not finish.
+            lastCommitRepairs = []
             try save()
             return
         }
         let problems = draft.integrityProblems()
         guard problems.isEmpty else { throw .integrityCheckFailed(problems) }
         graph = draft
+        lastCommitRepairs = splitFixes
         hasUnsavedChanges = true
         try save()
     }
