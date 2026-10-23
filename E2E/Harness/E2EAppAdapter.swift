@@ -215,6 +215,8 @@ private final class TabPage: E2EPage {
     var navigationPolicy: ((URL) -> Bool)?
     var leavePromptAnswer = true
     private(set) var leavePrompts = 0
+    /// The last find result the tab reported.
+    private(set) var lastFindResult: E2EFindResult?
 
     /// Counts a leave prompt the page's tab asked and returns its answer.
     func answerLeavePrompt() -> Bool {
@@ -257,6 +259,9 @@ private final class TabPage: E2EPage {
             navigationEvents.append(E2ENavigationEvent(kind: .fail, url: navigation.url, code: error.code))
             let url = navigation.url.absoluteString
             loadFinished(.failure(E2EError("loading \(url) failed: \(error.code) \(error.description)")))
+        case .findResult(let result):
+            lastFindResult = E2EFindResult(
+                matches: result.matchCount, active: result.activeMatch, isFinal: result.isFinal)
         case .closed:
             // Let go of a tab that closes during the run. At quit this comes too late (it runs after the engine
             // may have shut down), so quit() also drops every page, and with it the session, before quitting.
@@ -268,6 +273,31 @@ private final class TabPage: E2EPage {
         default:
             break
         }
+    }
+
+    func openFindBar() throws -> any E2EFindBar {
+        guard let window = controller.window else { throw E2EError("the page has no window") }
+        guard let item = Self.menuItem(keyEquivalent: "f", in: NSApp.mainMenu) else {
+            throw E2EError("no menu item has the key equivalent Cmd+F")
+        }
+        guard let action = item.action else { throw E2EError("the Cmd+F menu item has no action") }
+        // The menu sends its action along the key window's responder chain. The e2e window is never key, so send
+        // it along this window's chain the same way.
+        let responder: NSResponder = window.firstResponder ?? window
+        guard responder.tryToPerform(action, with: item) else {
+            throw E2EError("nothing in the window's responder chain handles \(action)")
+        }
+        let bar = WindowFindBar(page: self, window: window)
+        guard bar.isShown else { throw E2EError("the find bar did not show") }
+        return bar
+    }
+
+    private static func menuItem(keyEquivalent: String, in menu: NSMenu?) -> NSMenuItem? {
+        for item in menu?.items ?? [] {
+            if item.keyEquivalent == keyEquivalent, item.keyEquivalentModifierMask == .command { return item }
+            if let found = menuItem(keyEquivalent: keyEquivalent, in: item.submenu) { return found }
+        }
+        return nil
     }
 
     func waitForLoad(after finishedLoads: Int) async throws -> Int {
@@ -296,6 +326,66 @@ private final class TabPage: E2EPage {
         let ready = loadWaiters.filter { $0.load == loads.count }
         loadWaiters.removeAll { $0.load == loads.count }
         for waiter in ready { waiter.continuation.resume(with: result.mapError { $0 as Error }) }
+    }
+}
+
+/// E2EFindBar over a window controller's find bar. Keys go to the window's first responder as key events, which is
+/// where the window would deliver them if it were key.
+@MainActor
+private final class WindowFindBar: E2EFindBar {
+    private let page: TabPage
+    private let window: NSWindow
+    private var findBar: FindBar { page.controller.findBar }
+
+    init(page: TabPage, window: NSWindow) {
+        self.page = page
+        self.window = window
+    }
+
+    var isShown: Bool { !findBar.isHidden && findBar.window === window }
+    var hasKeyboard: Bool {
+        guard let editor = findBar.field.currentEditor() else { return false }
+        return window.firstResponder === editor
+    }
+    var count: String { findBar.countLabel.stringValue }
+    var text: String { findBar.text }
+    var lastResult: E2EFindResult? { page.lastFindResult }
+
+    func type(_ text: String) throws {
+        for character in text {
+            try send(String(character), keyCode: 0, modifiers: [])
+        }
+    }
+
+    func press(_ key: E2EFindKey) throws {
+        switch key {
+        case .enter: try send("\r", keyCode: 36, modifiers: [])
+        case .shiftEnter: try send("\r", keyCode: 36, modifiers: .shift)
+        case .escape: try send("\u{1b}", keyCode: 53, modifiers: [])
+        }
+    }
+
+    private func send(_ characters: String, keyCode: UInt16, modifiers: NSEvent.ModifierFlags) throws {
+        guard hasKeyboard, let responder = window.firstResponder else {
+            throw E2EError("the keyboard is not in the find bar's field")
+        }
+        for type in [NSEvent.EventType.keyDown, .keyUp] {
+            guard
+                let event = NSEvent.keyEvent(
+                    with: type,
+                    location: .zero,
+                    modifierFlags: modifiers,
+                    timestamp: ProcessInfo.processInfo.systemUptime,
+                    windowNumber: window.windowNumber,
+                    context: nil,
+                    characters: characters,
+                    charactersIgnoringModifiers: characters,
+                    isARepeat: false,
+                    keyCode: keyCode
+                )
+            else { throw E2EError("cannot make a key event for \(characters.debugDescription)") }
+            if type == .keyDown { responder.keyDown(with: event) } else { responder.keyUp(with: event) }
+        }
     }
 }
 

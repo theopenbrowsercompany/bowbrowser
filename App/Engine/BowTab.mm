@@ -11,6 +11,7 @@
 #endif
 #include "include/cef_browser.h"
 #include "include/cef_client.h"
+#include "include/cef_find_handler.h"
 
 namespace {
 
@@ -239,6 +240,35 @@ NSArray<BowContextMenuItem*>* MenuItems(CefRefPtr<CefMenuModel> model) {
 
 @end
 
+#pragma mark - BowFindResult
+
+@interface BowFindResult ()
+- (instancetype)initWithMatchCount:(NSInteger)matchCount
+                       activeMatch:(NSInteger)activeMatch
+                       finalUpdate:(BOOL)finalUpdate NS_DESIGNATED_INITIALIZER;
+@end
+
+@implementation BowFindResult
+
+- (instancetype)initWithMatchCount:(NSInteger)matchCount
+                       activeMatch:(NSInteger)activeMatch
+                       finalUpdate:(BOOL)finalUpdate {
+  self = [super init];
+  if (self) {
+    _matchCount = matchCount;
+    _activeMatch = activeMatch;
+    _finalUpdate = finalUpdate;
+  }
+  return self;
+}
+
+- (NSString*)description {
+  return [NSString stringWithFormat:@"<BowFindResult %ld of %ld%@>", (long)_activeMatch, (long)_matchCount,
+                                    _finalUpdate ? @" final" : @""];
+}
+
+@end
+
 #pragma mark - BowTab
 
 class BowTabClient;
@@ -256,6 +286,13 @@ class BowTabClient;
   BOOL _navigationCommitted;
   // YES once the app stopped the navigation in progress.
   BOOL _stopRequested;
+  // The text of the search in progress; nil while not finding, so late results of a stopped search drop.
+  NSString* _findText;
+  // The highest search identifier the engine has reported, so results of a replaced search drop.
+  int _findIdentifier;
+  // What that search has reported so far, since each report carries only what changed.
+  int _findMatchCount;
+  int _findActiveMatch;
 }
 @property(nonatomic, readwrite) BowTabState* state;
 @property(nonatomic, readwrite, getter=isClosed) BOOL closed;
@@ -286,6 +323,10 @@ class BowTabClient;
 - (void)requestPermission:(BowPermissionRequest*)request answer:(void (^)(BowPermissionDecision))answer;
 - (void)runContextMenu:(BowContextMenuRequest*)request callback:(CefRefPtr<CefRunContextMenuCallback>)callback;
 - (void)renderProcessTerminated:(BowProcessGoneReason)reason;
+- (void)findResultForSearch:(int)identifier
+                      count:(int)count
+                activeMatch:(int)activeMatch
+                finalUpdate:(BOOL)finalUpdate;
 @end
 
 namespace {
@@ -348,7 +389,8 @@ class BowTabClient : public CefClient,
                      public CefJSDialogHandler,
                      public CefRequestHandler,
                      public CefPermissionHandler,
-                     public CefContextMenuHandler {
+                     public CefContextMenuHandler,
+                     public CefFindHandler {
  public:
   explicit BowTabClient(BowTab* tab) : tab_(tab) {}
 
@@ -359,6 +401,7 @@ class BowTabClient : public CefClient,
   CefRefPtr<CefRequestHandler> GetRequestHandler() override { return this; }
   CefRefPtr<CefPermissionHandler> GetPermissionHandler() override { return this; }
   CefRefPtr<CefContextMenuHandler> GetContextMenuHandler() override { return this; }
+  CefRefPtr<CefFindHandler> GetFindHandler() override { return this; }
 
   // CefLifeSpanHandler
 
@@ -492,6 +535,18 @@ class BowTabClient : public CefClient,
   void OnFullscreenModeChange(CefRefPtr<CefBrowser> browser, bool fullscreen) override {
     if (browser->IsPopup()) return;
     [tab_ fullscreenChanged:fullscreen];
+  }
+
+  // CefFindHandler
+
+  void OnFindResult(CefRefPtr<CefBrowser> browser,
+                    int identifier,
+                    int count,
+                    const CefRect& selectionRect,
+                    int activeMatchOrdinal,
+                    bool finalUpdate) override {
+    if (browser->IsPopup()) return;
+    [tab_ findResultForSearch:identifier count:count activeMatch:activeMatchOrdinal finalUpdate:finalUpdate];
   }
 
   // CefLoadHandler
@@ -1095,6 +1150,49 @@ class BowTabClient : public CefClient,
                          [delegate tab:tab renderProcessDidTerminate:reason];
                        }
                  otherwise:nil];
+}
+
+#pragma mark Find in page
+
+- (void)findResultForSearch:(int)identifier
+                      count:(int)count
+                activeMatch:(int)activeMatch
+                finalUpdate:(BOOL)finalUpdate {
+  if (!_findText || identifier < _findIdentifier) return;
+  if (identifier > _findIdentifier) {
+    _findIdentifier = identifier;
+    _findMatchCount = 0;
+    _findActiveMatch = 0;
+  }
+  // Each report carries only what changed: -1 means the count or the position is as last reported.
+  if (count >= 0) _findMatchCount = count;
+  if (activeMatch >= 0) _findActiveMatch = activeMatch;
+  BowFindResult* result = [[BowFindResult alloc] initWithMatchCount:_findMatchCount
+                                                        activeMatch:_findActiveMatch
+                                                        finalUpdate:finalUpdate];
+  id<BowTabUIDelegate> delegate = self.uiDelegate;
+  if ([delegate respondsToSelector:@selector(tab:didUpdateFindResult:)]) {
+    [delegate tab:self didUpdateFindResult:result];
+  }
+}
+
+- (void)findText:(NSString*)text forward:(BOOL)forward matchCase:(BOOL)matchCase {
+  if (!_browser) return;
+  if (text.length == 0) {
+    [self stopFind];
+    return;
+  }
+  _findText = [text copy];
+  // Always a follow-up: Chromium restarts the search itself when the text or case changed, and a first request
+  // (findNext false) only highlights, selecting no active match.
+  _browser->GetHost()->Find(text.UTF8String, forward, matchCase, true);
+}
+
+- (void)stopFind {
+  if (!_browser || !_findText) return;
+  _findText = nil;
+  // Keeping the selection makes the active match the page's selection, as Escape does in other browsers.
+  _browser->GetHost()->StopFinding(false);
 }
 
 #pragma mark Commands

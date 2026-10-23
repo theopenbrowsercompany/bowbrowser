@@ -9,6 +9,10 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
 
     /// Shows the selected tab. Switching tabs shows another tab here; pages are never reloaded by a switch.
     let webView: BowWebView
+    /// The find in page bar, floating over the page's top right corner while shown (Cmd+F).
+    let findBar = FindBar()
+    /// The tab the find bar searches in while it is shown; the bar closes when another tab is shown.
+    private var findTab: (any EngineTab)?
     /// The window's open tabs, in order.
     private(set) var tabs: [any EngineTab] = []
     /// Called when the window has closed, so the owner can let go of this controller.
@@ -44,7 +48,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
         self.profile = profile
         window.title = "Bow"
         window.isReleasedWhenClosed = false
-        window.contentView = webView
+        window.contentView = Self.contentView(webView: webView, findBar: findBar)
         if givenWindow == nil { window.center() }
         super.init(window: window)
         if givenWindow != nil {
@@ -53,7 +57,25 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
         }
         window.delegate = self
         navigationToolbar.install(in: window, target: self)
+        findBar.onTextChange = { [weak self] _ in self?.runFind(forward: true) }
+        findBar.onStep = { [weak self] forward in self?.runFind(forward: forward) }
+        findBar.onClose = { [weak self] in self?.closeFindBar() }
         openTab(url: url)
+    }
+
+    /// The window's content: the web view filling it, with the hidden find bar over its top right corner.
+    private static func contentView(webView: BowWebView, findBar: FindBar) -> NSView {
+        let content = NSView(frame: webView.frame)
+        webView.autoresizingMask = [.width, .height]
+        content.addSubview(webView)
+        findBar.isHidden = true
+        findBar.translatesAutoresizingMaskIntoConstraints = false
+        content.addSubview(findBar)
+        NSLayoutConstraint.activate([
+            findBar.topAnchor.constraint(equalTo: content.topAnchor, constant: 12),
+            findBar.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -16),
+        ])
+        return content
     }
 
     @available(*, unavailable)
@@ -74,6 +96,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
     /// Shows `tab`, one of this window's tabs.
     func select(_ tab: any EngineTab) {
         guard tabs.contains(where: { $0 === tab }) else { return }
+        if let findTab, findTab !== tab { closeFindBar() }
         webView.show(tab)
         updateTitle()
         updateNavigationControls()
@@ -97,6 +120,8 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
                 updateTitle()
                 updateNavigationControls()
             }
+        case .findResult(let result):
+            if tab === findTab { findBar.show(result) }
         case .closed:
             // A tab closes from this window, from quitting or from its page; the window follows its last tab.
             tabClosed(tab)
@@ -110,7 +135,62 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
         navigationPolicy?(tab, navigation) ?? .allow
     }
 
+    // MARK: Find in page
+
+    /// Edit > Find (Cmd+F): shows the find bar over the shown tab with the keyboard in its field, searching again
+    /// for the text it kept from last time.
+    @objc func showFindBar(_ sender: Any?) {
+        guard let tab = selectedTab else { return }
+        let wasShown = !findBar.isHidden
+        findTab = tab
+        findBar.isHidden = false
+        findBar.focus()
+        if !wasShown { runFind(forward: true) }
+    }
+
+    /// Edit > Find Next (Cmd+G), also Enter in the find bar.
+    @objc func findNext(_ sender: Any?) {
+        stepFind(forward: true)
+    }
+
+    /// Edit > Find Previous (Shift+Cmd+G), also Shift+Enter in the find bar.
+    @objc func findPrevious(_ sender: Any?) {
+        stepFind(forward: false)
+    }
+
+    private func stepFind(forward: Bool) {
+        if findBar.isHidden { showFindBar(nil) }
+        runFind(forward: forward)
+    }
+
+    /// Searches the find bar's tab for the bar's text: a new search when the text changed, otherwise a step to the
+    /// next or previous match. Empty text stops the search and clears the count.
+    private func runFind(forward: Bool) {
+        guard let findTab else { return }
+        let text = findBar.text
+        if text.isEmpty {
+            findTab.stopFind()
+            findBar.show(nil)
+        } else {
+            findTab.find(text, forward: forward, matchCase: false)
+        }
+    }
+
+    /// Hides the find bar and stops its search, clearing the page's highlights. The bar keeps its text for next
+    /// time, and the keyboard goes back to the page.
+    func closeFindBar() {
+        guard let tab = findTab else { return }
+        findTab = nil
+        tab.stopFind()
+        findBar.show(nil)
+        let hadKeyboard = findBar.field.currentEditor() != nil
+        findBar.isHidden = true
+        // Chromium's view, which BowWebView holds while it shows a tab, takes the keyboard.
+        if hadKeyboard { window?.makeFirstResponder(webView.subviews.first) }
+    }
+
     private func tabClosed(_ tab: any EngineTab) {
+        if tab === findTab { closeFindBar() }
         guard let index = tabs.firstIndex(where: { $0 === tab }) else { return }
         tabs.remove(at: index)
         if selectedTab == nil, !tabs.isEmpty {

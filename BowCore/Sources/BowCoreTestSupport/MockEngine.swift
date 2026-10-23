@@ -82,6 +82,8 @@ import Foundation
         case goForward
         case reload
         case stop
+        case find(String, forward: Bool, matchCase: Bool)
+        case stopFind
         case close
     }
 
@@ -110,6 +112,10 @@ import Foundation
     public func goForward() { calls.append(.goForward) }
     public func reload() { calls.append(.reload) }
     public func stop() { calls.append(.stop) }
+    public func find(_ text: String, forward: Bool, matchCase: Bool) {
+        calls.append(.find(text, forward: forward, matchCase: matchCase))
+    }
+    public func stopFind() { calls.append(.stopFind) }
 
     public func close() async -> Bool {
         calls.append(.close)

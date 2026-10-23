@@ -7,10 +7,11 @@
 
 @class BowTab;
 @class BowTabState;
+@class BowFindResult;
 
 NS_ASSUME_NONNULL_BEGIN
 
-/// Receives one tab's requests for UI, always on the main thread. State and fullscreen changes come inside the
+/// Receives one tab's requests for UI, always on the main thread. State, fullscreen and find result changes come inside the
 /// engine callback that produced them; close, popups, dialogs, permissions, context menus and render process exits
 /// come on a later main thread task, so the app may show modal UI from them. A tab holds its UI
 /// delegate weakly.
@@ -73,6 +74,10 @@ NS_SWIFT_UI_ACTOR
 /// `TabEvent.renderProcessGone`).
 - (void)tab:(BowTab *)tab renderProcessDidTerminate:(BowProcessGoneReason)reason
     NS_SWIFT_NAME(tab(_:renderProcessGone:));
+
+/// A search started by `findText:forward:matchCase:` found matches or moved the active one (mirrors
+/// `TabEvent.findResult`). One search can report several times as the engine counts; the last has `finalUpdate`.
+- (void)tab:(BowTab *)tab didUpdateFindResult:(BowFindResult *)result NS_SWIFT_NAME(tab(_:didUpdateFindResult:));
 
 @end
 
