@@ -18,6 +18,8 @@ final class SidebarFeature: NSResponder, BrowserWindowFeature, SidebarViewDelega
     private var faviconReported: [BrowserTabID: URL] = [:]
     /// The runtime ID of each tab of the Space on screen, as last shown.
     private var runtimeIDs: [SidebarItemID: BrowserTabID] = [:]
+    /// The folders being deleted with their tabs, while their pages are asked to close.
+    private var deletingFolders: Set<SidebarItemID> = []
 
     init(window: BrowserWindowController) {
         self.window = window
@@ -152,29 +154,48 @@ final class SidebarFeature: NSResponder, BrowserWindowFeature, SidebarViewDelega
     }
 
     /// The folder's tabs go one at a time, each looked up again from the store, so a tab dragged in or out while a
-    /// leave prompt waits is closed or left as it is then. Tabs without a page leave the store at once (they have no
-    /// page to ask), and each closed tab leaves it right after closing (a pinned tab only unloads), so the tab the
-    /// window makes active after a close is never one of the folder's saved tabs, which would load it.
+    /// leave prompt waits is closed or left as it is then; each closed tab leaves the store right after closing (a
+    /// pinned tab only unloads). Nothing else leaves the store until every open page has closed: the folder's tabs
+    /// without a page go with the folder in the last change, so a page asking to stay keeps the folder and all it
+    /// holds. The delete stops, keeping what is left, when the folder is no longer in the Space on screen (the person
+    /// switched Space or dragged it to another), as only that Space's open pages can be found, and a folder is never
+    /// deleted while a page in it may still be open. While it runs, a second delete of the folder, a folder inside it
+    /// or one around it only beeps, so no page is asked twice.
     func deleteWithTabs(_ item: SidebarItemID) {
-        guard case .folder? = window.store.graph[item]?.data, let space = window.store.graph.activeSpaceID else {
+        let graph = window.store.graph
+        guard case .folder? = graph[item]?.data, let space = graph.activeSpaceID,
+            graph.spaceID(containing: item) == space
+        else { return }
+        guard
+            !deletingFolders.contains(where: {
+                $0 == item || graph.isDescendant($0, of: item) || graph.isDescendant(item, of: $0)
+            })
+        else {
+            NSSound.beep()
             return
         }
+        deletingFolders.insert(item)
         moveActiveTab(outOf: item, in: space)
-        dropUnloadedTabs(in: item, space: space)
         // Held strongly, as a close can free the window before the task runs.
         let owner = window
         Task { [weak self] in
-            while let self, owner.store.graph[item] != nil {
+            defer { self?.deletingFolders.remove(item) }
+            while let self {
                 let graph = owner.store.graph
+                guard graph[item] != nil, graph.activeSpaceID == space, graph.spaceID(containing: item) == space else {
+                    return
+                }
                 let inside = graph.tabIDs(in: space).filter { graph.isDescendant($0, of: item) }
                 guard let tab = inside.first(where: { self.loadedID(of: $0) != nil }), let id = self.loadedID(of: tab)
-                else { break }
+                else {
+                    // No page in the folder is open: the folder goes with its saved tabs in one change.
+                    owner.changeSidebar { try $0.apply([.delete(item)]) }
+                    return
+                }
                 self.moveActiveTab(outOf: item, in: space)
                 guard await owner.closeTab(id: id) else { return }
                 if owner.store.graph[tab] != nil { owner.changeSidebar { try $0.apply([.delete(tab)]) } }
             }
-            guard owner.store.graph[item] != nil else { return }
-            owner.changeSidebar { try $0.apply([.delete(item)]) }
         }
     }
 
@@ -195,16 +216,6 @@ final class SidebarFeature: NSResponder, BrowserWindowFeature, SidebarViewDelega
         if let next = after ?? before { select(next) }
     }
 
-    /// Takes the tabs inside folder `item` that have no page out of the store.
-    private func dropUnloadedTabs(in item: SidebarItemID, space: SidebarSpaceID) {
-        let graph = window.store.graph
-        let unloaded = graph.tabIDs(in: space).filter { graph.isDescendant($0, of: item) && loadedID(of: $0) == nil }
-        guard !unloaded.isEmpty else { return }
-        window.changeSidebar { store in
-            try store.transaction { for tab in unloaded { try store.mutate(.delete(tab)) } }
-        }
-    }
-
     func confirm(_ message: String, detail: String, action: String, confirmed: @escaping @MainActor () -> Void) {
         guard let sheetParent = window.window, sheetParent.attachedSheet == nil else {
             // Another sheet (a page's dialog) is up: the person hears that the action cannot ask now.
@@ -215,8 +226,11 @@ final class SidebarFeature: NSResponder, BrowserWindowFeature, SidebarViewDelega
         alert.alertStyle = .warning
         alert.messageText = message
         alert.informativeText = detail
-        alert.addButton(withTitle: action).hasDestructiveAction = true
-        alert.addButton(withTitle: "Cancel")
+        // Return answers Cancel, never the destructive action, which takes a click.
+        let destructive = alert.addButton(withTitle: action)
+        destructive.hasDestructiveAction = true
+        destructive.keyEquivalent = ""
+        alert.addButton(withTitle: "Cancel").keyEquivalent = "\r"
         alert.beginSheetModal(for: sheetParent) { response in
             guard response == .alertFirstButtonReturn else { return }
             MainActor.assumeIsolated { confirmed() }
