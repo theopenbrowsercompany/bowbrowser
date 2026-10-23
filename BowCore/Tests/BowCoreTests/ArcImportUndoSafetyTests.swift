@@ -157,9 +157,10 @@ private func children(_ id: SidebarItemID, in graph: SidebarGraph) -> [SidebarIt
             let graph = seeded.store.graph
             #expect(graph.items["opened"] != nil)
             #expect(graph.spaceID(containing: "opened") == seeded.home)
-            #expect(graph.activeSpace != nil)
+            // The person lands in the Space that took over their tab, and the tab is still the selected one.
+            #expect(graph.activeSpaceID == seeded.home)
+            #expect(graph.activeTabID == "opened")
             #expect(graph.integrityProblems().isEmpty)
-            #expect(!applied.spaceIDs.contains(try #require(graph.activeSpaceID)))
         }
     }
 

@@ -26,7 +26,8 @@ public struct ArcImportApplied: Equatable, Sendable {
     /// - In each imported Space, exactly the items the import inserted are deleted. Anything else found there (an
     ///   existing tab or folder the person moved in, a tab opened there since) moves, with what is inside it, to the
     ///   end of the same section (pinned or unpinned) of the first Space that is not an imported one, in the order it
-    ///   had. Then the imported Space is deleted.
+    ///   had. Then the imported Space is deleted. If an imported Space was on screen, that first Space comes on
+    ///   screen instead. The kept items change profile when the imported Space had one of its own.
     /// - Items of the import that the person moved out of an imported Space stay where they are. Anything already
     ///   gone is skipped.
     ///
@@ -66,6 +67,12 @@ public struct ArcImportApplied: Equatable, Sendable {
                                 undone.keptItemIDs.append(id)
                             }
                         }
+                    }
+                    // Deleting the Space on screen would otherwise pick a neighbour, which may be another imported
+                    // Space. The person lands in the Space that took over their items instead, with a tab they
+                    // had selected in the imported Space still selected.
+                    if let active = before.activeSpaceID, importedSpaces.contains(active) {
+                        try store.mutate(.setActiveSpace(destination.id))
                     }
                     for space in present { try store.mutate(.deleteSpace(space.id)) }
                     try store.mutate(.reconcileSelectedTab)
@@ -213,14 +220,11 @@ extension ArcImporter {
         try apply(preview(result, plan: plan), to: store)
     }
 
-    /// Inserts a node and everything under it, returning the new item's ID.
-    @discardableResult
+    /// Inserts a node and everything under it, adding each new item's ID to `inserted`.
     private static func insert(
         _ node: ArcImportPreviewNode, under parent: SidebarItemID, in store: SidebarStore,
         into inserted: inout [SidebarItemID]
-    )
-        throws -> SidebarItemID
-    {
+    ) throws {
         let item: SidebarItem
         switch node.kind {
         case .tab: item = .tab(url: node.url ?? "", title: node.savedTitle, customTitle: node.customName)
@@ -230,7 +234,6 @@ extension ArcImporter {
         try store.mutate(.insert(item, parent: parent))
         inserted.append(item.id)
         for child in node.children { try insert(child, under: item.id, in: store, into: &inserted) }
-        return item.id
     }
 }
 

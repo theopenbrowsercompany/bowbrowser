@@ -58,7 +58,8 @@ The file picker and the wizard screens are separate pieces of work.
 - Applying returns a record that takes the import out again in one transaction, and the record knows exactly which items the import inserted.
   Undo deletes only those, so it never removes anything the person added or moved since:
   - Anything else found inside an imported Space (an existing tab or folder moved in, a tab opened there) moves, with what is inside it, to the end of the same section (pinned or unpinned) of the first Space that is not an imported one, in the order it had.
-    Then the imported Space is deleted.
+    Then the imported Space is deleted, and if an imported Space was on screen, that first Space comes on screen instead.
+    Kept items take the profile of the Space they move to, which matters when the imported Space had a profile of its own.
   - Items the person moved out of an imported Space stay where they are now, and anything already gone is skipped.
   - The Favorites the import added are deleted, except one the person moved out of the Favorites section it was added to.
   - If only imported Spaces are left, there is no Space to take what the person added, so undo is refused with a clear reason and changes nothing.
