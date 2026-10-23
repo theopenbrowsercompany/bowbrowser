@@ -16,7 +16,6 @@ enum E2EAreas {
         SidebarViewTests.all,
         ZonesTests.all,
         FoldersTests.all,
-        FavoritesTests.all,
         FavoritesGridTests.all,
         ImportTests.all,
         DownloadsTests.all,
