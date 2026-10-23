@@ -25,10 +25,8 @@ extension SidebarTab {
     /// path versus "/", and a `#fragment`. A different path or query counts as a different page. A tab with no live
     /// page (not loaded yet, or unloaded) or with no saved address has not navigated away.
     public func hasNavigatedAway(from liveURL: URL?) -> Bool {
-        guard let liveURL else { return false }
-        let saved = savedURL.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !saved.isEmpty else { return false }
-        return Self.comparisonKey(saved) != Self.comparisonKey(liveURL.absoluteString)
+        guard let liveURL, let saved = savedPageURL else { return false }
+        return Self.comparisonKey(saved.absoluteString) != Self.comparisonKey(liveURL.absoluteString)
     }
 
     private static func comparisonKey(_ text: String) -> String {
@@ -36,10 +34,29 @@ extension SidebarTab {
         parts.scheme = parts.scheme?.lowercased()
         parts.host = parts.host?.lowercased()
         parts.fragment = nil
+        if parts.query?.isEmpty == true { parts.query = nil }
         let defaultPorts = ["http": 80, "https": 443]
         if let port = parts.port, let scheme = parts.scheme, defaultPorts[scheme] == port { parts.port = nil }
         if parts.percentEncodedPath.isEmpty, parts.host != nil { parts.percentEncodedPath = "/" }
-        return parts.string ?? text
+        return parts.string.map(uppercasingPercentEscapes) ?? text
+    }
+
+    /// "%2f" and "%2F" name the same character.
+    private static func uppercasingPercentEscapes(_ text: String) -> String {
+        var result = ""
+        var remainingDigits = 0
+        for character in text {
+            if character == "%" {
+                remainingDigits = 2
+                result.append(character)
+            } else if remainingDigits > 0 {
+                remainingDigits -= 1
+                result.append(contentsOf: character.uppercased())
+            } else {
+                result.append(character)
+            }
+        }
+        return result
     }
 }
 
@@ -54,7 +71,16 @@ extension SidebarGraph {
 
     /// The pinned tabs of a Space in sidebar order, including those inside folders and splits.
     public func pinnedTabIDs(in spaceID: SidebarSpaceID) -> [SidebarItemID] {
-        tabIDs(in: spaceID).filter { isPinned($0) }
+        guard let space = space(spaceID) else { return [] }
+        var result: [SidebarItemID] = []
+        var seen: Set<SidebarItemID> = []
+        func visit(_ id: SidebarItemID) {
+            guard let item = items[id], seen.insert(id).inserted else { return }
+            if item.data.isTab { result.append(id) }
+            item.childrenIDs.forEach(visit)
+        }
+        visit(space.pinnedContainerID)
+        return result
     }
 
     /// Whether a pinned tab showing `liveURL` has left its saved address, which is when the sidebar offers "Back to
@@ -73,6 +99,7 @@ extension SidebarGraph {
     }
 
     /// What closing a tab does to its item: a pinned tab only unloads and stays in the sidebar, any other tab leaves.
+    /// A Favorites tab is not covered here: the Favorites feature decides its own close rule.
     public func closeOutcome(for id: SidebarItemID) -> TabCloseOutcome {
         isPinned(id) ? .unloadKeepingInSidebar : .removeFromSidebar
     }
@@ -119,6 +146,7 @@ extension SidebarStore {
         try transaction {
             if let page { try mutate(.setSavedPage(id, url: page.url.absoluteString, title: page.title)) }
             try mutate(.move(id, parent: space.unpinnedContainerID, index: index))
+            try mutate(.reconcileSelectedTab)
         }
         return true
     }
@@ -131,6 +159,7 @@ extension SidebarStore {
         guard graph.isPinned(id), let parent = graph[id]?.parentID else {
             throw SidebarStoreError.invalidHierarchy("\(id) is not pinned")
         }
+        try requireNotInSplit(id, in: graph)
         try transaction { try mutate(.move(id, parent: parent, index: index)) }
     }
 
