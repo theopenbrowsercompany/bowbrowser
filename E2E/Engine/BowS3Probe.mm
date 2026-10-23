@@ -21,6 +21,13 @@ uint64_t MachToNanoseconds(uint64_t machTime) {
   return machTime * timebase.numer / timebase.denom;
 }
 
+// Held between startTaskManager and stopTaskManager: Chromium's task manager refreshes its figures only while CEF's
+// task manager object lives, so a reading from one made on the spot is all zeros.
+CefRefPtr<CefTaskManager>& HeldTaskManager() {
+  static CefRefPtr<CefTaskManager> manager;
+  return manager;
+}
+
 CefRefPtr<CefBrowserHost> HostOf(uint64_t tabID) {
   CefRefPtr<CefBrowser> browser = BowEngineBrowserForTabID(tabID);
   return browser ? browser->GetHost() : nullptr;
@@ -91,9 +98,17 @@ CefRefPtr<CefBrowserHost> HostOf(uint64_t tabID) {
   return YES;
 }
 
++ (void)startTaskManager {
+  if (!HeldTaskManager()) HeldTaskManager() = CefTaskManager::GetTaskManager();
+}
+
++ (void)stopTaskManager {
+  HeldTaskManager() = nullptr;
+}
+
 + (BowS3TaskSample*)taskSampleForTab:(uint64_t)tabID {
   CefRefPtr<CefBrowser> browser = BowEngineBrowserForTabID(tabID);
-  CefRefPtr<CefTaskManager> manager = CefTaskManager::GetTaskManager();
+  CefRefPtr<CefTaskManager> manager = HeldTaskManager();
   if (!browser || !manager) return nil;
   const int64_t task = manager->GetTaskIdForBrowserId(browser->GetIdentifier());
   if (task < 0) return nil;

@@ -114,25 +114,24 @@ final class E2ES3Top {
             + pids.flatMap { ["-pid", String($0)] }
         process.standardOutput = pipe
         process.standardError = FileHandle.nullDevice
-        let reader = pipe.fileHandleForReading
-        let output = E2ES3Output()
-        // Read as it comes, so a full pipe can never stall top.
-        reader.readabilityHandler = { handle in output.append(handle.availableData) }
-        process.terminationHandler = { finished in
-            let status = finished.terminationStatus
-            reader.readabilityHandler = nil
-            output.append(reader.readDataToEndOfFile())
-            let text = output.text
+        do {
+            try process.run()
+        } catch {
+            result = .failure(E2EError("top did not start: \(error.localizedDescription)"))
+            return
+        }
+        // Reads everything top writes until it closes its output, so a full pipe never stalls it, then waits for it
+        // to exit.
+        let running = E2ES3Running(process: process, reader: pipe.fileHandleForReading)
+        DispatchQueue.global(qos: .utility).async {
+            let text = String(decoding: running.reader.readDataToEndOfFile(), as: UTF8.self)
+            running.process.waitUntilExit()
+            let status = running.process.terminationStatus
             DispatchQueue.main.async {
                 MainActor.assumeIsolated {
                     self.finish(status == 0 ? .success(text) : .failure(E2EError("top exited with \(status)")))
                 }
             }
-        }
-        do {
-            try process.run()
-        } catch {
-            result = .failure(E2EError("top did not start: \(error.localizedDescription)"))
         }
     }
 
@@ -165,7 +164,10 @@ final class E2ES3Top {
         let lines = text.components(separatedBy: "\n")
         guard let header = lines.lastIndex(where: { $0.hasPrefix("PID") && $0.contains("POWER") }) else { return [] }
         return lines[(header + 1)...].compactMap { line in
-            let fields = line.split(separator: " ", omittingEmptySubsequences: true).map(String.init)
+            // top marks a figure that changed since its last sample with a trailing + or - (`202999+`).
+            let fields = line.split(separator: " ", omittingEmptySubsequences: true).map {
+                String($0).trimmingCharacters(in: CharacterSet(charactersIn: "+-*"))
+            }
             guard fields.count >= 5, let pid = Int(fields[0]), let power = Double(fields[fields.count - 1]),
                 let idle = Double(fields[fields.count - 2]), let cpu = Double(fields[fields.count - 3])
             else { return nil }
@@ -175,22 +177,11 @@ final class E2ES3Top {
     }
 }
 
-/// Bytes top writes, gathered from its reading thread.
-private final class E2ES3Output: @unchecked Sendable {
-    private let lock = NSLock()
-    private var data = Data()
-
-    func append(_ more: Data) {
-        lock.lock()
-        data.append(more)
-        lock.unlock()
-    }
-
-    var text: String {
-        lock.lock()
-        defer { lock.unlock() }
-        return String(decoding: data, as: UTF8.self)
-    }
+/// The running top and its output, handed to the thread that reads it; only that thread uses them after the start
+/// (`stop` only sends a signal).
+private struct E2ES3Running: @unchecked Sendable {
+    let process: Process
+    let reader: FileHandle
 }
 
 /// The 1, 5 and 15 minute load averages.

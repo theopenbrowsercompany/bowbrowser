@@ -42,8 +42,12 @@ NS_ASSUME_NONNULL_BEGIN
 + (BOOL)isAudioMutedForTab:(uint64_t)tabID;
 /// Calls SetWindowlessFrameRate on the tab's browser host. Returns false when the tab has no browser.
 + (BOOL)setWindowlessFrameRate:(int)rate forTab:(uint64_t)tabID;
-/// The task manager's reading for the tab's main task, nil when the tab has no browser or the task manager no task
-/// for it.
+/// Keeps Chromium's task manager refreshing (about once a second) until `stopTaskManager`, which must come before the
+/// engine shuts down.
++ (void)startTaskManager;
++ (void)stopTaskManager;
+/// The task manager's reading for the tab's main task, nil before `startTaskManager`, when the tab has no browser or
+/// the task manager no task for it.
 + (nullable BowS3TaskSample *)taskSampleForTab:(uint64_t)tabID;
 /// The value of the engine switch `name` (without dashes) in the browser process's command line, "" for a switch
 /// with no value, nil when it is absent.
