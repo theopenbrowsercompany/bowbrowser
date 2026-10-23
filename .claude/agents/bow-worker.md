@@ -36,12 +36,24 @@ Your working directory is your own git worktree of this repository.
 
 ## Checks, once
 
-- While building and fixing, run `make check` (only what your change touches), and the full `make verify` and `make e2e` once at the end.
-- At the end, rebase onto `origin/main` once, then run `make verify` once and the full `make e2e` once, as separate commands.
+- While building and fixing, run `make check` (only what your change touches).
+- At the end, rebase onto `origin/main`, then run `make done` once and paste its block in your report.
+  It refuses a branch that does not contain `origin/main`, runs `make bootstrap` when needed, then `make verify` and the full `make e2e`, and exits non zero when a step failed.
+  Commit first: its block names the tree it checked, and a dirty worktree is flagged.
 - If main moves afterwards with no conflict, report anyway: the landing reruns everything.
 - A failure or FLAKY outside your area is reported, not rerun.
 - Never squash or reset onto `origin/main`.
 - When the lead says the branch gets no independent review, `/code-review` in the foreground is still required.
+
+## Known traps
+
+- In a worktree, Bash refuses heredocs, perl or python one-liners, `make -C <path>`, cd chains and pipelines that run a script: use the Edit tool and plain commands, and write helper scripts with Write.
+- Run `make bootstrap` first in a fresh worktree.
+- Any new e2e input helper goes through `E2EInput`'s confirm and resend path.
+- Never open DevTools in an e2e run.
+- E2E type names share one namespace with the BowCore tests, so give harness additions an `e2e` prefix.
+- A plain `target="_blank"` link implies `noopener`, so a test that needs `window.opener` uses `rel="opener"`.
+- A "do not edit" list in a brief bars commits, not the temporary uncommitted stubs of the fails without check.
 
 ## Before you report
 
