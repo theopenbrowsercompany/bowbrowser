@@ -11,7 +11,7 @@ E2E ?= all
 # scripts/e2e.sh alone, quoted for the shell.
 unexport E2E
 
-.PHONY: bootstrap hooks project build test test-lock test-e2e-wrapper test-prune test-affected test-scripts run smoke e2e e2e-run format lint guards release verify check done test-done test-refcount test-private-paths clean
+.PHONY: bootstrap hooks project build test test-lock test-e2e-wrapper test-prune test-affected test-scripts run smoke e2e e2e-run format lint guards release verify check done test-done test-refcount test-private-paths test-bootstrap-cef clean
 
 bootstrap: hooks
 	./scripts/bootstrap-cef.sh
@@ -52,7 +52,7 @@ test-affected:
 	./scripts/test-e2e-affected.sh
 
 # The script self tests verify runs when scripts/ or the Makefile differ from origin/main.
-test-scripts: test-e2e-wrapper test-prune test-affected test-done test-refcount test-private-paths
+test-scripts: test-e2e-wrapper test-prune test-affected test-done test-refcount test-private-paths test-bootstrap-cef
 
 run: build
 	open $(APP)
@@ -117,6 +117,10 @@ test-refcount:
 # Tests scripts/check-private-paths.sh, the guard against private paths on the branch, on fake changes (about a second).
 test-private-paths:
 	./scripts/test-check-private-paths.sh
+
+# Tests scripts/bootstrap-cef.sh --if-stale, the relink of Vendor/cef every build runs, on a fake cache (a few seconds).
+test-bootstrap-cef:
+	./scripts/test-bootstrap-cef.sh
 
 clean:
 	rm -rf $(BUILD_DIR) Bow.xcodeproj Generated
