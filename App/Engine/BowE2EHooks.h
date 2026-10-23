@@ -88,10 +88,11 @@ size_t BowEngineDevToolsRequests(uint64_t tabID, CGPoint* inspectedPoint);
 /// Main thread only.
 bool BowEngineSetTabAudible(uint64_t tabID, bool audible);
 
-/// Calls `observer` on the main thread each time a renderer serving a browser ends (CEF's
-/// OnRenderProcessTerminated), with the ID of the tab whose own browser it served (0 for a browser that is not a
-/// tab's own, such as a popup sharing its opener's client), the termination status's name (`crashed`, `killed`,
-/// `abnormal`, `oom`, `launch-failed`, `integrity-failure`) and Chromium's error code. The engine reports each
+/// Calls `observer` on the main thread each time a renderer serving a tab's browser, or a popup sharing a tab's
+/// client, ends (BowTabClient::OnRenderProcessTerminated), with the ID of the tab whose own browser it served (0 for
+/// a popup, or for a tab's browser whose tab has already gone), the termination status's name (`crashed`, `killed`,
+/// `abnormal`, `oom`, `launch-failed`, `integrity-failure`, or `unknown` for a status this list does not name) and
+/// Chromium's error code. The engine reports each
 /// termination through BowEngineNoteRenderProcessTerminated before deciding whether the tab shows its crashed page.
 /// Call on the main thread; observers stay for the rest of the run.
 void BowEngineObserveRenderProcessTerminations(

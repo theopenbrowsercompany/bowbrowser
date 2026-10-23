@@ -14,7 +14,8 @@ enum EngineTests {
 
 /// The renderer crash rule's self test: it crashes its page's renderer without declaring `expectsRendererCrash`, and
 /// its one check passes, so the run must report it as `FAIL engine.undeclared-renderer-crash: renderer: a renderer
-/// ended while running ...` with the termination status, and a RESULT line whose error says the same. A pass here
+/// ended while running ... status=crashed ... (after the check was recorded)`, and a RESULT line whose error says
+/// the same. A pass here
 /// is a failure of the rule, so it runs only when named exactly (`selectedByNameOnly`):
 /// `make e2e E2E=engine.undeclared-renderer-crash`. The name is computed rather than a stored name set to a string
 /// literal, the form `make done` reads to repeat changed tests, so its repeat step never reruns a test whose pass is
