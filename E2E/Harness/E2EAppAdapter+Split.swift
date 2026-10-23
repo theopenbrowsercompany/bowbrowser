@@ -45,6 +45,11 @@ extension E2ETestApp: E2ESplitApp {
             keyboardInFocused: responder.map { $0 !== focused && $0.isDescendant(of: focused) } ?? false)
     }
 
+    func setNewTabURL(_ url: URL, of page: any E2EPage) throws {
+        try adapter.requireActive(token, "set the new tab page")
+        try E2EAppAdapter.tabPage(page).controller.newTabURL = url
+    }
+
     func clickSplitSidebarRow(_ row: Int, in page: any E2EPage) throws {
         try adapter.requireActive(token, "click a sidebar row")
         let sidebar = try E2EAppAdapter.tabPage(page).controller.e2eSidebar

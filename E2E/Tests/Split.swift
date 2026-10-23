@@ -89,13 +89,15 @@ struct SplitAddTest: E2ETest {
             try await SplitTests.window(["A"], app: app)
         }
         let state = try await run.step("choose Add Split View", timeout: E2ETimeouts.firstLoad) {
+            // The new tab opens the window's new tab page, a fixture here so the run opens no outside page.
+            try app.setNewTabURL(SplitTests.url("D"), of: page)
             try menu.chooseMenuItem(key: "+", modifiers: [.command, .shift], in: page)
-            return try await SplitTests.state(app, of: page) { $0.panes.count == 2 && $0.splits.count == 1 }
+            return try await SplitTests.state(app, of: page) { $0.panes == ["A", "D"] && $0.splits.count == 1 }
         }
         run.check(
             "split.add",
-            passed: state.panes.count == 2 && state.panes.first == "A" && state.focusedIndex == 1
-                && state.splits.count == 1 && state.splits.first?.first == "A" && state.todayItems == 1,
+            passed: state.panes == ["A", "D"] && state.focusedIndex == 1 && state.activeTitle == "D"
+                && state.splits == [["A", "D"]] && state.todayItems == 1,
             "\(state)")
     }
 }
