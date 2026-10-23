@@ -45,8 +45,10 @@ public struct PopupOutcome: Equatable, Sendable {
 
 /// The rules, as named values so each is easy to change.
 public enum PopupPolicy {
-    /// A plain `target="_blank"` link or Cmd-click.
-    public static let plainLinkDecision = PopupDecision.backgroundTab
+    /// A plain `target="_blank"` link, or a `window.open` after a click: shown at once, as Chromium and Arc do.
+    public static let plainLinkDecision = PopupDecision.foregroundTab
+    /// Cmd-click and middle click: the tab opens behind the shown one.
+    public static let commandDecision = PopupDecision.backgroundTab
     /// Cmd-Shift-click.
     public static let commandShiftDecision = PopupDecision.foregroundTab
     /// Shift-click, the future Peek gesture: a foreground tab until Peek exists.
@@ -71,6 +73,7 @@ public enum PopupPolicy {
         switch (modifiers.command, modifiers.shift) {
         case (true, true): decision = commandShiftDecision
         case (false, true): decision = shiftDecision
+        case (true, false): decision = commandDecision
         default: decision = plainLinkDecision
         }
         let placement: PopupPlacement

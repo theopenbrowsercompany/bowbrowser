@@ -26,9 +26,9 @@ import Testing
         #expect(PopupPolicy.outcome(for: widthOnly, openerZone: .pinned).decision == .window)
     }
 
-    @Test func targetBlankOpensInTheBackgroundAfterTheOpener() {
+    @Test func targetBlankOpensInTheForegroundAfterTheOpener() {
         let outcome = PopupPolicy.outcome(for: request(), openerZone: .today)
-        #expect(outcome == PopupOutcome(decision: .backgroundTab, placement: .afterOpener))
+        #expect(outcome == PopupOutcome(decision: .foregroundTab, placement: .afterOpener))
     }
 
     @Test func commandClickOpensInTheBackgroundAfterTheOpener() {
@@ -51,7 +51,7 @@ import Testing
 
     @Test func fromPinnedGoesToTopOfToday() {
         let outcome = PopupPolicy.outcome(for: request(), openerZone: .pinned)
-        #expect(outcome == PopupOutcome(decision: .backgroundTab, placement: .topOfToday))
+        #expect(outcome == PopupOutcome(decision: .foregroundTab, placement: .topOfToday))
     }
 
     @Test func fromFavoriteGoesToTopOfToday() {

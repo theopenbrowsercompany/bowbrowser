@@ -25,14 +25,16 @@ That connection is what sign in popups (for example Google or GitHub sign in) us
 - One click opens at most one new page: a page that calls `window.open` many times from one click gets one tab.
 - A middle click opens in the background, like a Cmd-click.
 - A script window with a size (a sign in popup) stays a window of its own and keeps `window.opener`.
-- A link meant for a new tab (`target="_blank"`) or a Cmd-click opens in the background, right after the tab that opened it.
+- A link meant for a new tab (`target="_blank"`) opens in the foreground, right after the tab that opened it, as in Chromium and Arc.
+- A `window.open` after a click opens in the foreground, right after the tab that opened it.
+- A Cmd-click opens in the background, right after the tab that opened it.
 - A Cmd-Shift-click opens in the foreground, right after the tab that opened it.
 - A Shift-click opens in the foreground for now; it becomes Peek later.
 - A link opened from a pinned tab or a Favorite puts the new tab at the top of Today instead, because those tabs sit above Today.
 
 ## Edge cases
 
-- Bow cannot tell a plain link to a new tab from a script's `window.open` after a click, so both open as a background tab.
+- Bow cannot tell a plain link to a new tab from a script's `window.open` after a click, so both open as a foreground tab.
 - A new tab whose opener closes before the engine has created its page goes away with the opener; once created it stays open and loads on its own.
   A window that is closing opens its pages' new pages in popup windows of their own instead of taking tabs.
 - A new tab to a page that cannot load opens and shows the engine's error page, like any tab.
@@ -41,12 +43,12 @@ That connection is what sign in popups (for example Google or GitHub sign in) us
 
 ## Acceptance checks
 
-1. Run `make e2e`: the `nav.popup` check opens a sized popup (a window of its own) and a plain `window.open` page (a background tab) from a fixture, both report back through `window.opener`, and it prints `PASS nav.popup: opener=kept`.
-2. Open a page with a `target="_blank"` link and click it: the linked page opens as a background tab right after the current tab.
+1. Run `make e2e`: the `nav.popup` check opens a sized popup (a window of its own) and a plain `window.open` page (a foreground tab) from a fixture, both report back through `window.opener`, and it prints `PASS nav.popup: opener=kept`.
+2. Open a page with a `target="_blank"` link and click it: the linked page opens as a foreground tab right after the current tab.
 3. Sign in to a site with a "Sign in with Google" popup: the popup closes after signing in and the site shows you signed in.
-4. Run `make e2e`: the `engine.popup` check has the app take a `window.open` page as a background tab (the page itself asked for a foreground tab, the disposition shown) and prints `PASS engine.popup: requests=1 target=opened.html disposition=foregroundTab opener=kept first-navigation=opened.html`.
+4. Run `make e2e`: the `engine.popup` check has the app take a `window.open` page as a tab (the engine's disposition shown) and prints `PASS engine.popup: requests=1 target=opened.html disposition=foregroundTab opener=kept first-navigation=opened.html`.
 
-5. Run `make e2e E2E=popups`: it prints `PASS popups.newtab: tabs=[A,B]`, `PASS popups.cmd_click: tabs=[A,B,C] shown=A`, `PASS popups.cmd_shift_click: tabs=[A,B,C] shown=B`, `PASS popups.middle_click: tabs=[A,B,C] shown=A`, `PASS popups.blocked: opened=null tabs=[A] after-click=[A,B]`, `PASS popups.opener: tabs=[A,B] postMessage=received` and `PASS popups.storm: opened=1 tabs=[A,B]`.
+5. Run `make e2e E2E=popups`: it prints `PASS popups.newtab: tabs=[A,B] shown=B`, `PASS popups.cmd_click: tabs=[A,B,C] shown=A`, `PASS popups.cmd_shift_click: tabs=[A,B,C] shown=B`, `PASS popups.middle_click: tabs=[A,B,C] shown=A`, `PASS popups.blocked: opened=null tabs=[A] after-click=[A,B]`, `PASS popups.opener: tabs=[A,B] postMessage=received` and `PASS popups.storm: opened=1 tabs=[A,B]`.
 
 ## Out of scope
 
