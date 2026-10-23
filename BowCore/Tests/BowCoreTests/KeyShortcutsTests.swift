@@ -57,7 +57,9 @@ import Testing
 
     @Test func recentTabsKeysAndSharedEscape() {
         #expect(KeyShortcut.recentTabsBack.matches(key("\t", [.control, .shift], keyCode: KeyChord.tabKeyCode)))
-        #expect(KeyShortcuts.shortcut(for: key("\u{1b}", [], keyCode: KeyChord.escapeKeyCode), claimedBy: .recentTabs) == .closeCommandBar)
+        #expect(
+            KeyShortcuts.shortcut(for: key("\u{1b}", [], keyCode: KeyChord.escapeKeyCode), claimedBy: .recentTabs)
+                == .closeCommandBar)
         #expect(KeyShortcuts.conflicts().isEmpty)
         let twice = KeyShortcuts.claims + [KeyShortcutClaim(.closeCommandBar, .recentTabs)]
         #expect(!KeyShortcuts.conflicts(in: twice).isEmpty)

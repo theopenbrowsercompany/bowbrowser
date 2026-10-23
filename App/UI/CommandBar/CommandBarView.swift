@@ -258,9 +258,6 @@ final class CommandBarRowView: NSView {
     private static func badge(of result: CommandBarResult) -> String {
         guard case .openTab = result.kind else { return "" }
         guard let space = result.space else { return "Switch to Tab" }
-        // An emoji shows as text; a symbol icon needs an image, so its row shows the name alone.
-        let emoji = space.icon.flatMap { $0.kind == .emoji ? $0.value : nil }
-        let name = [emoji, space.name].compactMap { $0 }.joined(separator: " ")
-        return "Switch to Tab \u{00B7} \(name)"
+        return "Switch to Tab \u{00B7} \(space.label)"
     }
 }
