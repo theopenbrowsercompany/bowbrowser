@@ -5,6 +5,8 @@
 # changed e2e tests, and the release build (run beside the e2e for an App/, E2E/, BowCore/Sources/ or project.yml
 # change, skipped otherwise, failing the run when it fails). Takes a few seconds and runs no build or app.
 set -u
+# The settings done.sh and e2e-affected.sh read come from each case alone, never from the caller's environment.
+unset DONE_BASE DONE_FETCH CHECK_BASE
 cd "$(dirname "$0")/.." || exit 1
 
 tmp=$(mktemp -d)

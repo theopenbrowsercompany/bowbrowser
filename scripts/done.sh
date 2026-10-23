@@ -43,7 +43,7 @@ if ! git merge-base --is-ancestor "$base" HEAD; then
   merge_status=$?
   if [ "$merge_status" = 1 ]; then
     echo "done: this branch conflicts with $base in:"
-    echo "$merged" | sed -n '2,/^$/p' | grep -v '^$' | sed 's/^/  /'
+    echo "$merged" | sed -n '2,/^$/p' | grep -v '^$' | sort -u | sed 's/^/  /'
     echo "done: rebase onto origin/main first."
     exit 2
   elif [ "$merge_status" != 0 ]; then
