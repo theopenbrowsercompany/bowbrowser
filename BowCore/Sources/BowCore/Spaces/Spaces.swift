@@ -77,10 +77,10 @@ extension SidebarGraph {
     }
 
     /// The tab a Space should select when it comes on screen: the one it had selected when it was left, if that tab is
-    /// still in it, otherwise its first tab, otherwise none.
+    /// still in it or a Favorite it still shows, otherwise its first tab, otherwise none.
     func tabToSelect(in spaceID: SidebarSpaceID) -> SidebarItemID? {
         if let remembered = space(spaceID)?.lastSelectedTabID, items[remembered]?.data.isTab == true,
-            self.spaceID(containing: remembered) == spaceID
+            self.spaceID(containing: remembered) == spaceID || isInFavorites(remembered, shownBy: spaceID)
         {
             return remembered
         }
@@ -96,9 +96,11 @@ extension SidebarGraph {
 
     /// Makes `id` the active Space. The tab selected in the Space being left is remembered for when it returns, and the
     /// new Space selects its own remembered tab. A Favorite stays selected across a switch to a Space of the same profile,
-    /// which shows the same Favorites.
+    /// which shows the same Favorites. A Favorite selected when the switch goes to a Space of another profile, which
+    /// cannot show it, is remembered by the Space being left, as Arc returns each Space to the tab it was on.
     mutating func activateSpace(_ id: SidebarSpaceID) {
-        if let outgoing = activeSpaceID, outgoing != id, let tab = activeTabID, spaceID(containing: tab) == outgoing,
+        if let outgoing = activeSpaceID, outgoing != id, let tab = activeTabID,
+            spaceID(containing: tab) == outgoing || isInFavorites(tab, shownBy: outgoing),
             let position = spaces.firstIndex(where: { $0.id == outgoing })
         {
             spaces[position].lastSelectedTabID = tab
