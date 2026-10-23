@@ -34,7 +34,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         typealias E2EWindowOpen = (BrowserWindow) throws -> BrowserWindowController  // E2E seam
         var e2eOpenWindow: ((E2EWindowOpen) throws -> BrowserWindowController)?  // E2E seam
     #endif
-    /// True once the engine has started (also in an e2e run) and windows can open.
+    /// True from `engineDidStart` (an e2e run too, which leaves `engineStarted` false) until launch refuses to start:
+    /// a reopen opens windows only then.
     private var engineReady = false
     /// True once the engine has started and windows can open.
     private var engineStarted = false
@@ -423,8 +424,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// screen the system brings it forward. Nothing opens while quitting or before the engine has started. A window
     /// opened while the app waits for closed tabs' downloads keeps it from quitting afterwards.
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
-        // A smoke run is a throwaway that opens its one window itself.
-        guard engineReady, !options.isSmokeTest else { return false }
+        // A smoke run is a throwaway that opens its one window itself: the system does what it would.
+        if options.isSmokeTest { return true }
+        guard engineReady else { return false }
         let windows = openBrowserWindows
         let states = windows.map {
             DockReopen.WindowState(
@@ -435,7 +437,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return true
         case .restore(let index):
             // An e2e window never goes to the Dock: it stays off screen.
-            if !options.isE2E { windows[index].window?.deminiaturize(nil) }
+            if !options.isE2E {
+                windows[index].window?.deminiaturize(nil)
+                NSApp.activate()
+            }
             return false
         case .openWindow:
             // The sidebar shown last (a window's own sidebar when that closed last), restored as launch does.
