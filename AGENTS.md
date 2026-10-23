@@ -87,9 +87,9 @@ Start every session in `~/code/GitHub/bowbrowser`: the maintainer's `.claude/set
 
 - Bow behaves and acts the way Arc does, and extensions come later.
   Where a work item leaves product behavior open (shortcuts, menus, where tabs go, drag behavior, defaults), match Arc's behavior as the private research or Arc's published help pages describe it, and never guess.
-- Put browser behavior in `BowCore` whenever it does not need the engine or UI.
+- Browser decisions (rules, ordering, what happens when, which item is chosen, defaults) live in `BowCore` with unit tests that cover their cases, including edge cases; the app and engine layers stay thin wiring around them.
 - Verify each change end to end in the running app with the command its last "Done when" item names (usually `make e2e`).
-  Add a unit test only for logic an end-to-end check cannot reach.
+  End to end covers each "Done when" item's wiring once in the running app, not every case of the logic.
 - When behavior changes, extend the spec in `spec/` that covers the area in the same change, and start a new one only when none does.
 - Add a feature as its own files (a window feature in `App/UI/Window/`, an app service in `App/UI/App/`, an e2e area in `E2E/Tests/`) plus one line in its list; never grow the window core or a central list expression.
 - Put a shared contract change (a protocol requirement, a harness rule, a shared model field, a rename) alone in its own first commit; under a lead, tell the lead.
