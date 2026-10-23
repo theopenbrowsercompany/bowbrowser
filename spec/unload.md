@@ -45,9 +45,11 @@ An unloaded tab stays in the sidebar and loads again when you open it.
 These run as unit tests today (`UnloadPolicyTests`).
 
 8. Run `make e2e`: the `engine.unload` check unloads a tab through the engine, then closes a tab whose slow beforeunload keeps its unload pending, and prints `PASS engine.unload: unloaded=true closed=true last=unloaded taken-over-unload=false close=true close-last=closed close-reason=app`.
+9. Run `make e2e`: `PASS tabs.unload-reload: row=kept loaded=again url=same` shows an unloaded tab keeping its row in the window and loading again at its address when chosen, and `PASS tabs.unload-stay` shows a page that would ask to stay left loaded with no prompt.
 
 ## Out of scope
 
-- Reading memory pressure from the engine, reopening the page, the placeholder snapshot and sidebar display: they need the app and the measurements, and are not built yet.
+- Reading memory pressure from the engine, the placeholder snapshot and sidebar display: they need the app and the measurements, and are not built yet.
+  Reopening the page works: a window keeps an unloaded tab's row and loads it again when chosen.
 - The idle times and limits shown here are placeholders until those measurements arrive.
 - Restoring back and forward history after unloading.

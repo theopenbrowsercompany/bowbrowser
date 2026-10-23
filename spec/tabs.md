@@ -31,6 +31,11 @@ The list comes from the saved sidebar (see `sidebar-store.md`): a window's tabs 
 - Closing a pinned tab with Close Tab unloads its page and keeps its row; the next tab becomes active.
   When it was the Space's only tab, it stays active with no page loaded, also after switching to another Space and back, and loads again only once its row or the page area's Load Tab button is chosen.
   Meanwhile the page area says the tab is not loaded, with that Load Tab button, rather than staying blank.
+- A tab whose page the browser unloads (to save memory) keeps its row, address and title, and is never closed by it.
+  Choosing its row loads the page again at its address (a pinned tab at its pinned address), losing its back and forward history.
+  When the shown tab is unloaded, the page area says the tab is not loaded, with the Load Tab button.
+  A page whose beforeunload handler would ask to stay is not unloaded, and no prompt shows.
+  Closing a tab while its unload is still under way closes it as any close does.
 - Closing a window closes all of its tabs, each running its page's beforeunload handler.
   A page whose person chooses to stay keeps its tab and the window open, while the other tabs close; the window then shows the page the person stayed on, not a closed tab loading again, and one page staying never stops the window from following the others the next time it is closed.
   A window that is closing loads no other tab, even when a tab the person closed just before was followed by a saved one, and opens no new tab, so links go to another window.
@@ -149,6 +154,7 @@ The list comes from the saved sidebar (see `sidebar-store.md`): a window's tabs 
 28. Run `make e2e`: `PASS link.profile: opened_in=work cookie=1` shows a link from another app opening in the most recent window, created in its Space's profile (work), and seeing the cookie that profile set.
 29. By hand: open a few tabs, select one, quit and relaunch; the same tabs come back in order with the selected one loaded and the others loading only when clicked.
 30. Run `make e2e`: `PASS activity: last=B` shows two tabs A and B with A selected and then B, B recorded as the more recently active.
+31. Run `make e2e`: `PASS tabs.unload-reload: row=kept loaded=again url=same` shows a background tab unloaded through the engine keeping its row and title, the window letting go of its page, and choosing the row loading it again at its address; `PASS tabs.unload-stay: unloaded=false page=kept prompts=0 sheet=none` shows a page with a typed draft and a beforeunload handler left loaded on the same document with no prompt.
 
 ## Out of scope
 
