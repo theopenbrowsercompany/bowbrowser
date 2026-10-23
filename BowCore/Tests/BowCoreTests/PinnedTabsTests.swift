@@ -25,7 +25,8 @@ import Testing
             .insert(.tab(id: "left", url: "https://left.example.com"), parent: "split"),
             .insert(.tab(id: "right", url: "https://right.example.com"), parent: "split"),
             .insert(
-                .tab(id: "fav", url: "https://fav.example.com", title: "Fav"), parent: store.graph.favoritesContainerID),
+                .tab(id: "fav", url: "https://fav.example.com", title: "Fav"),
+                parent: try #require(store.graph.favoritesContainerID(for: .default))),
             .insert(
                 .tab(id: "game", url: "https://game.example.com", title: "Game"), parent: playSpace.pinnedContainerID),
             .setActiveTab("news"),
