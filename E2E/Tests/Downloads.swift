@@ -43,8 +43,9 @@ struct DownloadsTest: E2ETest {
         }
         run.check(
             "downloads.collision",
-            passed: second.fileName == "a (1).pdf" && second.path.map { FileManager.default.fileExists(atPath: $0.path) }
-                == true,
+            passed: second.fileName == "a (1).pdf"
+                && second.path.map { FileManager.default.fileExists(atPath: $0.path) }
+                    == true,
             "file=\(second.fileName)"
         )
 
@@ -76,12 +77,14 @@ struct DownloadsTest: E2ETest {
         }
 
         try await run.step("clear a finished download", timeout: E2ETimeouts.step) {
+            // Earlier tests in a full run may have left downloads of their own in the list.
+            let before = try await run.app.downloads().map(\.id)
             try await run.app.press(.cancelOrClear, of: first)
             let rows = try await waitFor(run) { rows in rows.contains { $0.id == first.id } ? nil : rows }
             let fileKept = first.path.map { FileManager.default.fileExists(atPath: $0.path) } ?? false
             run.check(
                 "downloads.list",
-                passed: rows.count == 2 && fileKept,
+                passed: rows.map(\.id) == before.filter { $0 != first.id } && fileKept,
                 "rows=\(rows.map(\.fileName).joined(separator: ",")) fileKept=\(fileKept)"
             )
         }

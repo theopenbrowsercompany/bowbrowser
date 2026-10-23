@@ -56,15 +56,6 @@ import Testing
         list.apply(.updated(DownloadItem(id: 1, receivedBytes: 3)), from: profile)
         #expect(list.entries[0].item.destination == file)
     }
-
-    @Test func onlyRunningDownloadsAreActive() {
-        var list = DownloadList()
-        list.apply(.created(DownloadItem(id: 1, state: .inProgress)), from: profile)
-        list.apply(.created(DownloadItem(id: 2, state: .paused)), from: profile)
-        list.apply(.created(DownloadItem(id: 3, state: .complete)), from: profile)
-        list.apply(.created(DownloadItem(id: 4, state: .interrupted)), from: profile)
-        #expect(Set(list.active.map(\.item.id)) == [1, 2])
-    }
 }
 
 @Suite struct DownloadItemTests {

@@ -188,8 +188,9 @@ class BowDownloadHandler : public CefDownloadHandler {
   id<BowDownloadsDelegate> delegate = self.delegate;
   if (!delegate) return NO;
   if (![delegate respondsToSelector:@selector(downloads:shouldAllowDownloadFromURL:)]) return YES;
+  // A URL Chromium accepts but NSURL cannot parse is not the delegate's to judge.
   NSURL* parsed = [NSURL URLWithString:url];
-  return parsed ? [delegate downloads:self shouldAllowDownloadFromURL:parsed] : NO;
+  return parsed ? [delegate downloads:self shouldAllowDownloadFromURL:parsed] : YES;
 }
 
 - (BOOL)downloadWillBegin:(CefRefPtr<CefDownloadItem>)cefItem
@@ -199,8 +200,14 @@ class BowDownloadHandler : public CefDownloadHandler {
   // Returning false cancels the download in Alloy style.
   if (!delegate) return NO;
   const uint32_t downloadID = cefItem->GetId();
+  // Chromium may report an update first, which already announced the download.
+  BOOL isNew = [self indexOf:downloadID] == NSNotFound;
   BowDownloadItem* item = [self store:[self snapshot:cefItem]];
-  [delegate downloads:self didCreateItem:item];
+  if (isNew) {
+    [delegate downloads:self didCreateItem:item];
+  } else {
+    [delegate downloads:self didUpdateItem:item];
+  }
 
   __weak BowDownloads* weakSelf = self;
   BowDestinationAnswer* answer = [[BowDestinationAnswer alloc] initWithCallback:callback

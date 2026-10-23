@@ -68,9 +68,4 @@ public struct DownloadList: Equatable, Sendable {
             return true
         }
     }
-
-    /// Downloads still running or paused, which keep their destination reserved.
-    public var active: [DownloadEntry] {
-        entries.filter { !$0.item.state.isFinal && $0.item.state != .interrupted }
-    }
 }

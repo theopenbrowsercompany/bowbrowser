@@ -61,9 +61,8 @@ final class DownloadsCenter: EngineDownloadsDelegate {
         switch event {
         case .created(let item), .updated(let item):
             let key = DownloadEntry.Key(profileID: profileID, downloadID: item.id)
-            if let state = list.entry(key)?.item.state, state.isFinal || state == .interrupted {
-                reserved[key] = nil
-            }
+            // An interrupted download keeps its file, since it can resume into it.
+            if list.entry(key)?.item.state.isFinal == true { reserved[key] = nil }
         case .removed(let id):
             reserved[DownloadEntry.Key(profileID: profileID, downloadID: id)] = nil
         }
@@ -75,30 +74,52 @@ final class DownloadsCenter: EngineDownloadsDelegate {
         destinationFor item: DownloadItem,
         suggestedName: String
     ) async -> URL? {
+        let key = DownloadEntry.Key(profileID: downloads.profileID, downloadID: item.id)
         let folder = DownloadSettings.folder
         try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         let choice = DownloadDestination.choose(
             suggestedName: suggestedName,
             folder: folder,
             askWhereToSave: DownloadSettings.askWhereToSave,
-            isTaken: { [reserved] name in
-                let url = folder.appendingPathComponent(name, isDirectory: false)
-                let fileManager = FileManager.default
-                return fileManager.fileExists(atPath: url.path)
-                    || fileManager.fileExists(atPath: url.path + ".crdownload")
-                    || reserved.values.contains { $0.standardizedFileURL == url.standardizedFileURL }
-            }
+            isTaken: { isTaken(folder.appendingPathComponent($0, isDirectory: false), by: key) }
         )
-        let destination: URL?
         switch choice {
         case .save(let url):
-            destination = url
+            reserved[key] = url
+            return url
         case .ask(let suggested):
-            destination = await askForDestination(suggested: suggested)
+            // Held while the panel is open, so a second download does not suggest the same name.
+            reserved[key] = suggested
+            guard let picked = await askForDestination(suggested: suggested),
+                let state = list.entry(key)?.item.state, !state.isFinal
+            else {
+                reserved[key] = nil
+                return nil
+            }
+            // The panel already asked before replacing a file on disk; a running download's file is numbered.
+            let folder = picked.deletingLastPathComponent()
+            let name = DownloadDestination.uniqueFileName(picked.lastPathComponent) {
+                $0 != picked.lastPathComponent
+                    && FileManager.default.fileExists(atPath: folder.appendingPathComponent($0).path)
+                    || isReserved(folder.appendingPathComponent($0, isDirectory: false), except: key)
+            }
+            let url = folder.appendingPathComponent(name, isDirectory: false)
+            reserved[key] = url
+            return url
         }
-        let key = DownloadEntry.Key(profileID: downloads.profileID, downloadID: item.id)
-        if let destination { reserved[key] = destination }
-        return destination
+    }
+
+    /// True when `url` is a file on disk, Chromium's partial file for it, or the file of another running download.
+    private func isTaken(_ url: URL, by key: DownloadEntry.Key) -> Bool {
+        let fileManager = FileManager.default
+        return fileManager.fileExists(atPath: url.path) || fileManager.fileExists(atPath: url.path + ".crdownload")
+            || isReserved(url, except: key)
+    }
+
+    /// True when another download holds `url`. Compared ignoring case, as the default macOS volume does.
+    private func isReserved(_ url: URL, except key: DownloadEntry.Key) -> Bool {
+        let path = url.standardizedFileURL.path.lowercased()
+        return reserved.contains { $0.key != key && $0.value.standardizedFileURL.path.lowercased() == path }
     }
 
     /// Opens a save panel on `suggested`, as a sheet when a window is available. Nil when the person cancels.
