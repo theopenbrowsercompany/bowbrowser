@@ -46,6 +46,10 @@ extension E2ETestApp: E2EZonesApp {
         try adapter.sidebarOutline(of: page)
     }
 
+    func sidebarOutlineRows(of page: any E2EPage) throws -> [E2EOutlineRow] {
+        try adapter.sidebarOutlineRows(of: page)
+    }
+
     func sidebarZone(of page: any E2EPage) throws -> String? {
         try adapter.sidebarZone(of: page)
     }
@@ -147,12 +151,23 @@ extension E2EAppAdapter {
     }
 
     func sidebarOutline(of page: any E2EPage) throws -> [String] {
+        try sidebarOutlineRows(of: page).map(\.title)
+    }
+
+    func sidebarOutlineRows(of page: any E2EPage) throws -> [E2EOutlineRow] {
         let sidebar = try Self.tabPage(page).controller.e2eSidebar
+        let outline = sidebar.outlineView
         return sidebar.rowKinds().enumerated().map { row, kind in
-            if let section = kind.section { return section.zone?.rawValue ?? "divider" }
-            let view = sidebar.outlineView.view(atColumn: 0, row: row, makeIfNecessary: true)
-            return (view as? TabSidebarRow)?.titleField.stringValue
-                ?? (view as? SidebarGroupRow)?.titleField.stringValue ?? "?"
+            let title: String
+            if let section = kind.section {
+                title = section.zone?.rawValue ?? "divider"
+            } else {
+                let view = outline.view(atColumn: 0, row: row, makeIfNecessary: true)
+                title =
+                    (view as? TabSidebarRow)?.titleField.stringValue
+                    ?? (view as? SidebarGroupRow)?.titleField.stringValue ?? "?"
+            }
+            return E2EOutlineRow(title: title, level: outline.level(forRow: row))
         }
     }
 

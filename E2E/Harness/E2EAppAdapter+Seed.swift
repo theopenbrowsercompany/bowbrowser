@@ -14,6 +14,16 @@ extension E2EAppAdapter {
                 throw E2EError("the seed names more than one \(kind) \"\(repeated)\"")
             }
         }
+        // Spaces naming one new profile share it, so they must agree on how it is kept.
+        var persistence: [String: Bool] = [:]
+        for space in seed.spaces {
+            guard case .new(let profile) = space.profile else { continue }
+            if let earlier = persistence[profile.id], earlier != profile.isPersistent {
+                throw E2EError(
+                    "the seed names the new profile \"\(profile.id)\" both persistent and in memory")
+            }
+            persistence[profile.id] = profile.isPersistent
+        }
         let store: SidebarStore
         do {
             // One folder per test, so a failed test's seeds are easy to find in the kept profile folder.
@@ -91,9 +101,50 @@ extension E2EAppAdapter {
     }
 }
 
+// Reading back what a window's sidebar store holds.
+extension E2EAppAdapter {
+    func storeEntry(id: String, in page: any E2EPage) throws -> E2EStoreEntry? {
+        let graph = try Self.tabPage(page).controller.store.graph
+        if let space = graph.space(SidebarSpaceID(id)) {
+            return E2EStoreEntry(
+                kind: .space, title: space.title, parent: nil, spaceID: space.id.rawValue,
+                profileID: space.profileID.rawValue)
+        }
+        guard let item = graph[SidebarItemID(id)] else { return nil }
+        let kind: E2EStoreEntry.Kind
+        let title: String
+        switch item.data {
+        case .tab(let tab):
+            kind = .tab
+            title = item.title ?? tab.savedTitle
+        case .folder:
+            kind = .folder
+            title = item.title ?? ""
+        default:
+            kind = .other
+            title = item.title ?? ""
+        }
+        let space = graph.spaceID(containing: item.id).flatMap { graph.space($0) }
+        let parent = item.parentID.map { parentID -> String in
+            if parentID == space?.pinnedContainerID { return "pinned" }
+            if parentID == space?.unpinnedContainerID { return "today" }
+            return parentID.rawValue
+        }
+        return E2EStoreEntry(
+            kind: kind, title: title, parent: parent, spaceID: space?.id.rawValue,
+            profileID: space?.profileID.rawValue)
+    }
+}
+
 extension E2ETestApp: E2EStoreSeedApp {
     func openWindow(seeded seed: E2ESeed) async throws -> E2ESeededWindow {
         try adapter.requireActive(token, "open a seeded window")
         return try await adapter.openWindow(seeded: seed, token: token)
+    }
+
+    var testProfileID: String { adapter.testProfileID }
+
+    func storeEntry(id: String, in page: any E2EPage) throws -> E2EStoreEntry? {
+        try adapter.storeEntry(id: id, in: page)
     }
 }
