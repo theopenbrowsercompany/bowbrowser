@@ -88,9 +88,18 @@ Bow keeps it in one file of its own, separate from the engine's session data.
 ## Edge cases
 
 - First launch, or the file is missing: Bow starts with one empty Space and empty Favorites, and writes the file once there is something to save.
-- The file cannot be read at all (cut short, not Bow's format, or written by a newer Bow): Bow starts with one empty Space and moves the old file aside as `Sidebar.unreadable-<date>-<time>.json` in the same folder, untouched.
+- The file cannot be read at all (cut short, or not Bow's format): Bow starts with one empty Space and moves the old file aside as `Sidebar.unreadable-<date>-<time>.json` in the same folder, untouched.
   A later unreadable file gets its own name and never replaces an earlier one.
-  If the file cannot be moved aside, Bow does not write over it.
+  Bow tells the person in an alert on the window: where the old file now is, and that renaming it back to `Sidebar.json` while Bow is quit tries it again.
+- The file was written by a newer Bow (Debug, Release and installed builds share the folder): this Bow does not move it or write over it.
+  It refuses to start, with an alert saying the sidebar was saved by a newer version and should be opened with it.
+- The file can be neither read nor moved aside, or Bow's data folder cannot be created: Bow does not write over the file and does not run on a sidebar that would be lost at quit.
+  It refuses to start, with an alert naming the file or folder and what to check.
+  A window asked for later (a link from another app with no window open) gets the same alert instead of opening, for as long as the problem lasts.
+- A Space whose profile is not available opens with an alert on its window naming the Space and the profile, instead of a window that opens nothing in silence.
+- A window that keeps a sidebar of its own (a smoke run's window) and cannot create it is not opened, and the reason is shown.
+  Such sidebars live in a temporary folder of the running Bow and go when it quits; folders left by a Bow that crashed are cleared when Bow next starts, while those of a Bow still running stay.
+- Links from other apps never open in an e2e run: they are meant for the person's own Bow.
 - The file was written by an older Bow: it is upgraded on launch, and a copy of the original is kept beside it as `Sidebar.version-<old version>.json`.
 - Bow crashes or the Mac loses power while saving: the file holds either the sidebar from before the change or the one after it, never a mix.
   Leftover temporary files from an interrupted save are removed at the next launch.
@@ -167,6 +176,9 @@ Bow keeps it in one file of its own, separate from the engine's session data.
 33. In a split of A and B, drag B to Favorites, then drag a pane of another two-tab split to another Space: both splits are gone, the remaining tabs are plain tabs where they were, and after quitting and relaunching nothing is reported as damaged.
 34. In a split of A, B, C and D with focus on C, move C to another Space: resizing, moving a divider, reordering, adding and removing panes all still work.
     Add a pane to a split of three panes sized a tenth, eight tenths and a tenth: every pane keeps at least a tenth.
+35. Quit, replace the sidebar file with one whose version is higher than this Bow writes, relaunch: Bow shows an alert about a newer version and quits, and the file is unchanged with nothing set aside.
+36. Quit, put random text in the sidebar file and make its folder read-only, relaunch: Bow shows an alert naming the file and quits, and the file is unchanged.
+37. Run `make e2e`: `store.refused`, `store.newer_file`, `store.set_aside`, `store.missing_profile`, `store.window_sidebar` and `link.ignored` pass.
 
 ## Out of scope
 
