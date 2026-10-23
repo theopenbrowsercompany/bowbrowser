@@ -74,7 +74,7 @@ struct PageZoomTest: E2ETest {
 
         let menu = try await run.step("zoom from the View menu", timeout: E2ETimeouts.step * 2) {
             var steps: [Bool] = []
-            try app.chooseMenuItem(key: "+", modifiers: .command, in: page)
+            try app.chooseMenuItem(key: "=", modifiers: .command, in: page)
             steps.append(try await waitForLevel(110, page))
             try app.chooseMenuItem(key: "-", modifiers: .command, in: page)
             try app.chooseMenuItem(key: "-", modifiers: .command, in: page)
@@ -87,7 +87,7 @@ struct PageZoomTest: E2ETest {
 
         let site = try await run.step("another site keeps its zoom", timeout: E2ETimeouts.firstLoad) {
             // The first site is at 110%; a page on another site opens at 100% and zooms out on its own.
-            try app.chooseMenuItem(key: "+", modifiers: .command, in: page)
+            try app.chooseMenuItem(key: "=", modifiers: .command, in: page)
             guard try await waitForLevel(110, page) else { throw E2EError("the first site never zoomed in") }
             let other = try app.openTab(at: URL(string: "https://other.test/page.html")!, besides: page, select: true)
             _ = try? await other.waitForLoad(after: 0)

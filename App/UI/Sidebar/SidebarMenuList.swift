@@ -14,5 +14,6 @@ enum SidebarMenus {
         FavoritesMenuItems.self,
         SpaceProfileMenuItems.self,
         SpaceThemeMenuItems.self,
+        SplitViewMenuItems.self,
     ]
 }

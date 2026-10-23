@@ -45,5 +45,6 @@ enum E2EAreas {
         FullscreenTests.all,
         LittleArcAreaTests.all,
         DefaultBrowserTests.all,
+        SplitTests.all,
     ]
 }
