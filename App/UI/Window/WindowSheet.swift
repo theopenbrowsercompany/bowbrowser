@@ -15,7 +15,9 @@ final class WindowSheet<ID: Hashable> {
     /// Called once another sheet on the window has ended, on the next turn, with the request that waited: present it
     /// again if the feature still wants it up.
     var retry: ((ID) -> Void)?
-    private var observer: NSObjectProtocol?
+    /// Read only by `deinit`, which is not isolated: an `isolated deinit` on this generic class crashes the Release
+    /// optimizer (Swift 6.3, EarlyPerfInliner), and removing a notification observer is safe from any thread.
+    nonisolated(unsafe) private var observer: NSObjectProtocol?
 
     init(parent: NSWindow?) {
         self.parent = parent
@@ -28,7 +30,7 @@ final class WindowSheet<ID: Hashable> {
         }
     }
 
-    isolated deinit {
+    deinit {
         if let observer { NotificationCenter.default.removeObserver(observer) }
     }
 
