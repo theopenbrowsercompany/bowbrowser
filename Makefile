@@ -8,7 +8,7 @@ SWIFT_SOURCES := App/UI E2E BowCore
 # The e2e test `make e2e` runs: all, or one name such as app.quit.
 E2E ?= all
 
-.PHONY: bootstrap hooks project build test run smoke e2e format lint guards release verify clean
+.PHONY: bootstrap hooks project build test test-lock run smoke e2e format lint guards release verify clean
 
 bootstrap: hooks
 	./scripts/bootstrap-cef.sh
@@ -22,10 +22,14 @@ project:
 	xcodegen generate --quiet
 
 build: project
-	xcodebuild -project Bow.xcodeproj -scheme Bow -configuration Debug -derivedDataPath $(BUILD_DIR) -quiet build
+	./scripts/xcodebuild.sh -project Bow.xcodeproj -scheme Bow -configuration Debug -derivedDataPath $(BUILD_DIR) -quiet build
 
 test:
 	swift test --package-path BowCore --quiet
+
+# Tests the build lock with fake builds (about 50 seconds). Not part of verify.
+test-lock:
+	./scripts/test-build-lock.sh
 
 run: build
 	open $(APP)
@@ -60,7 +64,7 @@ guards:
 release: project
 	./scripts/check-release.sh
 
-verify: lint guards test build release
+verify: lint guards test build
 
 clean:
 	rm -rf $(BUILD_DIR) Bow.xcodeproj Generated

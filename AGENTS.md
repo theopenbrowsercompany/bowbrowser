@@ -45,8 +45,13 @@ Start every session in `~/code/GitHub/bowbrowser`: the maintainer's `.claude/set
   Lines still under investigation sit apart in its temporary list, counted as `temporary=` in the check's line, and come out once their cause is found.
 - `make smoke`: build, open the app in a background window on one page (`make smoke SMOKE_URL=https://example.org` picks it), print the load status and title, quit.
   The window appears on the maintainer's screen, so run it only when the maintainer asks; the lead runs it for agents working in parallel.
-- `make verify`: lint, guards (`make guards`: the e2e seam check in `scripts/check-e2e-seams.sh` and the Swift header check in `scripts/check-swift-headers.sh`), tests, the Debug build, and a Release build that must carry no e2e harness code or fixtures (`make release`).
+- `make verify`: lint, guards (`make guards`: the e2e seam check in `scripts/check-e2e-seams.sh` and the Swift header check in `scripts/check-swift-headers.sh`), tests and the Debug build.
   A change is done when this and its end-to-end check pass.
+- `make release`: a Release build that must carry no e2e harness code or fixtures. It is not part of `make verify`; the lead runs it once per branch before merging.
+- Builds take turns: every `xcodebuild` the Makefile runs goes through `scripts/build-lock.sh`, which leases one of `BOW_BUILD_SLOTS` slots (default 2) shared by all worktrees, queues waiting builds in arrival order, and frees a slot when its build ends, fails, is interrupted or dies.
+  `BOW_BUILD_JOBS` caps the parallel compile jobs of each build (default 6).
+  A waiting build prints one line saying so; just let it wait.
+  `make test-lock` tests the lock.
 - `make format`: format Swift sources.
 
 ## Working rules
