@@ -277,6 +277,16 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
         storeDidChange()
     }
 
+    /// Runs `body` on the window's store for a feature (a sidebar drag that moves, pins or unpins a tab), then brings
+    /// the window up to date and tells the features, as the window's own changes do. A refusal is reported and changes
+    /// nothing. Returns whether the change went through.
+    @discardableResult
+    func changeSidebar(_ body: (SidebarStore) throws -> Void) -> Bool {
+        let changed = change(body)
+        storeDidChange()
+        return changed
+    }
+
     /// Closes `tab`, one of this window's tabs, after its page's beforeunload handler runs. Returns true once it has
     /// closed, and false when the person chose to stay at the page's leave prompt, which keeps the tab and its
     /// page as they were. The closed tab leaves the sidebar (a pinned tab only unloads and stays); the window shows a
