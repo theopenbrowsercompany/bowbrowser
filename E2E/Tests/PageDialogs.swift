@@ -21,6 +21,8 @@ enum PageDialogsTests {
         PageDialogsPopupTest(),
         PageDialogsPopupSheetTest(),
         PageDialogsPopupSheetQuitTest(),
+        PageDialogsPanelSheetTest(),
+        PageDialogsPanelCloseTest(),
     ]
 
     static func url(_ name: String) -> URL { E2EFixture.url("dialogs/page.html?name=\(name)") }

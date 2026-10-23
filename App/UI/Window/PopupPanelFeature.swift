@@ -69,6 +69,9 @@ final class PopupPanel: NSObject, NSWindowDelegate, EngineTabDelegate {
     private(set) weak var opener: (any EngineTab)?
     let window: PopupPanelWindow
     private let webView: BowWebView
+    /// The panel page's alert, confirm and prompt, as sheets on the panel under the same rules as a tab's. The panel
+    /// always shows its page, so a dialog comes up at once.
+    let dialogs: PageDialogSheets
     private let navigationPolicy: ((any EngineTab, EngineNavigation) -> NavigationPolicy)?
     private var onClosed: ((PopupPanel) -> Void)?
 
@@ -93,6 +96,7 @@ final class PopupPanel: NSObject, NSWindowDelegate, EngineTabDelegate {
             backing: .buffered,
             defer: false)
         webView = BowWebView(frame: NSRect(origin: .zero, size: contentSize))
+        dialogs = PageDialogSheets(window: window, shownTab: tab.tabID)
         super.init()
         window.isReleasedWhenClosed = false
         window.delegate = self
@@ -150,6 +154,9 @@ final class PopupPanel: NSObject, NSWindowDelegate, EngineTabDelegate {
     }
 
     private func removeWindow() {
+        // A dialog up as a sheet is answered as cancelled and taken down first: AppKit refuses to close a window
+        // that has a sheet.
+        dialogs.close()
         guard window.isVisible || window.parent != nil else { return }
         webView.detach()
         window.parent?.removeChildWindow(window)
@@ -178,11 +185,17 @@ final class PopupPanel: NSObject, NSWindowDelegate, EngineTabDelegate {
             let host = state.url?.host ?? ""
             window.title = state.title.isEmpty ? host : state.title
             window.subtitle = state.title.isEmpty ? "" : host
+        case .didStartNavigation, .renderProcessGone:
+            dialogs.navigated(tab.tabID)
         case .closed, .unloaded:
             finish()
         default:
             break
         }
+    }
+
+    func tab(_ tab: any EngineTab, runDialog dialog: PageDialog) async -> PageDialogAnswer {
+        await dialogs.run(dialog, for: tab.tabID)
     }
 
     func tab(_ tab: any EngineTab, decidePolicyFor navigation: EngineNavigation) -> NavigationPolicy {
