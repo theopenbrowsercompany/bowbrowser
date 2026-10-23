@@ -13,15 +13,15 @@ public struct LinkSource: Equatable, Sendable {
         self.bundleID = bundleID
     }
 
-    /// The outermost app bundle on `executablePath`, the path of a process's executable, or nil when the path is in no
-    /// app bundle. A helper app inside another app (`Slack.app/Contents/Frameworks/Slack Helper.app`) gives the
+    /// The outermost app bundle on `path` (a process's executable or app bundle), or nil when the path is in no app
+    /// bundle. A helper app inside another app (`Slack.app/Contents/Frameworks/Slack Helper.app`) gives the
     /// outer app, so a link a helper sends counts as its parent app's.
-    public static func appBundlePath(containing executablePath: String) -> String? {
-        guard executablePath.hasPrefix("/") else { return nil }
-        var path = ""
-        for component in executablePath.split(separator: "/", omittingEmptySubsequences: true) {
-            path += "/" + component
-            if component.count > 4, component.lowercased().hasSuffix(".app") { return path }
+    public static func appBundlePath(containing path: String) -> String? {
+        guard path.hasPrefix("/") else { return nil }
+        var prefix = ""
+        for component in path.split(separator: "/", omittingEmptySubsequences: true) {
+            prefix += "/" + component
+            if component.count > 4, component.lowercased().hasSuffix(".app") { return prefix }
         }
         return nil
     }

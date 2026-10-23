@@ -345,6 +345,10 @@ void BowEngineDidShutDown() {
   BowDownloadsWhenNoBrowserKept(block);
 }
 
++ (BOOL)isQuitting {
+  return gQuitting;
+}
+
 @end
 
 #if BOW_E2E  // E2E seam: the hooks declared in BowE2EHooks.h.

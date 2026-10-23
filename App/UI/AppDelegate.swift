@@ -26,13 +26,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private(set) lazy var appFeatures = AppFeatureSet(dataDirectory: rootDataDirectory)
     #if BOW_E2E
         private var e2eRunner: E2ERunner?  // E2E seam
+        /// True only while the harness delivers a link of its own, which an e2e run takes like a real one.
+        var e2eDeliversLinks = false  // E2E seam
+        /// Told about each link from another app that opened, with its sender and the window it opened in.
+        var e2eLinkOpened: ((URL, LinkSource?, BrowserWindowController) -> Void)?  // E2E seam
     #endif
     /// True once the engine has started and windows can open.
     private var engineStarted = false
-    /// Links from other apps that arrived before the engine started.
-    private var pendingLinks: [URL] = []
-    /// True once launch found the app's sidebar unusable and is telling the person before it quits.
-    private var refusedToStart = false
+    /// Links from other apps: kept until the engine has started and the first window is open, dropped once launch
+    /// refuses to start.
+    private(set) var linkIntake = LinkIntake()
     private var smokeTimer: Timer?
     private var smokeFinished = false
     /// The smoke run's window, for the navigation delegate methods that finish the run.
@@ -82,6 +85,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         return configuration
     }
 
+    /// Installs the handler for links from other apps before AppKit delivers the launch's events, so a link that
+    /// launched Bow is not lost.
+    func applicationWillFinishLaunching(_ notification: Notification) {
+        NSAppleEventManager.shared().setEventHandler(
+            self,
+            andSelector: #selector(handleGetURLEvent(_:withReplyEvent:)),
+            forEventClass: AEEventClass(kInternetEventClass),
+            andEventID: AEEventID(kAEGetURL)
+        )
+        #if BOW_E2E
+            e2eRunner?.linkHandlerInstalled(delegate: self)  // E2E seam: tests deliver links before the engine starts.
+        #endif
+    }
+
     /// Called by the engine once Chromium is ready to create browsers.
     @objc func engineDidStart() {
         // Tabs live in the sidebar, so AppKit's own window tabs (and their menu items) stay off.
@@ -119,10 +136,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             do {
                 controller = try openWindow(url: nil)
             } catch {
-                // Bow refuses to start rather than run on a sidebar that would not be saved. Links that arrive
-                // while the alert is open are dropped, so no second alert stacks on it.
-                refusedToStart = true
-                pendingLinks.removeAll()
+                // Bow refuses to start rather than run on a sidebar that would not be saved. Links kept until now
+                // and links that arrive while the alert is open are dropped, so no second alert stacks on it.
+                linkIntake.refuse()
                 appFeatures.require(SidebarStores.self).present(error, in: nil)
                 BowEngine.exitCode = 1
                 NSApp.terminate(nil)
@@ -130,9 +146,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
             controller.showWindow(nil)
         }
-        let links = pendingLinks
-        pendingLinks.removeAll()
-        for link in links { openLink(link) }
+        openKeptLinks()
+    }
+
+    /// Opens the links kept until the engine started, oldest first; links from then on open as they arrive.
+    func openKeptLinks() {
+        for link in linkIntake.open() { openLink(link.url, from: link.source) }
     }
 
     /// Called by main after the engine has shut down, just before the process exits with `BowEngine.exitCode`.
@@ -144,26 +163,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         #endif
     }
 
-    /// Links from other apps (a link clicked in Mail, `open https://...`). Each opens in a new tab of the most recently
-    /// used browser window, in the profile of its Space on screen, or in a new window when none is open. Links that
-    /// arrive before the engine has started open once it has.
-    func application(_ application: NSApplication, open urls: [URL]) {
+    /// A link from another app (a link clicked in Mail, `open https://...`), as a GetURL Apple Event: AppKit's own
+    /// handler is replaced so the event's sender can be read. Each link opens in a new tab of the most recently used
+    /// browser window, in the profile of its Space on screen, or in a new window when none is open. Links that arrive
+    /// before the engine has started open once it has, in order; links while Bow quits, or while launch refuses to
+    /// start, are dropped, and so is anything that is not an http or https address.
+    @objc private func handleGetURLEvent(_ event: NSAppleEventDescriptor, withReplyEvent reply: NSAppleEventDescriptor)
+    {
         // An e2e or smoke run is a throwaway beside the person's own Bow: a link meant for them never opens in it.
-        guard !options.isE2E, !options.isSmokeTest, !refusedToStart else { return }
-        for url in urls where ["http", "https"].contains(url.scheme?.lowercased()) {
-            if engineStarted {
-                openLink(url)
-            } else {
-                pendingLinks.append(url)
-            }
-        }
+        var forThisRun = !options.isE2E && !options.isSmokeTest
+        #if BOW_E2E
+            if e2eDeliversLinks { forThisRun = true }  // E2E seam: a link the harness itself delivers.
+        #endif
+        guard forThisRun, !BowEngine.isQuitting, let link = ExternalLinks.link(from: event) else { return }
+        if let link = linkIntake.receive(link) { openLink(link.url, from: link.source) }
     }
 
-    /// Opens a link from another app. Until link routing rules exist, it opens in the profile of the target window's
-    /// Space on screen. Returns the window it opened in, or nil when it opened nowhere (an e2e run never opens an on
-    /// screen window for it).
+    /// Opens a link from another app. `source` is the app that sent it, for link routing rules; until they exist the
+    /// link opens in the profile of the target window's Space on screen, as Arc does without rules. Returns the window
+    /// it opened in, or nil when it opened nowhere (an e2e run never opens an on screen window for it).
     @discardableResult
-    func openLink(_ url: URL) -> BrowserWindowController? {
+    func openLink(_ url: URL, from source: LinkSource? = nil) -> BrowserWindowController? {
         // The main window, else the last one on screen or in the Dock, else, while Bow is hidden and so no window is on
         // screen, the last one. A window that is closing opens no tab, so it is skipped and the link goes to another
         // window, or to a new one.
@@ -173,6 +193,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             ?? (NSApp.isHidden ? open.last : nil)
         {
             guard controller.openTab(url: url) != nil else { return nil }
+            #if BOW_E2E
+                e2eLinkOpened?(url, source, controller)  // E2E seam
+            #endif
             // Brought forward (out of the Dock too), so the link is seen; e2e windows stay off screen and never key.
             if !options.isE2E {
                 controller.window?.deminiaturize(nil)

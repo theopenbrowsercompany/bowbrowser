@@ -71,6 +71,9 @@ NS_SWIFT_UI_ACTOR
 + (void)whenClosedTabsForDownloadsReleased:(dispatch_block_t)block
     NS_SWIFT_NAME(whenClosedTabsForDownloadsReleased(_:));
 
+/// True from `quit` until the quit ends or a page the person stays on cancels it.
+@property(class, nonatomic, readonly) BOOL isQuitting;
+
 @end
 
 NS_ASSUME_NONNULL_END
