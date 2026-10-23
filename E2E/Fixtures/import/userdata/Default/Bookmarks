@@ -1,0 +1,11 @@
+{"checksum":"fixture","roots":{
+  "bookmark_bar":{"name":"Bookmarks bar","type":"folder","children":[
+    {"type":"url","name":"Docs","url":"https://example.com/docs-arc","date_added":"13344473600000000"},
+    {"type":"folder","name":"Reading","children":[
+      {"type":"folder","name":"Deep","children":[
+        {"type":"url","name":"Nested","url":"https://example.com/nested-arc"}]},
+      {"type":"url","name":"Article","url":"https://example.com/article-arc"}]}]},
+  "other":{"name":"Other bookmarks","type":"folder","children":[
+    {"type":"url","name":"Other","url":"https://example.com/other-arc"}]},
+  "synced":{"name":"Mobile bookmarks","type":"folder","children":[]}
+},"version":1}

@@ -70,7 +70,8 @@ struct ImportApplyTest: E2ETest {
         run.check(
             "import.consent",
             passed: ["Nothing leaves this Mac", "Spaces", "folders", "pinned tabs", "Favorites", "never changes"]
-                .allSatisfy(consentText.contains) && consent.0?.buttons == ["Cancel", "Choose File…"]
+                .allSatisfy(consentText.contains)
+                && consent.0?.buttons == ["Cancel", "History and Bookmarks…", "Choose File…"]
                 && consent.1 == 0 && !consent.2,
             "buttons=\(consent.0?.buttons ?? []) requests=\(consent.1) menu_enabled=\(consent.2) text=\(consentText)")
 
@@ -119,7 +120,7 @@ struct ImportApplyTest: E2ETest {
             "import.apply",
             passed: imported.1 == ImportTests.twoSpacesRows && imported.2 == startSpaces + ["Clients", "Side"]
                 && imported.3 == 4 && imported.0?.text.contains("Imported 2 Spaces") == true
-                && imported.0?.buttons == ["Undo", "Done"],
+                && imported.0?.buttons == ["Undo", "History and Bookmarks…", "Done"],
             "sidebar=\(imported.1) spaces=\(imported.2) favorites=\(imported.3) \(imported.0.map(\.description) ?? "")")
 
         let undone = try await run.step("Undo and Done", timeout: E2ETimeouts.step) {
