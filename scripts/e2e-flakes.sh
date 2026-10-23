@@ -11,7 +11,7 @@
 #   FLAKY    failed or timed out, then passed on the retry
 #   FAIL     failed, and failed again on the retry or had none (E2E_RETRY=0, inside E2E_REPEAT)
 #   TIMEOUT  timed out, and had no passing retry
-# Tests a stuck run never started (NOT RUN) and interrupted runs are not counted.
+# Tests a stuck run never started (NOT RUN), runs that could not start and interrupted runs are not counted.
 # Prints one line per test: runs, passes, FLAKY, FAIL, TIMEOUT and the newest run folder with a failure, most
 # failures first, then the newest failure first (by when its results.json was written), then by name. Exits 1 when no results.json was found.
 # It reads JSON with perl's core JSON::PP, as the wrapper's own test does.
@@ -41,7 +41,8 @@ perl -MJSON::PP -MTime::HiRes -e '
   for my $file (@ARGV) {
     open(my $fh, "<", $file) or next;
     my $doc = eval { local $/; decode_json(<$fh>) };
-    next unless ref $doc eq "HASH" && ref $doc->{attempts} eq "ARRAY" && @{$doc->{attempts}};
+    # A run that could not start (status error) or was interrupted ran nothing to count.
+    next unless ref $doc eq "HASH" && ref $doc->{attempts} eq "ARRAY" && @{$doc->{attempts}} && ($doc->{status} // "") ne "error";
     $runs++;
     my ($first, $retry) = @{$doc->{attempts}};
     my $folder = $doc->{run} // $file;
