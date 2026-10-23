@@ -8,5 +8,6 @@ enum WindowFeatures {
         FindFeature.self,
         PermissionsFeature.self,
         SidebarFeature.self,
+        DownloadsFeature.self,
     ]
 }

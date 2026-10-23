@@ -36,6 +36,12 @@ final class DownloadsWindowController: NSWindowController, NSTableViewDataSource
         fatalError("init(coder:) is not supported")
     }
 
+    /// Window > Downloads while this window is key: the browser windows' `DownloadsFeature` is not in its responder
+    /// chain, so the window answers the shortcut itself.
+    @objc func showDownloads(_ sender: Any?) {
+        showWindow(sender)
+    }
+
     /// The view of row `row`, laid out now if it is not yet.
     func rowView(at row: Int) -> DownloadRowView? {
         guard row < tableView.numberOfRows else { return nil }

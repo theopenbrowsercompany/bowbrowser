@@ -301,7 +301,11 @@ final class E2EAppAdapter {
         let frame = NSRect(x: -20_000, y: -21_000, width: 480, height: 360)
         let window = OffscreenBrowserWindow(
             contentRect: frame, styleMask: [.titled, .closable, .resizable], backing: .buffered, defer: false)
-        let controller = delegate.openDownloadsWindow(window: window)
+        // Every browser window shares the app's services; a test opens one before reading its downloads.
+        guard let appFeatures = testControllers.first?.appFeatures else {
+            throw E2EError("the downloads window needs a browser window open first")
+        }
+        let controller = appFeatures.require(DownloadsCenter.self).openWindow(in: window)
         window.setFrame(window.frameRect(forContentRect: frame), display: false)
         try await Self.checkInvisible(window)
         window.orderFrontRegardless()
@@ -396,6 +400,16 @@ private final class TestApp: E2EApp {
     func press(_ shortcut: E2EShortcut, in page: any E2EPage) throws {
         try adapter.requireActive(token, "press Cmd+\(shortcut.key)")
         try adapter.press(shortcut, in: page)
+    }
+
+    func downloads() async throws -> [E2EDownload] {
+        try adapter.requireActive(token, "read the downloads window")
+        return try await adapter.downloads()
+    }
+
+    func press(_ button: E2EDownload.Button, of download: E2EDownload) async throws {
+        try adapter.requireActive(token, "press a download's \(button) button")
+        try await adapter.press(button, of: download)
     }
 
     func quit() {
