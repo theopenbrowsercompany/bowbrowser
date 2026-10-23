@@ -342,7 +342,7 @@ check "a signal while listing tests: exit 130" is "$code" 130
 check "a signal while listing tests: the summary is the last terminal line" is "$last" "E2E: ERROR interrupted"
 check "a signal while listing tests: the summary is not in the list file" not has "$iroot/latest/list.txt" "E2E: ERROR interrupted"
 mkdir -p "$tmp/slowps"
-printf '#!/bin/sh\n[ -e "%s/ps-mark" ] || { echo x > "%s/ps-mark"; sleep 5; }\nexec /bin/ps "$@"\n' "$tmp" "$tmp" > "$tmp/slowps/ps"
+printf '#!/bin/sh\n[ "$1" = -axo ] && [ ! -e "%s/ps-mark" ] && { echo x > "%s/ps-mark"; sleep 5; }\nexec /bin/ps "$@"\n' "$tmp" "$tmp" > "$tmp/slowps/ps"
 chmod +x "$tmp/slowps/ps"
 ipath="$tmp/slowps:$PATH" interrupt TERM pass 30 ../ps-mark
 check "a signal while sweeping: the wrapper stops at once" is "$stopped" yes
