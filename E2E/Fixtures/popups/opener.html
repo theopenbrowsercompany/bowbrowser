@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>A</title>
+  <style>
+    body { margin: 0; font: 16px -apple-system, sans-serif; background: #fff; color: #111; }
+    h1 { margin: 0; padding: 24px; background: #2f6fde; color: #fff; }
+    a, button { display: block; margin: 16px 24px; padding: 12px 20px; background: #eef; border: 0; font: inherit; }
+  </style>
+</head>
+<body>
+  <h1>A</h1>
+  <a id="link" href="opened.html?via=link">Open B (plain link)</a>
+  <a id="blank" href="opened.html?via=blank" target="_blank">Open B (new tab link)</a>
+  <button id="open" onclick="window.bowOpened = window.open('opened.html?via=open') !== null">Open B (window.open)</button>
+  <button id="storm" onclick="window.bowStorm = Array.from({ length: 20 }, () => window.open('opened.html?via=storm')).filter(Boolean).length">Open B twenty times</button>
+  <script>
+    // Each page this one opened says so once it has loaded: through window.opener when it has one (bowMessages),
+    // and on a broadcast channel either way (bowLoaded), so a test waits on these events.
+    window.bowMessages = [];
+    window.bowLoaded = [];
+    window.addEventListener("message", (event) => window.bowMessages.push(String(event.data)));
+    new BroadcastChannel("popups").addEventListener("message", (event) => window.bowLoaded.push(String(event.data)));
+  </script>
+</body>
+</html>
