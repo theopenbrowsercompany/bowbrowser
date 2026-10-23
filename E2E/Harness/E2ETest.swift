@@ -28,6 +28,10 @@ protocol E2ETest {
     /// The seconds the whole test may take, steps and code between them. Defaults to `E2ERun.testTimeout`; only a
     /// `selectedByNameOnly` test (a long measurement) should need more.
     var timeLimit: TimeInterval { get }
+    /// True for a test that ends a renderer on purpose (the crashed tab page tests). Any other test fails when a
+    /// renderer ends while it runs or while its windows close, with a FAIL line naming the termination status, as
+    /// Chromium's own browser tests fail on a renderer crash nobody allowed. Defaults to false.
+    var expectsRendererCrash: Bool { get }
     func run(_ run: E2ERun) async throws
 }
 
@@ -38,6 +42,7 @@ extension E2ETest {
     var selectedByNameOnly: Bool { false }
     var switchOverride: E2ESwitchOverride? { nil }
     var timeLimit: TimeInterval { E2ERun.testTimeout }
+    var expectsRendererCrash: Bool { false }
     /// The part of the name before the first dot, which `--e2e=<area>` selects.
     var area: String { String(name.prefix { $0 != "." }) }
 }
