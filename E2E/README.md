@@ -31,7 +31,8 @@ Record each check once per test: a check recorded again fails once, printing a F
 `e2e.isolation` and `chromium.errors` belong to the runner, and a test may not declare them.
 A FAIL line names the step that failed, also for a test's own failed check.
 Once a test ends, its app and pages refuse every action with an error, so work a timed-out step left running cannot drive the app; never swallow `CancellationError` or an `E2EError` with reason `.testEnded` in a test (rethrow both before a bare `catch`).
-A renderer that ends while a test runs or while its windows close fails that test, on its last recorded check (or its first missing one), with a RESULT error naming the tab and the termination status, unless the test declares `expectsRendererCrash` (as `page.crash` and `split.crash_pane` do); the retry reruns just that test, and `make e2e E2E=engine.undeclared-renderer-crash` must FAIL to prove the rule.
+A renderer that ends while a test runs or while its windows close fails that test, on its last recorded check (or its first missing one), with a RESULT error naming the tab and the termination status, unless the test declares `expectsRendererCrash` (as `page.crash` and `split.crash_pane` do).
+The retry reruns just that test, and `make e2e E2E=engine.undeclared-renderer-crash` must FAIL to prove the rule.
 A step that runs past its limit fails its test with `TIMEOUT` in the reason, and the run goes on; waits (`E2EWaits`) give up shortly before the step's limit with what they saw last, and also work in hidden tabs.
 Each test gets a fresh in-memory profile (`openWindow(at:)`; `profile: .appDefault` asks for the shared default profile), and afterwards the runner closes its windows and the `e2e.isolation` check fails if any browser, popups included, is left open.
 It also fails, naming the test and each window's class and title, when an AppKit window the test created (sheets and panels included) was visible and overlapped a screen, or the window server reported it visible: the runner notes the windows alive before each test, then checks every window move, resize, screen change and occlusion change during the test and its teardown, and every window once more when the test ends (`E2EWindowWatch`, whose explicit exemption list is empty).
@@ -44,12 +45,13 @@ A failing test leaves `build/e2e/<run>/<test>/log.txt` (each step's duration and
 The suite's time grows with every check, so a check has to earn its place.
 An e2e check earns it by covering the wiring of one "Done when" item in the running app, once.
 A decision and its edge cases (ordering, defaults, which item is chosen, what happens when) stay `BowCore` unit tests, which run in seconds.
-Before adding a check, look for a test that already drives the same wiring, and add the new assertion to it instead of opening another app window and page.
+Before adding a check, look for a test that already drives the same wiring, and add the new assertion to it instead of opening another app window and page, and declare it in that test's `checks`.
 A new check that repeats wiring an existing check drives is merged into that check.
-A check is dropped or merged when `scripts/e2e-flakes.sh` shows it flaky with no coverage of its own, or when its feature's wiring is covered by another test.
+A flaky check is fixed or quarantined first.
+It is dropped or merged only when its feature's wiring is covered by another test, or when `scripts/e2e-flakes.sh` keeps showing it flaky and a merge into a steadier test keeps the wiring covered.
 When two tests set up the same state, share the setup, and give a test more than one check only when each checks a different part of the wiring.
 Appearance is looked at in `final.png` and each failure's `fail.png`, which are evidence for a person; comparing pixels is out of scope until a separate decision on it.
-Say in the pull request which checks a change adds, merges or drops, so the suite's size stays a choice.
+Say in the report or pull request which checks a change adds, merges or drops, so the suite's size stays a choice.
 
 ## Timeouts, the retry and exit codes
 
