@@ -17,8 +17,8 @@ People set it up once as an ordered list of rules plus a default.
 - Each request names the app that sent it when the system knows it.
   Bow records that app by its bundle identifier, and a helper process inside an app (for example "Slack Helper" inside Slack) counts as that app.
   A sender that is no app (a command line tool such as `open`) or a request with no sender leaves the link with no source app.
-- Until routing rules are wired in, every link opens in Little Arc while "Links from other apps open in Little Arc" is on (the default) and a window is open (see `spec/little-arc.md`); otherwise in a new tab of the most recently used window, in the Space on screen there, as Arc does without rules.
-  The source app goes with the link to where it opens, for the rules to use.
+- Every link goes through the routing rules below before anything opens for it.
+  With no rules (the starting state) the default is Little Arc, so a link opens in Little Arc while "Links from other apps open in Little Arc" is on (the default) and a window is open (see `spec/little-arc.md`); otherwise in a new tab of the most recently used window, in the Space on screen there, as Arc does without rules.
 - Links that arrive before Bow can open them are kept, in the order they came, and open once the first window is open.
   In practice the engine is ready before the system hands Bow its first link, so links that launch Bow open right away.
 - Links that arrive while Bow is quitting are dropped, so quitting never opens a new window; if a page cancels the quit, later links open again.
@@ -29,8 +29,9 @@ People set it up once as an ordered list of rules plus a default.
 
 ### Routing rules
 
-- The routing list is ordered rules plus one default destination.
-  The first rule that matches a link decides where it opens; if none matches, the default decides.
+- The routing list is ordered rules plus one default destination, and optionally a "no source" destination.
+  The first rule that matches a link decides where it opens; if none matches, a link with no source app goes to the "no source" destination when one is set, and every other link to the default.
+  The "no source" destination exists because some apps cannot be identified as senders (apps that hand links to the `open` command, terminal apps), so they still get a place of their own.
 - A rule has a URL condition, a source app condition, or both, and a destination.
   A rule with both needs both to hold.
   A rule with neither is not usable and never matches.
@@ -45,14 +46,37 @@ People set it up once as an ordered list of rules plus a default.
 - Order is the only tie breaker.
   A narrow rule must sit above a broader one, or the broader rule hides it.
   The editor can list rules that are hidden by an earlier rule, and rules that are unusable, with the reason.
-- The saved list carries a version.
-  A list saved by a newer version of the app is refused rather than partly read.
-- When the app is not yet wired to the sender or the editor, the pieces below stay open, and routing in BowCore is exercised by unit tests only.
+- The saved list carries a version and lives in one file beside the sidebar file, written whole after every change so a crash never leaves half a list.
+  A list saved by a newer version of the app is refused rather than partly read: the file is left untouched and never saved over, links follow the starting rules, and the editor says that changes last only until Bow quits.
+  A file that cannot be read is moved aside under a new name, untouched, and routing starts over from the starting rules.
+
+### Where a routed link opens
+
+- A Space destination opens the link in a new tab of that Space: the browser window that shows the Space switches to it (sliding as the Space switcher does) and the tab is created there, so the page loads in the Space's profile from its very first request and never moves.
+  The window chosen is the most recently used one; with no window open, a new window opens with that Space on screen.
+- A profile destination opens the link in a Space of that profile: the Space on screen when it shows that profile, else the first such Space in sidebar order.
+- A Little Arc destination named by a rule opens Little Arc whatever the "Links from other apps open in Little Arc" setting says, because the person asked for it in that rule; the default being Little Arc follows the setting.
+  Little Arc needs a browser window for its page's profile, so with none open the link opens in a browser window.
+- The most recent window destination opens a new tab in the Space on screen of the most recently used window.
+- A rule (or the "no source" destination) naming a Space or profile that no longer exists, because it was deleted, gives way to the default; a default that no longer exists gives way to the most recent window, so a link always opens somewhere.
+- Links that arrive while the rule editor is open follow the rules as they are saved at that moment.
+
+### The rule editor
+
+- Bow > Air Traffic Control… opens the rule editor, a standard window.
+  Arc keeps Air Traffic Control in its settings; Bow has no settings window yet, so it sits in the app menu, where settings go on macOS.
+- It lists the rules in order, one row each: the address condition ("is any address", "contains" or "matches") and its text, the source app's bundle identifier (empty for any app), and where the link opens.
+- Add Rule adds a rule at the end; Remove deletes the selected rule; Move Up and Move Down move the selected rule, which matters because the first match wins.
+- Below the list are where links open when no rule matches, where links with no source app open, and a line naming the app the last link came from, for example "Last link came from: Slack (com.tinyspeck.slackmacgap)", so the person can copy its bundle identifier into a rule.
+  The line updates as links arrive, also while the editor is open.
+- Destinations are offered by name: each Space of the open windows, each profile, Little Arc and the most recent window; a destination that no longer exists shows as missing.
+- Rules that can never match (an empty or invalid text, no condition, or hidden by an earlier rule) are listed under the controls with the reason.
+- Every change is saved at once.
 
 ## Edge cases
 
 - Surrounding spaces and newlines in a link are ignored before matching.
-- A link with no sender and no matching URL rule goes to the default.
+- A link with no sender and no matching URL rule goes to the "no source" destination when one is set, else to the default.
 - Two rules with the same conditions: the first wins and the second is reported as hidden.
 - An unknown destination kind in saved data makes loading fail instead of picking a guess.
 
@@ -60,6 +84,11 @@ People set it up once as an ordered list of rules plus a default.
 
 - Run `make e2e`: `PASS links.intake: early=queued sender=bundle` shows links delivered as get URL requests at the earliest moment kept in order until the window opened, later links (a burst with malformed ones mixed in) opening at once in the Space on screen, a sent request recording Bow as its source app, an unsent one recording none, and Bow's renderer helper counting as Bow.
 - `PASS link.ignored` shows a get URL request that is not the run's own opening nothing in an e2e run.
+- `PASS routing: github.com->work slack->personal fallback=little-arc` shows the example below end to end, with links sent as real get URL requests and Bow's own sender standing in for Slack and Mail.
+- `PASS routing.helper` shows a link from Bow's renderer helper routed by a rule on Bow's bundle identifier.
+- `PASS routing.first_request` shows a routed link creating exactly one page, in the routed Space's profile, which loaded once.
+- `PASS routing.editor` shows the editor listing the rules and the default, naming Slack as the last source when a link arrives while it is open, and Move Down saving the new order.
+- `PASS routing.persist` shows saved rules read back the same by a new service on the same folder.
 
 1. With rules "address contains github.com" to Work and "source app Slack" to Personal, and the default Little Arc: a github.com link goes to Work, a link from Slack goes to Personal, a link from anywhere else goes to Little Arc.
 2. A link from Slack that is also a github.com link goes to Work, because that rule is first.
@@ -69,7 +98,6 @@ People set it up once as an ordered list of rules plus a default.
 
 ## Out of scope
 
-- Routing before the tab's first request, and applying the rules to received links: separate work.
-- The rule editor and showing the detected source app.
-- The Spaces, profiles, Little Arc and windows that destinations point to.
-- The `make e2e` line for routing rules.
+- Dragging rules to reorder them (Move Up and Move Down do it).
+- A settings window holding the editor and the Little Arc setting.
+- Routing links opened inside Bow (a click in a page), which follow the page's own link behavior instead.
