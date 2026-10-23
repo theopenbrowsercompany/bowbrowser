@@ -61,7 +61,8 @@ void BowTabClient::OnLoadError(CefRefPtr<CefBrowser> browser,
                  isRedirect:(BOOL)isRedirect {
   BowNavigation* navigation = [[BowNavigation alloc] initWithURL:url
                                                       transition:transition
-                                                   isUserGesture:isUserGesture];
+                                                   isUserGesture:isUserGesture
+                                                      isRedirect:isRedirect];
   id<BowTabNavigationDelegate> policyDelegate = self.navigationDelegate;
   if ([policyDelegate respondsToSelector:@selector(tab:decidePolicyForNavigation:)] &&
       [policyDelegate tab:self decidePolicyForNavigation:navigation] == BowNavigationPolicyCancel) {

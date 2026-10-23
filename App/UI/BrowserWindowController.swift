@@ -1067,6 +1067,17 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
 
     func windowShouldClose(_ sender: NSWindow) -> Bool {
         if engineTabs.isEmpty { return true }
+        // A feature's own page (a Peek) is asked first; the tabs close only once each such page has gone.
+        let asks = features.compactMap { $0.closeBeforeWindow() }
+        guard asks.isEmpty else {
+            Task {
+                for ask in asks {
+                    guard await ask.value else { return }
+                }
+                if self.windowShouldClose(sender) { self.window?.close() }
+            }
+            return false
+        }
         // Close every open tab, each running its page's unload handlers; the window closes once the last one has, and
         // the tabs keep their place in the sidebar. A page the person chooses to stay on keeps its tab and the window
         // open. Each close request asks the pages again, as quitting again does.

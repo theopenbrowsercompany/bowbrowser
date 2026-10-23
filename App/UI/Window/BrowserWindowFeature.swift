@@ -37,6 +37,11 @@ protocol BrowserWindowFeature: NSResponder {
     /// `space` came on screen in the window (also once when the window opens). Its tabs are now the window's tabs.
     func activeSpaceChanged(_ space: SidebarSpace)
 
+    /// The person asked the window to close. A feature that shows a page of its own (a Peek) returns the close of that
+    /// page, running its leave prompt: the window waits for it and closes its tabs only when it returns true, and
+    /// stays open, unchanged, when the person stays. Nil when the feature has no page to ask. Asked synchronously.
+    func closeBeforeWindow() -> Task<Bool, Never>?
+
     /// The window's sidebar store committed a change; `graph` is the committed sidebar. Called after the window has
     /// updated its own tabs from it.
     func storeChanged(_ graph: SidebarGraph)
@@ -101,6 +106,7 @@ extension BrowserWindowFeature {
     func tabDidClose(_ tab: any EngineTab) {}
     func tabOpened(_ tab: any EngineTab, item: SidebarItemID) {}
     func activeSpaceChanged(_ space: SidebarSpace) {}
+    func closeBeforeWindow() -> Task<Bool, Never>? { nil }
     func storeChanged(_ graph: SidebarGraph) {}
     func decidePermission(_ request: PermissionRequest, for tab: any EngineTab) async -> PermissionDecision? { nil }
     func decideNavigation(_ navigation: EngineNavigation, for tab: any EngineTab) -> NavigationPolicy? { nil }

@@ -31,7 +31,9 @@ extension EngineNavigation {
             case .backForward: .backForward
             case .other: .other
             }
-        self.init(url: navigation.url, transition: transition, isUserGesture: navigation.isUserGesture)
+        self.init(
+            url: navigation.url, transition: transition, isUserGesture: navigation.isUserGesture,
+            isRedirect: navigation.isRedirect)
     }
 }
 

@@ -109,11 +109,17 @@ public struct EngineNavigation: Equatable, Sendable {
     public var url: URL
     public var transition: NavigationTransition
     public var isUserGesture: Bool
+    /// True when the engine asks about a server redirect of a navigation already under way, rather than the
+    /// navigation's first ask. A redirect keeps the transition and gesture of the navigation it belongs to.
+    public var isRedirect: Bool
 
-    public init(url: URL, transition: NavigationTransition = .typed, isUserGesture: Bool = false) {
+    public init(
+        url: URL, transition: NavigationTransition = .typed, isUserGesture: Bool = false, isRedirect: Bool = false
+    ) {
         self.url = url
         self.transition = transition
         self.isUserGesture = isUserGesture
+        self.isRedirect = isRedirect
     }
 }
 
