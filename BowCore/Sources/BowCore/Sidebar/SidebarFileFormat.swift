@@ -26,9 +26,11 @@ public enum SidebarFileFormat {
     public static let migrations: [Migration] = [
         // Version 1 had one Favorites section; version 2 keeps one per profile, and the old one belongs to the default.
         Migration(from: 1) { object in
-            if let id = object.removeValue(forKey: "favoritesContainerID") as? String {
+            // A value that is not text is dropped; the cleanup pass then creates a new default section.
+            if let id = object["favoritesContainerID"] as? String {
                 object["favoritesContainerIDs"] = [SidebarProfileID.default.rawValue: id]
             }
+            object["favoritesContainerID"] = nil
         }
     ]
 

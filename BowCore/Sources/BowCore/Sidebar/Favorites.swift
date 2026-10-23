@@ -9,8 +9,10 @@ extension SidebarGraph {
     var favoritesProfileIDs: [SidebarProfileID] { Self.defaultFirst(favoritesContainerIDs.keys) }
 
     static func defaultFirst(_ profiles: some Sequence<SidebarProfileID>) -> [SidebarProfileID] {
-        let sorted = profiles.sorted()
-        return sorted.filter { $0 == .default } + sorted.filter { $0 != .default }
+        var rest = profiles.sorted()
+        guard let position = rest.firstIndex(of: .default) else { return rest }
+        rest.remove(at: position)
+        return [.default] + rest
     }
 
     /// The Favorites section of a profile, or nil when the profile has none yet (every profile a Space uses has one).
@@ -93,7 +95,7 @@ extension SidebarStore {
     }
 
     /// Takes a Favorite out of the icon row and keeps it as a tab: it goes to the top of the unpinned or pinned section of
-    /// `space` (default: the Space on screen). Nothing is closed, and a selected Favorite stays selected.
+    /// `space` (default: the Space on screen). Nothing is closed. A selected Favorite stays selected when it lands in the Space on screen; if it lands in a Space that is not shown, the Space on screen selects its own tab.
     public func removeFavorite(
         _ id: SidebarItemID,
         to section: SpaceSection = .unpinned,

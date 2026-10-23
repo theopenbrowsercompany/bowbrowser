@@ -206,6 +206,11 @@ extension SidebarStore {
                     let owner = graph.spaces.first(where: { $0.profileID == profile })
                 {
                     try mutate(.setActiveSpace(owner.id))
+                } else if let profile = graph.favoritesProfileID(containing: id),
+                    graph.activeSpace?.profileID != profile
+                {
+                    // No Space shows this Favorite, so selecting it would leave an off screen tab selected.
+                    throw SidebarStoreError.invalidHierarchy("no space shows the favorites of profile \(profile)")
                 }
             }
             try mutate(.setActiveTab(id))

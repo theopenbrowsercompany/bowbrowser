@@ -234,6 +234,18 @@ import Testing
         }
     }
 
+    @Test func selectingAFavoriteNoSpaceShowsIsRefused() throws {
+        try withTemporaryFolder { folder in
+            let store = try makeStore(in: folder)
+            let client = try space("client", in: store)
+            let c = try store.addFavorite(url: "https://c.example", profile: "client-profile")
+            try store.deleteSpace(client.id)
+            let before = store.graph
+            #expect(throws: SidebarStoreError.self) { try store.selectTab(c) }
+            #expect(store.graph == before)
+        }
+    }
+
     @Test func archivingAndOtherCleanupCanAskWhetherAnItemIsInFavorites() throws {
         try withTemporaryFolder { folder in
             let store = try makeStore(in: folder)
