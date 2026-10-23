@@ -196,6 +196,7 @@ final class E2EAppAdapter {
             controller.window?.performClose(nil)
         }
         closeLittleArc()
+        resetRouting()
         let deadline = Date().addingTimeInterval(timeout)
         while true {
             let windows = controllers.filter { $0.window?.isVisible == true }.count
