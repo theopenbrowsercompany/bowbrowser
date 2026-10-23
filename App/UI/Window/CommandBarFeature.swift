@@ -21,7 +21,12 @@ final class CommandBarFeature: NSResponder, BrowserWindowFeature, NSMenuItemVali
 
     /// The app commands the bar offers by name, each sent down the responder chain as its menu item's action when
     /// chosen. A command's feature adds one line here with its menu item.
-    static let commands: [(command: CommandBarCommand, action: Selector)] = []
+    static let commands: [(command: CommandBarCommand, action: Selector)] = [
+        (
+            CommandBarCommand(id: "collapse-all-folders", title: CollapseFoldersFeature.title),
+            #selector(CollapseFoldersFeature.collapseAllFolders(_:))
+        )
+    ]
 
     private unowned let window: BrowserWindowController
     private let historyStores: HistoryStores
@@ -345,7 +350,7 @@ final class CommandBarFeature: NSResponder, BrowserWindowFeature, NSMenuItemVali
             switchToTab(id)
         case .runCommand(let id):
             if let action = Self.commands.first(where: { $0.command.id == id })?.action {
-                NSApp.sendAction(action, to: window, from: self)
+                window.tryToPerform(action, with: self)
             }
         case .navigate(let url):
             switch mode {
