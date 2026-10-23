@@ -227,7 +227,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         Task { [engine] in
             await engine.closedTabsForDownloadsReleased()
             waitsToQuitAfterDownloads = false
-            if !NSApp.windows.contains(where: \.isVisible) { NSApp.terminate(nil) }
+            // A browser window opened meanwhile (shown, in the Dock or hidden with the app) or any other window on
+            // screen or in the Dock keeps the app open, as it would have kept it from quitting in the first place.
+            let hasWindow =
+                windowControllers.contains { !$0.isClosing }
+                || NSApp.windows.contains { $0.isVisible || $0.isMiniaturized }
+            if !hasWindow { NSApp.terminate(nil) }
         }
     }
 
