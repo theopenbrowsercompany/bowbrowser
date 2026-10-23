@@ -57,6 +57,9 @@ public enum SidebarMutation: Equatable, Sendable {
     case move(SidebarItemID, parent: SidebarItemID, index: Int? = nil)
     /// Deletes an item and everything under it.
     case delete(SidebarItemID)
+    /// Deletes a folder but keeps what is inside it: its children take the folder's place, in their order, under the
+    /// folder's parent. Only folders can be deleted this way.
+    case deleteFolderKeepingChildren(SidebarItemID)
     /// Sets or clears an item's custom name.
     case rename(SidebarItemID, title: String?)
     /// Replaces a tab's saved address and title, the page it returns to. The app calls this only on purpose (pinning,
@@ -110,6 +113,22 @@ extension SidebarGraph {
             guard !item.data.isContainer else { throw .invalidHierarchy("sections are deleted with their space") }
             if let parentID = item.parentID { items[parentID]?.childrenIDs.removeAll { $0 == id } }
             removeSubtree(id)
+
+        case .deleteFolderKeepingChildren(let id):
+            let folder = try existing(id)
+            guard case .folder = folder.data else { throw .invalidHierarchy("\(id) is not a folder") }
+            guard let parentID = folder.parentID, let parent = items[parentID],
+                let position = parent.childrenIDs.firstIndex(of: id)
+            else { throw .invalidHierarchy("\(id) has no place to leave its children in") }
+            let children = folder.childrenIDs
+            for childID in children {
+                guard let child = items[childID], parent.data.canHold(child.data) else {
+                    throw .invalidHierarchy("\(parentID) cannot hold the contents of \(id)")
+                }
+            }
+            for childID in children { items[childID]?.parentID = parentID }
+            items[parentID]?.childrenIDs.replaceSubrange(position...position, with: children)
+            items.removeValue(forKey: id)
 
         case .rename(let id, let title):
             _ = try existing(id)

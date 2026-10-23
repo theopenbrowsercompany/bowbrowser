@@ -16,6 +16,11 @@ Bow keeps it in one file of its own, separate from the engine's session data.
   Every other tab appears in the sidebar with its saved title and loads when it is selected.
 - Folders nest to any depth and keep whether they were open or closed.
   Split views keep their tabs and their orientation.
+- A folder holds tabs, split views and other folders in the order the person set.
+  It can be created (empty), renamed, opened or closed, and moved with everything inside it to another folder, another position or another Space's section.
+  A folder cannot be moved into itself or into anything inside it; Bow refuses such a move and changes nothing.
+- Deleting a folder either deletes everything inside it, or keeps its contents: the tabs, split views and folders inside take the folder's place under its parent, in their order, and sub-folders keep their own contents.
+- Empty folders are kept, and so is a closed folder's contents: closing a folder hides its items but never changes them.
 - The sidebar file lives in Bow's Application Support folder (`~/Library/Application Support/Bow/Sidebar.json`).
   Browsing history and site icons are not stored in it.
 
@@ -47,6 +52,10 @@ Bow keeps it in one file of its own, separate from the engine's session data.
 6. Quit, edit the file so a folder no longer lists one of its tabs while the tab still names the folder, relaunch: the tab is back in that folder.
 7. Quit, edit the file so a tab names a folder that does not exist and no folder lists it, relaunch: the tab is in "Recently recovered" at the top of the pinned section.
 8. Run `make e2e`: the `store.roundtrip` test saves a sidebar of twelve items, relaunches, and prints `PASS store.roundtrip: items=12 after_relaunch=12`.
+9. Make folders client, project and phase, each inside the previous one, with a tab A in phase, plus an empty folder, then close "project": quit and relaunch, and the tree is client/project/phase/[A], "project" is still closed and the empty folder is still there.
+10. Delete "project" keeping its contents: "phase" and its tab are now directly inside "client", where "project" was.
+    Delete "client" with its contents: everything inside it is gone.
+11. Try to drag "client" into "phase": Bow refuses and the tree is unchanged.
 
 ## Out of scope
 
