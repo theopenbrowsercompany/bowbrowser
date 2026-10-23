@@ -39,10 +39,13 @@ final class ArchiveFooterButton: SidebarAccessory {
     func update(content: SidebarContent, context: (any SidebarActionContext)?) {}
 
     @objc private func clicked(_ sender: Any?) {
-        if let popover = button.popover, popover.isShown {
-            popover.close()
+        if button.popover?.isShown == true {
+            button.closePopover()
             return
         }
+        // A real click on the button while the popover shows first closes it (a transient popover closes on any click
+        // outside it), so the click that follows must not open it again.
+        if button.closedByOutsideClickJustNow { return }
         guard let controller = button.window?.windowController as? BrowserWindowController else { return }
         let center = controller.appFeatures.require(ArchiveCenter.self)
         let content = ArchivePopoverController(center: center, window: controller)
@@ -51,7 +54,8 @@ final class ArchiveFooterButton: SidebarAccessory {
         // Closing at once (not after a fade) keeps a second click on the button, or a reopened tab, from meeting a popover that is half gone.
         popover.animates = false
         popover.contentViewController = content
-        content.close = { [weak popover] in popover?.close() }
+        content.close = { [weak button] in button?.closePopover() }
+        popover.delegate = button
         button.popover = popover
         popover.show(relativeTo: button.bounds, of: button, preferredEdge: .maxY)
     }
@@ -59,6 +63,26 @@ final class ArchiveFooterButton: SidebarAccessory {
 
 /// The button, holding the popover it opened (so the e2e harness can read what it shows).
 @MainActor
-final class ArchiveButton: NSButton {
+final class ArchiveButton: NSButton, NSPopoverDelegate {
     var popover: NSPopover?
+    private var closingOnPurpose = false
+    private var outsideClose: Date?
+
+    /// Closes the popover for the button or a reopened tab (not because of a click outside it).
+    func closePopover() {
+        closingOnPurpose = true
+        popover?.close()
+        closingOnPurpose = false
+    }
+
+    /// True within a moment of AppKit closing the popover for a click outside it.
+    var closedByOutsideClickJustNow: Bool {
+        guard let outsideClose else { return false }
+        return Date().timeIntervalSince(outsideClose) < 0.25
+    }
+
+    func popoverDidClose(_ notification: Notification) {
+        outsideClose = closingOnPurpose ? nil : Date()
+        popover = nil
+    }
 }

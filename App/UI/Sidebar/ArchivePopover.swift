@@ -105,6 +105,8 @@ final class ArchivePopoverController: NSViewController {
         }
         let current = profile.map { center.threshold(for: $0) } ?? .default
         menu.selectItem(at: AutoArchiveThreshold.allCases.firstIndex(of: current) ?? 0)
+        // With no Space on screen there is no profile to save for.
+        menu.isEnabled = profile != nil
         menu.target = self
         menu.action = #selector(thresholdChanged(_:))
         menu.identifier = NSUserInterfaceItemIdentifier(Self.thresholdIdentifier)
@@ -121,8 +123,8 @@ final class ArchivePopoverController: NSViewController {
 
     @objc private func reopen(_ sender: ArchiveRowButton) {
         guard let window else { return }
-        center.reopen(sender.entryID, in: window)
-        close?()
+        // A row that cannot be put back (reopened in another window meanwhile) stays up to date on the next open.
+        if center.reopen(sender.entryID, in: window) { close?() } else { NSSound.beep() }
     }
 
     @objc private func thresholdChanged(_ sender: NSPopUpButton) {
