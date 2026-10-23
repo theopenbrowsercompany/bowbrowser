@@ -4,6 +4,7 @@ import BowCore
 // Questions a load asks before it can go on: HTTP sign in and certificate errors.
 
 extension CEFTab {
+    @objc(tab:answerAuthChallenge:completionHandler:)
     func tab(
         _ tab: BowTab,
         answer challenge: BowAuthChallenge,
@@ -19,6 +20,7 @@ extension CEFTab {
         }
     }
 
+    @objc(tab:decideCertificateError:decisionHandler:)
     func tab(
         _ tab: BowTab,
         decideCertificateError error: BowCertificateError,

@@ -1,0 +1,9 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>engine hooks</title>
+<script>
+  // Every key the page sees, so a test can tell which ones the app claimed first.
+  window.keys = [];
+  addEventListener('keydown', (event) => keys.push(event.key));
+</script>
+<button id="open" onclick="window.open('opened.html')" style="width: 200px; height: 60px">Open a page</button>

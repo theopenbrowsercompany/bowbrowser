@@ -20,6 +20,8 @@ An unloaded tab stays in the sidebar and loads again when you open it.
 - The decision depends only on the tabs, the clock and the memory pressure, so the same inputs always give the same tabs in the same order.
 - The idle times and loaded tab limits are settings, not fixed numbers, and are tuned from measurements.
 
+- Unloading a page lets its beforeunload handler run but never shows a prompt: a page that would ask to stay is left loaded.
+
 ## Edge cases
 
 - A tab that is already unloaded is never chosen again.
@@ -40,8 +42,10 @@ An unloaded tab stays in the sidebar and loads again when you open it.
 
 These run as unit tests today (`UnloadPolicyTests`).
 
+8. Run `make e2e`: the `engine.unload` check unloads a tab through the engine and prints `PASS engine.unload: unloaded=true closed=true last=unloaded`.
+
 ## Out of scope
 
-- Reading memory pressure and tab state from the engine, closing and reopening the page, the placeholder snapshot and sidebar display: they need the app and the measurements, and are not built yet.
+- Reading memory pressure from the engine, reopening the page, the placeholder snapshot and sidebar display: they need the app and the measurements, and are not built yet.
 - The idle times and limits shown here are placeholders until those measurements arrive.
 - Restoring back and forward history after unloading.
