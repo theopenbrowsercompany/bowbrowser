@@ -404,6 +404,8 @@ import Testing
             let original = try Data(contentsOf: url)
             let crashing = AtomicFileWriter { stage in if stage == .temporaryFileWritten { throw SimulatedCrash() } }
             let store = try SidebarStore(fileURL: url, migrations: [], writer: crashing)
+            var reported: [SidebarStoreError] = []
+            store.onSaveFailed = { reported.append($0) }
 
             #expect {
                 try store.apply([.delete("work")])
@@ -411,6 +413,8 @@ import Testing
                 if case .saveFailed = error as? SidebarStoreError { return true }
                 return false
             }
+            // The app hears of the failure whichever caller made the change.
+            #expect(reported.count == 1)
             // The change is kept in memory and still marked unsaved; the file is the old one.
             #expect(store.graph["work"] == nil)
             #expect(store.hasUnsavedChanges)
