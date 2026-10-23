@@ -32,7 +32,7 @@ if [ "$sel" = list ]; then
   [ "${FAKE_NOLIST:-0}" = 1 ] && exit 64
   [ "$FAKE_MODE" = listhang ] && { echo "listing"; exec sleep 60; }
   echo "TEST a.one area=a tags=- checks=a.one"
-  echo "TEST a.two area=a tags=smoke,slow checks=a.two"
+  echo "TEST a.two area=a tags=smoke,slow${FAKE_LISTTAG:+,$FAKE_LISTTAG} checks=a.two"
   echo "TEST a.three area=a tags=- checks=a.three"
   exit 0
 fi
@@ -45,7 +45,14 @@ fi
 shardrun() {
   local tests=() ordered=() t i b first=1 n=0 p=0 quit=0 bad=0 secs
   local r="$out/report.txt"
-  case $sel in all | 'a.*') tests=(a.one a.two a.three) ;; *) IFS=, read -ra tests <<< "$sel" ;; esac
+  # Names and globs of names, as the app reads them; FAKE_GREEDY=1 runs every test whatever the selection.
+  local parts=() q
+  IFS=, read -ra parts <<< "$sel"
+  for t in a.one a.two a.three; do
+    for q in "${parts[@]}"; do
+      if [ "$q" = all ] || [ "${FAKE_GREEDY:-0}" = 1 ] || [[ $t == $q ]]; then tests+=("$t"); break; fi
+    done
+  done
   case $out in */retry) first=0 ;; esac
   for t in "${tests[@]}"; do [ "$t" = a.three ] || ordered+=("$t"); done
   for t in "${tests[@]}"; do [ "$t" != a.three ] || ordered+=("$t"); done
@@ -717,6 +724,13 @@ E2E_SHARDS=2 run shard 'smoke, a.th*'
 check "plan: a tag and a glob resolve as the app resolves them" is "$(shard_args 1) $(shard_args 2)" "e2e=a.three e2e=a.two"
 E2E_SHARDS=2 run shard a
 check "plan: an area resolves to its tests" is "$(shard_dirs)/$last" "2/E2E: PASS 5/5"
+FAKE_LISTTAG=a.one E2E_SHARDS=2 run shard
+check "plan: a test named like a tag or area goes as a glob of just its name" \
+  is "$(cat "$BOW_E2E_ROOT"/latest/shard-*/args | grep -c 'a\.on\[e\]')/$last" "1/E2E: PASS 5/5"
+check "plan: that test runs once" is "$(grep -c '^RESULT a.one ' "$(latest report.txt)")" 1
+FAKE_GREEDY=1 E2E_SHARDS=2 run shard
+check "a shard that runs tests outside its plan stops the run" \
+  is "$code/$last" "64/E2E: ERROR shard 1/2: it ran tests outside its plan: a.two, a.three"
 E2E_SHARDS=3 run shard a.one
 check "plan: one test runs in one app" is "$(shard_dirs)/$last/$(cat "$(latest args)")" "0/E2E: PASS 3/3/e2e=a.one"
 E2E_SHARDS=2 run usage nope.test
