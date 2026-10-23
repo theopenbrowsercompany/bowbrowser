@@ -54,14 +54,14 @@ public struct UnloadDecision: Equatable, Sendable {
 }
 
 /// Decides which loaded tabs to unload. Pure and deterministic: all inputs, including the clock, are passed in.
-/// The numbers are configuration, so measurements from the hidden tab spike only change `Configuration`.
+/// The numbers are configuration, so measurements only change `Configuration`.
 public struct UnloadPolicy: Sendable {
     public struct Configuration: Equatable, Sendable {
         /// How long a tab may sit idle before it is unloaded, per memory pressure level.
         public var idleLimit: [MemoryPressure: TimeInterval]
         /// How many tabs may stay loaded (exempt ones included), per memory pressure level.
         public var maxLoadedTabs: [MemoryPressure: Int]
-        /// Pinned tabs and Favorites get their idle limit multiplied by this.
+        /// Pinned tabs and Favorites get their idle limit multiplied by this (values below 1 count as 1).
         public var pinnedIdleMultiplier: Double
 
         public init(
@@ -73,7 +73,7 @@ public struct UnloadPolicy: Sendable {
             self.pinnedIdleMultiplier = pinnedIdleMultiplier
         }
 
-        /// Placeholder numbers until the hidden tab measurements arrive.
+        /// Placeholder numbers until measurements arrive.
         public static let `default` = Configuration(
             idleLimit: [.normal: 30 * 60, .warning: 10 * 60, .critical: 0],
             maxLoadedTabs: [.normal: 12, .warning: 6, .critical: 1],
@@ -94,6 +94,8 @@ public struct UnloadPolicy: Sendable {
         let current = now()
         let loaded = tabs.filter(\.isLoaded)
         let candidates = loaded.filter { !$0.isExempt }.sorted(by: Self.leastRecentlyUsedFirst)
+        // When trimming to the limit, pinned tabs and Favorites go last.
+        let trimOrder = candidates.filter { !$0.isPinnedOrFavorite } + candidates.filter(\.isPinnedOrFavorite)
 
         var decisions: [UnloadDecision] = []
         var unloaded = Set<UUID>()
@@ -102,9 +104,9 @@ public struct UnloadPolicy: Sendable {
             unloaded.insert(tab.id)
         }
 
-        let limit = max(0, configuration.maxLoadedTabs[pressure] ?? Int.max)
+        let limit = max(0, Self.value(in: configuration.maxLoadedTabs, for: pressure) ?? Int.max)
         var remaining = loaded.count - unloaded.count
-        for tab in candidates where remaining > limit && !unloaded.contains(tab.id) {
+        for tab in trimOrder where remaining > limit && !unloaded.contains(tab.id) {
             decisions.append(UnloadDecision(id: tab.id, reason: .overLimit))
             remaining -= 1
         }
@@ -116,10 +118,18 @@ public struct UnloadPolicy: Sendable {
     }
 
     private func idleLimit(for tab: UnloadTab, pressure: MemoryPressure) -> TimeInterval {
-        let base = configuration.idleLimit[pressure] ?? .infinity
+        let base = Self.value(in: configuration.idleLimit, for: pressure) ?? .infinity
         // Under critical pressure nothing is held back for being pinned.
         guard tab.isPinnedOrFavorite, pressure < .critical else { return base }
-        return base * configuration.pinnedIdleMultiplier
+        return base * max(1, configuration.pinnedIdleMultiplier.isNaN ? 1 : configuration.pinnedIdleMultiplier)
+    }
+
+    /// The setting for a pressure level. A level left out of the configuration uses the nearest stricter level, so a gap
+    /// never keeps tabs alive under pressure; with no stricter level it uses the nearest looser one.
+    private static func value<T>(in settings: [MemoryPressure: T], for pressure: MemoryPressure) -> T? {
+        let stricter = MemoryPressure.allCases.filter { $0 >= pressure }
+        let looser = MemoryPressure.allCases.filter { $0 < pressure }.reversed()
+        return (stricter + looser).lazy.compactMap { settings[$0] }.first
     }
 
     private static func leastRecentlyUsedFirst(_ a: UnloadTab, _ b: UnloadTab) -> Bool {

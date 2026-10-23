@@ -112,8 +112,46 @@ import Testing
         #expect(policy().decide(tabs: [future], pressure: .normal).isEmpty)
     }
 
-    @Test func missingConfigurationForALevelNeverUnloads() {
+    @Test func aLevelLeftOutOfTheConfigurationUsesTheNextStricterOne() {
+        let configuration = UnloadPolicy.Configuration(
+            idleLimit: [.critical: 0], maxLoadedTabs: [.critical: 1], pinnedIdleMultiplier: 1)
+        #expect(policy(configuration).decide(tabs: [tab(idleMinutes: 1)], pressure: .normal).count == 1)
+    }
+
+    @Test func anEmptyConfigurationNeverUnloads() {
         let configuration = UnloadPolicy.Configuration(idleLimit: [:], maxLoadedTabs: [:], pinnedIdleMultiplier: 1)
         #expect(policy(configuration).decide(tabs: [tab(idleMinutes: 9999)], pressure: .warning).isEmpty)
+    }
+
+    @Test func aMultiplierBelowOneDoesNotShortenPinnedTabs() {
+        var configuration = UnloadPolicy.Configuration.default
+        configuration.pinnedIdleMultiplier = 0
+        let pinned = tab(idleMinutes: 29) { $0.isPinnedOrFavorite = true }
+        #expect(policy(configuration).decide(tabs: [pinned], pressure: .normal).isEmpty)
+    }
+
+    @Test func trimmingToTheLimitUnloadsPinnedTabsLast() {
+        var configuration = UnloadPolicy.Configuration.default
+        configuration.maxLoadedTabs[.normal] = 1
+        let pinned = tab(idleMinutes: 20) { $0.isPinnedOrFavorite = true }
+        let plain = tab(idleMinutes: 10)
+        let decisions = policy(configuration).decide(tabs: [pinned, plain], pressure: .normal)
+        #expect(decisions == [UnloadDecision(id: plain.id, reason: .overLimit)])
+    }
+
+    @Test func fourteenRecentTabsWithDefaultLimitsUnloadTheTwoLeastRecentlyUsed() {
+        let tabs = (0..<14).map { tab(idleMinutes: Double($0)) }
+        let decisions = policy().decide(tabs: tabs, pressure: .normal)
+        #expect(decisions.map(\.id) == [tabs[13].id, tabs[12].id])
+    }
+
+    @Test func warningPressureKeepsPinnedTabsForTheLongerLimit() {
+        let pinned = tab(idleMinutes: 25) { $0.isPinnedOrFavorite = true }
+        #expect(policy().decide(tabs: [pinned], pressure: .warning).isEmpty)
+    }
+
+    @Test func aFutureTabIsStillUnloadedUnderCriticalPressure() {
+        let future = UnloadTab(lastActive: now.addingTimeInterval(100))
+        #expect(policy().decide(tabs: [future], pressure: .critical).count == 1)
     }
 }
