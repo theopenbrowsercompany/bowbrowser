@@ -150,15 +150,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Opens a browser window. With no `profile` it runs on the app's sidebar (saved in the data directory): it opens
     /// `url` in a new tab, or restores the sidebar when `url` is nil (the home page when the sidebar has no tabs).
     /// With a `profile` it runs on a new sidebar of its own whose one Space shows that profile, and opens `url`.
-    /// `window` is the window to use (e2e runs pass an off-screen one).
+    /// A given `store` is used as it is, as on launch. `window` is the window to use (e2e runs pass an off-screen one).
     func openWindow(
         url: URL?,
         profile: (any EngineProfile)? = nil,
+        store givenStore: SidebarStore? = nil,
         window: BrowserWindow? = nil
     ) -> BrowserWindowController {
         let stores = appFeatures.require(SidebarStores.self)
         let store: SidebarStore
-        if profile == nil, let main = stores.main() {
+        if let givenStore {
+            store = givenStore
+        } else if profile == nil, let main = stores.main() {
             store = main
         } else {
             // The engine always has its default profile.

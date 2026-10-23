@@ -37,6 +37,7 @@ final class E2EAppAdapter {
     }
 
     func openWindow(at url: URL, profile: E2EWindowProfile, token: Int) async throws -> any E2EPage {
+        let delegate = delegate
         let engineProfile: (any EngineProfile)?
         switch profile {
         case .appDefault:
@@ -48,13 +49,24 @@ final class E2EAppAdapter {
         case .new(let profile):
             engineProfile = try createProfile(id: profile.id, isPersistent: profile.isPersistent)
         }
+        return try await showWindow(token: token) { window in
+            delegate.openWindow(url: url, profile: engineProfile, window: window)
+        }
+    }
+
+    /// Opens a browser window with `open` in a new off-screen window, tracks it and its shown tab for the test, and
+    /// orders it in once it is known to stay invisible. Returns the page of its shown tab.
+    private func showWindow(
+        token: Int,
+        open: (BrowserWindow) -> BrowserWindowController
+    ) async throws -> TabPage {
         let window = OffscreenBrowserWindow(
             contentRect: Self.windowFrame,
             styleMask: BrowserWindowController.styleMask,
             backing: .buffered,
             defer: false
         )
-        let controller = delegate.openWindow(url: url, profile: engineProfile, window: window)
+        let controller = open(window)
         testControllers.append(controller)
         controller.onTabEvent = { [weak self, unowned controller] tab, event in
             if case .stateChanged = event, let row = Self.sidebarRow(of: tab, in: controller) {
@@ -792,4 +804,67 @@ extension BrowserWindowController {
     fileprivate var findBar: FindBar { feature(FindFeature.self)!.findBar }
     fileprivate var permissionPrompts: PermissionPrompts? { feature(PermissionsFeature.self)?.prompts }
     fileprivate var navigationToolbar: NavigationToolbar { feature(NavigationFeature.self)!.toolbar }
+}
+
+// The sidebar store and tab creation over the window controller's `SidebarStore` and the app delegate's link
+// handling. The test's app (TestApp) offers them to the test, after checking that the test is still running.
+extension E2EAppAdapter {
+    func sidebarItemCount(of page: any E2EPage) throws -> Int {
+        try Self.tabPage(page).controller.store.graph.contentItemCount
+    }
+
+    func relaunchSidebar(of page: any E2EPage, token: Int) async throws -> E2ERelaunchedSidebar {
+        let file = try Self.tabPage(page).controller.store.fileURL
+        try await closeWindow(of: page)
+        let store: SidebarStore
+        do {
+            store = try SidebarStore(fileURL: file)
+        } catch {
+            throw E2EError("cannot read the sidebar back from \(file.lastPathComponent): \(error)")
+        }
+        let delegate = delegate
+        let shown = try await showWindow(token: token) { window in
+            delegate.openWindow(url: nil, store: store, window: window)
+        }
+        let controller = shown.controller
+        return E2ERelaunchedSidebar(
+            page: shown,
+            itemCount: store.graph.contentItemCount,
+            rowCount: controller.tabList.count,
+            loadedTabCount: controller.tabs.count
+        )
+    }
+
+    func openExternalLink(_ url: URL, token: Int) throws -> any E2EPage {
+        let before = Set(pages.keys)
+        guard let controller = delegate.openLink(url) else { throw E2EError("the link opened no tab") }
+        guard let tab = controller.tabs.first(where: { !before.contains($0.tabID) }) else {
+            throw E2EError("the link's window has no new tab")
+        }
+        return track(tab, in: controller, token: token)
+    }
+
+    func profileID(of page: any E2EPage) throws -> String {
+        try Self.tabPage(page).tab.profileID.rawValue
+    }
+}
+
+extension TestApp: E2EStoreApp {
+    func sidebarItemCount(of page: any E2EPage) throws -> Int {
+        try adapter.sidebarItemCount(of: page)
+    }
+
+    func relaunchSidebar(of page: any E2EPage) async throws -> E2ERelaunchedSidebar {
+        try adapter.requireActive(token, "relaunch a sidebar")
+        return try await adapter.relaunchSidebar(of: page, token: token)
+    }
+
+    func openExternalLink(_ url: URL) throws -> any E2EPage {
+        try adapter.requireActive(token, "open a link from another app")
+        return try adapter.openExternalLink(url, token: token)
+    }
+
+    func profileID(of page: any E2EPage) throws -> String {
+        try adapter.profileID(of: page)
+    }
 }

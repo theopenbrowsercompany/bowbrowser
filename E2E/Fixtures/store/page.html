@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Page</title>
+  <style>
+    body { margin: 0; font: 16px -apple-system, sans-serif; background: #fff; color: #111; }
+    h1 { margin: 0; padding: 24px; background: #2860e8; color: #fff; }
+  </style>
+  <script>
+    // Titled after its `name` parameter, so the sidebar lists the tabs by name.
+    document.title = new URLSearchParams(location.search).get("name") || "?";
+  </script>
+</head>
+<body>
+  <h1>Sidebar store fixture</h1>
+  <p style="padding: 0 24px">A page for the sidebar store and link profile checks.</p>
+</body>
+</html>
