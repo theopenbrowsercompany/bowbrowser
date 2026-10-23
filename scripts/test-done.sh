@@ -40,14 +40,36 @@ case "$*" in
     ;;
   *e2e-run*)
     # The repeat of the changed tests: the repeat summary lines, and latest moves to a folder without final.png.
-    echo "ran: E2E_REPEAT=$E2E_REPEAT $*" >> "$FAKE_LOG"
+    echo "ran: E2E_REPEAT=$E2E_REPEAT E2E_SHARDS=$E2E_SHARDS $*" >> "$FAKE_LOG"
     mkdir -p build/e2e/20260101-2
     ln -sfn 20260101-2 build/e2e/latest
-    if [ "${FAKE_REPEAT:-0}" = 0 ]; then echo "REPEAT x.one 5/5"; else echo "REPEAT x.one 4/5"; fi
-    if [ "${FAKE_REPEAT:-0}" = 0 ]; then echo "E2E: PASS 5/5 repeats"; else
-      echo "E2E: FAIL 4/5 repeats passed; failed: repeat 3"
-      exit 1
-    fi
+    n=$E2E_REPEAT
+    case "${FAKE_REPEAT:-0}" in
+      0) echo "E2E: PASS $n/$n repeats" ;;
+      1) # a changed test fails once
+        echo "REPEAT x.one $((n - 1))/$n"
+        echo "FAIL x.one.check: it failed"
+        echo "E2E: FAIL $((n - 1))/$n repeats passed; failed: repeat 3"
+        exit 1
+        ;;
+      2) # only a filler test fails (make exits 2 for any failure)
+        echo "REPEAT smoke.a $((n - 1))/$n"
+        echo "FAIL smoke.a.check: it failed"
+        echo "E2E: FAIL $((n - 1))/$n repeats passed; failed: repeat 3"
+        exit 2
+        ;;
+      3) # a crash
+        echo "E2E: CRASH 0/$n repeats passed; failed: repeat 1 (E2E: CRASH exit=139)"
+        exit 4
+        ;;
+      4) # a filler test fails and a check no test owns fails
+        echo "REPEAT smoke.a $((n - 1))/$n"
+        echo "FAIL smoke.a.check: it failed"
+        echo "FAIL chromium.errors: errors"
+        echo "E2E: FAIL $((n - 1))/$n repeats passed; failed: repeat 3"
+        exit 2
+        ;;
+    esac
     ;;
   *release*)
     # The Release build, run beside the e2e: logged apart from "ran:" so the e2e counts stay as they are.
@@ -183,16 +205,46 @@ printf 'let name = "x.one"\nlet name = "x.two"\n' > "$repo/E2E/Tests/X.swift"
 g add -A
 g commit -qm "adds tests"
 out=$(run 0 0)
-has "a changed test file's tests are repeated" "$out" "changed tests, repeated: ok (5 repeats of x.one,x.two)"
-has "the repeat ran 5 times via e2e-run" "$(cat "$tmp/log")" "E2E_REPEAT=5 --no-print-directory e2e-run E2E=x.one,x.two"
-has "the block has the repeat summary" "$out" "E2E: PASS 5/5 repeats"
+has "a changed test file's tests are repeated, 20 times in 3 shards" "$out" \
+  "changed tests, repeated: ok (20 repeats in 3 shards of x.one,x.two)"
+has "the repeat ran 20 times in 3 shards via e2e-run, padded with smoke" "$(cat "$tmp/log")" \
+  "E2E_REPEAT=20 E2E_SHARDS=3 --no-print-directory e2e-run E2E=x.one,x.two,smoke"
+has "the block has the repeat summary" "$out" "E2E: PASS 20/20 repeats"
+out=$(DONE_REPEAT=4 DONE_REPEAT_SHARDS=2 run 0 0)
+has "DONE_REPEAT and DONE_REPEAT_SHARDS override the numbers" "$(cat "$tmp/log")" \
+  "E2E_REPEAT=4 E2E_SHARDS=2 --no-print-directory e2e-run E2E=x.one,x.two"
+check "two changed tests in 2 shards need no filler" "" "$(grep 'e2e-run.*smoke' "$tmp/log")"
+has "the block says the overridden count" "$out" "ok (4 repeats in 2 shards of x.one,x.two)"
+out=$(DONE_REPEAT=0 run 0 0)
+has "a bad DONE_REPEAT is refused" "$out" "DONE_REPEAT and DONE_REPEAT_SHARDS must be whole numbers"
+has "a bad DONE_REPEAT exits 2" "$out" "exit=2"
+out=$(DONE_REPEAT_SHARDS=x run 0 0)
+has "a bad DONE_REPEAT_SHARDS is refused" "$out" "exit=2"
+out=$(run 0 0)
 has "the block keeps the full run's folder" "$out" "e2e run folder: build/e2e/20260101-1"
 has "the block keeps the full run's final.png" "$out" "/build/e2e/20260101-1/final.png"
 has "a passing repeat passes" "$out" "done: PASS"
 out=$(run 0 0 1)
-has "a failing repeat fails the run" "$out" "changed tests, repeated: FAIL (exit 1)"
-has "a failing repeat shows its tally" "$out" "REPEAT x.one 4/5"
+has "a failing repeat of a changed test fails the run" "$out" "changed tests, repeated: FAIL (changed test x.one passed 19/20 repeats)"
+has "a failing repeat shows its tally" "$out" "REPEAT x.one 19/20"
 has "a failing repeat exits 1" "$out" "exit=1"
+out=$(run 0 0 2)
+has "a failing filler test does not fail the run" "$out" "changed tests, repeated: ok (20 repeats in 3 shards of x.one,x.two)"
+has "a failing filler test prints a note naming it" "$out" "note: filler test failed (not part of the gate): smoke.a 19/20"
+has "a failing filler test leaves done passing" "$out" "done: PASS"
+has "a failing filler test exits 0" "$out" "exit=0"
+out=$(run 0 0 3)
+has "a crash in the repeats fails the run" "$out" "changed tests, repeated: FAIL (CRASH 0/20 repeats passed"
+has "a crash exits 1" "$out" "exit=1"
+out=$(run 0 0 4)
+has "a failing check no test owns fails the run even with a filler failure" "$out" \
+  "FAIL (check chromium.errors is a changed test's or no test's)"
+# Three changed tests fill the 3 shards: no smoke padding.
+printf 'let name = "x.one"\nlet name = "x.two"\nlet name = "x.three"\n' > "$repo/E2E/Tests/X.swift"
+g commit -qam "a third test"
+out=$(run 0 0)
+has "as many changed tests as shards need no filler" "$(cat "$tmp/log")" \
+  "E2E_REPEAT=20 E2E_SHARDS=3 --no-print-directory e2e-run E2E=x.one,x.three,x.two"
 out=$(run 0 1)
 has "a failing e2e skips the repeat" "$out" "changed tests, repeated: skip (the e2e did not pass)"
 
