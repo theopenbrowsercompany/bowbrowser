@@ -15,7 +15,8 @@ extension EngineTabState {
             canGoForward: state.canGoForward,
             isAudible: state.isAudible,
             isCapturingVideo: state.isCapturingVideo,
-            isCapturingAudio: state.isCapturingAudio
+            isCapturingAudio: state.isCapturingAudio,
+            hasEditedForm: state.hasEditedForm
         )
     }
 }
