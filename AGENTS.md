@@ -85,6 +85,8 @@ Start every session in `~/code/GitHub/bowbrowser`: the maintainer's `.claude/set
 
 ## Working rules
 
+- Bow behaves and acts the way Arc does, and extensions come later.
+  Where a work item leaves product behavior open (shortcuts, menus, where tabs go, drag behavior, defaults), match Arc's behavior as the private research or Arc's published help pages describe it, and never guess.
 - Put browser behavior in `BowCore` whenever it does not need the engine or UI.
 - Verify each change end to end in the running app with the command its last "Done when" item names (usually `make e2e`).
   Add a unit test only for logic an end-to-end check cannot reach.
