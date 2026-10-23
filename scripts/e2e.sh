@@ -14,7 +14,8 @@
 # E2E_REPEAT N (a whole number, 1 or more; default 1) runs the selection N times, each a whole run of this script in
 #   its own run folder with the retry off, so a repeat check never hides a flake behind the retry: every repeat that
 #   fails, times out or crashes counts as failed. It prints `REPEAT <test> <passes>/<N>` per test (from the RESULT
-#   lines) and ends with one summary line:
+#   lines, where a later FAIL line of the test's check, such as the quit check, or a crash after quit=pending fails
+#   the test) and ends with one summary line:
 #     E2E: PASS N/N repeats                                                exit 0
 #     E2E: <FAIL|TIMEOUT|CRASH> <passed>/N repeats passed; failed: repeat <i> (<its summary>), ...
 #                                                exit code of the first failing repeat (1, 2 or 4)
@@ -140,7 +141,23 @@ if [ "$repeat" != 1 ]; then
     [ -n "$line" ] || line="E2E: CRASH exit=$rc without a summary line"
     folders="$folders${folders:+ }${dir:-?}"
     if [ -n "$dir" ]; then
-      tally=$tally$(awk '/^RESULT [^ ]+ [^ ]+/ { print $2, $3 } /^NOT RUN [^ ]+/ { print $3, "notrun" }' "$root/$dir/report.txt" 2>/dev/null)$'\n'
+      # A test's RESULT line can say pass before its quit check fails, so a FAIL line named after a test (the
+      # test, or the longest test name it continues with a dot) fails it, and so does a crash (this script's
+      # `E2E: CRASH` line, the teardown watchdog included) after a RESULT line with quit=pending.
+      tally=$tally$(awk '
+        /^RESULT [^ ]+ [^ ]+/ { order[++n] = $2; st[$2] = $3; if ($0 ~ / quit=pending( |$)/) pending[$2] = 1 }
+        /^NOT RUN [^ ]+/ { order[++n] = $3; st[$3] = "notrun" }
+        /^FAIL [^ ]+/ { c = $2; sub(/:$/, "", c); failed[++f] = c }
+        /^E2E: CRASH / { crash = 1 }
+        END {
+          for (i = 1; i <= f; i++) {
+            c = failed[i]; owner = ""
+            for (t in st) if ((c == t || index(c, t ".") == 1) && length(t) > length(owner)) owner = t
+            if (owner != "" && st[owner] == "pass") st[owner] = "fail"
+          }
+          if (crash) for (t in pending) if (st[t] == "pass") st[t] = "fail"
+          for (i = 1; i <= n; i++) print order[i], st[order[i]]
+        }' "$root/$dir/report.txt" 2>/dev/null)$'\n'
     fi
     if [ "$rc" = 0 ]; then
       passed=$((passed + 1))

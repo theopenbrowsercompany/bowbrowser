@@ -6,7 +6,8 @@
 #
 # Reads <root>/*/results.json under each argument (default build/e2e, or BOW_E2E_ROOT), and a run folder given
 # directly. Each run counts once per test (from its first attempt's RESULT lines, plus the test its TIMEOUT summary
-# names) and once per run-wide check (chromium.errors, e2e.isolation):
+# names; a failed check named after a test, such as the quit check that fails after its RESULT line, fails the test,
+# and so does a crash after a RESULT line with quit=pending) and once per run-wide check (chromium.errors, e2e.isolation):
 #   PASS     passed on the first attempt
 #   FLAKY    failed or timed out, then passed on the retry
 #   FAIL     failed, and failed again on the retry or had none (E2E_RETRY=0, inside E2E_REPEAT)
@@ -50,11 +51,23 @@ perl -MJSON::PP -MTime::HiRes -e '
     # name => status in an attempt, for its tests and its run-wide checks.
     my $outcomes = sub {
       my $a = shift or return {};
-      my %s;
-      for (@{$a->{tests} || []}) { $s{$_->{name}} = $_->{status} }
-      for (@{$a->{checks} || []}) {
-        $s{$_->{name}} = $_->{status} if $_->{name} eq "chromium.errors" || $_->{name} eq "e2e.isolation";
+      my (%s, %pending);
+      for (@{$a->{tests} || []}) {
+        $s{$_->{name}} = $_->{status};
+        $pending{$_->{name}} = 1 if ($_->{detail} // "") =~ /(^| )quit=pending( |$)/;
       }
+      my @tests = keys %s;
+      for (@{$a->{checks} || []}) {
+        my $c = $_->{name};
+        if ($c eq "chromium.errors" || $c eq "e2e.isolation") { $s{$c} = $_->{status}; next }
+        next unless $_->{status} eq "fail";
+        # A failed check belongs to the test it is named after (the test, or the longest test name it continues
+        # with a dot); the quit check fails after its RESULT line, so the RESULT line alone can say pass.
+        my ($owner) = sort { length $b <=> length $a } grep { $c eq $_ || index($c, "$_.") == 0 } @tests;
+        $s{$owner} = "fail" if defined $owner && $s{$owner} eq "pass";
+      }
+      # A crash after `quit=pending` (Chromium teardown watchdog included) means the quit did not finish.
+      if (($a->{status} // "") eq "crash") { $s{$_} eq "pass" and $s{$_} = "fail" for keys %pending }
       \%s;
     };
     my ($one, $two) = ($outcomes->($first), $outcomes->($retry));
