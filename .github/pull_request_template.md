@@ -3,7 +3,7 @@
 ## How it was verified
 
 - [ ] `make verify`
-- [ ] `make e2e` (for behavior changes)
+- [ ] `make e2e` (or not needed, for a change with no behavior change)
 
 ## Spec
 

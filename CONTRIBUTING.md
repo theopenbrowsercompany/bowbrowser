@@ -6,7 +6,7 @@ Small, focused changes are the easiest to review.
 ## Build and check
 
 ```sh
-make bootstrap   # once per checkout: download the pinned Chromium Embedded Framework and generate the Xcode project
+make bootstrap   # once per checkout, and again after cef.lock changes: download the pinned Chromium Embedded Framework and generate the Xcode project
 make verify      # lint, checks, tests and the Debug build
 make e2e         # run the end-to-end tests in the real app
 ```
