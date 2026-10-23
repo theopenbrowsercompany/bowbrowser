@@ -32,6 +32,9 @@ bool IsFinal(BowDownloadState state) {
 // status is unknown.
 constexpr NSTimeInterval kWatchInterval = 0.25;
 constexpr CFAbsoluteTime kStallSeconds = 15;
+// How long a kept browser stays after its last download ended, in case Chromium resumes an interrupted one on its
+// own (which it does for some network errors), since destroying the browser would cancel it.
+constexpr NSTimeInterval kReleaseGraceSeconds = 1;
 // How long an orphaned download with no file on disk yet is given before it counts as cancelled.
 constexpr CFAbsoluteTime kNoFileSeconds = 2;
 
@@ -262,6 +265,8 @@ class BowDownloadHandler : public CefDownloadHandler {
   NSTimer* _watchTimer;
   // Browsers of closed tabs kept alive for their downloads, by browser ID, each with what to run once they end.
   std::map<int, dispatch_block_t> _keptBrowsers;
+  // Kept browsers with no active download left, waiting out the release grace.
+  std::set<int> _releaseChecks;
   // Destination questions not answered yet, abandoned when the engine stops.
   NSHashTable<BowDestinationAnswer*>* _answers;
 }
@@ -276,6 +281,7 @@ class BowDownloadHandler : public CefDownloadHandler {
   [_watchTimer invalidate];
   _watchTimer = nil;
   _keptBrowsers.clear();
+  _releaseChecks.clear();
   _watches.clear();
   _controls.clear();
   for (BowDestinationAnswer* answer in _answers) [answer abandon];
@@ -521,23 +527,35 @@ class BowDownloadHandler : public CefDownloadHandler {
   return _keptBrowsers.count(browserID) > 0;
 }
 
-// Runs, on a later main thread task, the block of each kept browser with no active download left, or of every kept
-// browser when `all` is true.
-- (void)releaseBrowsers:(BOOL)all {
-  std::vector<dispatch_block_t> blocks;
-  for (auto it = _keptBrowsers.begin(); it != _keptBrowsers.end();) {
-    if (all || ![self hasActiveDownloadsForBrowser:it->first]) {
-      blocks.push_back(it->second);
-      it = _keptBrowsers.erase(it);
-    } else {
-      ++it;
-    }
-  }
-  for (dispatch_block_t block : blocks) dispatch_async(dispatch_get_main_queue(), block);
+// Runs the block of every kept browser on a later main thread task, at once.
+- (void)releaseAllBrowsers {
+  for (auto& [browserID, block] : _keptBrowsers) dispatch_async(dispatch_get_main_queue(), block);
+  _keptBrowsers.clear();
+  _releaseChecks.clear();
 }
 
+// Releases each kept browser with no active download left once the grace has passed and it still has none.
 - (void)releaseIdleBrowsers {
-  if (!_keptBrowsers.empty()) [self releaseBrowsers:NO];
+  for (const auto& [browserID, block] : _keptBrowsers) {
+    if (_releaseChecks.count(browserID) || [self hasActiveDownloadsForBrowser:browserID]) continue;
+    _releaseChecks.insert(browserID);
+    __weak BowDownloads* weakSelf = self;
+    const int checked = browserID;
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(kReleaseGraceSeconds * NSEC_PER_SEC)),
+                   dispatch_get_main_queue(), ^{
+                     [weakSelf finishReleaseCheck:checked];
+                   });
+  }
+}
+
+- (void)finishReleaseCheck:(int)browserID {
+  if (_releaseChecks.erase(browserID) == 0 || gEngineStopped) return;
+  auto kept = _keptBrowsers.find(browserID);
+  // A download running again keeps the browser; its next end checks again.
+  if (kept == _keptBrowsers.end() || [self hasActiveDownloadsForBrowser:browserID]) return;
+  dispatch_block_t block = kept->second;
+  _keptBrowsers.erase(kept);
+  block();
 }
 
 #pragma mark Downloads whose browser closed
@@ -559,6 +577,7 @@ class BowDownloadHandler : public CefDownloadHandler {
 // The browser `browserID` closed: Chromium says nothing more about its downloads, which are read from disk now.
 - (void)browserClosed:(int)browserID {
   _keptBrowsers.erase(browserID);
+  _releaseChecks.erase(browserID);
   std::vector<uint32_t> orphans;
   for (const auto& [downloadID, watch] : _watches) {
     if (!watch.orphaned && watch.browser && watch.browser->GetIdentifier() == browserID) orphans.push_back(downloadID);
@@ -740,7 +759,7 @@ bool BowDownloadsKeepsBrowserAlive(int browserID) {
 }
 
 void BowDownloadsReleaseKeptBrowsers() {
-  for (BowDownloads* downloads in BowDownloads.allDownloads) [downloads releaseBrowsers:YES];
+  for (BowDownloads* downloads in BowDownloads.allDownloads) [downloads releaseAllBrowsers];
 }
 
 void BowDownloadsBrowserClosed(int browserID) {

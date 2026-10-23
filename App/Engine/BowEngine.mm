@@ -141,7 +141,8 @@ void BowEngineParkNewBrowserView(NSView* browserView) {
 
 BowTab* BowEngineTabWithID(uint64_t tabID) {
   for (const auto& [identifier, entry] : gBrowsers) {
-    if (entry.tab && entry.tab.tabID == tabID) return entry.tab;
+    // A closed tab whose browser stays alive for its downloads is gone for the app.
+    if (entry.tab && !entry.tab.closed && entry.tab.tabID == tabID) return entry.tab;
   }
   return nil;
 }

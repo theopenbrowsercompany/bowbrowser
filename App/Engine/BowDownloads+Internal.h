@@ -12,10 +12,10 @@ NS_ASSUME_NONNULL_BEGIN
 /// YES while a download reported through the browser `browserID` is running or paused (or waiting for its
 /// destination): destroying that browser now would cancel it.
 - (BOOL)hasActiveDownloadsForBrowser:(int)browserID;
-/// Runs `block` once, on a later main thread task, when the browser `browserID` has no download left running or
-/// paused: each finished, was cancelled, failed or was removed. Also runs when quitting releases kept browsers
-/// (BowDownloadsReleaseKeptBrowsers). Never runs once the engine has stopped. Does nothing more than run `block`
-/// when the browser has no active download now.
+/// Runs `block` once, on a later main thread task, when the browser `browserID` has had no download running or
+/// paused for a second (each finished, was cancelled, failed or was removed, and none resumed on its own). Also runs,
+/// at once, when quitting releases kept browsers (BowDownloadsReleaseKeptBrowsers). Never runs once the engine has
+/// stopped or the browser has closed.
 - (void)whenDownloadsOfBrowserEnd:(int)browserID run:(dispatch_block_t)block;
 
 @end

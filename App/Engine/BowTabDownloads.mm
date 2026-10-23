@@ -17,11 +17,12 @@ CefRefPtr<CefDownloadHandler> BowTabClient::GetDownloadHandler() {
   BowDownloads* downloads = [BowEngine.shared profileWithID:self.profileID].downloads;
   const int browserID = browser->GetIdentifier();
   if (![downloads hasActiveDownloadsForBrowser:browserID]) return NO;
-  // Out of every window at once, so the tab leaves its window as any closing tab does. The page has run its unload
-  // handlers already; only its downloads keep the browser.
+  // Out of every window at once, so the tab leaves its window as any closing tab does, and silent: the page has run
+  // its unload handlers already, and nothing of it may be heard once its tab has gone. Only its downloads keep it.
   NSView* browserView = (__bridge NSView*)browser->GetHost()->GetWindowHandle();
   browserView.autoresizingMask = NSViewNotSizable;
   [BowEngineParkingView() addSubview:browserView];
+  browser->GetHost()->SetAudioMuted(true);
   [downloads whenDownloadsOfBrowserEnd:browserID
                                    run:^{
                                      BowTearDownBrowserView(browser);
