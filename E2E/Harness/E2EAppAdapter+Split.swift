@@ -73,55 +73,75 @@ extension E2ETestApp: E2ESplitApp {
     }
 
     func dragPaneDivider(_ index: Int, to fraction: Double, besides page: any E2EPage) throws {
-        try pressPaneDivider(besides: page)
-        try movePaneDivider(index, to: fraction, besides: page)
-        try releasePaneDivider(besides: page)
+        _ = try dragPaneDivider(index, through: [fraction], besides: page)
     }
 
-    func pressPaneDivider(besides page: any E2EPage) throws {
-        try adapter.requireActive(token, "press a pane divider")
-        // What PaneContainer.mouseDown does before AppKit's tracking loop.
-        try Self.paneContainer(of: page).dividerDragBegan()
-    }
-
-    func releasePaneDivider(besides page: any E2EPage) throws {
-        try adapter.requireActive(token, "let go of a pane divider")
-        // What PaneContainer.mouseDown does once AppKit's tracking loop returns.
-        try Self.paneContainer(of: page).dividerDragEnded()
-    }
-
-    func movePaneDivider(_ index: Int, to fraction: Double, besides page: any E2EPage) throws {
-        try adapter.requireActive(token, "move a pane divider")
+    func dragPaneDivider(_ index: Int, through fractions: [Double], besides page: any E2EPage) throws -> [[Double]] {
+        try adapter.requireActive(token, "drag a pane divider")
+        let controller = try E2EAppAdapter.tabPage(page).controller
         let container = try Self.paneContainer(of: page)
         let views = container.subviews
-        guard views.count > index + 1 else {
+        guard let window = container.window, views.count > index + 1, !fractions.isEmpty else {
             throw E2EError("the window shows no divider \(index) (panes=\(views.count))")
         }
-        // Where AppKit's drag leaves the two panes beside the divider, then the notification it sends naming it.
+        // Panes shown without a sidebar split (a test's `showPanes`) have no saved widths to read.
+        let graph = controller.store.graph
+        let splitID = graph.activeTabID.flatMap(graph.splitID(containing:))
+        // The press lands on the divider's middle; each step moves the pointer so the divider's leading edge sits at
+        // `fraction` of the length, which is where the panes before it end.
         let sideBySide = container.isVertical
-        let before = views[index]
-        let after = views[index + 1]
-        let start = sideBySide ? before.frame.minX : before.frame.minY
-        let end = sideBySide ? after.frame.maxX : after.frame.maxY
-        let length = sideBySide ? container.bounds.width : container.bounds.height
-        let position = (length * CGFloat(fraction)).rounded()
         let thickness = container.dividerThickness
-        guard position > start, position + thickness < end else {
-            throw E2EError("the divider cannot move to \(fraction) of the length")
+        let before = views[index].frame
+        let length = sideBySide ? container.bounds.width : container.bounds.height
+        let across = sideBySide ? container.bounds.midY : container.bounds.midX
+        func point(at position: CGFloat) -> NSPoint {
+            let along = position + thickness / 2
+            return container.convert(sideBySide ? NSPoint(x: along, y: across) : NSPoint(x: across, y: along), to: nil)
         }
-        if sideBySide {
-            before.frame = NSRect(x: start, y: 0, width: position - start, height: before.frame.height)
-            after.frame = NSRect(
-                x: position + thickness, y: 0, width: end - position - thickness, height: after.frame.height)
-        } else {
-            before.frame = NSRect(x: 0, y: start, width: before.frame.width, height: position - start)
-            after.frame = NSRect(
-                x: 0, y: position + thickness, width: after.frame.width, height: end - position - thickness)
+        func event(_ type: NSEvent.EventType, at position: CGFloat) throws -> NSEvent {
+            guard
+                let event = NSEvent.mouseEvent(
+                    with: type, location: point(at: position), modifierFlags: [],
+                    timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber, context: nil,
+                    eventNumber: 0, clickCount: 1, pressure: type == .leftMouseUp ? 0 : 1)
+            else { throw E2EError("cannot make a mouse event") }
+            return event
         }
-        container.splitViewDidResizeSubviews(
-            Notification(
-                name: NSSplitView.didResizeSubviewsNotification, object: container,
-                userInfo: ["NSSplitViewDividerIndex": index]))
+        let start = sideBySide ? before.maxX : before.maxY
+        let positions = fractions.map { (length * CGFloat($0)).rounded() }
+        let down = try event(.leftMouseDown, at: start)
+        let moves = try positions.map { try event(.leftMouseDragged, at: $0) }
+        let up = try event(.leftMouseUp, at: positions[positions.count - 1])
+
+        // The saved widths each time the divider moves, read while the drag is still under way.
+        let samples = E2EDividerDragSamples()
+        let observer = NotificationCenter.default.addObserver(
+            forName: NSSplitView.didResizeSubviewsNotification, object: container, queue: nil
+        ) { note in
+            guard note.userInfo?["NSSplitViewDividerIndex"] != nil else { return }
+            MainActor.assumeIsolated {
+                samples.saved.append(splitID.map { controller.store.graph.splitWidthFractions($0) } ?? [])
+            }
+        }
+        defer { NotificationCenter.default.removeObserver(observer) }
+        // The moves and the release wait in the event queue before the press is handled, as real ones do, so the
+        // split view's tracking loop, run inside its mouseDown, finds them and returns at the release.
+        for move in moves { NSApp.postEvent(move, atStart: false) }
+        NSApp.postEvent(up, atStart: false)
+        window.sendEvent(down)
+        // Anything the press left in the queue never reached a tracking loop: it is taken out, not sent on.
+        var left = 0
+        while let queued = NSApp.nextEvent(
+            matching: [.leftMouseDragged, .leftMouseUp], until: .distantPast, inMode: .default, dequeue: true)
+        {
+            guard queued.windowNumber == window.windowNumber else {
+                NSApp.postEvent(queued, atStart: true)
+                break
+            }
+            left += 1
+        }
+        guard left == 0 else { throw E2EError("the press missed divider \(index): \(left) events were not tracked") }
+        return samples.saved
     }
 
     func chooseStackedSplit(top: Bool, in page: any E2EPage) throws {
@@ -213,6 +233,12 @@ extension E2ETestApp: E2ESplitApp {
             try delegate.openWindow(url: nil, store: store, window: window)
         }
     }
+}
+
+/// The saved split widths read on each step of a divider drag.
+@MainActor
+final class E2EDividerDragSamples {
+    var saved: [[Double]] = []
 }
 
 extension E2EAppAdapter {

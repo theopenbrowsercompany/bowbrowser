@@ -110,12 +110,12 @@ final class PaneContainer: NSSplitView, NSSplitViewDelegate {
     }
 
     /// The person pressed on a divider; its moves wait for the release before they are saved.
-    func dividerDragBegan() {
+    private func dividerDragBegan() {
         drag.began()
     }
 
     /// The person let go of the divider: the shares it ended at are reported once.
-    func dividerDragEnded() {
+    private func dividerDragEnded() {
         if let ended = drag.ended() { onDividerDragEnd?(ended) }
     }
 

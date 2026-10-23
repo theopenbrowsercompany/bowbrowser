@@ -26,7 +26,12 @@ extension SidebarTab {
     /// page (not loaded yet, or unloaded) or with no saved address has not navigated away.
     public func hasNavigatedAway(from liveURL: URL?) -> Bool {
         guard let liveURL, let saved = savedPageURL else { return false }
-        return Self.comparisonKey(saved.absoluteString) != Self.comparisonKey(liveURL.absoluteString)
+        return !Self.isSamePage(saved, liveURL)
+    }
+
+    /// Whether two addresses name the same page, by the rule `hasNavigatedAway(from:)` uses.
+    static func isSamePage(_ first: URL, _ second: URL) -> Bool {
+        comparisonKey(first.absoluteString) == comparisonKey(second.absoluteString)
     }
 
     private static func comparisonKey(_ text: String) -> String {
@@ -96,6 +101,16 @@ extension SidebarGraph {
     public func pinnedURL(of id: SidebarItemID) -> URL? {
         guard isPinned(id) else { return nil }
         return items[id]?.tab?.savedPageURL
+    }
+
+    /// Whether a page that settled at `url` in tab `id` becomes the tab's saved page. A today tab records every page it
+    /// settles on, so a relaunch brings it back there. A pinned tab or a Favorite keeps the address it was saved with,
+    /// except a pinned tab with no saved address yet (a new pane opened beside a pinned tab): its first page other than
+    /// `newTabURL` becomes its address, as the address the person picked. False for an item that is not a tab.
+    public func recordsSettledPage(_ id: SidebarItemID, url: URL, newTabURL: URL) -> Bool {
+        guard let tab = items[id]?.tab, !isInFavorites(id) else { return false }
+        guard isPinned(id) else { return true }
+        return tab.savedPageURL == nil && !SidebarTab.isSamePage(url, newTabURL)
     }
 
     /// What closing a tab does to its item: a pinned tab or a Favorite only unloads and stays in the sidebar, any other

@@ -362,7 +362,8 @@ extension SidebarStore {
     /// Opens `tab` (a new tab, wherever it was put) as a pane on `edge` of the active tab `active`, as
     /// `SidebarGraph.newPanePlacement(besides:edge:)` places it: a new split of the two takes `active`'s place in its
     /// section (today, pinned or a folder), laid out for `edge`, with equal panes; or `tab` joins `active`'s split,
-    /// taking an equal share. `tab` moves into `active`'s section first, so it is pinned beside a pinned tab. Focus
+    /// taking an equal share. `tab` moves into `active`'s section first, so it is pinned beside a pinned tab, with no
+    /// saved address until the person browses somewhere in it (`SidebarGraph.recordsSettledPage`). Focus
     /// goes to `tab`. Returns the split. Refused, changing nothing, where no placement is allowed, or when `tab` is
     /// `active`, is not a tab, is already in a split or is a Favorite.
     @discardableResult
@@ -375,6 +376,9 @@ extension SidebarStore {
             throw SidebarStoreError.invalidHierarchy("no pane can open beside \(active) there")
         }
         try requireSplittable(tab, in: graph)
+        // A tab that becomes pinned here has no address picked yet: it takes the first page browsed to in it
+        // (`SidebarGraph.recordsSettledPage`), not the new tab page it opens on.
+        let clearsAddress = graph.isPinned(active) && !graph.isPinned(tab)
         switch placement {
         case .createWith(let active, let orientation, let newPaneFirst):
             guard let parentID = graph[active]?.parentID,
@@ -382,6 +386,7 @@ extension SidebarStore {
             else { throw SidebarStoreError.invalidHierarchy("\(active) has no place for a split") }
             let tabs = newPaneFirst ? [tab, active] : [active, tab]
             try transaction {
+                if clearsAddress { try mutate(.setSavedPage(tab, url: "", title: "")) }
                 try mutate(.insert(.split(id: newID, orientation: orientation), parent: parentID, index: position))
                 for pane in tabs { try mutate(.move(pane, parent: newID)) }
                 try mutate(.setSplitLayout(newID, widthFactors: [1, 1], focusedItemID: tab))
@@ -394,6 +399,7 @@ extension SidebarStore {
             factors.insert(share, at: index)
             factors = SidebarSplit.keepingMinimum(factors)
             try transaction {
+                if clearsAddress { try mutate(.setSavedPage(tab, url: "", title: "")) }
                 try mutate(.move(tab, parent: splitID, index: index))
                 try mutate(.setSplitLayout(splitID, widthFactors: factors, focusedItemID: tab))
             }

@@ -877,12 +877,13 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
         onTabEvent?(tab, event)
     }
 
-    /// Records the page a today tab shows as its saved page, so a relaunch brings it back on that page. Pinned tabs
-    /// and Favorites keep the address they were saved with. It records once a load has settled, not each step of it.
+    /// Records the page a tab shows as its saved page where `SidebarGraph.recordsSettledPage` says so (a today tab,
+    /// and a new pinned pane's first page), so a relaunch brings it back on that page. It records once a load has
+    /// settled, not each step of it.
     private func recordPage(of item: SidebarItemID, state: EngineTabState) {
         let graph = store.graph
-        guard !state.isLoading, let url = state.url, let saved = graph[item]?.tab, !graph.isPinned(item),
-            !graph.isInFavorites(item),
+        guard !state.isLoading, let url = state.url, let saved = graph[item]?.tab,
+            graph.recordsSettledPage(item, url: url, newTabURL: newTabURL),
             saved.savedURL != url.absoluteString || saved.savedTitle != state.title
         else { return }
         // Committed now and written shortly after, so a title that changes many times writes the file once.

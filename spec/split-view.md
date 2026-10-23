@@ -38,6 +38,7 @@ How a split is saved in the sidebar is in `sidebar-store.md`; this spec covers h
 - View > Add Top Split and Add Bottom Split (Arc's names, with no shortcut) open a new tab as a pane above or below, focused: in a new stacked split, or as the first or last pane of the selected tab's stacked split.
   They are unavailable while the selected tab is in a side by side split, since a split has one layout.
 - All three work from a tab in today, in a folder or in the pinned section, as Arc allows: a new split takes the selected tab's place in its section, and the new tab joins that section (beside a pinned tab it is pinned too).
+  A new pinned pane has no pinned address while it shows the new tab page: the first page the person goes to in it becomes its pinned address, as pinning a page does, and from then on browsing never changes it.
   They are unavailable for a Favorite and when the split has four panes.
 - Each pane shows a small close button at its top trailing corner while a split shows.
   It takes that pane out of the split and leaves its tab as a plain tab right after the split; a split left with one tab turns back into that tab, shown alone.
@@ -75,7 +76,7 @@ How a split is saved in the sidebar is in `sidebar-store.md`; this spec covers h
 12. Focus A in a split of A and B, select C, then click the split's row: both panes come back with A focused.
 13. With only A, choose Add Bottom Split, then Add Top Split: one stacked split shows C, A and D top to bottom, each the full width.
 14. Press on the divider of a split of A and B and move it to 60% then 70%: the saved shares stay 0.5 while the panes follow; letting go saves 0.7 and 0.3.
-15. With pinned tab A selected, choose Add Split View: a split of A and the new tab takes A's place in the pinned section.
+15. With pinned tab A selected, choose Add Split View: a split of A and the new tab takes A's place in the pinned section. Go to D in the new pane: D is its pinned address, with no Back to Pinned URL, and after a relaunch the pane comes back on D.
 16. Show A and B with A focused: B's camera request shows its prompt at the top of B's pane, and closing B takes it away.
 17. Crash B's page: "This page crashed" covers B's pane only, A keeps focus, and B's Reload brings it back.
 18. With A focused on the left, open the find bar: it sits at A's pane's top trailing corner; focusing B closes it.

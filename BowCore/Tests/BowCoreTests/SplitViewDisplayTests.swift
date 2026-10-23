@@ -179,6 +179,51 @@ import Testing
         }
     }
 
+    @Test func aNewPinnedPaneTakesTheFirstPageBrowsedToAsItsAddress() throws {
+        try withTemporaryFolder { folder in
+            let store = try makeStore(in: folder)
+            let newTab = try #require(URL(string: "https://f.example.com"))
+            let site = try #require(URL(string: "https://site.example.com/page"))
+            try store.openNewPane("f", besides: "q", splitID: "s")
+            #expect(store.graph["f"]?.tab?.savedURL == "")
+            #expect(store.graph.pinnedURL(of: "f") == nil)
+            #expect(!store.graph.hasNavigatedAwayFromPinnedURL("f", liveURL: newTab))
+            // The new tab page it opens on is not an address the person picked; the first page after it is.
+            #expect(!store.graph.recordsSettledPage("f", url: newTab, newTabURL: newTab))
+            #expect(store.graph.recordsSettledPage("f", url: site, newTabURL: newTab))
+            try store.apply([.setSavedPage("f", url: site.absoluteString, title: "Site")])
+            #expect(store.graph.pinnedURL(of: "f") == site)
+            // From then on browsing never changes it.
+            let other = try #require(URL(string: "https://other.example.com"))
+            #expect(!store.graph.recordsSettledPage("f", url: other, newTabURL: newTab))
+            #expect(store.graph.hasNavigatedAwayFromPinnedURL("f", liveURL: other))
+            // The pinned tab beside it kept its own address.
+            #expect(store.graph["q"]?.tab?.savedURL == "https://q.example.com")
+            #expect(!store.graph.recordsSettledPage("q", url: other, newTabURL: newTab))
+        }
+    }
+
+    @Test func aNewPaneJoiningAPinnedSplitHasNoAddressYetAndATodayPaneKeepsRecording() throws {
+        try withTemporaryFolder { folder in
+            let store = try makeStore(in: folder)
+            let newTab = try #require(URL(string: "https://new.example.com"))
+            let site = try #require(URL(string: "https://site.example.com"))
+            try store.openNewPane("f", besides: "q", splitID: "s")
+            try store.openNewPane("e", besides: "f", edge: .trailing)
+            #expect(store.graph.splitPaneIDs("s") == ["q", "f", "e"])
+            #expect(store.graph["e"]?.tab?.savedURL == "")
+            #expect(store.graph.recordsSettledPage("e", url: site, newTabURL: newTab))
+            // Beside a today tab the new pane keeps its address and records every page, as any today tab does.
+            try store.openNewPane("d", besides: "a", splitID: "t")
+            #expect(store.graph["d"]?.tab?.savedURL == "https://d.example.com")
+            #expect(store.graph.recordsSettledPage("d", url: newTab, newTabURL: newTab))
+            #expect(store.graph.recordsSettledPage("d", url: site, newTabURL: newTab))
+            // A Favorite never records, and neither does an item that is not a tab.
+            #expect(!store.graph.recordsSettledPage("fav", url: site, newTabURL: newTab))
+            #expect(!store.graph.recordsSettledPage("folder", url: site, newTabURL: newTab))
+        }
+    }
+
     @Test func aNewPaneBesideAFolderTabMakesTheSplitInTheFolder() throws {
         try withTemporaryFolder { folder in
             let store = try makeStore(in: folder)
