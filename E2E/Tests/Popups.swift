@@ -1,8 +1,9 @@
 import Foundation
 
 /// Tests of where the pages a page opens go: a new tab link, a modified link click and a script's `window.open`
-/// become sidebar tabs of the window, right after the tab that opened them, shown or in the background as Arc does;
-/// a page that opens one without a click opens nothing. Fixtures in E2E/Fixtures/popups/: opener.html (titled A)
+/// become sidebar tabs of the window, right after the tab that opened them, shown at once for a plain link and in
+/// the background for a Cmd-click or middle click; a page that opens one without a click opens nothing. Fixtures in
+/// E2E/Fixtures/popups/: opener.html (titled A)
 /// opens opened.html (titled B), which reports its load back to A.
 @MainActor
 enum PopupsTests {
@@ -37,7 +38,7 @@ enum PopupsTests {
     static func list(_ titles: [String]) -> String { "[\(titles.joined(separator: ","))]" }
 }
 
-/// A plain click on a `target="_blank"` link opens B as a tab right after A, in the background.
+/// A plain click on a `target="_blank"` link opens B as a tab right after A, shown at once.
 struct PopupsNewTabTest: E2ETest {
     let name = "popups.newtab"
 
@@ -49,9 +50,9 @@ struct PopupsNewTabTest: E2ETest {
         }
         let tabs = try app.popupTabTitles(besides: page)
         let shown = try app.shownPopupTabTitle(besides: page)
-        let passed = tabs == ["A", "B"] && shown == "A"
+        let passed = tabs == ["A", "B"] && shown == "B"
         run.check(
-            name, passed: passed, "tabs=\(PopupsTests.list(tabs))" + (passed ? "" : " shown=\(shown ?? "none")"))
+            name, passed: passed, "tabs=\(PopupsTests.list(tabs)) shown=\(shown ?? "none")")
     }
 }
 
@@ -127,8 +128,11 @@ struct PopupsOpenerTest: E2ETest {
             try await E2EWaits.until(page, "window.bowMessages.includes('opener?via=open')")
         }
         let tabs = try app.popupTabTitles(besides: page)
-        let passed = tabs == ["A", "B"]
-        run.check(name, passed: passed, "tabs=\(PopupsTests.list(tabs)) postMessage=received")
+        let shown = try app.shownPopupTabTitle(besides: page)
+        let passed = tabs == ["A", "B"] && shown == "B"
+        run.check(
+            name, passed: passed,
+            "tabs=\(PopupsTests.list(tabs)) postMessage=received" + (passed ? "" : " shown=\(shown ?? "none")"))
     }
 }
 
