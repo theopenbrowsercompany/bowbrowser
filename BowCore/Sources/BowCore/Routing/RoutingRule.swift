@@ -19,7 +19,7 @@ public struct URLPattern: Hashable, Sendable, Codable {
 
     /// Why the pattern cannot be used, or nil when it is fine.
     public var problem: String? {
-        if text.isEmpty { return "the pattern is empty" }
+        if text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return "the pattern is empty" }
         if style == .matches, regularExpression == nil { return "the pattern is not a valid regular expression" }
         return nil
     }
@@ -30,7 +30,7 @@ public struct URLPattern: Hashable, Sendable, Codable {
 
     /// An unusable pattern (empty or an invalid expression) matches nothing.
     public func matches(_ url: String) -> Bool {
-        guard problem == nil else { return false }
+        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return false }
         switch style {
         case .contains:
             return url.range(of: text, options: [.caseInsensitive, .literal]) != nil
@@ -64,7 +64,9 @@ public struct RoutingRule: Hashable, Sendable, Codable, Identifiable {
     public var problem: String? {
         if urlPattern == nil && sourceApp == nil { return "the rule has no condition" }
         if let problem = urlPattern?.problem { return problem }
-        if let sourceApp, sourceApp.isEmpty { return "the source app is empty" }
+        if let sourceApp, sourceApp.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return "the source app is empty"
+        }
         return nil
     }
 

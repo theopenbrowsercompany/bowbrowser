@@ -7,6 +7,23 @@ public struct RoutingDecision: Equatable, Sendable {
     public var matchedRuleID: UUID?
     /// The source app after helper processes were mapped to their parent app, or nil when unknown.
     public var sourceBundleID: String?
+
+    public init(destination: RouteDestination, matchedRuleID: UUID?, sourceBundleID: String?) {
+        self.destination = destination
+        self.matchedRuleID = matchedRuleID
+        self.sourceBundleID = sourceBundleID
+    }
+}
+
+/// A rule that cannot be used, and why.
+public struct InvalidRule: Equatable, Sendable {
+    public var rule: UUID
+    public var problem: String
+
+    public init(rule: UUID, problem: String) {
+        self.rule = rule
+        self.problem = problem
+    }
 }
 
 /// A rule that can never be reached because an earlier rule matches every link it would.
@@ -15,6 +32,12 @@ public struct ShadowedRule: Equatable, Sendable {
     public var shadowedBy: UUID
     /// False means the two rules disagree, which usually is a mistake the editor should show.
     public var sameDestination: Bool
+
+    public init(rule: UUID, shadowedBy: UUID, sameDestination: Bool) {
+        self.rule = rule
+        self.shadowedBy = shadowedBy
+        self.sameDestination = sameDestination
+    }
 }
 
 /// The saved routing state: ordered rules plus a default. The first matching rule wins, so order is the only
@@ -27,7 +50,7 @@ public struct RoutingTable: Equatable, Sendable, Codable {
         case unsupportedVersion(Int)
     }
 
-    public var version: Int
+    public private(set) var version: Int
     public var rules: [RoutingRule]
     public var defaultDestination: RouteDestination
 
@@ -44,6 +67,16 @@ public struct RoutingTable: Equatable, Sendable, Codable {
         self.version = version
         self.rules = try container.decode([RoutingRule].self, forKey: .rules)
         self.defaultDestination = try container.decode(RouteDestination.self, forKey: .defaultDestination)
+    }
+
+    private enum CodingKeys: String, CodingKey { case version, rules, defaultDestination }
+
+    /// Always writes the current version, so a list read from an older version is saved in the current format.
+    public func encode(to encoder: any Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(Self.currentVersion, forKey: .version)
+        try container.encode(rules, forKey: .rules)
+        try container.encode(defaultDestination, forKey: .defaultDestination)
     }
 
     /// Picks where a link opens.
@@ -65,15 +98,15 @@ public struct RoutingTable: Equatable, Sendable, Codable {
 
     static func resolveSource(_ bundleID: String?, helperParents: [String: String]) -> String? {
         guard let bundleID, !bundleID.isEmpty else { return nil }
-        for (helper, parent) in helperParents where helper.caseInsensitiveCompare(bundleID) == .orderedSame {
-            return parent
-        }
-        return bundleID
+        // Sorted so that keys differing only by case resolve the same way every time.
+        let match = helperParents.keys.sorted().first { $0.caseInsensitiveCompare(bundleID) == .orderedSame }
+        guard let match, let parent = helperParents[match] else { return bundleID }
+        return parent.isEmpty ? nil : parent
     }
 
     /// Rules that cannot be used, with the reason, for the rule editor.
-    public var invalidRules: [(rule: UUID, problem: String)] {
-        rules.compactMap { rule in rule.problem.map { (rule.id, $0) } }
+    public var invalidRules: [InvalidRule] {
+        rules.compactMap { rule in rule.problem.map { InvalidRule(rule: rule.id, problem: $0) } }
     }
 
     /// Rules hidden by an earlier rule. A later rule is hidden when an earlier usable rule has no condition the later one lacks.
