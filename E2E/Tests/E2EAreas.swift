@@ -31,5 +31,6 @@ enum E2EAreas {
         UnloadTests.all,
         DesignTests.all,
         ChromeTests.all,
+        NewTabRowTests.all,
     ]
 }

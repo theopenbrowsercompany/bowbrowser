@@ -3,8 +3,8 @@ import BowCore
 
 /// The sidebar along the window's leading edge (`SidebarView`): the Favorites area, the pinned tabs, a divider and
 /// today's tabs of the Space on screen, each tab with its site icon. A click shows a tab, its close button closes it,
-/// a drag moves it within or across pinned and today (pinning or unpinning it), and the New Tab button opens a tab
-/// in today.
+/// a drag moves it within or across pinned and today (pinning or unpinning it), and the New Tab row ending the list
+/// opens the command bar for a new tab.
 @MainActor
 final class SidebarFeature: NSResponder, BrowserWindowFeature, SidebarViewDelegate {
     /// The size, in pixels, site icons are loaded at (16 points on a Retina screen).

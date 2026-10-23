@@ -11,5 +11,6 @@ enum SidebarSections {
         PinnedSection.self,
         DividerSection.self,
         TodaySection.self,
+        NewTabSection.self,
     ]
 }

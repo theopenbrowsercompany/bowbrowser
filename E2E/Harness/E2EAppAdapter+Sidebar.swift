@@ -125,7 +125,9 @@ extension E2EAppAdapter {
 
     func clickNewTabRow(in page: any E2EPage) throws {
         let controller = try Self.tabPage(page).controller
-        try Self.click(controller.e2eSidebar.newTabButton)
+        guard let row = controller.e2eSidebar.headerView(of: NewTabSection.self) as? NewTabRowView,
+            !row.isHiddenOrHasHiddenAncestor, row.activate()
+        else { throw E2EError("the New Tab row cannot be clicked") }
     }
 
     func clickNewTab(besides page: any E2EPage, opening url: URL, token: Int) async throws -> any E2EPage {
@@ -181,7 +183,8 @@ extension E2EAppAdapter {
     func sidebarOutlineRows(of page: any E2EPage) throws -> [E2EOutlineRow] {
         let sidebar = try Self.tabPage(page).controller.e2eSidebar
         let outline = sidebar.outlineView
-        return sidebar.rowKinds().enumerated().map { row, kind in
+        // The New Tab row is not a tab and never counts as an item: `E2ENewTabRowApp` reads it.
+        return sidebar.rowKinds().enumerated().filter { !($0.element.section is NewTabSection) }.map { row, kind in
             let title: String
             if let section = kind.section {
                 title = section.zone?.rawValue ?? "divider"

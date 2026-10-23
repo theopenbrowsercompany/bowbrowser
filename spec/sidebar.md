@@ -9,7 +9,10 @@ Pinned tabs are the sites a person keeps; today's tabs are the ones they opened 
 
 - The sidebar lists, top to bottom: the Favorites area of the profile the Space on screen uses, that Space's pinned tabs, a divider line, and its today tabs.
 - The divider is always shown, also when the pinned or today zone is empty, so there is always somewhere to drop a tab.
-- Every way of opening a tab (the New Tab button, Command-T, a link from another app, a page opening a tab) adds it to today: right after the active tab when that tab is in today, otherwise at the end.
+- A New Tab row ends the list, after the last of today's tabs (also after a folder, open or closed), and in a Space with only pinned tabs or none at all.
+  It is drawn like a tab row (34 high, a plus symbol and "New tab" in the Soft color, the UI font, the hover tint of other rows) but is not a tab: it is never selected or counted, a tab cannot be dropped on it, and a tab dropped below it goes to the end of today.
+  Clicking it opens the command bar for a new tab, as Command-T does (Arc's help center says its sidebar plus button opens the command bar; where it sits follows the mockup, as Arc's pages do not settle that).
+- Every way of opening a tab (the New Tab row, Command-T, a link from another app, a page opening a tab) adds it to today: right after the active tab when that tab is in today, otherwise at the end.
 - Folders in the pinned or today zone show as rows with a disclosure triangle and their contents indented below them.
   Opening or closing a folder with its triangle is saved, and a closed folder hides its contents.
 - Split views show as a row with their tabs below it; they are always open.
@@ -32,7 +35,7 @@ The sidebar is built so later features each add one file plus one line in a list
 - Sections: a type conforming to `SidebarSection`, listed in `SidebarSections.all` (`SidebarSectionList.swift`) in top to bottom order.
   A section has a header row (a thin spacer, or a view such as the divider or the Favorites grid) and the items of one container of the Space on screen.
   A header view is made once per window and handed the sidebar's fresh content each time the sidebar updates, so a header such as a Space switcher always matches the Space on screen; its height may follow the content too.
-- Accessories: a class conforming to `SidebarAccessory`, listed in `SidebarAccessories.all` (`SidebarAccessoryList.swift`), placed in the top slot (between the New Tab button and the list) or the footer slot (along the bottom), in list order, and handed fresh content on every update.
+- Accessories: a class conforming to `SidebarAccessory`, listed in `SidebarAccessories.all` (`SidebarAccessoryList.swift`), placed in the top slot (between the top row and the list) or the footer slot (along the bottom), in list order, and handed fresh content on every update.
 - Tab row accessories: a type conforming to `SidebarRowAccessory`, listed in `SidebarRowAccessories.all` (`SidebarAccessoryList.swift`), giving a view shown before a tab row's close button (such as "Back to pinned URL"); it is asked again each time the row is drawn and whenever the sidebar updates, and the first provider with a view wins.
 - Context menu items: a type conforming to `SidebarMenuItems`, listed in `SidebarMenus.all` (`SidebarMenuList.swift`), naming the item kinds it serves (tab, folder, split, Favorite, or a section's header by zone, given the container that section lists).
   Each provider's items appear in list order, separated from the next provider's.
@@ -62,12 +65,13 @@ The sidebar is built so later features each add one file plus one line in a list
 
 ## Acceptance checks
 
-1. Run `make e2e`: `PASS zones: new_tab=today` shows a tab opened with the New Tab button landing in today, beside the window's first tab.
+1. Run `make e2e`: `PASS zones: new_tab=today` shows a tab opened through the New Tab row's command bar landing in today, beside the window's first tab.
 2. Run `make e2e`: `PASS zones.pin: A=pinned tabs=[A,B] active=B` shows tab A dragged into the pinned zone above B, with B still active.
 3. Run `make e2e`: `PASS zones.divider: favorites | pinned | A | divider | today | B` shows the outline's rows with the divider between the pinned and today tabs.
 4. Run `make e2e`: `PASS zones.unpin: A=today tabs=[B,A] active=B` shows A dragged back below B into today, unpinned.
 5. Run `make e2e`: `PASS zones.drop-divider: favorites | pinned | divider | today | A | B` shows A dropped on the divider row landing at the top of today.
 6. Run `make e2e`: `PASS zones.drop-tab: favorites | pinned | divider | today | B | A` shows B dropped on A's row landing above it.
+7. Run `make e2e`: `PASS newtab`, `PASS newtab.look`, `PASS newtab.bar`, `PASS newtab.dismiss`, `PASS newtab.open`, `PASS newtab.not-a-tab` and `PASS newtab.places` show the New Tab row last in the list and styled as above, opening the command bar with no tab, closing on Escape with no tab, opening a tab after the active one when an address is chosen, never selected, refusing a drop on it, and ending the list in a Space with only pinned tabs and in an empty one.
 7. By hand: drag a today tab above the divider; it moves into the pinned tabs; close it and it stays in the sidebar, unloaded; select it and it loads the page it was pinned on.
 
 ## Out of scope
