@@ -106,7 +106,7 @@ final class DownloadsCenter: AppFeature, EngineDownloadsDelegate {
             // Held while the panel is open, so a second download does not suggest the same name.
             reserved[key] = suggested
             guard let picked = await askForDestination(suggested: suggested),
-                let state = list.entry(key)?.item.state, !state.isFinal
+                let state = list.entry(key)?.item.state, !state.isFinal, state != .unknown
             else {
                 reserved[key] = nil
                 return nil

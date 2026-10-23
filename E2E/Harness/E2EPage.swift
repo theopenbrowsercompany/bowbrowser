@@ -51,7 +51,7 @@ struct E2EDownload: Equatable {
     var id: String
     /// The name the row shows.
     var fileName: String
-    /// `inProgress`, `paused`, `complete`, `cancelled` or `interrupted`.
+    /// `inProgress`, `paused`, `complete`, `cancelled`, `interrupted` or `unknown`.
     var state: String
     /// The status line the row shows under the name.
     var status: String

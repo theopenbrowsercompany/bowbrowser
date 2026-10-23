@@ -28,8 +28,8 @@ Each profile keeps its own downloads, and the window shows every profile's downl
 - Closing the tab or popup that started a download currently cancels the download (the engine stops every request of a closed tab), and its partial file is deleted.
   Its row still updates: within a moment it reads Cancelled, it can be cleared, and its name is free for the next download of the file.
   Keeping such downloads running after their tab closes is planned.
-- After that tab closes, the list follows the download's file on disk instead of the engine: the bytes received follow the file's size, a file that reaches its known size is Complete, and a file that disappears is Cancelled.
-  Pause, Resume and Cancel still work and show at once.
+- After that tab closes, the list follows the download's file on disk instead of the engine: the bytes received follow the file's size, a file that reaches its known size is Complete, and a file that disappears, or never appears within 2 seconds, is Cancelled.
+  Pause and Cancel show at once; Resume shows the download running again, and if its file does not grow it later reads "Status unknown".
   A file that stops changing for 15 seconds without finishing reads "Status unknown" (it may be stalled, failed, or finished at an unknown size); such a row can be cleared, which cancels the download, and its name is no longer held for it.
 
 ## Acceptance checks
