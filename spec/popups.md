@@ -15,6 +15,15 @@ That connection is what sign in popups (for example Google or GitHub sign in) us
 - A new page the app takes as a tab is still connected to the page that opened it through `window.opener`.
 - The app owns such a tab before its first navigation, so the app's rules for where pages may go apply to that first page too.
 
+## Where new tabs go
+
+- A page that opens a new page without a click or key press from you is blocked.
+- A script window with a size (a sign in popup) stays a window of its own and keeps `window.opener`.
+- A link meant for a new tab (`target="_blank"`) or a Cmd-click opens in the background, right after the tab that opened it.
+- A Cmd-Shift-click opens in the foreground, right after the tab that opened it.
+- A Shift-click opens in the foreground for now; it becomes Peek later.
+- A link opened from a pinned tab or a Favorite puts the new tab at the top of Today instead, because those tabs sit above Today.
+
 ## Edge cases
 
 - Bow cannot tell a plain link to a new tab from a script's `window.open`, so neither opens as a tab of the window yet.
