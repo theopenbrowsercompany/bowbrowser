@@ -1,22 +1,23 @@
 import AppKit
 import BowCore
 
-// The only e2e file that knows the app's engine (the BowCore protocols the app drives it through), the window
-// controllers and the bridge's BowDevToolsSession and BowLeavePrompts. When those change shape, rewrite this file
-// to keep E2EApp and E2EPage working; tests stay as they are.
+// The core of the adapter. With the area files beside it (E2EAppAdapter+<Area>.swift, one per area protocol), it is
+// the only e2e code that knows the app's engine (the BowCore protocols the app drives it through), the window
+// controllers and the bridge's BowDevToolsSession and BowLeavePrompts. When those change shape, rewrite the adapter
+// files to keep E2EApp, E2EPage and the area protocols working; tests stay as they are.
 
 @MainActor
 final class E2EAppAdapter {
     /// Far from every screen. The window subclass keeps AppKit from moving it back on screen.
     static let windowFrame = NSRect(x: -20_000, y: -20_000, width: 1280, height: 800)
 
-    private unowned let delegate: AppDelegate
+    unowned let delegate: AppDelegate
     /// Every open page, by tab, so each window's tab events and policy questions reach their page. A page leaves
     /// when its tab closes.
-    private var pages: [TabID: TabPage] = [:]
+    private var pages: [TabID: E2ETabPage] = [:]
     /// The running test's windows and pages, in the order they opened, and its own profile once a window used it.
-    private var testControllers: [BrowserWindowController] = []
-    private var testPages: [TabPage] = []
+    private(set) var testControllers: [BrowserWindowController] = []
+    private var testPages: [E2ETabPage] = []
     private var testProfile: (any EngineProfile)?
     private var testProfileID = ""
     /// The token of the running test, nil between tests. Every app and page action a test takes carries its test's
@@ -45,28 +46,33 @@ final class E2EAppAdapter {
 
     func openWindow(at url: URL, profile: E2EWindowProfile, token: Int) async throws -> any E2EPage {
         let delegate = delegate
-        let engineProfile: (any EngineProfile)?
-        switch profile {
-        case .appDefault:
-            // Named, so the window gets a sidebar of its own rather than the app's saved one.
-            engineProfile = delegate.engine.profile(id: .default)
-        case .test:
-            if testProfile == nil { testProfile = try createProfile(id: testProfileID, isPersistent: false) }
-            engineProfile = testProfile
-        case .new(let profile):
-            engineProfile = try createProfile(id: profile.id, isPersistent: profile.isPersistent)
-        }
+        let engineProfile = try self.engineProfile(for: profile)
         return try await showWindow(token: token) { window in
             try delegate.openWindow(url: url, profile: engineProfile, window: window)
         }
     }
 
+    /// The engine profile `profile` names, created first for the test's own profile (once per test) and for a new
+    /// one.
+    func engineProfile(for profile: E2EWindowProfile) throws -> (any EngineProfile)? {
+        switch profile {
+        case .appDefault:
+            // Named, so the window gets a sidebar of its own rather than the app's saved one.
+            return delegate.engine.profile(id: .default)
+        case .test:
+            if testProfile == nil { testProfile = try createProfile(id: testProfileID, isPersistent: false) }
+            return testProfile
+        case .new(let profile):
+            return try createProfile(id: profile.id, isPersistent: profile.isPersistent)
+        }
+    }
+
     /// Opens a browser window with `open` in a new off-screen window, tracks it and its shown tab for the test, and
     /// orders it in once it is known to stay invisible. Returns the page of its shown tab.
-    private func showWindow(
+    func showWindow(
         token: Int,
         open: (BrowserWindow) throws -> BrowserWindowController
-    ) async throws -> TabPage {
+    ) async throws -> E2ETabPage {
         try await show(try open(Self.makeWindow()), token: token)
     }
 
@@ -81,7 +87,7 @@ final class E2EAppAdapter {
 
     /// Tracks the window of `controller` and its shown tab for the test, and orders it in once it is known to stay
     /// invisible. Returns the page of its shown tab.
-    private func show(_ controller: BrowserWindowController, token: Int) async throws -> TabPage {
+    private func show(_ controller: BrowserWindowController, token: Int) async throws -> E2ETabPage {
         testControllers.append(controller)
         controller.onTabEvent = { [weak self, unowned controller] tab, event in
             if case .stateChanged = event, let row = Self.sidebarRow(of: tab, in: controller) {
@@ -133,8 +139,10 @@ final class E2EAppAdapter {
         testPages.removeAll()
         testProfile = nil
         testProfileID = "e2e-test-\(index)"
+        // The windows of earlier tests are closed by now, so their seeded sidebars can go.
+        removeSeededSidebars()
         activeToken = index
-        return TestApp(adapter: self, token: index)
+        return E2ETestApp(adapter: self, token: index)
     }
 
     /// Ends the running test: from now on its app and pages refuse every action.
@@ -143,7 +151,7 @@ final class E2EAppAdapter {
     }
 
     /// Throws unless `token` is the running test's.
-    fileprivate func requireActive(_ token: Int, _ action: String) throws {
+    func requireActive(_ token: Int, _ action: String) throws {
         guard activeToken == token else {
             throw E2EError("refused to \(action): its test had already ended", reason: .testEnded)
         }
@@ -198,8 +206,8 @@ final class E2EAppAdapter {
 
     /// Creates the page for `tab` before the engine can report anything about it, which it does on later main
     /// thread tasks.
-    private func track(_ tab: any EngineTab, in controller: BrowserWindowController, token: Int) -> TabPage {
-        let page = TabPage(tab: tab, controller: controller, adapter: self, token: token)
+    func track(_ tab: any EngineTab, in controller: BrowserWindowController, token: Int) -> E2ETabPage {
+        let page = E2ETabPage(tab: tab, controller: controller, adapter: self, token: token)
         pages[tab.tabID] = page
         testPages.append(page)
         return page
@@ -245,7 +253,7 @@ final class E2EAppAdapter {
             case .forward: .forward
             case .reload: .reload
             }
-        let control = controller.navigationToolbar.button(item)
+        let control = controller.e2eNavigationToolbar.button(item)
         // The button must really be in the window's toolbar, not just exist.
         guard let window = controller.window, control.window === window,
             window.toolbar?.items.contains(where: { $0.view === control }) == true
@@ -255,50 +263,13 @@ final class E2EAppAdapter {
         return control
     }
 
-    /// Finds the menu item with the shortcut and sends its action the way AppKit does for a key press: to the first
-    /// object in the window's responder chain (then its delegate) that handles it, after that object validates
-    /// the item. The e2e window never becomes key, so the window is named here instead of AppKit finding the key
-    /// window.
+    /// Chooses the menu item with the shortcut, as the key press does (see `chooseMenuItem(key:modifiers:in:)`).
     func press(_ shortcut: E2EShortcut, in page: any E2EPage) throws {
-        let controller = try Self.tabPage(page).controller
-        guard let window = controller.window else { throw E2EError("the page has no window") }
-        guard let item = NSApp.mainMenu.flatMap({ Self.menuItem(shortcut.key, in: $0) }), let action = item.action
-        else {
-            throw E2EError("no menu item has the shortcut Cmd+\(shortcut.key)")
-        }
-        var responder: NSResponder? = window.firstResponder
-        var target: AnyObject?
-        while let current = responder, target == nil {
-            if current.responds(to: action) { target = current }
-            responder = current.nextResponder
-        }
-        if target == nil, let delegate = window.delegate, delegate.responds(to: action) { target = delegate }
-        guard let target else { throw E2EError("nothing in the window handles \(item.title)") }
-        if let validator = target as? NSMenuItemValidation, !validator.validateMenuItem(item) {
-            throw E2EError("\(item.title) (Cmd+\(shortcut.key)) is disabled")
-        }
-        NSApp.sendAction(action, to: target, from: item)
+        try chooseMenuItem(key: shortcut.key, modifiers: .command, in: page)
     }
 
-    private static func menuItem(_ key: String, in menu: NSMenu) -> NSMenuItem? {
-        for item in menu.items {
-            if item.keyEquivalent == key, item.keyEquivalentModifierMask == .command { return item }
-            if let submenu = item.submenu, let found = menuItem(key, in: submenu) { return found }
-        }
-        return nil
-    }
-
-    func activityTime(of page: any E2EPage) throws -> Date? {
-        let page = try Self.tabPage(page)
-        let controller = page.controller
-        guard let id = controller.modelID(of: page.tab), let item = controller.sidebarItemID(for: id) else {
-            throw E2EError("tab \(page.tab.tabID) has no sidebar item")
-        }
-        return controller.appFeatures.require(TabActivityLog.self).lastActive(item)
-    }
-
-    private static func tabPage(_ page: any E2EPage) throws -> TabPage {
-        guard let page = page as? TabPage else { throw E2EError("the page did not come from this app") }
+    static func tabPage(_ page: any E2EPage) throws -> E2ETabPage {
+        guard let page = page as? E2ETabPage else { throw E2EError("the page did not come from this app") }
         return page
     }
 
@@ -386,6 +357,7 @@ final class E2EAppAdapter {
         testControllers.removeAll()
         testPages.removeAll()
         pages.removeAll()
+        removeSeededSidebars()
         NSApp.terminate(nil)
     }
 }
@@ -393,9 +365,9 @@ final class E2EAppAdapter {
 /// The app as one test sees it: every action carries the test's token, so the adapter refuses it once the test has
 /// ended.
 @MainActor
-private final class TestApp: E2EApp {
-    fileprivate unowned let adapter: E2EAppAdapter
-    fileprivate let token: Int
+final class E2ETestApp: E2EApp {
+    unowned let adapter: E2EAppAdapter
+    let token: Int
 
     init(adapter: E2EAppAdapter, token: Int) {
         self.adapter = adapter
@@ -458,59 +430,9 @@ private final class TestApp: E2EApp {
     }
 }
 
-extension TestApp: E2ESidebarApp {
-    func sidebarRows(of page: any E2EPage) throws -> [E2ESidebarRow] {
-        try adapter.sidebarRows(of: page)
-    }
-
-    func sidebarRowHistory(of page: any E2EPage) -> [E2ESidebarRow] {
-        adapter.sidebarRowHistory(of: page)
-    }
-
-    func clickSidebarRow(of page: any E2EPage) throws {
-        try adapter.requireActive(token, "click a sidebar row")
-        try adapter.clickSidebarRow(of: page)
-    }
-
-    func clickSidebarClose(of page: any E2EPage) throws {
-        try adapter.requireActive(token, "click a sidebar close button")
-        try adapter.clickSidebarClose(of: page)
-    }
-
-    func clickNewTab(besides page: any E2EPage, opening url: URL) throws -> any E2EPage {
-        try adapter.requireActive(token, "click the New Tab button")
-        return try adapter.clickNewTab(besides: page, opening: url, token: token)
-    }
-
-    func chooseMenuItem(commandKey key: String, in page: any E2EPage) throws {
-        try adapter.requireActive(token, "choose the menu item for Command-\(key)")
-        try adapter.chooseMenuItem(commandKey: key, in: page)
-    }
-
-    func moveTab(_ page: any E2EPage, to index: Int) throws {
-        try adapter.requireActive(token, "move a tab")
-        try adapter.moveTab(page, to: index)
-    }
-}
-
-extension TestApp: E2EZonesApp {
-    func sidebarOutline(of page: any E2EPage) throws -> [String] {
-        try adapter.sidebarOutline(of: page)
-    }
-
-    func sidebarZone(of page: any E2EPage) throws -> String? {
-        try adapter.sidebarZone(of: page)
-    }
-
-    func dragTab(_ page: any E2EPage, onRow row: Int?, childIndex: Int) throws {
-        try adapter.requireActive(token, "drag a tab")
-        try adapter.dragTab(page, onRow: row, childIndex: childIndex)
-    }
-}
-
 /// E2EPage over one tab, fed its events and policy questions by the adapter, and a DevTools session on its browser.
 @MainActor
-private final class TabPage: E2EPage {
+final class E2ETabPage: E2EPage {
     let tab: any EngineTab
     let controller: BrowserWindowController
     /// The adapter and the token of the test that opened the page, which page actions must still match.
@@ -550,7 +472,7 @@ private final class TabPage: E2EPage {
     var finishedLoads: Int { loads.count }
 
     var permissionPrompt: E2EPermissionPrompt? {
-        guard isShown, let prompt = controller.permissionPrompts?.visiblePrompt else { return nil }
+        guard isShown, let prompt = controller.e2ePermissionPrompts?.visiblePrompt else { return nil }
         return E2EPermissionPrompt(
             kinds: Set(prompt.request.kinds.map(\.rawValue)),
             message: prompt.message,
@@ -609,7 +531,7 @@ private final class TabPage: E2EPage {
     func openFindBar() throws -> any E2EFindBar {
         try requireActive("open the find bar")
         guard let window = controller.window else { throw E2EError("the page has no window") }
-        guard let item = Self.menuItem(keyEquivalent: "f", in: NSApp.mainMenu) else {
+        guard let item = E2EAppAdapter.menuItem(key: "f", modifiers: .command) else {
             throw E2EError("no menu item has the key equivalent Cmd+F")
         }
         guard let action = item.action else { throw E2EError("the Cmd+F menu item has no action") }
@@ -622,14 +544,6 @@ private final class TabPage: E2EPage {
         let bar = WindowFindBar(page: self, window: window)
         guard bar.isShown else { throw E2EError("the find bar did not show") }
         return bar
-    }
-
-    private static func menuItem(keyEquivalent: String, in menu: NSMenu?) -> NSMenuItem? {
-        for item in menu?.items ?? [] {
-            if item.keyEquivalent == keyEquivalent, item.keyEquivalentModifierMask == .command { return item }
-            if let found = menuItem(keyEquivalent: keyEquivalent, in: item.submenu) { return found }
-        }
-        return nil
     }
 
     func waitForLoad(after finishedLoads: Int) async throws -> Int {
@@ -670,11 +584,11 @@ private final class TabPage: E2EPage {
 /// where the window would deliver them if it were key.
 @MainActor
 private final class WindowFindBar: E2EFindBar {
-    private let page: TabPage
+    private let page: E2ETabPage
     private let window: NSWindow
-    private var findBar: FindBar { page.controller.findBar }
+    private var findBar: FindBar { page.controller.e2eFindBar }
 
-    init(page: TabPage, window: NSWindow) {
+    init(page: E2ETabPage, window: NSWindow) {
         self.page = page
         self.window = window
     }
@@ -733,154 +647,18 @@ private struct MainThreadResult: @unchecked Sendable {
     let value: [String: Any]
 }
 
-// The sidebar and tab commands over the window controller and its SidebarView. The test's app (TestApp) offers
-// them to the test, after checking that the test is still running.
-extension E2EAppAdapter {
-    func sidebarRows(of page: any E2EPage) throws -> [E2ESidebarRow] {
-        let controller = try Self.tabPage(page).controller
-        return controller.tabs.compactMap { Self.sidebarRow(of: $0, in: controller) }
-    }
-
-    func sidebarRowHistory(of page: any E2EPage) -> [E2ESidebarRow] {
-        (page as? TabPage)?.sidebarRowHistory ?? []
-    }
-
-    /// The row of `tab` as the sidebar draws it, made if the outline has not laid it out yet.
-    fileprivate static func sidebarRow(of tab: any EngineTab, in controller: BrowserWindowController)
-        -> E2ESidebarRow?
-    {
-        guard let id = controller.modelID(of: tab), let item = controller.sidebarItemID(for: id),
-            let row = controller.sidebar.row(for: item)
-        else { return nil }
-        let outline = controller.sidebar.outlineView
-        guard let view = outline.view(atColumn: 0, row: row, makeIfNecessary: true) as? TabSidebarRow else {
-            return nil
-        }
-        view.layoutSubtreeIfNeeded()
-        return E2ESidebarRow(
-            title: view.titleField.stringValue,
-            isLoading: view.isLoading,
-            hasFavicon: view.hasFavicon,
-            isActive: outline.rowView(atRow: row, makeIfNecessary: true)?.isSelected ?? false,
-            titleClearsClose: view.titleField.frame.maxX <= view.closeButton.frame.minX
-        )
-    }
-
-    /// The sidebar item of `page`'s tab.
-    private static func sidebarItem(of page: TabPage) throws -> SidebarItemID {
-        guard let id = page.controller.modelID(of: page.tab), let item = page.controller.sidebarItemID(for: id) else {
-            throw E2EError("tab \(page.tab.tabID) is not in its window's sidebar")
-        }
-        return item
-    }
-
-    func clickSidebarRow(of page: any E2EPage) throws {
-        let page = try Self.tabPage(page)
-        guard let row = page.controller.sidebar.row(for: try Self.sidebarItem(of: page)) else {
-            throw E2EError("tab \(page.tab.tabID) has no sidebar row")
-        }
-        // What the outline's click action does with the clicked row.
-        page.controller.sidebar.clickRow(row)
-    }
-
-    func clickSidebarClose(of page: any E2EPage) throws {
-        let page = try Self.tabPage(page)
-        guard let view = page.controller.sidebar.rowView(for: try Self.sidebarItem(of: page)) else {
-            throw E2EError("tab \(page.tab.tabID) has no sidebar row")
-        }
-        guard !view.closeButton.isHidden else { throw E2EError("the row's close button is not showing") }
-        try Self.click(view.closeButton)
-    }
-
-    func clickNewTab(besides page: any E2EPage, opening url: URL, token: Int) throws -> any E2EPage {
-        let controller = try Self.tabPage(page).controller
-        let before = Set(controller.tabs.map(\.tabID))
-        controller.newTabURL = url
-        try Self.click(controller.sidebar.newTabButton)
-        guard let tab = controller.tabs.first(where: { !before.contains($0.tabID) }) else {
-            throw E2EError("the New Tab button opened no tab")
-        }
-        return track(tab, in: controller, token: token)
-    }
-
-    /// Sends `button`'s action to its target, as a click on it ends up doing. `performClick(_:)` is not used: it
-    /// runs the run loop while it shows the button pressed, so the engine's events for a tab the click opens
-    /// would arrive before the test could track the tab.
-    private static func click(_ button: NSButton) throws {
-        guard button.isEnabled, !button.isHiddenOrHasHiddenAncestor, let action = button.action,
-            NSApp.sendAction(action, to: button.target, from: button)
-        else {
-            throw E2EError("the button \"\(button.accessibilityLabel() ?? button.title)\" cannot be clicked")
-        }
-    }
-
-    func chooseMenuItem(commandKey key: String, in page: any E2EPage) throws {
-        let controller = try Self.tabPage(page).controller
-        guard let item = Self.menuItem(commandKey: key, in: NSApp.mainMenu), let action = item.action else {
-            throw E2EError("no menu item has the shortcut Command-\(key)")
-        }
-        // An e2e window never becomes key, so the item is sent to the page's window rather than the key window.
-        let target: Any? = controller.responds(to: action) ? controller : controller.window
-        guard NSApp.sendAction(action, to: target, from: item) else {
-            throw E2EError("the menu item \"\(item.title)\" did nothing")
-        }
-    }
-
-    private static func menuItem(commandKey key: String, in menu: NSMenu?) -> NSMenuItem? {
-        for item in menu?.items ?? [] {
-            if item.keyEquivalent == key, item.keyEquivalentModifierMask == .command { return item }
-            if let found = menuItem(commandKey: key, in: item.submenu) { return found }
-        }
-        return nil
-    }
-
-    func moveTab(_ page: any E2EPage, to index: Int) throws {
-        let page = try Self.tabPage(page)
-        guard let id = page.controller.modelID(of: page.tab) else {
-            throw E2EError("tab \(page.tab.tabID) is not in its window")
-        }
-        guard page.controller.sidebarFeature.dropTab(id, atTabIndex: index) else {
-            throw E2EError("the sidebar refused to move the tab to \(index)")
-        }
-    }
-
-    func sidebarOutline(of page: any E2EPage) throws -> [String] {
-        let sidebar = try Self.tabPage(page).controller.sidebar
-        return sidebar.rowKinds().enumerated().map { row, kind in
-            if let section = kind.section { return section.zone?.rawValue ?? "divider" }
-            let view = sidebar.outlineView.view(atColumn: 0, row: row, makeIfNecessary: true)
-            return (view as? TabSidebarRow)?.titleField.stringValue
-                ?? (view as? SidebarGroupRow)?.titleField.stringValue ?? "?"
-        }
-    }
-
-    func sidebarZone(of page: any E2EPage) throws -> String? {
-        let page = try Self.tabPage(page)
-        return page.controller.sidebar.zone(of: try Self.sidebarItem(of: page))?.rawValue
-    }
-
-    func dragTab(_ page: any E2EPage, onRow row: Int?, childIndex: Int) throws {
-        let page = try Self.tabPage(page)
-        let item = try Self.sidebarItem(of: page)
-        // The outline's own drop routing: the proposal (with its retargeted gap), then the accepted drop.
-        guard page.controller.sidebar.dragItem(item, onRow: row, childIndex: childIndex) else {
-            let place = row.map { "row \($0)" } ?? "between sections"
-            throw E2EError("the sidebar refused to drop the tab on \(place) at \(childIndex)")
-        }
-    }
-}
-
-// The window features the adapter reaches into. Every window has each of them (`WindowFeatures.all`).
+// The window features the adapter files reach into. Every window has each of them (`WindowFeatures.all`). Named with
+// an e2e prefix, since harness names must not collide with names app code uses (scripts/check-e2e-seams.sh).
 extension BrowserWindowController {
-    fileprivate var sidebarFeature: SidebarFeature { feature(SidebarFeature.self)! }
-    fileprivate var sidebar: SidebarView { sidebarFeature.sidebar }
-    fileprivate var findBar: FindBar { feature(FindFeature.self)!.findBar }
-    fileprivate var permissionPrompts: PermissionPrompts? { feature(PermissionsFeature.self)?.prompts }
-    fileprivate var navigationToolbar: NavigationToolbar { feature(NavigationFeature.self)!.toolbar }
+    var e2eSidebarFeature: SidebarFeature { feature(SidebarFeature.self)! }
+    var e2eSidebar: SidebarView { e2eSidebarFeature.sidebar }
+    var e2eFindBar: FindBar { feature(FindFeature.self)!.findBar }
+    var e2ePermissionPrompts: PermissionPrompts? { feature(PermissionsFeature.self)?.prompts }
+    var e2eNavigationToolbar: NavigationToolbar { feature(NavigationFeature.self)!.toolbar }
 }
 
 // The sidebar store and tab creation over the window controller's `SidebarStore` and the app delegate's link
-// handling. The test's app (TestApp) offers them to the test, after checking that the test is still running.
+// handling. The test's app (E2ETestApp) offers them to the test, after checking that the test is still running.
 extension E2EAppAdapter {
     func sidebarItemCount(of page: any E2EPage) throws -> Int {
         try Self.tabPage(page).controller.store.graph.contentItemCount
@@ -919,12 +697,6 @@ extension E2EAppAdapter {
 
     func tabProfileID(of page: any E2EPage) throws -> String {
         try Self.tabPage(page).tab.profileID.rawValue
-    }
-}
-
-extension TestApp: E2EActivityApp {
-    func activityTime(of page: any E2EPage) throws -> Date? {
-        try adapter.activityTime(of: page)
     }
 }
 
@@ -973,7 +745,7 @@ extension E2ESidebarNotice {
     }
 }
 
-extension TestApp: E2EStoreApp {
+extension E2ETestApp: E2EStoreApp {
     func openSavedSidebar(in session: E2ESidebarSession, url: URL, ownSidebar: Bool) async throws -> E2ESidebarOpening {
         try adapter.requireActive(token, "open a saved sidebar")
         return try await adapter.openSavedSidebar(session: session, url: url, ownSidebar: ownSidebar, token: token)

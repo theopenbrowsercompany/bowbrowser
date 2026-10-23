@@ -22,7 +22,9 @@ Start every session in `~/code/GitHub/bowbrowser`: the maintainer's `.claude/set
   - `App/UI/Sidebar/`: the sidebar outline (`SidebarView`) with its sections, context menu items, drop rules and accessories.
     A new section, menu provider, drop rule, top or footer accessory, or tab row accessory is a new file here plus one line in `SidebarSectionList.swift`, `SidebarMenuList.swift`, `SidebarDropRuleList.swift` or `SidebarAccessoryList.swift`.
 - `E2E/`: the `make e2e` harness, compiled into Debug builds only (Release leaves out its code and fixtures).
-  - `E2E/Harness/`: the runner, waits, PASS and FAIL report, watchdog, off-screen window, the page protocol (`E2EApp`, `E2EPage`) and `E2EAppAdapter.swift`, the one file that knows the bridge.
+  - `E2E/Harness/`: the runner, waits, PASS and FAIL report, watchdog, off-screen window, the page protocol (`E2EApp`, `E2EPage`) and the adapter files, `E2EAppAdapter.swift` and one `E2EAppAdapter+<Area>.swift` per area, which together are the only harness code that knows the bridge.
+    Each area adds its protocol in its own `E2E/Harness/` file (for example `E2ESidebar.swift`) and its adapter code, with the test app's conformance, in `E2E/Harness/E2EAppAdapter+<Area>.swift` (for example `E2EAppAdapter+Sidebar.swift`), not in `E2EAppAdapter.swift`.
+    A test builds its starting sidebar (Spaces, nested folders, pinned and today tabs) in one call with `E2EStoreSeedApp.openWindow(seeded:)` in `E2EStoreSeed.swift`, and chooses a menu shortcut with any modifiers with `E2EMenuApp.chooseMenuItem(key:modifiers:in:)` in `E2EMenu.swift`.
     Page input (`E2EInput.swift`: click, type, keys) goes through the DevTools Input domain with focus emulation on; app shortcuts go through the app's menu, never DevTools.
   - `E2E/Engine/`: Objective-C++ helpers, the DevTools session and the `https://bow.test/` fixture server.
   - `E2E/Tests/`: one Swift file per area holding its tests (`App.swift` holds `app.quit`); add each new area as one line in `E2E/Tests/E2EAreas.swift`, and give each test with more than one check its `checks`.
