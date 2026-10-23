@@ -17,9 +17,9 @@ struct ProfilesIsolationTest: E2ETest {
         let url = E2EFixture.url("profiles/index.html")
         let pages = try await run.step("open windows", timeout: E2ETimeouts.step) {
             [
-                try run.app.openWindow(at: url),
-                try run.app.openWindow(at: url, newProfile: E2EProfile(id: "e2e-memory", isPersistent: false)),
-                try run.app.openWindow(at: url, newProfile: E2EProfile(id: "e2e-disk", isPersistent: true)),
+                try await run.app.openWindow(at: url),
+                try await run.app.openWindow(at: url, newProfile: E2EProfile(id: "e2e-memory", isPersistent: false)),
+                try await run.app.openWindow(at: url, newProfile: E2EProfile(id: "e2e-disk", isPersistent: true)),
             ]
         }
         try await run.step("load in every profile", timeout: E2ETimeouts.firstLoad) {
@@ -59,7 +59,7 @@ struct ProfilesIsolationTest: E2ETest {
             var refused: [String] = []
             for id in ["Default", "e2e-memory", "E2E-DISK"] {
                 do {
-                    _ = try run.app.openWindow(at: url, newProfile: E2EProfile(id: id, isPersistent: false))
+                    _ = try await run.app.openWindow(at: url, newProfile: E2EProfile(id: id, isPersistent: false))
                 } catch {
                     refused.append(id)
                 }

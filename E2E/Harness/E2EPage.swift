@@ -9,7 +9,7 @@ protocol E2EApp: AnyObject {
     /// Opens a browser window on `url`, off screen and never key, and returns its page (the window's first tab).
     /// `profile` names a profile to create for the window; nil uses the default profile.
     /// Throws when the window would be visible on a screen or the app could take focus.
-    func openWindow(at url: URL, newProfile profile: E2EProfile?) throws -> any E2EPage
+    func openWindow(at url: URL, newProfile profile: E2EProfile?) async throws -> any E2EPage
     /// Opens `url` in a new tab of the window `page` is in, selected unless `select` is false.
     func openTab(at url: URL, besides page: any E2EPage, select: Bool) throws -> any E2EPage
     /// Selects the tab `page` is in, showing it in its window.
@@ -24,8 +24,8 @@ protocol E2EApp: AnyObject {
 }
 
 extension E2EApp {
-    func openWindow(at url: URL) throws -> any E2EPage {
-        try openWindow(at: url, newProfile: nil)
+    func openWindow(at url: URL) async throws -> any E2EPage {
+        try await openWindow(at: url, newProfile: nil)
     }
 }
 
