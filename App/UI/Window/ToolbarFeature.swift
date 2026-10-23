@@ -58,7 +58,6 @@ final class ToolbarFeature: NSResponder, BrowserWindowFeature, NSMenuItemValidat
 
     private func apply() {
         guard let sidebar = window.feature(SidebarFeature.self)?.sidebar else { return }
-        let hidden = !AppSettings.showsToolbar
-        if sidebar.topRow.isHidden != hidden { sidebar.topRow.isHidden = hidden }
+        sidebar.isTopRowHidden = !AppSettings.showsToolbar
     }
 }

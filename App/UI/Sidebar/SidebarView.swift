@@ -59,6 +59,21 @@ final class SidebarView: NSView, NSOutlineViewDataSource, NSOutlineViewDelegate,
     /// The row at the top of the sidebar, level with the window's close, minimize and zoom buttons, which the
     /// window fills from the trailing edge (the back, forward and reload buttons).
     let topRow = NSStackView()
+    /// Hides the top row (View > Hide Toolbar): what sits below it rises to just under the title bar, clear of the
+    /// window buttons, which stay.
+    var isTopRowHidden: Bool {
+        get { topRow.isHidden }
+        set {
+            guard newValue != topRow.isHidden else { return }
+            topRow.isHidden = newValue
+            slotBelowTopRow.isActive = !newValue
+            slotBelowTitleBar.isActive = newValue
+        }
+    }
+    /// The top slot's place under the top row, while the row shows.
+    private var slotBelowTopRow: NSLayoutConstraint!
+    /// The top slot's place under the title bar, while the top row is hidden.
+    private var slotBelowTitleBar: NSLayoutConstraint!
     let outlineView: NSOutlineView = SidebarOutlineView()
     /// The top accessory slot, between the top row and the outline; empty, it takes no room.
     let topSlot = NSStackView()
@@ -170,7 +185,13 @@ final class SidebarView: NSView, NSOutlineViewDataSource, NSOutlineViewDelegate,
             equalTo: topAnchor.anchorWithOffset(to: safeAreaLayoutGuide.topAnchor), multiplier: 0.5)
         // Without a title bar (full screen hides it) the row keeps clear of the top edge.
         topRowCenter.priority = .defaultHigh
+        slotBelowTopRow = topSlot.topAnchor.constraint(equalTo: topRow.bottomAnchor, constant: BowBrand.sidebarGap)
+        // Without a title bar (full screen) the slot keeps the sidebar's top padding instead.
+        slotBelowTitleBar = topSlot.topAnchor.constraint(equalTo: safeAreaLayoutGuide.topAnchor)
+        slotBelowTitleBar.priority = .defaultHigh
         NSLayoutConstraint.activate([
+            slotBelowTopRow,
+            topSlot.topAnchor.constraint(greaterThanOrEqualTo: topAnchor, constant: BowBrand.sidebarGap),
             topRowCenter,
             topRow.topAnchor.constraint(greaterThanOrEqualTo: topAnchor, constant: 4),
             topRow.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -BowBrand.sidebarTrailing),
@@ -179,7 +200,6 @@ final class SidebarView: NSView, NSOutlineViewDataSource, NSOutlineViewDelegate,
             scrollView.trailingAnchor.constraint(equalTo: trailingAnchor),
             topSlot.leadingAnchor.constraint(equalTo: leadingAnchor),
             topSlot.trailingAnchor.constraint(equalTo: trailingAnchor),
-            topSlot.topAnchor.constraint(equalTo: topRow.bottomAnchor, constant: BowBrand.sidebarGap),
             scrollView.topAnchor.constraint(equalTo: topSlot.bottomAnchor),
             scrollView.bottomAnchor.constraint(equalTo: footer.topAnchor),
             footer.leadingAnchor.constraint(equalTo: leadingAnchor),

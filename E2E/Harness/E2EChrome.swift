@@ -48,10 +48,16 @@ struct E2EURLField: Equatable, CustomStringConvertible {
     var size: CGSize
     /// True when it sits wholly below the top row and the window's close, minimize and zoom buttons.
     var isBelowTopRow: Bool
+    /// How far below the sidebar's top edge the sidebar's content (the field's slot, then the outline) starts, in
+    /// points.
+    var contentTop: CGFloat
+    /// True when that content starts below the window's close, minimize and zoom buttons.
+    var contentClearsWindowButtons: Bool
 
     var description: String {
         "text=\"\(text)\" placeholder=\(isPlaceholder) shown=\(isShown) top-row=\(isTopRowShown) "
-            + "size=\(Int(size.width))x\(Int(size.height)) below-top-row=\(isBelowTopRow)"
+            + "size=\(Int(size.width))x\(Int(size.height)) below-top-row=\(isBelowTopRow) "
+            + "content-top=\(Int(contentTop)) clears-window-buttons=\(contentClearsWindowButtons)"
     }
 }
 
