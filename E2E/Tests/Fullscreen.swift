@@ -9,6 +9,7 @@ enum FullscreenTests {
     static let all: [any E2ETest] = [
         FullscreenEnterTest(), FullscreenEscapeTest(), FullscreenExitTest(), FullscreenTabSwitchTest(),
         FullscreenAlreadyTest(), FullscreenNavigateTest(), FullscreenWindowExitTest(), FullscreenTopTabsTest(),
+        FullscreenTransitionTest(), FullscreenTransitionCancelTest(),
     ]
 
     typealias App = any E2EFullscreenApp & E2ETopTabsApp & E2EDesignApp
@@ -37,6 +38,27 @@ enum FullscreenTests {
             try await page.click("#go")
             try await E2EWaits.until(page, "window.fullscreenEvents.includes('enter')")
             return try await E2EWaits.value({ try app.fullscreenState(of: page) }, until: \.pageFills)
+        }
+    }
+
+    /// Presses Escape in the page filling the window and waits until the page has left and the layout is restored.
+    static func escape(_ run: E2ERun, _ app: App, _ page: any E2EPage, exits: Int = 1) async throws
+        -> E2EFullscreenState
+    {
+        try await run.step("press Escape", timeout: E2ETimeouts.step) {
+            try await page.press(.escape)
+            try await E2EWaits.until(
+                page, "window.fullscreenEvents.filter((event) => event === 'exit').length === \(exits)")
+            return try await restored(app, page)
+        }
+    }
+
+    /// Ends the recorder's held full screen transition (the window posts its did notification) and returns the
+    /// window then.
+    static func finishTransition(_ run: E2ERun, _ app: App, _ page: any E2EPage) async throws -> E2EFullscreenState {
+        try await run.step("end the full screen transition", timeout: E2ETimeouts.step) {
+            try app.finishWindowFullScreenTransition(of: page)
+            return try app.fullscreenState(of: page)
         }
     }
 
@@ -211,5 +233,60 @@ struct FullscreenTopTabsTest: E2ETest {
             passed: entered.fillsWindow && left.topBarShown && left.sidebarHidden
                 && left.pageInsets == [90, 8, 8, 8] && left.pageRadius == 10 && left.hasShadow && left.toggles == 2,
             "entered: \(entered) left: \(left)")
+    }
+}
+
+/// Escape while the window still animates into macOS full screen: the chrome and the card come back at once, but the
+/// toggle that takes the window out waits for the end of the transition (macOS would ignore it), then runs once.
+struct FullscreenTransitionTest: E2ETest {
+    let name = "fullscreen.transition"
+
+    func run(_ run: E2ERun) async throws {
+        let app = try FullscreenTests.app(run)
+        let page = try await FullscreenTests.open(run, app)
+        try app.holdWindowFullScreenTransitions(of: page)
+        let entering = try await FullscreenTests.enter(run, app, page)
+        let left = try await FullscreenTests.escape(run, app, page)
+        let entered = try await FullscreenTests.finishTransition(run, app, page)
+        let exited = try await FullscreenTests.finishTransition(run, app, page)
+        run.check(
+            name,
+            passed: entering.fillsWindow && entering.toggles == 1 && entering.windowTransition == "entering"
+                && left.restoredSidebarLayout && left.toggles == 1 && left.windowTransition == "entering"
+                && entered.toggles == 2 && entered.windowTransition == "exiting"
+                && exited.restoredSidebarLayout && exited.toggles == 2 && !exited.windowFullScreen
+                && exited.windowTransition == "none",
+            "entering: \(entering) escape: \(left) entered: \(entered) exited: \(exited)")
+    }
+}
+
+/// Fullscreen, Escape and Fullscreen again, all while the window animates into macOS full screen: the window ends in
+/// full screen with the page filling it and no toggle beyond the first; Escape afterwards takes it out with one more.
+struct FullscreenTransitionCancelTest: E2ETest {
+    let name = "fullscreen.transition_cancel"
+
+    func run(_ run: E2ERun) async throws {
+        let app = try FullscreenTests.app(run)
+        let page = try await FullscreenTests.open(run, app)
+        try app.holdWindowFullScreenTransitions(of: page)
+        _ = try await FullscreenTests.enter(run, app, page)
+        let left = try await FullscreenTests.escape(run, app, page)
+        let again = try await run.step("click Fullscreen again", timeout: E2ETimeouts.step) {
+            try await page.click("#go")
+            try await E2EWaits.until(
+                page, "window.fullscreenEvents.filter((event) => event === 'enter').length === 2")
+            return try await E2EWaits.value({ try app.fullscreenState(of: page) }, until: \.pageFills)
+        }
+        let entered = try await FullscreenTests.finishTransition(run, app, page)
+        let escaped = try await FullscreenTests.escape(run, app, page, exits: 2)
+        let exited = try await FullscreenTests.finishTransition(run, app, page)
+        run.check(
+            name,
+            passed: left.toggles == 1 && again.fillsWindow && again.toggles == 1
+                && entered.fillsWindow && entered.toggles == 1 && entered.windowFullScreen
+                && entered.windowTransition == "none"
+                && escaped.restoredSidebarLayout && escaped.toggles == 2 && escaped.windowTransition == "exiting"
+                && exited.toggles == 2 && !exited.windowFullScreen,
+            "escape: \(left) again: \(again) entered: \(entered) escaped: \(escaped) exited: \(exited)")
     }
 }

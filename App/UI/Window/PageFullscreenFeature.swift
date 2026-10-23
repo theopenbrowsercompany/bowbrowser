@@ -20,9 +20,18 @@ final class PageFullscreenFeature: NSResponder, BrowserWindowFeature {
         self.window = window
         fullScreen = SystemWindowFullScreen(window: window.window)
         super.init()
-        NotificationCenter.default.addObserver(
-            self, selector: #selector(windowDidExitFullScreen(_:)), name: NSWindow.didExitFullScreenNotification,
-            object: window.window)
+        // macOS ignores a toggle sent while the window animates into or out of full screen, so the feature follows
+        // each transition (`PageFullscreen` queues a toggle until it ends). The failures reach it as window feature
+        // hooks, since AppKit tells only the window's delegate.
+        let observed: [(Notification.Name, Selector)] = [
+            (NSWindow.willEnterFullScreenNotification, #selector(windowWillEnterFullScreen(_:))),
+            (NSWindow.didEnterFullScreenNotification, #selector(windowDidEnterFullScreen(_:))),
+            (NSWindow.willExitFullScreenNotification, #selector(windowWillExitFullScreen(_:))),
+            (NSWindow.didExitFullScreenNotification, #selector(windowDidExitFullScreen(_:))),
+        ]
+        for (name, selector) in observed {
+            NotificationCenter.default.addObserver(self, selector: selector, name: name, object: window.window)
+        }
     }
 
     @available(*, unavailable)
@@ -72,8 +81,28 @@ final class PageFullscreenFeature: NSResponder, BrowserWindowFeature {
         return true
     }
 
+    @objc private func windowWillEnterFullScreen(_ notification: Notification) {
+        state.windowWillEnterFullScreen()
+    }
+
+    @objc private func windowDidEnterFullScreen(_ notification: Notification) {
+        perform(state.windowEnteredFullScreen(), tab: nil)
+    }
+
+    @objc private func windowWillExitFullScreen(_ notification: Notification) {
+        state.windowWillExitFullScreen()
+    }
+
     @objc private func windowDidExitFullScreen(_ notification: Notification) {
         perform(state.windowExitedFullScreen(), tab: nil)
+    }
+
+    func windowDidFailToEnterFullScreen() {
+        perform(state.windowFailedToEnterFullScreen(), tab: nil)
+    }
+
+    func windowDidFailToExitFullScreen() {
+        perform(state.windowFailedToExitFullScreen(), tab: nil)
     }
 
     // MARK: Carrying it out
@@ -107,8 +136,9 @@ final class PageFullscreenFeature: NSResponder, BrowserWindowFeature {
 @MainActor
 protocol WindowFullScreen: AnyObject {
     var isFullScreen: Bool { get }
-    /// Enters or leaves full screen (`NSWindow.toggleFullScreen(_:)`); leaving posts
-    /// `NSWindow.didExitFullScreenNotification` once the window is out.
+    /// Enters or leaves full screen (`NSWindow.toggleFullScreen(_:)`): the window posts its will enter or will exit
+    /// full screen notification as the transition starts, and the did notification once it ends (or tells its
+    /// delegate it failed). A toggle sent during a transition is ignored.
     func toggle()
 }
 
