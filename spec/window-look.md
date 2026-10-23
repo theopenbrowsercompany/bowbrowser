@@ -23,7 +23,11 @@ It uses Bow's brand colors as light and dark tokens, soft radii and one soft sha
 - The empty Space and unloaded tab states show the Bow mark at 64 points above their line in Soft and a Jam Deep pill button with white text.
 - The app icon is Bow's light app tile; the About panel shows it, since it shows the app icon.
 - In dark mode the frame is Night, the active row and Favorites take their dark tokens, and text is Cream; the card and the command bar stay White and draw light.
-- All UI text uses the system font.
+- Sidebar, command bar and empty state text use Nunito Sans: 13.5 points for UI text (tab and folder rows, New Tab, the empty state's button), the group label 11 points bold with letter spacing 0.8, the active row bold (700), folder rows semibold (600), and the command bar's own sizes unchanged.
+  The fonts are the brand kit's variable TTFs, bundled in Resources/Fonts and registered at launch by `ATSApplicationFontsPath` in Info.plist; their SIL Open Font Licenses are in the About panel's licenses.
+  A font that fails to load falls back to the system font in the same size and weight.
+- Fredoka 600 at 40 points is the start screen greeting's font; it has a token (`BowBrand.display()`) and no surface uses it yet. JetBrains Mono is not bundled.
+- Other windows (downloads, permission prompts, find bar, About panel) keep the system font.
 - The tokens, radii, shadow and sidebar spacing come from one file of named values.
 
 ## Edge cases
@@ -44,11 +48,12 @@ It uses Bow's brand colors as light and dark tokens, soft radii and one soft sha
 7. Open the command bar: its panel's content is clipped to 14 point corners, and its shadow has a path the size of the panel.
 8. Switch the window to dark: the frame is #2A1710, the active row #3D2519 and its title #FFF3E6, and the navigation buttons draw dark.
 9. The app bundle names its icon (CFBundleIconName AppIcon) and carries AppIcon.icns.
-10. `make e2e E2E=design` runs these checks and writes screenshots to `build/e2e/<run>/design/`.
+10. `design.fonts` prints PASS for `design.fonts_registered`, `design.fonts_sidebar`, `design.fonts_command_bar` and `design.fonts_empty`.
+11. `make e2e E2E=design` runs these checks and writes screenshots to `build/e2e/<run>/design/`.
 
 ## Out of scope
 
-- A URL field in the sidebar, a downloads button in the footer, a start screen with a greeting, search field and quick links, bundled brand fonts, and moving New Tab to the end of the tab list: each is later work.
+- A URL field in the sidebar, a downloads button in the footer, a start screen with a greeting, search field and quick links, and moving New Tab to the end of the tab list: each is later work.
 - Hiding the sidebar or the navigation buttons, per Space colors, themes, animations and settings.
 - A dark app tile as an icon appearance variant: on macOS it needs an Icon Composer icon, not an asset catalog app icon set.
 

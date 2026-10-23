@@ -7,7 +7,7 @@ import Foundation
 /// maintainer to look at. Fixtures in E2E/Fixtures/design/.
 @MainActor
 enum DesignTests {
-    static let all: [any E2ETest] = [DesignLookTest(), DesignScreensTest()]
+    static let all: [any E2ETest] = [DesignLookTest(), DesignScreensTest(), DesignFontsTest()]
 
     /// The brand tokens (light, then dark).
     static let frameLight = "#FFF3E6"
@@ -266,5 +266,61 @@ struct DesignScreensTest: E2ETest {
         run.check(
             "design.screens", passed: written.count == 5,
             "wrote \(written.joined(separator: ", ")) in \(folder.path)")
+    }
+}
+
+/// The brand fonts: the app registered the bundled Nunito Sans and Fredoka (and carries no JetBrains Mono), their
+/// licenses are in Resources, and the sidebar, command bar and empty state draw with Nunito Sans at the sizes the
+/// styling guide gives, the active row bold.
+struct DesignFontsTest: E2ETest {
+    let name = "design.fonts"
+    let checks = ["design.fonts_registered", "design.fonts_sidebar", "design.fonts_command_bar", "design.fonts_empty"]
+
+    func run(_ run: E2ERun) async throws {
+        guard let fonts = run.app as? any E2EFontsApp else { throw E2EError("the app has no font hooks") }
+        let design = try DesignTests.design(run)
+        guard let edges = run.app as? any E2EWindowEdgesApp else { throw E2EError("the app has no window edges") }
+        let page = try await DesignTests.openBrowsing(run)
+        let nunito = "Nunito Sans"
+        let browsing = try await run.step("read the sidebar fonts", timeout: E2ETimeouts.step) {
+            try fonts.fonts(of: page)
+        }
+        run.check(
+            "design.fonts_registered",
+            passed: browsing.nunitoRegistered && browsing.fredokaRegistered && !browsing.jetBrainsPresent
+                && browsing.fontFilesBundled && browsing.licenseFilesBundled
+                && browsing.uiToken == E2EFontInfo(family: nunito, name: browsing.uiToken.name, size: 13.5)
+                && browsing.displayToken.family == "Fredoka" && browsing.displayToken.name.contains("SemiBold")
+                && browsing.displayToken.size == 40,
+            "nunito=\(browsing.nunitoRegistered) fredoka=\(browsing.fredokaRegistered)"
+                + " jetbrains=\(browsing.jetBrainsPresent) files=\(browsing.fontFilesBundled)"
+                + " licenses=\(browsing.licenseFilesBundled) ui=\(browsing.uiToken) display=\(browsing.displayToken)")
+        run.check(
+            "design.fonts_sidebar",
+            passed: browsing.activeRow?.family == nunito && browsing.activeRow?.size == 13.5
+                && browsing.activeRow?.name.contains("Bold") == true && browsing.spaceName?.family == nunito
+                && browsing.spaceName?.size == 11 && browsing.spaceName?.name.contains("Bold") == true,
+            "active_row=\(String(describing: browsing.activeRow)) space_name=\(String(describing: browsing.spaceName))")
+
+        let bar = try await run.step("read the command bar font", timeout: E2ETimeouts.step) {
+            let bar = try await DesignTests.openCommandBar(run, over: page)
+            let look = try fonts.fonts(of: page)
+            try bar.press(.escape)
+            _ = try await DesignTests.until { !bar.isShown }
+            return look
+        }
+        run.check(
+            "design.fonts_command_bar",
+            passed: bar.commandBarField?.family == nunito && bar.commandBarField?.size == 20,
+            "field=\(String(describing: bar.commandBarField))")
+
+        let empty = try await run.step("read the empty state font", timeout: E2ETimeouts.step) {
+            _ = try edges.createSpace(besides: page, profileID: edges.profileID(of: page))
+            _ = try await DesignTests.until { try design.look(of: page).showsEmptyState }
+            return try fonts.fonts(of: page)
+        }
+        run.check(
+            "design.fonts_empty", passed: empty.emptyStateLine?.family == nunito && empty.emptyStateLine?.size == 15,
+            "line=\(String(describing: empty.emptyStateLine))")
     }
 }

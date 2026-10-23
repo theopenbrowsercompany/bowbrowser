@@ -56,6 +56,12 @@ targets:
       - App/Assets.xcassets
       - path: E2E
         excludes: [Fixtures]
+      # The brand's variable fonts (Nunito Sans, Fredoka), copied as one folder into Resources/Fonts and registered
+      # at launch by ATSApplicationFontsPath below. Their license texts ship through scripts/bundle-licenses.sh.
+      - path: App/Fonts
+        excludes: ["*.txt"]
+        type: folder
+        buildPhase: resources
       # Fixture pages for `make e2e`, copied as one folder into the app's Resources.
       - path: E2E/Fixtures
         type: folder
@@ -69,6 +75,9 @@ targets:
       properties:
         CFBundleDisplayName: Bow
         NSSupportsAutomaticGraphicsSwitching: true
+        # Registers the fonts in Resources/Fonts for this app at launch (Apple's Information Property List Key
+        # Reference: ATSApplicationFontsPath, a path relative to Resources). Needs no code and works in a sandbox.
+        ATSApplicationFontsPath: Fonts
         # macOS asks these the first time a site Bow has allowed uses the camera, microphone or location.
         NSCameraUsageDescription: Websites you allow can use your camera, for example for video calls.
         NSMicrophoneUsageDescription: Websites you allow can use your microphone, for example for calls.

@@ -3,6 +3,7 @@
 #   CEF-LICENSE.txt       CEF's BSD license (Vendor/cef/LICENSE.txt)
 #   Chromium-Credits.html Chromium's third party credits (Vendor/cef/CREDITS.html)
 #   Bow-LICENSE.txt       Bow's own license (LICENSE)
+#   OFL-NunitoSans.txt, OFL-Fredoka.txt  the bundled fonts' SIL Open Font Licenses (App/Fonts)
 # Fails clearly when a source is missing. App/UI/Licenses.swift and scripts/check-release.sh name the same files.
 set -eu
 
@@ -21,3 +22,5 @@ copy() {
 copy "$root/Vendor/cef/LICENSE.txt" CEF-LICENSE.txt
 copy "$root/Vendor/cef/CREDITS.html" Chromium-Credits.html
 copy "$root/LICENSE" Bow-LICENSE.txt
+copy "$root/App/Fonts/OFL-NunitoSans.txt" OFL-NunitoSans.txt
+copy "$root/App/Fonts/OFL-Fredoka.txt" OFL-Fredoka.txt

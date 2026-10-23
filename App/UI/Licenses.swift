@@ -9,6 +9,8 @@ final class Licenses: NSObject {
         ("Bow-LICENSE.txt", "Bow license"),
         ("CEF-LICENSE.txt", "Chromium Embedded Framework license"),
         ("Chromium-Credits.html", "Chromium credits"),
+        ("OFL-NunitoSans.txt", "Nunito Sans license (SIL Open Font License)"),
+        ("OFL-Fredoka.txt", "Fredoka license (SIL Open Font License)"),
     ]
 
     static func url(of name: String) -> URL? {
