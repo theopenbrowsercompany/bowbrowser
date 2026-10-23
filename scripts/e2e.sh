@@ -4,26 +4,31 @@
 #
 #   scripts/e2e.sh <path to Bow.app> [selection]
 #
-# selection: all (default), one test name (tabs.switch), or an area, glob, comma list or tag (tabs, 'tabs.*',
-#   smoke). Names go to the app as --e2e=<name>; anything else as --e2e=all --only=<selection>, which needs runner
-#   support (the run ends with exit 64 when the app ignores it).
+# selection (or E2E): all (default), one test name (tabs.switch), or an area, glob, comma list or tag (tabs,
+#   'tabs.*', smoke). Names go to the app as --e2e=<name>; anything else as --e2e=all --only=<selection>, which
+#   needs runner support: the runner prints a per-test line, TEST PASS <name> or TEST FAIL <name>: <reason>, after
+#   each test, and a finished run without them ends with exit 64.
+# BOW_E2E_ROOT  where run folders go (default build/e2e).
 # E2E_RETRY  1 (default) reruns a failed or timed out run once in a fresh app; 0 turns the retry off.
 # E2E_KEEP   run folders to keep in build/e2e (default 20); older ones are deleted.
 #
 # Each run writes build/e2e/<time>-<pid>/: the app's report.txt, chromium.log and final.png, plus results.json
-# from this script. A retry runs in <run>/retry/.
+# from this script. A retry runs in <run>/retry/: just the failed tests when per-test lines name them, else the
+# whole selection.
 #
 # The last line printed is always the summary:
 #   E2E: PASS n/n               exit 0
 #   E2E: FAIL passed/n          exit 1  a check failed (and failed again on the retry)
 #   E2E: TIMEOUT <step>         exit 2  a step timed out (and again on the retry)
 #   E2E: FLAKY n/n retried ...  exit 3  failed or timed out, then passed on the retry: not a pass, report it
-#   E2E: CRASH exit=<code> ...  exit 4  the app ended without a summary line (a crash, Chromium's own watchdog)
+#   E2E: CRASH exit=<code> ...  exit 4  the app ended without a summary line (a crash, Chromium's own watchdog),
+#                                       on the first run or on the retry
 #   E2E: ERROR ...              exit 64 the app could not start the run (an unknown test, no build)
 set -u
 
 app=${1:-}
-selection=${2:-all}
+# The selection comes as the second argument or in E2E (make exports it, so no shell quoting gets in the way).
+selection=${2:-${E2E:-all}}
 retry=${E2E_RETRY:-1}
 keep=${E2E_KEEP:-20}
 
@@ -40,7 +45,10 @@ if [ -z "$app" ] || [ ! -x "$binary" ]; then
   exit 64
 fi
 case $keep in '' | *[!0-9]*) keep=20 ;; esac
+bundle=$(basename "$app")
 
+# The real path: the runner hands Chromium the run folder's real path, and the sweep matches it.
+mkdir -p "$root" && root=$(cd "$root" && pwd -P)
 run_name="$(date +%Y%m%d-%H%M%S)-$$"
 run="$root/$run_name"
 mkdir -p "$run"
@@ -60,24 +68,26 @@ prune() {
 prune
 
 # Every helper Chromium starts carries the run folder in its arguments (its user data and cache paths), so a
-# process whose command line names the folder belongs to this run. Ends them: TERM, then KILL after 2 seconds.
+# process of the app bundle whose command line names the folder belongs to this run (a `tail -f` of its log does
+# not). Ends them: TERM, then KILL after 2 seconds.
 orphans_killed=0
 sweep() {
-  local pids pid i
+  local pids pid i n=0
   # The folder followed by "/" (helpers) or by a space or the end of the line (the app's own --e2e-out=<folder>,
   # in case the app outlived its build lock), so a run never matches a sibling whose name starts with its own.
-  pids=$(ps -axo pid=,command= | D="$1" awk -v me=$$ '
+  pids=$(ps -axo pid=,command= | D="$1" B="$bundle/Contents/" awk -v me=$$ '
     { line = $0 " " }
-    (index(line, ENVIRON["D"] "/") || index(line, "=" ENVIRON["D"] " ")) && $1 != me { print $1 }')
+    index(line, ENVIRON["B"]) && (index(line, ENVIRON["D"] "/") || index(line, "=" ENVIRON["D"] " ")) && $1 != me { print $1 }')
   [ -n "$pids" ] || return 0
-  for pid in $pids; do kill -TERM "$pid" 2>/dev/null && orphans_killed=$((orphans_killed + 1)); done
+  for pid in $pids; do kill -TERM "$pid" 2>/dev/null && n=$((n + 1)); done
+  orphans_killed=$((orphans_killed + n))
   for i in 1 2 3 4 5 6 7 8 9 10; do
     pids=$(for pid in $pids; do kill -0 "$pid" 2>/dev/null && echo "$pid"; done)
     [ -n "$pids" ] || break
     sleep 0.2
   done
   for pid in $pids; do kill -KILL "$pid" 2>/dev/null; done
-  say "ended $orphans_killed helper processes the app left running"
+  say "ended $n helper processes the app left running"
 }
 
 current=""
@@ -124,21 +134,29 @@ attempt() {
       echo "$summary" >> "$dir/report.txt"
       ;;
   esac
-  # --only needs runner support: a run that ignored it ran everything and printed no per-test lines.
-  if [ "$status" != error ] && [ "$status" != crash ] && [ "$only" = yes ] && ! grep -q '^TEST ' "$dir/report.txt"; then
+  # --only needs runner support: a run that ignored it ran everything to the end and printed no per-test lines.
+  # (A timeout can come before the first per-test line, so only a finished run tells.)
+  if { [ "$status" = pass ] || [ "$status" = fail ]; } && [ "$only" = yes ] && ! grep -q '^TEST ' "$dir/report.txt"; then
     status=error summary="E2E: ERROR this build's runner does not support --only=$selection yet; use all or one test name"
   fi
 }
 
-# Tests that failed in folder $1: from per-test lines (TEST FAIL <name>: ...) when the runner prints them, else the
-# names of failed checks. Prints "name<TAB>reason" lines.
+# What failed in folder $1, as "name<TAB>reason" lines: the tests of per-test lines (TEST FAIL <name>: ...) when
+# the runner prints them, the failed checks otherwise or when no test failed (chromium.errors), and the test a
+# timeout stopped in.
 failures() {
-  if grep -q '^TEST ' "$1/report.txt" 2>/dev/null; then
-    awk '/^TEST FAIL / { name = $3; sub(/:$/, "", name); reason = $0; sub(/^TEST FAIL [^ ]*:? ?/, "", reason); print name "\t" reason }' "$1/report.txt"
-  else
-    awk '/^FAIL / { name = $2; sub(/:$/, "", name); reason = $0; sub(/^FAIL [^ ]*:? ?/, "", reason); print name "\t" reason }
-      /^E2E: TIMEOUT / { step = $0; sub(/^E2E: TIMEOUT /, "", step); name = step; sub(/:.*/, "", name); print name "\tTIMEOUT " step }' "$1/report.txt" 2>/dev/null
-  fi
+  awk '
+    /^TEST FAIL / { n = $3; sub(/:$/, "", n); r = $0; sub(/^TEST FAIL [^ ]*:? ?/, "", r); tests = tests n "\t" r "\n" }
+    /^FAIL / { n = $2; sub(/:$/, "", n); r = $0; sub(/^FAIL [^ ]*:? ?/, "", r); checks = checks n "\t" r "\n" }
+    /^E2E: TIMEOUT / { s = $0; sub(/^E2E: TIMEOUT /, "", s); n = s; sub(/:.*/, "", n); timeout = n "\tTIMEOUT " s "\n" }
+    END { printf "%s%s", (tests != "" ? tests : checks), timeout }
+  ' "$1/report.txt" 2>/dev/null
+}
+
+# Whether a retry of folder $1 can rerun just its failed tests: some per-test line failed and no timeout cut the run
+# short (the tests after a stuck one never ran). Checks that belong to no test (chromium.errors) run in every app.
+retry_failed_tests_only() {
+  grep -q '^TEST FAIL ' "$1/report.txt" && ! grep -q '^E2E: TIMEOUT ' "$1/report.txt"
 }
 
 # Selection: names the runner already takes as --e2e=<name>; anything else through --only.
@@ -157,15 +175,15 @@ attempt "$run" "${args[@]}"
 first_status=$status first_summary=$summary
 attempts=("$run|$status|$app_code|$signal|$seconds|$summary")
 flaky=""
+log_dir=$run
 
 if [ "$retry" = 1 ] && { [ "$status" = fail ] || [ "$status" = timeout ]; }; then
   failed=$(failures "$run")
+  names=$(echo "$failed" | cut -f1 | grep -v '^$' | paste -sd, -)
   retry_args=("${args[@]}")
-  # With per-test lines, rerun only the tests that failed (a timeout reruns the whole selection, since the tests
-  # after the stuck one never ran).
-  if [ "$status" = fail ] && grep -q '^TEST ' "$run/report.txt"; then
+  if retry_failed_tests_only "$run"; then
     only=yes
-    retry_args=("--e2e=all" "--only=$(echo "$failed" | cut -f1 | paste -sd, -)")
+    retry_args=("--e2e=all" "--only=$(grep '^TEST FAIL ' "$run/report.txt" | awk '{ n = $3; sub(/:$/, "", n); print n }' | paste -sd, -)")
   fi
   say "$first_summary; retrying once in a fresh app"
   attempt "$run/retry" "${retry_args[@]}"
@@ -176,9 +194,13 @@ if [ "$retry" = 1 ] && { [ "$status" = fail ] || [ "$status" = timeout ]; }; the
       [ -n "$name" ] && echo "FLAKY $name: failed then passed ($reason)"
     done | tee -a "$run/report.txt"
     status=flaky
-    summary="E2E: FLAKY ${summary#E2E: PASS } after retrying $(echo "$failed" | cut -f1 | paste -sd, -)"
-  else
+    summary="E2E: FLAKY ${summary#E2E: PASS } after retrying ${names:-the run}"
+  elif [ "$status" = fail ] || [ "$status" = timeout ]; then
+    # Failed again: report the first attempt, whose run covered the whole selection.
     status=$first_status summary=$first_summary
+  else
+    # The retry crashed or could not start: report that, with its log.
+    log_dir="$run/retry"
   fi
 fi
 load_end=$(load)
@@ -223,9 +245,9 @@ attempt_json() {
   printf ']}\n'
 } > "$run/results.json"
 
-if [ "$code" -ne 0 ] && [ "$status" != fail ] && [ -f "$run/chromium.log" ]; then
-  say "the end of $run/chromium.log:"
-  tail -n 40 "$run/chromium.log"
+if { [ "$status" = timeout ] || [ "$status" = crash ] || [ "$status" = error ]; } && [ -f "$log_dir/chromium.log" ]; then
+  say "the end of $log_dir/chromium.log:"
+  tail -n 40 "$log_dir/chromium.log"
 fi
 say "$run (build/e2e/latest), results in results.json"
 echo "$summary"

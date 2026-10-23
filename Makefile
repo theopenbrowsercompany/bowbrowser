@@ -7,6 +7,8 @@ SMOKE_URL ?= https://example.com
 SWIFT_SOURCES := App/UI E2E BowCore
 # The e2e tests `make e2e` runs: all, one name such as app.quit, or an area, glob or tag (see scripts/e2e.sh).
 E2E ?= all
+# Passed to scripts/e2e.sh in the environment, so no shell quoting gets in its way.
+export E2E
 
 .PHONY: bootstrap hooks project build test test-lock test-e2e-wrapper run smoke e2e e2e-run format lint guards release verify clean
 
@@ -46,11 +48,11 @@ smoke: build
 # Runs the app off screen with a throwaway profile; each run writes to its own build/e2e/<time>-<pid> folder.
 # scripts/e2e.sh documents the selection, the retry, results.json and the exit codes.
 e2e: build
-	@./scripts/e2e.sh $(APP) '$(E2E)'
+	@BOW_E2E_ROOT=$(BUILD_DIR)/e2e ./scripts/e2e.sh $(APP)
 
 # The same without building: reruns the last build.
 e2e-run:
-	@./scripts/e2e.sh $(APP) '$(E2E)'
+	@BOW_E2E_ROOT=$(BUILD_DIR)/e2e ./scripts/e2e.sh $(APP)
 
 format:
 	swift format --in-place --recursive $(SWIFT_SOURCES)
