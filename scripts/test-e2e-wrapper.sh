@@ -1,7 +1,8 @@
 #!/bin/bash
 # Tests scripts/e2e.sh with a fake Bow.app (a shell script) in a throwaway folder: the summary line, exit codes,
 # results.json, the retry and FLAKY, crash classification, the helper sweep, --only and build/e2e/latest, repeats
-# (E2E_REPEAT), short output (E2E_QUIET, CLAUDECODE) and the flake count (scripts/e2e-flakes.sh).
+# (E2E_REPEAT), short output (E2E_QUIET, CLAUDECODE), the flake count (scripts/e2e-flakes.sh), the quarantine list
+# and shards (E2E_SHARDS: planning, merging and every outcome against a single run's).
 # Takes a few seconds and launches no real app.
 set -u
 cd "$(dirname "$0")/.."
@@ -30,11 +31,72 @@ done
 if [ "$sel" = list ]; then
   [ "${FAKE_NOLIST:-0}" = 1 ] && exit 64
   [ "$FAKE_MODE" = listhang ] && { echo "listing"; exec sleep 60; }
-  for t in a.one a.two a.three; do echo "TEST $t area=a tags=- checks=$t"; done
+  echo "TEST a.one area=a tags=- checks=a.one"
+  echo "TEST a.two area=a tags=smoke,slow checks=a.two"
+  echo "TEST a.three area=a tags=- checks=a.three"
   exit 0
 fi
+# FAKE_MODE shard: runs the tests its selection names (all or a.* is every test) like the real runner, a.three last
+# as the quit test, with one e2e.isolation and chromium.errors check per app. On the first attempt only:
+# FAKE_FAIL fails a test, FAKE_TIMEOUT (a comma list) gets the main thread stuck in a test, FAKE_CRASH crashes in
+# one, FAKE_USAGE makes the app refuse a selection holding it, FAKE_CHROMIUM fails chromium.errors in the app that
+# runs it, FAKE_HANG=1 starts a helper and never ends, and FAKE_BARRIER=N waits until N apps run at once (writing
+# yes or no to together).
+shardrun() {
+  local tests=() ordered=() t i b first=1 n=0 p=0 quit=0 bad=0 secs
+  local r="$out/report.txt"
+  case $sel in all | 'a.*') tests=(a.one a.two a.three) ;; *) IFS=, read -ra tests <<< "$sel" ;; esac
+  case $out in */retry) first=0 ;; esac
+  for t in "${tests[@]}"; do [ "$t" = a.three ] || ordered+=("$t"); done
+  for t in "${tests[@]}"; do [ "$t" != a.three ] || ordered+=("$t"); done
+  line() { echo "$1" | tee -a "$r"; }
+  if [ "$first" = 1 ]; then
+    for t in "${ordered[@]}"; do [ "$t" != "${FAKE_USAGE:-}" ] || { echo "bow: --e2e=$sel is not a test" >&2; exit 64; }; done
+    if [ -n "${FAKE_BARRIER:-}" ]; then
+      b="$(dirname "$out")/barrier"
+      mkdir -p "$b" && : > "$b/$$"
+      for i in $(seq 100); do [ "$(ls "$b" | wc -l)" -ge "$FAKE_BARRIER" ] && break; sleep 0.05; done
+      if [ "$(ls "$b" | wc -l)" -ge "$FAKE_BARRIER" ]; then echo yes > "$out/together"; else echo no > "$out/together"; fi
+    fi
+    if [ "${FAKE_HANG:-0}" = 1 ]; then
+      "$(dirname "$0")/../Frameworks/Helper" "$out/helper" > /dev/null 2>&1 < /dev/null &
+      line "PASS ${ordered[0]}: ok"; echo yes > "$out/hanging"
+      while :; do sleep 0.1; done
+    fi
+  fi
+  for i in "${!ordered[@]}"; do
+    t=${ordered[i]}
+    if [ "$first" = 1 ] && [[ ,${FAKE_TIMEOUT:-}, == *",$t,"* ]]; then
+      line "E2E: TIMEOUT $t: open window (main thread stuck)"
+      for t in "${ordered[@]:i+1}"; do line "NOT RUN $t"; done
+      exit 2
+    fi
+    [ "$first" = 0 ] || [ "$t" != "${FAKE_CRASH:-}" ] || kill -SEGV $$
+    case $t in a.one) secs=0.5 ;; a.two) secs=0.2 ;; *) secs=0.3 ;; esac
+    if [ "$t" = a.three ]; then
+      line "RESULT a.three pass seconds=$secs checks=0/0 quit=pending"; quit=1
+    elif [ "$first" = 1 ] && [ "$t" = "${FAKE_FAIL:-}" ]; then
+      line "FAIL $t: broken"; line "RESULT $t fail seconds=$secs checks=0/1"; n=$((n + 1)) bad=1
+    else
+      line "PASS $t: ok"; line "RESULT $t pass seconds=$secs checks=1/1"; n=$((n + 1)) p=$((p + 1))
+    fi
+    [ "$first" = 0 ] || [ "$t" != "${FAKE_CHROMIUM:-}" ] || bad=2
+  done
+  line "PASS e2e.isolation: closed-tests=${#ordered[@]} left-over=0"; n=$((n + 1)) p=$((p + 1))
+  [ "$quit" = 0 ] || { line "PASS a.three: closed=0.1 limit 5"; n=$((n + 1)) p=$((p + 1)); }
+  n=$((n + 1))
+  if [ "$bad" = 2 ]; then
+    echo "[1023/101010.000001:ERROR:fake.cc(12)] something broke" >&2
+    line "FAIL chromium.errors: 1 unexpected"
+  else
+    line "PASS chromium.errors: unexpected=0"; p=$((p + 1))
+  fi
+  if [ "$p" = "$n" ]; then line "E2E: PASS $p/$n"; exit 0; fi
+  line "E2E: FAIL $p/$n"; exit 1
+}
 # Records the selection each attempt got.
 [ -z "$out" ] || echo "e2e=$sel" > "$out/args"
+[ "$FAKE_MODE" != shard ] || shardrun
 r="$out/report.txt"
 # The repeat modes count runs in the run root (a file, which pruning leaves alone) and print to stdout and stderr
 # like the real runner: result lines on stdout, and a plain line and Chromium's ERROR lines echoed on stderr.
@@ -595,6 +657,160 @@ run flakyresult
 check "quarantine: a missing list quarantines nothing" is "$code" 3
 check "quarantine: the checked in list is well formed" is "$(E2E_QUARANTINE="" FAKE_MODE=pass ./scripts/e2e.sh "$app" 2>&1 | tail -n 1)" "E2E: PASS 1/1"
 
+# E2E_SHARDS: the selection split across N apps at once, planned longest first from earlier runs' test times, and
+# merged into one result that means what a single run's does. Each group uses its own run root, so its history is
+# its own.
+latest() { echo "$BOW_E2E_ROOT/latest/$1"; }
+shard_args() { cat "$(latest "shard-$1/args")" 2>/dev/null; }
+shard_dirs() { find "$BOW_E2E_ROOT/latest/" -mindepth 1 -maxdepth 1 -name 'shard-*' | wc -l | tr -d ' '; }
+retry_args() { cat "$(latest retry/args)" 2>/dev/null; }
+rroot shard1
+run shard
+check "shards unset: the fake runner's single run" is "$last" "E2E: PASS 5/5"
+single_report=$(cat "$(latest report.txt)")
+E2E_SHARDS=1 run shard
+check "E2E_SHARDS=1: a single run" is "$last/$(shard_dirs)/$(cat "$(latest args)")" "E2E: PASS 5/5/0/e2e=all"
+check "E2E_SHARDS=1: the same report" is "$(cat "$(latest report.txt)")" "$single_report"
+check "E2E_SHARDS=1: no test list asked for" not test -e "$(latest tests.txt)"
+check "E2E_SHARDS=1: results.json has no shards" not has "$res" '"shards"'
+for n in 2 3; do
+  rroot "shards$n"
+  E2E_SHARDS=$n FAKE_BARRIER=$n run shard
+  check "E2E_SHARDS=$n: exit 0" is "$code" 0
+  check "E2E_SHARDS=$n: the same total as a single run" is "$last" "E2E: PASS 5/5"
+  check "E2E_SHARDS=$n: one folder per shard" is "$(shard_dirs)" "$n"
+  check "E2E_SHARDS=$n: the apps ran at once" is "$(cat "$BOW_E2E_ROOT"/latest/shard-*/together | sort -u)" yes
+  check "E2E_SHARDS=$n: every test ran once" is "$(grep '^RESULT ' "$(latest report.txt)" | awk '{ print $2 }' | sort | paste -sd, -)" "a.one,a.three,a.two"
+  check "E2E_SHARDS=$n: each run-wide check is one line" is "$(grep -c -e '^PASS chromium.errors: ' -e '^PASS e2e.isolation: ' "$(latest report.txt)")" 2
+  check "E2E_SHARDS=$n: the run-wide line names each shard's result" \
+    has "$(latest report.txt)" "^PASS chromium.errors: shard 1/$n: unexpected=0; shard 2/$n: unexpected=0"
+  check "E2E_SHARDS=$n: the quit test is in exactly one app" is "$(grep -l a.three "$BOW_E2E_ROOT"/latest/shard-*/args | wc -l | tr -d ' ')" 1
+  quit_shard=$(dirname "$(grep -l a.three "$BOW_E2E_ROOT"/latest/shard-*/args | head -n 1)")
+  check "E2E_SHARDS=$n: the quit test is its app's last" is "$(grep '^RESULT ' "$quit_shard/report.txt" | tail -n 1 | awk '{ print $2 }')" a.three
+  check "E2E_SHARDS=$n: results.json is valid JSON" valid_json "$res"
+  check "E2E_SHARDS=$n: results.json status and exit code" is "$(field "$res" status)/$(field "$res" exitCode)" pass/0
+  check "E2E_SHARDS=$n: results.json lists each shard" is "$(field "$res" shards.$((n - 1)).status)/$(field "$res" shards.$n.status)" pass/
+  check "E2E_SHARDS=$n: results.json has every test" is "$(field "$res" attempts.0.tests.2.status)" pass
+  check "E2E_SHARDS=$n: latest is the run, not a shard" is "$(field "$res" run)" "$(cd "$BOW_E2E_ROOT/latest" && pwd -P)"
+  check "E2E_SHARDS=$n: no output file left" is "$(find "$BOW_E2E_ROOT" -name '.shard-*' | wc -l | tr -d ' ')" 0
+done
+check "E2E_SHARDS=3: each shard is a run of its own" is "$(field "$(latest shard-2/results.json)" status)" pass
+check "a person sees each shard's output" says "e2e: shard 2/3 output:"
+# Planning: test order with no history, then the newest time of each test, longest first onto the least loaded.
+rroot plan
+E2E_SHARDS=2 run shard
+check "plan: no history deals the tests out in test order" is "$(shard_args 1) $(shard_args 2)" "e2e=a.one,a.three e2e=a.two"
+check "plan: says it had no history" says_some "split in test order"
+E2E_SHARDS=2 run shard
+check "plan: from the last run's times (0.5, 0.3, 0.2)" is "$(shard_args 1) $(shard_args 2)" "e2e=a.one e2e=a.two,a.three"
+check "plan: results.json keeps the planned seconds" is "$(field "$res" shards.1.plannedSeconds)" 0.500000
+mkdir -p "$BOW_E2E_ROOT/old"
+echo '{"attempts":[{"tests":[{"name":"z.gone","seconds":99},{"name":"a.two","seconds":9},{"name":"a.one","seconds":"x"}]}]}' \
+  > "$BOW_E2E_ROOT/old/results.json"
+E2E_SHARDS=2 run shard
+check "plan: the newest time of each test, ignoring tests that are gone and bad times" \
+  is "$(shard_args 1) $(shard_args 2)" "e2e=a.two e2e=a.one,a.three"
+rm -rf "$BOW_E2E_ROOT/old"
+E2E_SHARDS=5 run shard 'a.one,a.two'
+check "plan: fewer tests than shards: one shard per test" is "$(shard_dirs)/$last" "2/E2E: PASS 4/4"
+E2E_SHARDS=2 run shard 'smoke, a.th*'
+check "plan: a tag and a glob resolve as the app resolves them" is "$(shard_args 1) $(shard_args 2)" "e2e=a.three e2e=a.two"
+E2E_SHARDS=2 run shard a
+check "plan: an area resolves to its tests" is "$(shard_dirs)/$last" "2/E2E: PASS 5/5"
+E2E_SHARDS=3 run shard a.one
+check "plan: one test runs in one app" is "$(shard_dirs)/$last/$(cat "$(latest args)")" "0/E2E: PASS 3/3/e2e=a.one"
+E2E_SHARDS=2 run usage nope.test
+check "plan: an unknown selection is the app's to refuse, in one app" \
+  is "$code/$last" "64/E2E: ERROR the app could not start the run (exit 64): an unknown selection or switch"
+E2E_SHARDS=2 BOW_E2E_SLOTS=none run shard
+check "plan: no test list (the build lock refused) runs in one app, which says why" \
+  is "$code/$last" "64/E2E: ERROR the build lock refused to run the app (exit 64); see its message above"
+for bad in 0 x -1; do
+  E2E_SHARDS=$bad run shard
+  check "E2E_SHARDS=$bad: exit 64" is "$code/$last" "64/E2E: ERROR bad E2E_SHARDS"
+done
+check "list ignores E2E_SHARDS" is "$(E2E_SHARDS=x FAKE_MODE=shard ./scripts/e2e.sh "$app" list | wc -l | tr -d ' ')" 3
+eval "$(sed -n '/^check_plan() {/,/^}/p' scripts/e2e.sh)"
+us=$'\037'
+printf 'a.one\na.two\na.three\n' > "$tmp/names"
+plan() { printf '%s\n' "$@" | tr '|' "$us"; }
+check "check_plan: accepts a plan with every test once" check_plan "$tmp/names" 2 "$(plan '1|a.one|1' '2|a.two|1' '1|a.three|1' 'H|0')"
+check "check_plan: refuses a test in no shard" not check_plan "$tmp/names" 2 "$(plan '1|a.one|1' '2|a.two|1')"
+check "check_plan: refuses a test in two shards" not check_plan "$tmp/names" 2 "$(plan '1|a.one|1' '2|a.two|1' '1|a.three|1' '2|a.three|1')"
+check "check_plan: refuses a test not selected" not check_plan "$tmp/names" 2 "$(plan '1|a.one|1' '2|a.two|1' '1|a.three|1' '2|z.gone|1')"
+check "check_plan: refuses an empty shard" not check_plan "$tmp/names" 3 "$(plan '1|a.one|1' '2|a.two|1' '1|a.three|1')"
+
+# The outcomes: the same summary lines and exit codes as a single run.
+rroot shardfail
+for n in 1 2; do
+  E2E_SHARDS=$n E2E_RETRY=0 FAKE_FAIL=a.two run shard
+  check "a failed test, E2E_SHARDS=$n: exit 1, one total" is "$code/$last" "1/E2E: FAIL 4/5"
+  FAKE_FAIL=a.two E2E_SHARDS=$n run shard
+  check "a flaky test, E2E_SHARDS=$n: FLAKY over the whole selection" is "$code/$last" "3/E2E: FLAKY 5/5 after retrying a.two"
+  check "a flaky test, E2E_SHARDS=$n: one retry of just the test" is "$(retry_args)" "e2e=a.two"
+  check "a flaky test, E2E_SHARDS=$n: the FLAKY line" has "$(latest report.txt)" "^FLAKY a.two: failed then passed (fail seconds=0.2 checks=0/1)"
+  check "a flaky test, E2E_SHARDS=$n: results.json" is "$(field "$res" flaky.0)/$(field "$res" attempts.1.status)" a.two/pass
+  E2E_RETRY=0 FAKE_CHROMIUM=a.two E2E_SHARDS=$n run shard
+  check "a failed chromium.errors, E2E_SHARDS=$n: one check" is "$code/$last" "1/E2E: FAIL 4/5"
+  FAKE_CHROMIUM=a.two E2E_SHARDS=$n run shard
+  check "a failed chromium.errors, E2E_SHARDS=$n: FLAKY over the whole selection" is "$last" "E2E: FLAKY 5/5 after retrying chromium.errors"
+  if [ "$n" = 1 ]; then
+    check "a failed chromium.errors in a single run: the whole selection retried" is "$(retry_args)" "e2e=all"
+  else
+    check "a failed chromium.errors in a shard: every test of that app retried" \
+      is "$(retry_args)" "$(cat "$(grep -l a.two "$BOW_E2E_ROOT"/latest/shard-*/args)")"
+  fi
+done
+check "a failed chromium.errors in one shard: the line fails and names each shard" \
+  has "$(latest report.txt)" "^FAIL chromium.errors: shard 1/2: unexpected=0; shard 2/2: 1 unexpected"
+# No history from here on, so the shards are a.one,a.three and a.two.
+rroot shardtimeout
+E2E_RETRY=0 FAKE_TIMEOUT=a.one E2E_SHARDS=2 run shard
+check "a timeout in one shard: exit 2 with its TIMEOUT line" is "$code/$last" "2/E2E: TIMEOUT a.one: open window (main thread stuck)"
+check "a timeout in one shard: its NOT RUN line" has "$(latest report.txt)" "^NOT RUN a.three"
+check "a timeout in one shard: the other shard's results" has "$(latest report.txt)" "^RESULT a.two pass"
+check "a timeout in one shard: results.json status" is "$(field "$res" status)" timeout
+FAKE_TIMEOUT=a.one E2E_SHARDS=2 run shard
+check "a timeout in one shard: the retry reruns its stuck and not run tests" is "$(retry_args)" "e2e=a.one,a.three"
+check "a timeout in one shard: FLAKY says only the retried tests passed" \
+  is "$code/$last" "3/E2E: FLAKY retried tests passed 4/4 after retrying a.one,a.three (the first attempt printed no total)"
+FAKE_TIMEOUT=a.one,a.two E2E_SHARDS=2 run shard
+check "a timeout in two shards: the retry reruns both stuck tests" is "$(retry_args)" "e2e=a.one,a.three,a.two"
+E2E_RETRY=0 FAKE_CRASH=a.two E2E_SHARDS=2 run shard
+check "a crash in one shard: exit 4, naming the shard" is "$code/$last" "4/E2E: CRASH exit=139 signal=11 without a summary line in shard 2/2"
+check "a crash in one shard: the other shard's results stay" has "$(latest report.txt)" "^RESULT a.one pass"
+FAKE_CRASH=a.two E2E_SHARDS=2 run shard
+check "a crash in one shard: no retry" is "$code/$(find "$BOW_E2E_ROOT/latest/" -maxdepth 1 -name retry | wc -l | tr -d ' ')" 4/0
+FAKE_USAGE=a.two E2E_SHARDS=2 run shard
+check "a shard that cannot start: exit 64, naming it" \
+  is "$code/$last" "64/E2E: ERROR shard 2/2: the app could not start the run (exit 64): an unknown selection or switch"
+E2E_QUIET=1 FAKE_USAGE=a.two E2E_SHARDS=2 run shard
+check "a shard that cannot start, short output: says why" says_some "^bow: --e2e=[a-z.,]*a\.two[a-z.,]* is not a test$"
+list "a.two 2999-01-01 slow"
+FAKE_FAIL=a.two E2E_SHARDS=2 run shard
+check "a quarantined test flaky in a shard: a pass with the note" is "$code/$last" "0/E2E: PASS 5/5; quarantined flaky tests passed on the retry: a.two"
+rm -f "$quarantine"
+
+# Short output and repeats.
+rroot shardquiet
+E2E_QUIET=1 E2E_SHARDS=2 run shard
+check "shards, short output on a pass: two lines" is "$(printf '%s\n' "$out" | wc -l | tr -d ' ')" 2
+check "shards, short output on a pass: the summary" is "$last" "E2E: PASS 5/5"
+E2E_QUIET=1 E2E_RETRY=0 FAKE_CHROMIUM=a.two E2E_SHARDS=2 run shard
+check "shards, short output on a failure: the FAIL line" says_some "^FAIL chromium.errors: shard 1/2"
+check "shards, short output on a failure: the echoed ERROR line once" is "$(printf '%s\n' "$out" | grep -c 'ERROR:fake.cc')" 1
+check "shards, short output on a failure: nothing else" is "$(printf '%s\n' "$out" | wc -l | tr -d ' ')" 4
+check "shards, short output leaves no file of its own" is "$(find "$BOW_E2E_ROOT" -name '.shard-*' -o -name .output | wc -l | tr -d ' ')" 0
+rroot shardrepeat
+E2E_REPEAT=2 E2E_SHARDS=2 run shard
+check "shards with repeats: every repeat passes" is "$code/$last" "0/E2E: PASS 2/2 repeats"
+check "shards with repeats: each test's passes" says "REPEAT a.three 2/2"
+check "shards with repeats: one run per repeat" is "$(runs_in)" 2
+check "shards: the flake count counts a sharded run once" \
+  is "$(./scripts/e2e-flakes.sh "$BOW_E2E_ROOT" | awk '$1 == "a.two" { print $2, $3 }')" "2 2"
+# The checks after these use the quarantine group's run root.
+rroot qmain
+
 # interrupt <signal> [mode] [tenths]: runs the wrapper on an app that never ends (FAKE_MODE hang), sends the signal
 # once the app runs, and sets stopped (yes when the wrapper ended within tenths of a second, default 100), code, last,
 # res and iroot.
@@ -640,6 +856,19 @@ for quiet in 0 1; do
   check "TERM during a repeat (quiet=$quiet): the app and its helper are ended" is "$(ps -axo command= | grep -F -- "$iroot/" | grep -vc grep)" 0
   check "TERM during a repeat (quiet=$quiet): the build lock slot is given back" is "$(ls "$BOW_LOCK_DIR/e2e/slots" | wc -l | tr -d ' ')" 0
   check "TERM during a repeat (quiet=$quiet): no file of its own left" is "$(find "$iroot" -name '.repeat.*' -o -name .output | wc -l | tr -d ' ')" 0
+  rm -rf "$iroot"
+done
+# A signal while shards run stops every shard, its app and its helper, in both output modes.
+for quiet in 0 1; do
+  E2E_QUIET=$quiet E2E_SHARDS=2 FAKE_HANG=1 interrupt TERM shard 150 latest/shard-2/hanging
+  check "TERM during shards (quiet=$quiet): the wrapper stops at once" is "$stopped" yes
+  check "TERM during shards (quiet=$quiet): exit 130 and the summary" is "$code/$last" "130/E2E: ERROR interrupted"
+  check "TERM during shards (quiet=$quiet): results.json says interrupted" is "$(field "$res" status)" interrupted
+  check "TERM during shards (quiet=$quiet): each shard's results.json says interrupted" \
+    is "$(field "$iroot/latest/shard-1/results.json" status)/$(field "$iroot/latest/shard-2/results.json" status)" interrupted/interrupted
+  check "TERM during shards (quiet=$quiet): every app and helper is ended" is "$(ps -axo command= | grep -F -- "$iroot/" | grep -vc grep)" 0
+  check "TERM during shards (quiet=$quiet): every build lock slot is given back" is "$(ls "$BOW_LOCK_DIR/e2e/slots" | wc -l | tr -d ' ')" 0
+  check "TERM during shards (quiet=$quiet): no file of its own left" is "$(find "$iroot" -name '.shard-*' -o -name .output | wc -l | tr -d ' ')" 0
   rm -rf "$iroot"
 done
 # An app that ignores TERM is swept after 5 seconds, so the build lock still ends and gives back its slot.
@@ -722,6 +951,8 @@ FAKE_MODE=pass nomake make -s e2e-run APP="$app" BUILD_DIR="$tmp/mk" E2E="it's, 
 check "make e2e-run hands the selection to the wrapper whole" is "$(cat "$tmp/mk/e2e/latest/args" 2>/dev/null)" "e2e=it's, a"
 check "make e2e-run passes E2E_REPEAT on" \
   is "$(FAKE_MODE=loudpass nomake make -s e2e-run APP="$app" BUILD_DIR="$tmp/mkr" E2E_REPEAT=2 2>&1 | tail -n 1)" "E2E: PASS 2/2 repeats"
+FAKE_MODE=shard nomake make -s e2e-run APP="$app" BUILD_DIR="$tmp/mks" E2E_SHARDS=2 > /dev/null 2>&1
+check "make e2e-run passes E2E_SHARDS on" is "$(find "$tmp/mks/e2e/latest/" -mindepth 1 -maxdepth 1 -name 'shard-*' | wc -l | tr -d ' ')" 2
 
 # package-cef.sh on a fake CEF build and helper: an unchanged build skips the work, and a change to the
 # framework's Libraries or Resources does not.
