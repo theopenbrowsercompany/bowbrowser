@@ -154,6 +154,28 @@ extension E2ETestApp: E2ERoutingApp {
         editor.downButton.performClick(nil)
     }
 
+    func typeInEditorCell(row: Int, column: Int, text: String) throws {
+        try adapter.requireActive(token, "type in the rule editor")
+        guard let editor = adapter.airTrafficControl.editor, let window = editor.window else {
+            throw E2EError("the rule editor is not open")
+        }
+        guard let field = editor.cellView(row: row, column: column) as? NSTextField, field.isEnabled else {
+            throw E2EError("rule \(row + 1) has no editable text in column \(column)")
+        }
+        guard window.makeFirstResponder(field), let fieldEditor = field.currentEditor() else {
+            throw E2EError("the cell did not start editing")
+        }
+        fieldEditor.selectAll(nil)
+        fieldEditor.insertText(text)
+    }
+
+    func focusEditorDestination(row: Int) throws {
+        try adapter.requireActive(token, "focus the destination")
+        guard let editor = adapter.airTrafficControl.editor, let window = editor.window,
+            let popUp = editor.cellView(row: row, column: 3), window.makeFirstResponder(popUp)
+        else { throw E2EError("the destination pop-up did not take focus") }
+    }
+
     func closeRoutingEditor() throws {
         try adapter.requireActive(token, "close the rule editor")
         guard let editor = adapter.airTrafficControl.editor, let window = editor.window else {

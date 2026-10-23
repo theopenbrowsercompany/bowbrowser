@@ -9,7 +9,7 @@ import Foundation
 enum RoutingAreaTests {
     static let all: [any E2ETest] = [
         E2ERoutingRulesTest(), E2ERoutingHelperTest(), E2ERoutingFirstRequestTest(), E2ERoutingEditorTest(),
-        E2ERoutingPersistTest(),
+        E2ERoutingEditorEditTest(), E2ERoutingPersistTest(),
     ]
 
     static let slack = "com.tinyspeck.slackmacgap"
@@ -245,6 +245,43 @@ struct E2ERoutingEditorTest: E2ETest {
         run.check(
             name, passed: problems.isEmpty,
             problems.isEmpty ? "rules=2 source=slack reorder=saved" : problems.joined(separator: ", "))
+    }
+}
+
+/// Typing in the rule table saves when the edit ends, with no Return: text typed in a rule's Text cell is saved once
+/// focus moves to the destination pop-up, and text typed in another rule's app cell is saved when the window closes.
+/// The cells are driven through the real field editor.
+struct E2ERoutingEditorEditTest: E2ETest {
+    let name = "routing.editor_edit"
+
+    func run(_ run: E2ERun) async throws {
+        let app = try RoutingAreaTests.app(run)
+        let (seed, _, personal) = try RoutingAreaTests.seed(app)
+        let window = try await RoutingAreaTests.openWindow(run, app, seed: seed)
+        guard let workSpace = window.spaceIDs["Work"] else { throw E2EError("the seed has no Work") }
+        try app.setRoutingTable(RoutingAreaTests.exampleTable(workSpace: workSpace, personalProfile: personal))
+        try await run.step("open the editor", timeout: E2ETimeouts.step) {
+            try app.openRoutingEditor(from: window.page)
+            guard try app.routingEditor() != nil else { throw E2EError("the editor did not open") }
+        }
+        try app.typeInEditorCell(row: 0, column: 1, text: "gitlab.com")
+        try app.focusEditorDestination(row: 0)
+        let afterFocus = try app.routingTable().rules
+        try app.typeInEditorCell(row: 1, column: 2, text: "com.example.typed")
+        try app.closeRoutingEditor()
+        let afterClose = try app.routingTable().rules
+
+        var problems: [String] = []
+        if afterFocus.first?.urlPattern?.text != "gitlab.com" {
+            problems.append("after focus text=\(afterFocus.first?.urlPattern?.text ?? "none")")
+        }
+        if afterClose.first?.urlPattern?.text != "gitlab.com" { problems.append("text lost on close") }
+        if afterClose.last?.sourceApp != "com.example.typed" {
+            problems.append("after close app=\(afterClose.last?.sourceApp ?? "none")")
+        }
+        run.check(
+            name, passed: problems.isEmpty,
+            problems.isEmpty ? "text saved on focus change, app saved on close" : problems.joined(separator: ", "))
     }
 }
 
