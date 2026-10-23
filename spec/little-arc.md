@@ -51,6 +51,7 @@ The person reads the page and closes the window, or moves the page into a Space 
 - Little Arc also closes when its page closes itself and when Bow quits.
   A dialog or permission prompt up at that moment is answered as cancelled or dismissed and goes with it.
 - Closing the last browser window while Little Arc is open does not quit Bow: Little Arc counts as a window, as in Arc.
+  Closing that Little Arc later, with no browser window or other window open, quits Bow then, the same way closing the last browser window does (waiting first for downloads of closed tabs to end).
 
 ## Edge cases
 
@@ -67,7 +68,7 @@ The person reads the page and closes the window, or moves the page into a Space 
 2. In Little Arc, press Ctrl+2 with a second Space of the same profile: the browser window shows that Space with example.com selected, Little Arc is gone, and the page did not reload.
 3. Open another link, type in a page field that asks before leaving, close Little Arc and choose Stay: Little Arc stays with the text; close it again and choose Leave: it closes.
 4. Turn the setting off (`defaults write` the key to false), open a link: it opens as a new tab in the browser window.
-5. Run `make e2e E2E='little-arc*'`: it prints `PASS little-arc: window=mini main_unchanged=true promote=work`, `PASS little-arc.close: stay=kept leave=closed main_unchanged=true`, `PASS little-arc.off: little_arc_windows=0 opened_in_window=true tabs=1->2`, `PASS little-arc.no_window: little_arc=opened open_in_bow=window`, `PASS little-arc.dialog: dialog=sheet answered=1`, `PASS little-arc.permission: prompt=shown allow=granted`, `PASS little-arc.menu: reload=panel main_reloaded=false address=focused find=disabled`, `PASS little-arc.last_window: app=stay little_arc=kept` and `PASS little-arc.adopt_fail: space=Home little_arc=kept main_unchanged=true`.
+5. Run `make e2e E2E='little-arc*'`: it prints `PASS little-arc: window=mini main_unchanged=true promote=work`, `PASS little-arc.close: stay=kept leave=closed main_unchanged=true`, `PASS little-arc.off: little_arc_windows=0 opened_in_window=true tabs=1->2`, `PASS little-arc.no_window: little_arc=opened open_in_bow=window`, `PASS little-arc.dialog: dialog=sheet answered=1`, `PASS little-arc.permission: prompt=shown allow=granted`, `PASS little-arc.menu: reload=panel main_reloaded=false address=focused find=disabled`, `PASS little-arc.last_window: app=stay little_arc=kept`, `PASS little-arc.last_window_then_close: while_open=none on_close=quit rule=quit` and `PASS little-arc.adopt_fail: space=Home little_arc=kept main_unchanged=true`.
 
 ## Out of scope
 

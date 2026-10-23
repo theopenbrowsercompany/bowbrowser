@@ -133,6 +133,22 @@ import Testing
         #expect(!LittleArc.keepsAppRunning(openLittleArcWindows: 0))
     }
 
+    @Test func closingLittleArcAfterTheLastBrowserWindowEndsTheLastWindow() {
+        // The last browser window closes while Little Arc is open: the app stays.
+        #expect(LittleArc.keepsAppRunning(openLittleArcWindows: 1))
+        // Then Little Arc closes with nothing else open: the last window rule runs again, and now says go.
+        #expect(LittleArc.closeEndsLastWindow(openLittleArcWindows: 0, hasOtherWindow: false))
+        #expect(!LittleArc.keepsAppRunning(openLittleArcWindows: 0))
+    }
+
+    @Test func closingLittleArcWithAnotherWindowOpenLeavesTheAppAsItIs() {
+        // Another Little Arc window still open.
+        #expect(!LittleArc.closeEndsLastWindow(openLittleArcWindows: 1, hasOtherWindow: false))
+        // A browser window (or any other window) still open, on screen or in the Dock.
+        #expect(!LittleArc.closeEndsLastWindow(openLittleArcWindows: 0, hasOtherWindow: true))
+        #expect(!LittleArc.closeEndsLastWindow(openLittleArcWindows: 2, hasOtherWindow: true))
+    }
+
     // MARK: Where the window goes
 
     @Test func theWindowIsCompactAndCenteredOnALargeScreen() {

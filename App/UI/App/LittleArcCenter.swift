@@ -29,6 +29,7 @@ final class LittleArcCenter: AppFeature {
     /// `permissions` answers the page's permission requests (nil dismisses them). `browserWindow` names the window a
     /// move goes to, at the moment of the move, and `openWindow` opens one for Open in Bow when none is open. With
     /// `takesFocus` the window comes forward and takes the keyboard; without (e2e) it is ordered in off screen.
+    /// `closed` runs once the window has gone, closed or moved, after it has left `panels`.
     @discardableResult
     func open(
         _ url: URL,
@@ -36,14 +37,16 @@ final class LittleArcCenter: AppFeature {
         permissions: PermissionPrompts.ProfilePermissions?,
         takesFocus: Bool,
         browserWindow: @escaping () -> BrowserWindowController?,
-        openWindow: @escaping (SidebarProfileID) -> BrowserWindowController?
+        openWindow: @escaping (SidebarProfileID) -> BrowserWindowController?,
+        closed: @escaping () -> Void
     ) -> LittleArcPanel {
         let tab = profile.createTab(url: url)
         let panel = LittleArcPanel(
             tab: tab, url: url, frame: Self.frame(), takesFocus: takesFocus, permissions: permissions,
             browserWindow: browserWindow, openWindow: openWindow
-        ) { [weak self] closed in
-            self?.panels.removeAll { $0 === closed }
+        ) { [weak self] panel in
+            self?.panels.removeAll { $0 === panel }
+            closed()
         }
         panels.append(panel)
         panel.show()

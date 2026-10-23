@@ -22,6 +22,7 @@ extension E2EAppAdapter {
         delegate.appFeatures.require(LittleArcCenter.self).closeAll()
         AppSettings.defaults.set(false, forKey: LittleArcCenter.opensExternalLinksKey)
         delegate.e2eOpenWindow = nil
+        delegate.e2eLittleArcClosedDecision = nil
     }
 
     /// Lets Open in Bow open its window with no browser window open, as the app does, but in an off-screen window
@@ -281,6 +282,12 @@ extension E2ETestApp: E2ELittleArcApp {
     func lastWindowClosedDecision() throws -> String {
         try adapter.requireActive(token, "read what closing the last window does")
         return "\(adapter.delegate.lastWindowClosed())"
+    }
+
+    func takeLittleArcClosedDecision() throws -> String {
+        try adapter.requireActive(token, "read what closing the last Little Arc window did")
+        defer { adapter.delegate.e2eLittleArcClosedDecision = nil }
+        return adapter.delegate.e2eLittleArcClosedDecision.map { "\($0)" } ?? "none"
     }
 
     func failNextLittleArcAdopt(in window: E2ELittleArcWindow) throws {

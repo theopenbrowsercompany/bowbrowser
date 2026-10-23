@@ -214,7 +214,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     store: appFeatures.require(SitePermissionStores.self).store(for: profile), profile: profile),
                 takesFocus: !options.isE2E,
                 browserWindow: { [weak self] in self?.linkWindow() },
-                openWindow: { [weak self] profileID in self?.openWindowForLittleArc(profileID: profileID) })
+                openWindow: { [weak self] profileID in self?.openWindowForLittleArc(profileID: profileID) },
+                closed: { [weak self] in self?.littleArcClosed() })
         case .browserWindow:
             openLink(link.url, from: link.source)
         }
@@ -420,6 +421,40 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    #if BOW_E2E
+        /// What the app decided the last time a Little Arc window closed as its last window, nil until then.
+        var e2eLittleArcClosedDecision: LastWindowClosed?  // E2E seam
+    #endif
+
+    /// A Little Arc window has gone (closed or moved) and left the list of open ones. When it was the app's last
+    /// window, the last window rule runs now, since AppKit does not count Little Arc as a window and never asks again:
+    /// the app quits, or waits for the downloads of closed tabs and then quits.
+    private func littleArcClosed() {
+        let openLittleArc = appFeatures.require(LittleArcCenter.self).panels.count
+        guard LittleArc.closeEndsLastWindow(openLittleArcWindows: openLittleArc, hasOtherWindow: hasOpenWindow)
+        else { return }
+        let decision = lastWindowClosed()
+        #if BOW_E2E
+            e2eLittleArcClosedDecision = decision  // E2E seam
+        #endif
+        // An e2e run quits when its tests are done, as with its browser windows.
+        if options.isE2E { return }
+        switch decision {
+        case .stay: break
+        case .quit: NSApp.terminate(nil)
+        case .waitForDownloads: quitWhenClosedTabsReleased()
+        }
+    }
+
+    /// True while a browser window is open (shown, in the Dock or hidden with the app) or any other window is on
+    /// screen or in the Dock. A browser window that is closing does not count, even while it is still on screen.
+    private var hasOpenWindow: Bool {
+        windowControllers.contains { !$0.isClosing }
+            || NSApp.windows.contains {
+                ($0.isVisible || $0.isMiniaturized) && !($0.windowController is BrowserWindowController)
+            }
+    }
+
     /// What the app does when its last browser window has closed.
     enum LastWindowClosed {
         /// It keeps running: a Little Arc window is open, and counts as a window (as in Arc).
@@ -448,12 +483,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         Task { [engine] in
             await engine.closedTabsForDownloadsReleased()
             waitsToQuitAfterDownloads = false
-            // A browser window opened meanwhile (shown, in the Dock or hidden with the app) or any other window on
-            // screen or in the Dock keeps the app open, as it would have kept it from quitting in the first place.
-            let hasWindow =
-                windowControllers.contains { !$0.isClosing }
-                || NSApp.windows.contains { $0.isVisible || $0.isMiniaturized }
-            if !hasWindow { NSApp.terminate(nil) }
+            // A browser window opened meanwhile or any other window keeps the app open, as it would have kept it from
+            // quitting in the first place. A Little Arc window that keeps it open runs the rule again when it closes.
+            if !hasOpenWindow { NSApp.terminate(nil) }
         }
     }
 

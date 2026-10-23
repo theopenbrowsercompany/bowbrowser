@@ -112,6 +112,14 @@ public enum LittleArc {
         openLittleArcWindows > 0
     }
 
+    /// Whether a Little Arc window that has just closed was the app's last window, so the last window rule (quit, or
+    /// wait for the downloads of closed tabs) runs now: no other Little Arc window is open (`openLittleArcWindows`
+    /// counts those left) and no browser or other window is open, on screen or in the Dock (`hasOtherWindow`).
+    /// AppKit never asks again on its own, because it does not count Little Arc's panels as windows.
+    public static func closeEndsLastWindow(openLittleArcWindows: Int, hasOtherWindow: Bool) -> Bool {
+        openLittleArcWindows == 0 && !hasOtherWindow
+    }
+
     /// The Space Ctrl and `number` moves the page into, or nil when that number names no Space or a Space that cannot
     /// take the page.
     public static func target(shortcutNumber number: Int, in targets: [MoveTarget]) -> MoveTarget? {
