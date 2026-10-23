@@ -730,13 +730,24 @@ final class SidebarView: NSView, NSOutlineViewDataSource, NSOutlineViewDelegate,
         _ outlineView: NSOutlineView, draggingSession session: NSDraggingSession, willBeginAt screenPoint: NSPoint,
         forItems draggedItems: [Any]
     ) {
-        isDragging = true
+        itemDragBegan()
     }
 
     func outlineView(
         _ outlineView: NSOutlineView, draggingSession session: NSDraggingSession, endedAt screenPoint: NSPoint,
         operation: NSDragOperation
     ) {
+        itemDragEnded()
+    }
+
+    /// A drag of a sidebar item began, from the outline or from a view inside the sidebar with drags of its own (the
+    /// Favorites grid), so folders the drag opens on hover are not saved open.
+    func itemDragBegan() {
+        isDragging = true
+    }
+
+    /// The drag `itemDragBegan()` announced ended, dropped or not.
+    func itemDragEnded() {
         isDragging = false
         // Closes again any folder the drag opened on hover and the drop did not save open.
         isSyncing = true

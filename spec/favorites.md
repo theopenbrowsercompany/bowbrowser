@@ -8,7 +8,7 @@ They belong to a profile, so every Space that uses that profile shows the same F
 ## Behavior
 
 - The Favorites area sits above the pinned tabs and shows each Favorite of the profile the Space on screen uses as a tile in a grid, four to a row, filled left to right and top to bottom.
-- A tile shows its site's icon; when there is none, it shows the first letter of the Favorite's name on a colored square.
+- A tile shows its site's icon when the window has one for it (the icon the tab showed when it was dragged onto the grid); otherwise it shows the first letter of the Favorite's name on a colored square.
   Hovering a tile shows the Favorite's name.
 - The grid is exactly as tall as its rows of tiles, and grows or shrinks a row at a time as Favorites come and go.
   With no Favorites it shrinks to a thin strip that still takes a dropped tab.
@@ -41,4 +41,5 @@ They belong to a profile, so every Space that uses that profile shows the same F
 
 - Loading a Favorite in place as its own tab shared by every Space, peeking at links that leave a Favorite's site, and a keyboard shortcut or command to favorite a tab.
 - Moving a tab to Favorites from its context menu ("Move To").
+- Keeping site icons for Favorites across relaunches and windows; until then a Favorite shows its letter tile after a relaunch.
 - The sidebar's zones and drags between pinned and today, covered in `sidebar.md`; how Favorites are saved, in `sidebar-store.md`.
