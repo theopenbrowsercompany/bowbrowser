@@ -8,6 +8,13 @@
 # BOW_BUILD_SLOTS   builds that may run at once (default 6)
 # BOW_E2E_SLOTS     e2e runs that may run at once (default 6)
 # BOW_LOCK_DIR      lock state folder (default ~/Library/Caches/bowbrowser/build-lock); one subfolder per pool
+# BOW_TIMINGS_DIR   where timings.tsv goes (default ~/Library/Caches/bowbrowser/timings, or <BOW_LOCK_DIR>/timings
+#                   when BOW_LOCK_DIR is set, so tests with a throwaway lock folder keep out of the real file)
+#
+# Timings: every command that got a slot appends one tab separated line to <timings dir>/timings.tsv when it ends
+# (also when it fails or is stopped by INT, TERM or HUP): pool, branch, seconds waited for the slot, seconds run,
+# exit code, and the local date and time it ended. A header line starts a new file. Lines are short single writes
+# in append mode, so builds in several worktrees can append at once.
 #
 # Priority: the lead may keep a plain text file, <lock dir>/priority, shared by both pools. It lists git branch
 # names, highest priority first, one per line; blank lines and lines starting with # are ignored. A waiting
@@ -40,6 +47,8 @@ slots=${!slots_var:-$default_slots}
 root=${BOW_LOCK_DIR:-$HOME/Library/Caches/bowbrowser/build-lock}
 dir=$root/$pool
 priority_file=$root/priority
+timings_dir=${BOW_TIMINGS_DIR:-${BOW_LOCK_DIR:+$BOW_LOCK_DIR/timings}}
+timings_dir=${timings_dir:-$HOME/Library/Caches/bowbrowser/timings}
 
 case $slots in '' | *[!0-9]* | 0 | 0[0-9]*)
   echo "build-lock: $slots_var must be a positive number, got '$slots'" >&2
@@ -146,12 +155,26 @@ try_claim() {
   return 1
 }
 
+waited=""
+run_start=""
+# Append this command's line to the timings file, once; a failed write never fails the build.
+record_timing() {
+  local file=$timings_dir/timings.tsv
+  [ -n "$run_start" ] || return 0
+  mkdir -p "$timings_dir" 2>/dev/null || return 0
+  [ -s "$file" ] || printf 'pool\tbranch\twait_s\trun_s\texit\tdate\n' >> "$file" 2>/dev/null
+  printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$pool" "${branch:--}" "$waited" "$((SECONDS - run_start))" "$1" \
+    "$(date +%Y-%m-%dT%H:%M:%S%z)" >> "$file" 2>/dev/null
+  run_start=""
+}
+
 on_signal() {
   trap '' INT TERM HUP
   if alive "$child"; then
     kill -TERM "$child" 2>/dev/null
     wait "$child" 2>/dev/null
   fi
+  record_timing "$1"
   release
   exit "$1"
 }
@@ -193,11 +216,15 @@ while :; do
 done
 rm -f "$ticket"
 ticket=""
-[ -z "$told" ] || echo "build-lock: got a $pool slot after $((SECONDS - start))s" >&2
+waited=$((SECONDS - start))
+[ -z "$told" ] || echo "build-lock: got a $pool slot after ${waited}s" >&2
 
 # Keep the command's stdin (a background job would get /dev/null).
+run_start=$SECONDS
 "$@" <&0 &
 child=$!
 echo "$$ $child" > "$slot/pids.new" && mv "$slot/pids.new" "$slot/pids"
 wait "$child"
-exit $?
+status=$?
+record_timing "$status"
+exit "$status"
