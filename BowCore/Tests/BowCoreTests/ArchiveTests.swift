@@ -36,6 +36,9 @@ import Testing
         let settings = try JSONDecoder().decode(AutoArchiveSettings.self, from: Data(json.utf8))
         #expect(settings.threshold(for: "work") == .twelveHours)
         #expect(settings.threshold(for: "home") == .thirtyDays)
+        // The unknown value is kept when the settings are saved again, for the build that wrote it.
+        let saved = try String(decoding: JSONEncoder().encode(settings), as: UTF8.self)
+        #expect(saved.contains("2h"))
     }
 
     // MARK: Policy
@@ -399,6 +402,51 @@ import Testing
         #expect(decoded.entries == [entry])
         #expect(throws: ArchiveFileFormat.ReadError.noMigration(from: 1)) {
             try ArchiveFileFormat.decode(data, currentVersion: 2, migrations: [])
+        }
+    }
+
+    @Test func aTabInsideASplitCannotBeArchivedAlone() throws {
+        let graph = try SidebarGraph.sample().applying([
+            .insert(.split(id: "split"), parent: "unpinned"),
+            .insert(.tab(id: "l", url: "https://l.example.com"), parent: "split"),
+        ])
+        #expect(throws: ArchiveError.self) { try ArchivedEntry.capture("l", from: graph, reason: .manual, at: start) }
+    }
+
+    @Test func aFileThatCannotBeReadIsNotSetAside() throws {
+        try withTemporaryFolder { folder in
+            let url = ArchiveStore.fileURL(inApplicationSupportFolder: folder)
+            try ArchiveFileFormat.encode([]).write(to: url)
+            try FileManager.default.setAttributes([.posixPermissions: 0o000], ofItemAtPath: url.path)
+            #expect(throws: ArchiveError.self) { try ArchiveStore(fileURL: url) }
+            try FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: url.path)
+            #expect(FileManager.default.fileExists(atPath: url.path))
+        }
+    }
+
+    @Test func aRepairedFileIsCopiedOnceAndDuplicatesAreNotDamage() throws {
+        try withTemporaryFolder { folder in
+            let url = ArchiveStore.fileURL(inApplicationSupportFolder: folder)
+            let graph = try SidebarGraph.sample().applying([
+                .insert(.tab(id: "t", url: "https://t.example.com"), parent: "unpinned")
+            ])
+            let good = try ArchivedEntry.capture("t", from: graph, reason: .auto, at: start)
+            try ArchiveFileFormat.encode([good, good]).write(to: url)
+            let duplicated = try ArchiveStore(fileURL: url)
+            #expect(duplicated.entries == [good] && duplicated.openReport.skippedRecordCount == 0)
+            #expect(duplicated.openReport.backupURL == nil)
+
+            var object = try #require(
+                JSONSerialization.jsonObject(with: ArchiveFileFormat.encode([good])) as? [String: Any])
+            object["items"] = (object["items"] as? [Any] ?? []) + [["junk": true]]
+            try JSONSerialization.data(withJSONObject: object).write(to: url)
+            _ = try ArchiveStore(fileURL: url)
+            let second = try ArchiveStore(fileURL: url)
+            #expect(second.openReport.skippedRecordCount == 0 && second.openReport.backupURL == nil)
+            let copies = try FileManager.default.contentsOfDirectory(atPath: folder.path).filter {
+                $0.contains("repaired")
+            }
+            #expect(copies.count == 1)
         }
     }
 

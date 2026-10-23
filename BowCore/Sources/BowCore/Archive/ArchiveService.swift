@@ -39,7 +39,16 @@ public struct ArchiveService {
         }
         guard !entries.isEmpty else { return [] }
         try archived.add(entries)
-        try sidebar.apply(entries.map { .delete($0.id) })
+        do {
+            try sidebar.apply(entries.map { .delete($0.id) })
+        } catch SidebarStoreError.saveFailed(let reason) {
+            // The sidebar change is committed in memory and only its file write failed: the items are archived.
+            throw SidebarStoreError.saveFailed(reason)
+        } catch {
+            // Nothing changed in the sidebar, so the items must not also be listed as archived.
+            try? archived.remove(entries.map(\.id))
+            throw error
+        }
         return entries
     }
 
@@ -64,6 +73,10 @@ public struct ArchiveService {
             try sidebar.apply(try entry.putBackMutations(into: sidebar.graph))
         } catch ArchiveError.alreadyInSidebar(let existing) where existing == id {
             // An earlier put back restored the item but stopped before forgetting the entry.
+        } catch SidebarStoreError.saveFailed(let reason) {
+            // The item is back in memory and only the sidebar file write failed: forget the entry, report the failure.
+            try archived.remove([id])
+            throw SidebarStoreError.saveFailed(reason)
         }
         try archived.remove([id])
         return id

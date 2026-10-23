@@ -16,7 +16,7 @@ This spec covers the archive store and the rules that decide what archives; the 
 - A tab expires once it has been unused for at least the profile's threshold.
   A tab that is selected, or that the app asks to keep (for example one playing audio), stays.
   A tab whose last use is unknown stays.
-- A split archives as a whole once every tab in it has expired, and never tab by tab.
+- A split archives as a whole once every tab in it has expired, and never tab by tab, not even by hand.
   A folder in Today stays, and its tabs are judged one by one.
 - Archived items live in their own file, `ArchivedItems.json`, next to the sidebar file and never inside it.
   The file is versioned.
@@ -35,6 +35,7 @@ This spec covers the archive store and the rules that decide what archives; the 
 - An archive file written by a newer version of Bow, or one that cannot be read, is moved aside untouched and the archive starts empty.
   A file with a few damaged entries keeps the readable ones and a copy of the original is kept beside it.
 - A failed write leaves the archive as it was.
+- If the sidebar cannot be changed after an archive was written, the archive entry is taken back out, so a tab is never listed in both places.
 
 ## Acceptance checks
 
