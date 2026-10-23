@@ -55,7 +55,7 @@ final class E2ERunner {
     private let watchdog: E2EWatchdog
     private let chromiumLog: E2EChromiumLog
     private var checks: [(name: String, passed: Bool)] = []
-    private var quitCheck: (name: String, closeLimit: TimeInterval, exitLimit: TimeInterval)?
+    private var quitCheck: (name: String, closeLimit: TimeInterval, stopLimit: TimeInterval)?
     /// The error of a quit test that failed after expecting quit, which fails the quit check.
     private var quitFailure: String?
     /// The test running now, which the heartbeat names if the main thread gets stuck.
@@ -286,21 +286,24 @@ final class E2ERunner {
         watchdog.disarm()
         if let quitCheck {
             // Two times: the app closing every page and ending its message loop, which a person waits for, and
-            // the whole quit with Chromium's own shutdown, which grows with machine load (see spec/quit.md).
+            // the quit up to the end of Chromium's own shutdown, which grows with machine load (spec/quit.md).
             let closed = BowQuitTiming.closeDuration()
-            let exited = BowEngine.quitDuration
+            let stopped = BowEngine.quitDuration
             let times =
-                "closed=\(Self.milliseconds(closed)) limit \(Self.format(quitCheck.closeLimit)), "
-                + "exited=\(Self.milliseconds(exited)) limit \(Self.format(quitCheck.exitLimit))"
+                "closed=\(Self.preciseSeconds(closed)) limit \(Self.format(quitCheck.closeLimit)), "
+                + "stopped=\(Self.preciseSeconds(stopped)) limit \(Self.format(quitCheck.stopLimit))"
             if let quitFailure {
-                record(quitCheck.name, passed: false, detail: quitFailure)
-            } else if exited <= 0 {
+                record(quitCheck.name, passed: false, detail: stopped > 0 ? "\(quitFailure) (\(times))" : quitFailure)
+            } else if stopped <= 0 {
                 record(quitCheck.name, passed: false, detail: "the quit clock never started, so quitting was not timed")
             } else if closed <= 0 {
-                record(quitCheck.name, passed: false, detail: "the message loop ended before the quit clock started")
+                record(
+                    quitCheck.name, passed: false,
+                    detail: "the closing time was not recorded: main did not call BowEngineMessageLoopDidEnd, "
+                        + "or the quit clock started after the message loop ended")
             } else if closed >= quitCheck.closeLimit {
                 record(quitCheck.name, passed: false, detail: "closing took too long: \(times)")
-            } else if exited >= quitCheck.exitLimit {
+            } else if stopped >= quitCheck.stopLimit {
                 record(quitCheck.name, passed: false, detail: "Chromium's shutdown took too long: \(times)")
             } else {
                 record(quitCheck.name, passed: true, detail: times)
@@ -363,9 +366,9 @@ final class E2ERunner {
     }
 
     fileprivate func expectQuit(
-        _ name: String, closingWithin closeLimit: TimeInterval, exitingWithin exitLimit: TimeInterval
+        _ name: String, closingWithin closeLimit: TimeInterval, stoppingWithin stopLimit: TimeInterval
     ) {
-        quitCheck = (name, closeLimit, exitLimit)
+        quitCheck = (name, closeLimit, stopLimit)
     }
 
     /// Fails the check `name` that the running test recorded (at or after index `start` of `checks`), printing a
@@ -440,7 +443,7 @@ final class E2ERunner {
     }
 
     /// Seconds with three decimals, so a close of a few milliseconds does not read as zero.
-    private static func milliseconds(_ seconds: TimeInterval) -> String {
+    private static func preciseSeconds(_ seconds: TimeInterval) -> String {
         String(format: "%.3f", seconds)
     }
 
@@ -543,17 +546,17 @@ final class E2ERun {
     }
 
     /// Checks, after the engine has shut down, that every page closed and the message loop ended in less than
-    /// `closeLimit` seconds, and that the whole quit, Chromium's shutdown included, took less than `exitLimit`.
+    /// `closeLimit` seconds, and that the quit up to the end of Chromium's shutdown took less than `stopLimit`.
     /// Only the test whose `quitsApp` is true may call it; it runs last and keeps its windows, so quitting is timed
     /// with them alone.
-    func expectQuit(_ name: String, closingWithin closeLimit: TimeInterval, exitingWithin exitLimit: TimeInterval) {
+    func expectQuit(_ name: String, closingWithin closeLimit: TimeInterval, stoppingWithin stopLimit: TimeInterval) {
         guard !finished else { return }
         guard test.quitsApp else {
             check(name, passed: false, "expectQuit needs quitsApp in \(test.name)")
             return
         }
         recorded.insert(name)
-        runner.expectQuit(name, closingWithin: closeLimit, exitingWithin: exitLimit)
+        runner.expectQuit(name, closingWithin: closeLimit, stoppingWithin: stopLimit)
     }
 
     /// Ends the test: checks from steps still running after a timeout are ignored from now on.
