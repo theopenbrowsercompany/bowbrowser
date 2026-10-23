@@ -307,8 +307,8 @@ final class E2EAppAdapter {
 /// ended.
 @MainActor
 private final class TestApp: E2EApp {
-    private unowned let adapter: E2EAppAdapter
-    private let token: Int
+    fileprivate unowned let adapter: E2EAppAdapter
+    fileprivate let token: Int
 
     init(adapter: E2EAppAdapter, token: Int) {
         self.adapter = adapter
@@ -358,6 +358,41 @@ private final class TestApp: E2EApp {
         // The runner quits once every test has ended; a test that has ended must not quit early.
         guard (try? adapter.requireActive(token, "quit")) != nil else { return }
         adapter.quit()
+    }
+}
+
+extension TestApp: E2ESidebarApp {
+    func sidebarRows(of page: any E2EPage) throws -> [E2ESidebarRow] {
+        try adapter.sidebarRows(of: page)
+    }
+
+    func sidebarRowHistory(of page: any E2EPage) -> [E2ESidebarRow] {
+        adapter.sidebarRowHistory(of: page)
+    }
+
+    func clickSidebarRow(of page: any E2EPage) throws {
+        try adapter.requireActive(token, "click a sidebar row")
+        try adapter.clickSidebarRow(of: page)
+    }
+
+    func clickSidebarClose(of page: any E2EPage) throws {
+        try adapter.requireActive(token, "click a sidebar close button")
+        try adapter.clickSidebarClose(of: page)
+    }
+
+    func clickNewTab(besides page: any E2EPage, opening url: URL) throws -> any E2EPage {
+        try adapter.requireActive(token, "click the New Tab button")
+        return try adapter.clickNewTab(besides: page, opening: url, token: token)
+    }
+
+    func chooseMenuItem(commandKey key: String, in page: any E2EPage) throws {
+        try adapter.requireActive(token, "choose the menu item for Command-\(key)")
+        try adapter.chooseMenuItem(commandKey: key, in: page)
+    }
+
+    func moveTab(_ page: any E2EPage, to index: Int) throws {
+        try adapter.requireActive(token, "move a tab")
+        try adapter.moveTab(page, to: index)
     }
 }
 
@@ -586,8 +621,9 @@ private struct MainThreadResult: @unchecked Sendable {
     let value: [String: Any]
 }
 
-// The sidebar and tab commands over the window controller and its TabSidebarView.
-extension E2EAppAdapter: E2ESidebarApp {
+// The sidebar and tab commands over the window controller and its TabSidebarView. The test's app (TestApp) offers
+// them to the test, after checking that the test is still running.
+extension E2EAppAdapter {
     func sidebarRows(of page: any E2EPage) throws -> [E2ESidebarRow] {
         let controller = try Self.tabPage(page).controller
         return controller.tabs.compactMap { Self.sidebarRow(of: $0, in: controller) }
@@ -636,7 +672,7 @@ extension E2EAppAdapter: E2ESidebarApp {
         try Self.click(view.closeButton)
     }
 
-    func clickNewTab(besides page: any E2EPage, opening url: URL) throws -> any E2EPage {
+    func clickNewTab(besides page: any E2EPage, opening url: URL, token: Int) throws -> any E2EPage {
         let controller = try Self.tabPage(page).controller
         let before = Set(controller.tabs.map(\.tabID))
         controller.newTabURL = url
@@ -644,7 +680,7 @@ extension E2EAppAdapter: E2ESidebarApp {
         guard let tab = controller.tabs.first(where: { !before.contains($0.tabID) }) else {
             throw E2EError("the New Tab button opened no tab")
         }
-        return track(tab, in: controller)
+        return track(tab, in: controller, token: token)
     }
 
     /// Sends `button`'s action to its target, as a click on it ends up doing. `performClick(_:)` is not used: it
