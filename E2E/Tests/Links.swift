@@ -18,6 +18,7 @@ enum LinksTests {
 /// an unsent one. A helper process of this app counts as this app.
 struct LinksIntakeTest: E2EEarlyLinksTest {
     let name = "links.intake"
+    let tags = ["smoke"]
 
     var earlyLinks: [E2ELink] {
         [

@@ -12,6 +12,7 @@ enum ProfilesTests {
 /// profile ID is refused.
 struct ProfilesIsolationTest: E2ETest {
     let name = "profiles.isolation"
+    let tags = ["smoke"]
     let checks = ["profiles.fixtures", "profiles.storage", "profiles.isolation", "profiles.taken"]
 
     func run(_ run: E2ERun) async throws {

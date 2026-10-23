@@ -41,6 +41,7 @@ enum PopupsTests {
 /// A plain click on a `target="_blank"` link opens B as a tab right after A, shown at once.
 struct PopupsNewTabTest: E2ETest {
     let name = "popups.newtab"
+    let tags = ["smoke"]
 
     func run(_ run: E2ERun) async throws {
         let (app, page) = try await PopupsTests.openOpener(run)

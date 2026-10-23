@@ -306,6 +306,7 @@ struct DownloadsWindowClosedTest: E2ETest {
 /// Clicks a download link twice and a link to a download that never finishes, then drives the downloads window.
 struct DownloadsTest: E2ETest {
     let name = "downloads"
+    let tags = ["smoke"]
     let checks = ["downloads", "downloads.collision", "downloads.controls", "downloads.list"]
 
     func run(_ run: E2ERun) async throws {

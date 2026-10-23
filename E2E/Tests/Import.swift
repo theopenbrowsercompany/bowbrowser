@@ -10,6 +10,7 @@ enum ImportTests {
 /// Serves a hand built sidebar file, runs the importer's dry run on its bytes and checks the report's counts.
 struct ImportParseTest: E2ETest {
     let name = "import.parse"
+    let tags = ["smoke"]
 
     func run(_ run: E2ERun) async throws {
         let page = try await run.step("open window", timeout: E2ETimeouts.step) {

@@ -145,7 +145,7 @@ The list comes from the saved sidebar (see `sidebar-store.md`): a window's tabs 
 19. Run `make e2e`: `PASS tabs.close_while_closing: window=closed loaded_next=0` shows a window closed right after one of its tabs closing without loading the saved tab that followed.
 20. Run `make e2e`: `PASS tabs.select_failed: active=unchanged page=none` shows selecting a tab that cannot load leaving the selection and the page area as they were.
 21. Run `make e2e`: `PASS tabs.orphan_closed: orphan=closed kept=running` shows deleting a Space closing the page loaded in it.
-22. Run `make e2e`: `PASS tabs.record_debounced: writes=1` shows five title changes written to the sidebar file once, no sooner than the save delay after the first change.
+22. Run `make e2e`: `PASS tabs.record_debounced: writes=1` shows five title changes written to the sidebar file once, no sooner than the save delay after the first change (e2e runs shorten the delay to 0.2 seconds; the app waits about a second).
 23. Run `make e2e`: `PASS tabs.orphan_asked_once: prompts=1` shows a page with a draft whose Space was deleted asked once, answered stay, and not asked again by later sidebar changes.
 24. Run `make e2e`: `PASS tabs.window_close_stay` shows a window close answered stay keeping the window open on the draft the person stayed on, and `PASS tabs.window_close_again` shows a second close answered leave closing it.
 25. Run `make e2e`: `PASS tabs.link_while_closing: link=other window` shows a link arriving while the last used window closes opening in the other window.

@@ -11,6 +11,7 @@ enum ActivityTests {
 /// Opens tabs A and B, selects A and then B, and checks B's last active time is later than A's.
 struct ActivityLastTest: E2ETest {
     let name = "activity"
+    let tags = ["smoke"]
     let checks = ["activity"]
 
     func run(_ run: E2ERun) async throws {

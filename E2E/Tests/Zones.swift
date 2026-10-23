@@ -13,6 +13,7 @@ enum ZonesTests {
 /// A's row and checks it goes above A. Every drag goes through the outline's drop routing, onto an outline row.
 struct ZonesTest: E2ETest {
     let name = "zones"
+    let tags = ["smoke"]
     let checks = ["zones", "zones.pin", "zones.unpin", "zones.divider", "zones.drop-divider", "zones.drop-tab"]
 
     func run(_ run: E2ERun) async throws {

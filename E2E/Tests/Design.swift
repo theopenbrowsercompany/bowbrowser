@@ -90,6 +90,7 @@ enum DesignTests {
 /// open, resizes the window, and switches to an empty Space.
 struct DesignLookTest: E2ETest {
     let name = "design.look"
+    let tags = ["smoke"]
     let checks = [
         "design.app_icon", "design.title_bar", "design.sidebar_top_row", "design.page_card", "design.page_shadow",
         "design.frame_color", "design.selected_row", "design.favorites", "design.folder_indent",

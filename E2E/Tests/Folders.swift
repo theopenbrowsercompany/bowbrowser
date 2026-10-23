@@ -62,6 +62,7 @@ enum FoldersTests {
 /// with each row's depth. Then renames "phase" by double clicking it and "client" from its menu.
 struct FoldersTreeTest: E2ETest {
     let name = "folders.tree"
+    let tags = ["smoke"]
     let checks = ["folders.tree", "folders.rename"]
 
     func run(_ run: E2ERun) async throws {

@@ -54,6 +54,7 @@ enum CommandBarTests {
 /// outside, in one window with tabs A and B.
 struct CommandBarTest: E2ETest {
     let name = "cmdbar"
+    let tags = ["smoke"]
     let checks = [
         "cmdbar", "cmdbar.escape", "cmdbar.new-tab", "cmdbar.current-tab", "cmdbar.blank", "cmdbar.arrows",
         "cmdbar.click-outside",

@@ -14,6 +14,7 @@ enum PermissionsTests {
 /// then asks in a new in-memory profile, which prompts again, blocks it and checks the page is refused.
 struct PermissionsPromptTest: E2ETest {
     let name = "permissions.prompt"
+    let tags = ["smoke"]
     let checks = ["permissions.prompt", "permissions.remembered", "permissions.block"]
 
     func run(_ run: E2ERun) async throws {
