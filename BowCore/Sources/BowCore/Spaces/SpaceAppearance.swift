@@ -75,10 +75,29 @@ public struct SpaceIcon: Hashable, Sendable, Codable {
     /// Whether one grapheme is drawn as an emoji. A bare digit, `#` or `©` has the emoji property but is text; it
     /// counts only as part of a keycap (`1️⃣`) or with the emoji variation selector (`©️`, `❤️`).
     private static func isEmoji(_ character: Character) -> Bool {
-        let scalars = character.unicodeScalars
+        let scalars = Array(character.unicodeScalars)
         guard let first = scalars.first else { return false }
-        if first.properties.isEmojiPresentation { return true }
-        return first.properties.isEmoji && scalars.contains { $0.value == 0xFE0F || $0.value == 0x20E3 }
+        let selector: UInt32 = 0xFE0F
+        let keycap: UInt32 = 0x20E3
+        // A keycap is a digit, `#` or `*`, an optional selector, then the keycap mark: nothing else.
+        if first.isASCII {
+            guard "0123456789#*".unicodeScalars.contains(first), scalars.last?.value == keycap else { return false }
+            return scalars.count == 2 || (scalars.count == 3 && scalars[1].value == selector)
+        }
+        // Flags are exactly two regional indicators; a lone one is half a flag.
+        let isIndicator = { (scalar: Unicode.Scalar) in (0x1F1E6...0x1F1FF).contains(scalar.value) }
+        if isIndicator(first) { return scalars.count == 2 && isIndicator(scalars[1]) }
+        // A lone skin tone modifier or a leading non emoji scalar is not a picture.
+        guard !first.properties.isEmojiModifier,
+            first.properties.isEmojiPresentation || scalars.contains(where: { $0.value == selector })
+        else { return false }
+        guard first.properties.isEmoji else { return false }
+        // Everything after the first scalar must be part of an emoji sequence: no combining marks or invisible text.
+        return scalars.dropFirst().allSatisfy {
+            $0.value == selector || $0.value == 0x200D || $0.properties.isEmojiModifier
+                || (!$0.isASCII && $0.properties.isEmoji)
+                || (0xE0020...0xE007F).contains($0.value)
+        }
     }
 }
 
