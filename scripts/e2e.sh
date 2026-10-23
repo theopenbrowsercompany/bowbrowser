@@ -70,8 +70,9 @@
 # not run again. A retry that cannot start (exit 64) leaves the first attempt's outcome in place.
 #
 # A crash report a Debug build's Crashpad kept (<folder>/profile/Crashpad, or already in <folder>/crash-reports) is
-# copied into <folder>/crash-reports/ and named by a `CRASH REPORT <path>` line before the summary, in short output
-# too, and in results.json's "crashReports". Nothing is uploaded, and a report never changes the outcome.
+# copied into <folder>/crash-reports/ (with their .meta files) and named by a `CRASH REPORT <path>` line printed
+# before the summary (report.txt gets it after the app's own lines), in short output too, and in results.json's
+# "crashReports" (an interrupted run has none). Nothing is uploaded, and a report never changes the outcome.
 #
 # The last line printed is always the summary:
 #   E2E: PASS n/n               exit 0
@@ -1016,7 +1017,7 @@ load_end=$(load)
 # run that planned it, which looks in every shard's folder.
 crash_reports=""
 collect_crash_reports() {
-  local dir sub src file
+  local dir sub src file meta
   [ -z "$shard_dir" ] || return 0
   for dir in "$run" "$run"/shard-* "$run/retry"; do
     [ -d "$dir" ] || continue
@@ -1025,6 +1026,9 @@ collect_crash_reports() {
         [ -f "$src" ] || continue
         mkdir -p "$dir/crash-reports" || continue
         [ -e "$dir/crash-reports/$(basename "$src")" ] || cp -p "$src" "$dir/crash-reports/" 2>/dev/null
+        # The .meta file beside a report holds its time, process type and annotations.
+        meta="${src%.dmp}.meta"
+        [ ! -f "$meta" ] || [ -e "$dir/crash-reports/$(basename "$meta")" ] || cp -p "$meta" "$dir/crash-reports/" 2>/dev/null
       done
     done
     for file in "$dir/crash-reports"/*.dmp; do
