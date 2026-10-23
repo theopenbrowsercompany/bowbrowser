@@ -1,5 +1,6 @@
 // What the unload tests (E2E/Tests/Unload.swift) need from the engine beyond what the app does: a tab's sound
-// starting and stopping, which CEF 156 does not report. Main thread only.
+// starting and stopping at the moment the test chooses, through the tab method the page's sound signal calls.
+// Main thread only.
 #pragma once
 
 #import <Foundation/Foundation.h>
