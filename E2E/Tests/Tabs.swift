@@ -6,6 +6,7 @@ import Foundation
 enum TabsTests {
     static let all: [any E2ETest] = [
         TabsSwitchTest(), TabsBackgroundHiddenTest(), TabsBeforeUnloadTest(), TabsCloseWindowTest(), TabsModelTest(),
+        TabsUnloadTest(),
     ]
 
     /// The longest one visibility wait may take, so a show step keeps time for its frames and the other tab's wait
@@ -302,5 +303,70 @@ struct TabsSwitchTest: E2ETest {
         guard status == 200 else { throw E2EError("tab \(name) loaded with status \(status)") }
         let title = try await page.string("document.title")
         guard title == "Tab \(name)" else { throw E2EError("tab \(name) has the title \"\(title)\"") }
+    }
+}
+
+/// Unloads a background tab through the engine, as the unload policy will: the window lets go of its page but keeps
+/// its row and title, and choosing the row loads the page again at its address. Then a page whose beforeunload
+/// handler would ask to stay is asked to unload: it stays loaded and shows no prompt.
+struct TabsUnloadTest: E2ETest {
+    let name = "tabs.unload-reload"
+    let checks = ["tabs.unload-reload", "tabs.unload-stay"]
+
+    func run(_ run: E2ERun) async throws {
+        guard let app = run.app as? any E2ETabsApp else { throw E2EError("the app cannot unload tabs") }
+        let url = E2EFixture.url("tabs/counter.html?name=b")
+        let first = try await run.step("open window", timeout: E2ETimeouts.firstLoad) {
+            let page = try await run.app.openWindow(at: E2EFixture.url("tabs/counter.html?name=a"))
+            _ = try await page.waitForLoad(after: 0)
+            return page
+        }
+        let background = try await run.step("open background tab", timeout: E2ETimeouts.firstLoad) {
+            let page = try run.app.openTab(at: url, besides: first, select: false)
+            let status = try await page.waitForLoad(after: 0)
+            guard status == 200 else { throw E2EError("the background tab loaded with status \(status)") }
+            return page
+        }
+        let unloaded = try await run.step("unload background tab", timeout: E2ETimeouts.step) {
+            try await app.unloadTab(background)
+        }
+        let row = unloaded.rowTitle == "Tab b" ? "kept" : "\(unloaded.rowTitle.map { "\"\($0)\"" } ?? "gone")"
+        let again = try await run.step("choose unloaded tab", timeout: E2ETimeouts.firstLoad) {
+            () -> (loaded: String, url: String) in
+            guard let page = try unloaded.choose() else { return ("no", "none") }
+            if page === background { return ("same-page", "none") }
+            let status = try await page.waitForLoad(after: 0)
+            guard status == 200, page.isShown else { return ("status-\(status)", "none") }
+            let href = try await page.string("location.href")
+            return ("again", href == url.absoluteString ? "same" : href)
+        }
+        let released = unloaded.windowHoldsPage ? " window=holds-page" : ""
+        let passed =
+            unloaded.unloaded && unloaded.event == "unloaded" && !unloaded.windowHoldsPage && row == "kept"
+            && again.loaded == "again" && again.url == "same"
+        run.check(
+            name, passed: passed,
+            unloaded.unloaded && unloaded.event == "unloaded"
+                ? "row=\(row) loaded=\(again.loaded) url=\(again.url)\(released)"
+                : "unloaded=\(unloaded.unloaded) event=\(unloaded.event)")
+
+        try await run.step("unload a page that asks to stay", timeout: E2ETimeouts.firstLoad) {
+            let draft = try run.app.openTab(at: E2EFixture.url("tabs/leave.html"), besides: first, select: true)
+            _ = try await draft.waitForLoad(after: 0)
+            try await draft.typeLeaveDraft()
+            let loadID = try await draft.string("window.bowLoadID")
+            try run.app.select(first)
+            let result = try await app.unloadTab(draft)
+            let prompts = draft.leavePrompts
+            let modal = (run.app as? any E2EKeptTabsApp)?.shownWindows.modal ?? false
+            let same = draft.isClosed ? false : try await draft.string("window.bowLoadID") == loadID
+            let passed =
+                !result.unloaded && result.event == "none" && result.windowHoldsPage && same && prompts == 0
+                && !modal
+            run.check(
+                "tabs.unload-stay", passed: passed,
+                "unloaded=\(result.unloaded) page=\(same ? "kept" : "gone") prompts=\(prompts)"
+                    + " sheet=\(modal ? "shown" : "none")")
+        }
     }
 }
