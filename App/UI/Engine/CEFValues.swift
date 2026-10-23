@@ -70,6 +70,8 @@ extension BowPopupRequest.Decision {
             switch decision {
             case .foregroundTab: .foregroundTab
             case .backgroundTab: .backgroundTab
+            // The engine creates a panel's page as it does a tab's, and the app shows it in the panel.
+            case .popupPanel: .foregroundTab
             case .window: .window
             case .block: .block
             }

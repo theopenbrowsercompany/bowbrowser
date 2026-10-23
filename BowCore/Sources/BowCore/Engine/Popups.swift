@@ -8,6 +8,10 @@ public enum PopupDecision: Equatable, Sendable {
     case foregroundTab
     /// A new tab left in the background, handed over the same way.
     case backgroundTab
+    /// A small window attached to the opener's window (a sign in popup), not a sidebar tab. The engine creates the
+    /// page as it does for `.foregroundTab` and hands it over the same way, so it keeps `window.opener`; the app
+    /// shows it in the panel (`PopupPanelLayout` sizes it).
+    case popupPanel
     /// A separate window the engine opens itself. Today's behavior and the default.
     case window
     /// Nothing opens.

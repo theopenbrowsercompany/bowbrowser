@@ -43,6 +43,25 @@ public struct PopupOutcome: Equatable, Sendable {
     }
 }
 
+/// An identity provider's sign in pages: every page on `host` (compared without case), or only those whose path
+/// starts with `pathPrefix` at a path segment boundary.
+public struct IdentityProviderPattern: Equatable, Sendable {
+    public var host: String
+    public var pathPrefix: String?
+
+    public init(host: String, pathPrefix: String? = nil) {
+        self.host = host.lowercased()
+        self.pathPrefix = pathPrefix
+    }
+
+    /// `host` must already be lowercased.
+    func matches(host: String, path: String) -> Bool {
+        guard host == self.host else { return false }
+        guard let pathPrefix else { return true }
+        return path == pathPrefix || path.hasPrefix(pathPrefix + "/")
+    }
+}
+
 /// The rules, as named values so each is easy to change.
 public enum PopupPolicy {
     /// A plain `target="_blank"` link, or a `window.open` after a click: shown at once, as Chromium and Arc do.
@@ -55,8 +74,33 @@ public enum PopupPolicy {
     public static let shiftDecision = PopupDecision.foregroundTab
     /// A request with no user gesture.
     public static let noGestureDecision = PopupDecision.block
-    /// A sized `window.open` stays a window, so `window.opener` keeps working.
-    public static let sizedPopupDecision = PopupDecision.window
+    /// A sized `window.open` from a click (a sign in popup) opens in a panel attached to the opener's window, as Arc
+    /// shows login popups in a small window of their own instead of a tab; it keeps `window.opener`.
+    public static let sizedPopupDecision = PopupDecision.popupPanel
+    /// A plain click (no modifier) that opens an identity provider's sign in page opens it in the panel too, sized or
+    /// not: Arc keeps a list of identity provider pages that stay in a popup. A modified click still opens a tab.
+    public static let identityProviderDecision = PopupDecision.popupPanel
+    /// The identity providers' sign in pages: a host and, when set, the path the sign in pages start with.
+    public static let identityProviders: [IdentityProviderPattern] = [
+        IdentityProviderPattern(host: "accounts.google.com"),
+        IdentityProviderPattern(host: "login.microsoftonline.com"),
+        IdentityProviderPattern(host: "appleid.apple.com"),
+        IdentityProviderPattern(host: "github.com", pathPrefix: "/login/oauth"),
+    ]
+
+    /// True when `url` is an identity provider's sign in page (`identityProviders`), over https only.
+    public static func isIdentityProvider(_ url: URL?) -> Bool {
+        guard let url, url.scheme?.lowercased() == "https", let host = url.host?.lowercased() else { return false }
+        return identityProviders.contains { $0.matches(host: host, path: url.path) }
+    }
+
+    /// True when `request` opens in a popup panel: a sized `window.open` from a click, or a plain click opening an
+    /// identity provider's sign in page. Never without a click.
+    public static func opensPanel(_ request: PopupRequest) -> Bool {
+        guard request.isUserGesture else { return false }
+        if isSized(request) { return true }
+        return request.clickModifiers == .none && isIdentityProvider(request.targetURL)
+    }
     /// Where a tab opened from Today goes.
     public static let todayPlacement = PopupPlacement.afterOpener
     /// Where a tab opened from a pinned tab or a Favorite goes.
@@ -68,6 +112,7 @@ public enum PopupPolicy {
         let modifiers = request.clickModifiers
         guard request.isUserGesture else { return PopupOutcome(decision: noGestureDecision) }
         if isSized(request) { return PopupOutcome(decision: sizedPopupDecision) }
+        if opensPanel(request) { return PopupOutcome(decision: identityProviderDecision) }
 
         let decision: PopupDecision
         switch (modifiers.command, modifiers.shift) {
