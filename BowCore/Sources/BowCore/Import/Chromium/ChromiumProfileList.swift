@@ -34,13 +34,16 @@ public enum ChromiumProfileList {
         }
         return cache.compactMap { directory, value -> ChromiumProfile? in
             // The key becomes a folder name, so a key that could point outside User Data is skipped.
-            guard let info = value as? [String: Any], !directory.isEmpty,
-                !directory.contains("/"), !directory.contains(":"), directory != ".", directory != ".."
-            else { return nil }
+            guard let info = value as? [String: Any], isSafeDirectory(directory) else { return nil }
             let name = (info["name"] as? String).flatMap { $0.isEmpty ? nil : $0 }
             return ChromiumProfile(directory: directory, displayName: name ?? directory)
         }
         .sorted(by: ordered)
+    }
+
+    /// A profile folder name must stay inside User Data: no separators, no `.` or `..`.
+    static func isSafeDirectory(_ name: String) -> Bool {
+        !name.isEmpty && !name.contains("/") && !name.contains(":") && name != "." && name != ".."
     }
 
     /// Reads `Local State` from a User Data folder.

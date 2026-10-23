@@ -43,9 +43,7 @@ public struct ChromiumImportSummary: Equatable, Sendable {
     /// Reads one profile folder and summarizes it. A missing or broken Bookmarks or History file is recorded in
     /// `problems` and the other file is still summarized.
     public static func dryRun(userDataFolder: URL, profile: ChromiumProfile) -> ChromiumImportSummary {
-        guard !profile.directory.isEmpty, !profile.directory.contains("/"), profile.directory != "..",
-            profile.directory != "."
-        else {
+        guard ChromiumProfileList.isSafeDirectory(profile.directory) else {
             let bad = ChromiumImportError.malformed(file: profile.directory, reason: "not a profile folder name")
             return ChromiumImportSummary(profile: profile, visits: [], bookmarks: nil, problems: [bad])
         }
@@ -59,10 +57,14 @@ public struct ChromiumImportSummary: Equatable, Sendable {
             if report.undatedCount > 0 { problems.append(.undatedVisits(count: report.undatedCount)) }
         } catch let e as ChromiumImportError {
             problems.append(e)
-        } catch {}
+        } catch {
+            problems.append(.database(file: ChromiumHistory.fileName, reason: "\(error)"))
+        }
         do { bookmarks = try ChromiumBookmarks.load(profileFolder: folder) } catch let e as ChromiumImportError {
             problems.append(e)
-        } catch {}
+        } catch {
+            problems.append(.malformed(file: ChromiumBookmarks.fileName, reason: "\(error)"))
+        }
         return ChromiumImportSummary(profile: profile, visits: visits, bookmarks: bookmarks, problems: problems)
     }
 }
