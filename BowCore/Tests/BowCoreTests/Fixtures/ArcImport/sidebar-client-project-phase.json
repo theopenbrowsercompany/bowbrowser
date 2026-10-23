@@ -1,0 +1,346 @@
+{
+  "sidebar": {
+    "containers": [
+      {
+        "global": {},
+        "items": [
+          "pin",
+          {
+            "id": "pin",
+            "title": null,
+            "parentID": null,
+            "childrenIds": [
+              "f-client",
+              "loose",
+              "f-archive"
+            ],
+            "data": {
+              "itemContainer": {
+                "containerType": {
+                  "spaceItems": {
+                    "_0": "space-clients"
+                  }
+                }
+              }
+            },
+            "createdAt": 700000000,
+            "isUnread": false
+          },
+          "f-client",
+          {
+            "id": "f-client",
+            "title": "client",
+            "parentID": "pin",
+            "childrenIds": [
+              "f-project"
+            ],
+            "data": {
+              "list": {}
+            },
+            "createdAt": 700000000,
+            "isUnread": false
+          },
+          "f-project",
+          {
+            "id": "f-project",
+            "title": "project",
+            "parentID": "f-client",
+            "childrenIds": [
+              "f-phase"
+            ],
+            "data": {
+              "list": {}
+            },
+            "createdAt": 700000000,
+            "isUnread": false
+          },
+          "f-phase",
+          {
+            "id": "f-phase",
+            "title": "phase",
+            "parentID": "f-project",
+            "childrenIds": [
+              "tA",
+              "tB"
+            ],
+            "data": {
+              "list": {}
+            },
+            "createdAt": 700000000,
+            "isUnread": false
+          },
+          "tA",
+          {
+            "id": "tA",
+            "title": null,
+            "parentID": "f-phase",
+            "childrenIds": [],
+            "data": {
+              "tab": {
+                "savedURL": "https://a.example.com",
+                "savedTitle": "A"
+              }
+            },
+            "createdAt": 700000000,
+            "isUnread": false
+          },
+          "tB",
+          {
+            "id": "tB",
+            "title": "Kanban",
+            "parentID": "f-phase",
+            "childrenIds": [],
+            "data": {
+              "tab": {
+                "savedURL": "https://b.example.com",
+                "savedTitle": "Board"
+              }
+            },
+            "createdAt": 700000000,
+            "isUnread": false
+          },
+          "loose",
+          {
+            "id": "loose",
+            "title": null,
+            "parentID": "pin",
+            "childrenIds": [],
+            "data": {
+              "tab": {
+                "savedURL": "https://loose.example.com",
+                "savedTitle": "Loose"
+              }
+            },
+            "createdAt": 700000000,
+            "isUnread": false
+          },
+          "f-archive",
+          {
+            "id": "f-archive",
+            "title": "archive",
+            "parentID": "pin",
+            "childrenIds": [],
+            "data": {
+              "list": {}
+            },
+            "createdAt": 700000000,
+            "isUnread": false
+          },
+          "today",
+          {
+            "id": "today",
+            "title": null,
+            "parentID": null,
+            "childrenIds": [
+              "u1"
+            ],
+            "data": {
+              "itemContainer": {
+                "containerType": {
+                  "spaceItems": {
+                    "_0": "space-clients"
+                  }
+                }
+              }
+            },
+            "createdAt": 700000000,
+            "isUnread": false
+          },
+          "u1",
+          {
+            "id": "u1",
+            "title": null,
+            "parentID": "today",
+            "childrenIds": [],
+            "data": {
+              "tab": {
+                "savedURL": "https://today.example.com",
+                "savedTitle": "Today"
+              }
+            },
+            "createdAt": 700000000,
+            "isUnread": false
+          },
+          "pin2",
+          {
+            "id": "pin2",
+            "title": null,
+            "parentID": null,
+            "childrenIds": [
+              "p1"
+            ],
+            "data": {
+              "itemContainer": {
+                "containerType": {
+                  "spaceItems": {
+                    "_0": "space-side"
+                  }
+                }
+              }
+            },
+            "createdAt": 700000000,
+            "isUnread": false
+          },
+          "p1",
+          {
+            "id": "p1",
+            "title": null,
+            "parentID": "pin2",
+            "childrenIds": [],
+            "data": {
+              "tab": {
+                "savedURL": "https://side.example.com",
+                "savedTitle": "Side"
+              }
+            },
+            "createdAt": 700000000,
+            "isUnread": false
+          },
+          "today2",
+          {
+            "id": "today2",
+            "title": null,
+            "parentID": null,
+            "childrenIds": [],
+            "data": {
+              "itemContainer": {
+                "containerType": {
+                  "spaceItems": {
+                    "_0": "space-side"
+                  }
+                }
+              }
+            },
+            "createdAt": 700000000,
+            "isUnread": false
+          },
+          "top",
+          {
+            "id": "top",
+            "title": null,
+            "parentID": null,
+            "childrenIds": [
+              "fav1",
+              "fav2",
+              "fav3",
+              "fav4"
+            ],
+            "data": {
+              "itemContainer": {
+                "containerType": "topApps"
+              }
+            },
+            "createdAt": 700000000,
+            "isUnread": false
+          },
+          "fav1",
+          {
+            "id": "fav1",
+            "title": null,
+            "parentID": "top",
+            "childrenIds": [],
+            "data": {
+              "tab": {
+                "savedURL": "https://mail.example.com",
+                "savedTitle": "Mail"
+              }
+            },
+            "createdAt": 700000000,
+            "isUnread": false
+          },
+          "fav2",
+          {
+            "id": "fav2",
+            "title": null,
+            "parentID": "top",
+            "childrenIds": [],
+            "data": {
+              "tab": {
+                "savedURL": "https://cal.example.com",
+                "savedTitle": "Calendar"
+              }
+            },
+            "createdAt": 700000000,
+            "isUnread": false
+          },
+          "fav3",
+          {
+            "id": "fav3",
+            "title": null,
+            "parentID": "top",
+            "childrenIds": [],
+            "data": {
+              "tab": {
+                "savedURL": "https://chat.example.com",
+                "savedTitle": "Chat"
+              }
+            },
+            "createdAt": 700000000,
+            "isUnread": false
+          },
+          "fav4",
+          {
+            "id": "fav4",
+            "title": null,
+            "parentID": "top",
+            "childrenIds": [],
+            "data": {
+              "tab": {
+                "savedURL": "https://docs.example.com",
+                "savedTitle": "Docs"
+              }
+            },
+            "createdAt": 700000000,
+            "isUnread": false
+          }
+        ],
+        "spaces": [
+          "space-clients",
+          {
+            "id": "space-clients",
+            "title": "Clients",
+            "profile": "default",
+            "customInfo": {
+              "iconType": {
+                "emoji": "\ud83d\udcbc"
+              }
+            },
+            "containerIDs": [
+              "pinned",
+              "pin",
+              "unpinned",
+              "today"
+            ]
+          },
+          "space-side",
+          {
+            "id": "space-side",
+            "title": "Side",
+            "profile": "default",
+            "customInfo": {
+              "iconType": {
+                "icon": "heart"
+              }
+            },
+            "containerIDs": [
+              "pinned",
+              "pin2",
+              "unpinned",
+              "today2"
+            ]
+          }
+        ],
+        "topAppsContainerIDs": [
+          "default",
+          "top"
+        ],
+        "activeSpaceIDs": [
+          "space-clients"
+        ]
+      },
+      {
+        "version": 1
+      }
+    ]
+  }
+}
