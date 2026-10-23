@@ -51,6 +51,7 @@ Start every session in `~/code/GitHub/bowbrowser`: the maintainer's `.claude/set
 - Builds take turns: every `xcodebuild` the Makefile runs goes through `scripts/build-lock.sh`, which leases one of `BOW_BUILD_SLOTS` slots (default 5) shared by all worktrees, queues waiting builds in arrival order (unless the priority file below says otherwise), and frees a slot when its build ends, fails or is interrupted (after a `kill -9` of the script, the orphaned build keeps the slot until it ends).
   The launch step of `make e2e` takes a slot from a separate pool, `BOW_E2E_SLOTS` (default 3), so Chromium launches do not pile up beside builds.
   Only the lead edits the priority file, `~/Library/Caches/bowbrowser/build-lock/priority` (or `$BOW_LOCK_DIR/priority`), shared by both pools; workers never write it.
+  Replace it whole (write a temporary file in the same folder, then `mv` it over), since waiting builds read it every second and could catch an edit half written.
   It lists branch names, highest priority first, one per line; blank lines and lines starting with `#` are ignored.
   A waiting build whose branch (the checkout it runs from) is listed goes before every build further down the file or not listed, and builds of the same rank, like unlisted ones, keep arrival order.
   The file is read again while builds wait, so a reorder takes effect at once; a running build is never interrupted, and a missing or empty file means plain arrival order.

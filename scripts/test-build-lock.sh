@@ -16,7 +16,7 @@ check() { # check <description> <condition command...>
   if "$@"; then echo "ok   $what"; else echo "FAIL $what"; failed=1; fi
 }
 slot_count() { find "$BOW_LOCK_DIR/build/slots" -mindepth 1 -maxdepth 1 -type d | wc -l | tr -d ' '; }
-queue_count() { find "$BOW_LOCK_DIR/build/queue" -mindepth 1 -type f | wc -l | tr -d ' '; }
+queue_count() { find "$BOW_LOCK_DIR/build/queue" -mindepth 1 -type f ! -name '.*' | wc -l | tr -d ' '; }
 is() { [ "$1" = "$2" ]; }
 
 # 1. Four builds, two slots: never more than two at once, served in arrival order.
@@ -126,11 +126,18 @@ prio=$BOW_LOCK_DIR/priority
 repos=$BOW_LOCK_DIR/repos
 plain=$BOW_LOCK_DIR/plain # not a git checkout
 mkdir -p "$repos" "$plain"
-until_true() { # until_true <condition command...>: poll for up to 10 seconds
+# Keep the fixture checkouts away from the user's git config and hooks, and stop git from finding a checkout
+# above the throwaway folder, so "plain" is outside any checkout.
+export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 GIT_CEILING_DIRECTORIES=$BOW_LOCK_DIR
+until_true() { # until_true <condition command...>: poll for up to 10 seconds; a timeout fails the run
   local i=0
   while ! "$@"; do
     i=$((i + 1))
-    [ $i -lt 100 ] || return 1
+    if [ $i -ge 100 ]; then
+      echo "FAIL timed out waiting for: $*"
+      failed=1
+      return 1
+    fi
     sleep 0.1
   done
 }
@@ -141,8 +148,10 @@ repo() { # repo <branch>: print a checkout on that branch, creating it once
 }
 detached=$repos/detached
 git init -q "$detached"
-git -C "$detached" -c user.name=t -c user.email=t@t commit -q --allow-empty -m t
+git -C "$detached" -c user.name=t -c user.email=t@t commit -q --no-verify --allow-empty -m t
 git -C "$detached" checkout -q --detach
+check "detached fixture has a detached HEAD" test -z "$(git -C "$detached" symbolic-ref -q HEAD)"
+check "plain fixture is outside any checkout" test -z "$(cd "$plain" && git rev-parse --git-dir 2> /dev/null)"
 gate=""
 enqueue() { # enqueue <label> <directory>: queue a build that records its label when it runs
   local before
