@@ -25,7 +25,9 @@ extension E2ETestApp: E2ES3App {
 
     func s3TaskSample(_ page: any E2EPage) throws -> E2ES3TaskSample? {
         guard let sample = BowS3Probe.taskSample(forTab: try Self.s3TabID(page)) else { return nil }
-        return E2ES3TaskSample(cpu: sample.cpuUsage, memory: sample.memory, gpuMemory: sample.gpuMemory)
+        // JSON has no NaN, which the task manager can report before its first CPU refresh.
+        let cpu = sample.cpuUsage.isFinite ? sample.cpuUsage : 0
+        return E2ES3TaskSample(cpu: cpu, memory: sample.memory, gpuMemory: sample.gpuMemory)
     }
 
     private static func s3TabID(_ page: any E2EPage) throws -> UInt64 {

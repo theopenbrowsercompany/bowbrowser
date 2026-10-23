@@ -30,7 +30,8 @@ struct S3OptInTest: E2ETest {
         try await run.step("select", timeout: E2ETimeouts.step) {
             var picked: [String] = []
             for selection in ["all", "s3", "s3.*", "s3.hidden-tabs*", "smoke", "s3.opt-in"] {
-                let chosen = try E2ETests.select(selection).map(\.name)
+                // A glob matching only runs selects nothing, which the selection refuses: that picks no run either.
+                let chosen = ((try? E2ETests.select(selection)) ?? []).map(\.name)
                 picked += chosen.filter(runs.contains).map { "\(selection) picked \($0)" }
             }
             for name in runs.sorted() {
@@ -90,6 +91,9 @@ struct S3RunTest: E2ETest {
             throw E2EError("the app does not drive the S3 measurement")
         }
         let session = S3Session(test: self, run: run, app: app)
+        BowS3Probe.startTaskManager()
+        // Let go of it before the engine shuts down, however the test ends.
+        defer { BowS3Probe.stopTaskManager() }
         do {
             try await run.step("turn the unloader off", timeout: E2ETimeouts.step) {
                 // Parked tabs must stay loaded for the whole run.
@@ -450,14 +454,19 @@ final class S3Session {
             let name = pass["pass"] as? String ?? "?"
             let rows = pass["tabs"] as? [[String: Any]] ?? []
             let open = pass["openTabs"] as? Int ?? 0
-            let sampled = rows.filter { ($0["taskManager"] as? [String: Any])?["samples"] as? Int ?? 0 > 0 }.count
+            // A real reading has a memory footprint; a task manager that is not refreshing reads all zeros.
+            let sampled = rows.filter {
+                let task = $0["taskManager"] as? [String: Any]
+                return task?["samples"] as? Int ?? 0 > 0 && task?["memoryMB"] as? Double ?? 0 > 0
+            }.count
             let paged = rows.filter { ($0["page"] as? [String: Any])?["ticks"] != nil }.count
             let processes = (pass["processes"] as? [[String: Any]])?.count ?? 0
             let topRows = ((pass["top"] as? [String: Any])?["rows"] as? [[String: Any]])?.count ?? 0
             if sampled < open { missing.append("\(name) task manager \(sampled)/\(open)") }
             if paged < open { missing.append("\(name) page counters \(paged)/\(open)") }
             if processes < open + 1 { missing.append("\(name) processes \(processes)") }
-            if topRows == 0 { missing.append("\(name) top \((pass["top"] as? [String: Any])?["error"] ?? "no rows")") }
+            // top lists every process it was given (the browser, each renderer and Chromium's other helpers).
+            if topRows < open + 1 { missing.append("\(name) top \((pass["top"] as? [String: Any])?["error"] ?? "no rows")") }
         }
         let ran = Set(first.compactMap { $0["pass"] as? String })
         let notRun = config.passes.map(\.rawValue).filter { !ran.contains($0) }
