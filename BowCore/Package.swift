@@ -12,6 +12,10 @@ let package = Package(
         .target(name: "BowCore"),
         // Test doubles, such as the recording engine mock. Linked only by tests, never by the app.
         .target(name: "BowCoreTestSupport", dependencies: ["BowCore"]),
-        .testTarget(name: "BowCoreTests", dependencies: ["BowCore", "BowCoreTestSupport"]),
+        .testTarget(
+            name: "BowCoreTests",
+            dependencies: ["BowCore", "BowCoreTestSupport"],
+            // Hand written Arc sidebar files for the importer tests.
+            resources: [.copy("Fixtures")]),
     ]
 )
