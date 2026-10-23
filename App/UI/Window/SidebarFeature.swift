@@ -151,6 +151,43 @@ final class SidebarFeature: NSResponder, BrowserWindowFeature, SidebarViewDelega
         sidebar.beginRename(item)
     }
 
+    func deleteWithTabs(_ item: SidebarItemID) {
+        let graph = window.store.graph
+        guard case .folder? = graph[item]?.data, let space = graph.activeSpaceID else { return }
+        let ids = graph.tabIDs(in: space)
+        let inside = ids.filter { graph.isDescendant($0, of: item) }
+        // The active tab moves out of the folder first, so closing it does not load another tab in the folder.
+        if let active = graph.activeTabID, let position = ids.firstIndex(of: active), inside.contains(active) {
+            let after = ids[position...].first { !graph.isDescendant($0, of: item) }
+            let before = ids[..<position].last { !graph.isDescendant($0, of: item) }
+            if let next = after ?? before { select(next) }
+        }
+        let loaded = inside.compactMap { runtimeIDs[$0] }.filter { window.engineTab(for: $0) != nil }
+        // Held strongly, as a close can free the window before the task runs.
+        let owner = window
+        Task {
+            for id in loaded {
+                guard await owner.closeTab(id: id) else { return }
+            }
+            guard owner.store.graph[item] != nil else { return }
+            owner.changeSidebar { try $0.apply([.delete(item)]) }
+        }
+    }
+
+    func confirm(_ message: String, detail: String, action: String, confirmed: @escaping @MainActor () -> Void) {
+        guard let sheetParent = window.window, sheetParent.attachedSheet == nil else { return }
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = message
+        alert.informativeText = detail
+        alert.addButton(withTitle: action).hasDestructiveAction = true
+        alert.addButton(withTitle: "Cancel")
+        alert.beginSheetModal(for: sheetParent) { response in
+            guard response == .alertFirstButtonReturn else { return }
+            MainActor.assumeIsolated { confirmed() }
+        }
+    }
+
     func slideOutline(_ direction: SidebarSlideDirection, change: () -> Void) {
         sidebar.slideOutline(direction, change: change)
     }

@@ -46,6 +46,8 @@ The sidebar is built so later features each add one file plus one line in a list
   - It gives a tab's site icon when one has loaded; a Favorite has none until Favorites load in place.
   - Opening a Favorite loads its saved address in a new tab in today, which is shown, for now.
   - Beginning a rename makes a folder's or split view's name editable in its row: Return or leaving the field saves a new name, and Escape or an empty name keeps the old one.
+  - Deleting a folder with its tabs moves the active tab out of the folder first, closes the folder's loaded tabs as their close buttons do (a page that asks to stay keeps the folder), then removes the folder and everything in it.
+  - Asking to confirm shows a sheet on the window with the action's button and Cancel, and runs the action only when its button is chosen.
   - Sliding the list runs a change (switching Spaces) inside the slide helper, so the old content leaves to one side as the new arrives.
   - Headers and accessories only update their views when the sidebar updates them; an action they take there is shown on the next turn of the run loop, not in the middle of the update.
 

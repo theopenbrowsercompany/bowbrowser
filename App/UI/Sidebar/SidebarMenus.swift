@@ -24,8 +24,8 @@ enum SidebarItemKind: Hashable, Sendable {
 }
 
 /// What sidebar actions (context menu items, drops, accessories, section headers, the swipe handler) may do to the
-/// window: read its sidebar, select, close, load or open a tab, change the store, rename a folder in place and slide
-/// the outline. The sidebar feature provides it.
+/// window: read its sidebar, select, close, load or open a tab, change the store, rename a folder in place, delete a
+/// folder with its tabs, ask to confirm and slide the outline. The sidebar feature provides it.
 @MainActor
 protocol SidebarActionContext: AnyObject {
     /// The window's committed sidebar.
@@ -58,6 +58,15 @@ protocol SidebarActionContext: AnyObject {
     /// or split).
     @discardableResult
     func beginRename(_ item: SidebarItemID) -> Bool
+    /// Deletes folder `item` with everything inside it. When the folder holds the active tab, the nearest tab after
+    /// the folder (or before it) becomes active first; then each of its loaded tabs closes as its close button does,
+    /// running its page's leave prompt, and once they have, the folder and all it holds leave the sidebar. When a
+    /// page's leave prompt keeps it open, the folder stays with what is left in it.
+    func deleteWithTabs(_ item: SidebarItemID)
+    /// Asks the person to confirm a destructive action in a sheet on the window: `message` and `detail`, a button
+    /// titled `action` and Cancel. Runs `confirmed` once they choose `action`; Cancel, Escape or a window without
+    /// room for a sheet changes nothing.
+    func confirm(_ message: String, detail: String, action: String, confirmed: @escaping @MainActor () -> Void)
     /// Runs `change`, which changes what the sidebar shows (switching Spaces through `changeSidebar`), with the
     /// outline's old content sliding out towards `direction` as the new comes in: `SidebarView.slideOutline`.
     func slideOutline(_ direction: SidebarSlideDirection, change: () -> Void)
