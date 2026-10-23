@@ -71,6 +71,19 @@ final class SidebarRowView: NSTableRowView {
         isHovered = false
     }
 
+    /// Lights or clears the hover for where the pointer is now, for when rows moved under it (a scroll) without
+    /// the tracking area seeing it enter or leave.
+    func refreshHover() {
+        isHovered = Self.pointerIsOver(self)
+    }
+
+    /// Whether the pointer is over `view`'s visible part, in a window that is on screen.
+    static func pointerIsOver(_ view: NSView) -> Bool {
+        guard let window = view.window, window.isVisible, !view.isHiddenOrHasHiddenAncestor else { return false }
+        let point = view.convert(window.mouseLocationOutsideOfEventStream, from: nil)
+        return view.visibleRect.contains(point)
+    }
+
     /// The color behind the row now: Active when selected, Pin when hovered, none otherwise.
     var liftColor: NSColor? {
         if isSelected { return BowBrand.active }

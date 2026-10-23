@@ -19,8 +19,21 @@ final class WindowLookFeature: NSResponder, BrowserWindowFeature {
         window.pageShadow = PageShadow(
             color: soft.shadowColor ?? .clear, radius: soft.shadowBlurRadius, offset: soft.shadowOffset,
             fill: BowBrand.page)
+        if let content = window.window?.contentView {
+            dragArea.translatesAutoresizingMaskIntoConstraints = false
+            content.addSubview(dragArea, positioned: .below, relativeTo: nil)
+            NSLayoutConstraint.activate([
+                dragArea.leadingAnchor.constraint(equalTo: content.leadingAnchor),
+                dragArea.trailingAnchor.constraint(equalTo: content.trailingAnchor),
+                dragArea.topAnchor.constraint(equalTo: content.topAnchor),
+                dragArea.bottomAnchor.constraint(equalTo: content.bottomAnchor),
+            ])
+        }
         self.window = window
     }
+
+    /// The frame behind everything else in the window, which drags the window as a title bar does.
+    let dragArea = WindowDragArea()
 
     @available(*, unavailable)
     required init?(coder: NSCoder) {
@@ -38,5 +51,18 @@ final class WindowLookFeature: NSResponder, BrowserWindowFeature {
         else { return }
         placedNavigation = true
         sidebar.sidebar.topRow.addArrangedSubview(navigation.toolbar.view)
+    }
+}
+
+/// The window's Frame colored surface behind the sidebar and the page card: a press on it drags the window, as on a
+/// title bar. It sits behind every other view of the window, so it only gets the presses nothing else takes (the
+/// inset around the page card), never one meant for the page or a control.
+@MainActor
+final class WindowDragArea: NSView {
+    override var mouseDownCanMoveWindow: Bool { true }
+
+    override func mouseDown(with event: NSEvent) {
+        guard let window else { return super.mouseDown(with: event) }
+        window.performDrag(with: event)
     }
 }

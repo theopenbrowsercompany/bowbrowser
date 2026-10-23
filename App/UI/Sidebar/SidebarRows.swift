@@ -170,6 +170,11 @@ final class TabSidebarRow: NSTableCellView {
         isHovered = false
     }
 
+    /// Shows or hides the close button for where the pointer is now, for when the row moved under it (a scroll).
+    func refreshHover() {
+        isHovered = SidebarRowView.pointerIsOver(self)
+    }
+
     override func prepareForReuse() {
         super.prepareForReuse()
         isHovered = false

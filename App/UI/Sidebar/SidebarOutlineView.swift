@@ -39,4 +39,101 @@ final class SidebarOutlineView: NSOutlineView {
         frame.origin.x += extraIndent(atLevel: level(forRow: row))
         return frame
     }
+
+    /// The outline's level for `item`, or, for an item it has no row for yet (a folder's child while the folder opens,
+    /// when the outline asks its row's height), the depth of its node, so its row is sized for its level from the
+    /// first layout.
+    override func level(forItem item: Any?) -> Int {
+        let level = super.level(forItem: item)
+        guard level < 0, let node = item as? SidebarNode else { return level }
+        return sequence(first: node, next: \.parent).dropFirst().reduce(0) { count, _ in count + 1 }
+    }
+
+    // MARK: Drop level
+
+    /// Retargets a drop the outline proposes in a gap (`childIndex` 0 or more in `item`, nil for the top level) to
+    /// the level the pointer at `pointerX` picks with the sidebar's own indent (`SidebarDropLevel`), rather than the
+    /// outline's, which steps `indentationPerLevel` points per level while folder rows step `childIndent`. A drop on
+    /// a row (`NSOutlineViewDropOnItemIndex`) and a gap the outline has no row above keep the outline's proposal.
+    func retargetedDrop(proposedItem item: Any?, childIndex: Int, pointerX: CGFloat) -> (item: Any?, childIndex: Int) {
+        guard childIndex >= 0, let above = rowAboveGap(in: item, at: childIndex),
+            let target = retargetedDrop(gapBelowRow: above, pointerX: pointerX)
+        else { return (item, childIndex) }
+        return target
+    }
+
+    /// Where a drop in the gap below row `row` lands with the pointer at `pointerX`: a parent and a child index in it.
+    /// Nil when `row` is not a row.
+    func retargetedDrop(gapBelowRow row: Int, pointerX: CGFloat) -> (item: Any?, childIndex: Int)? {
+        guard row >= 0, row < numberOfRows, let above = item(atRow: row) else { return nil }
+        let aboveLevel = level(forRow: row)
+        let below = row + 1 < numberOfRows ? level(forRow: row + 1) : nil
+        let opens = isExpandable(above) && isItemExpanded(above)
+        let levels = SidebarDropLevel.levels(above: aboveLevel, aboveOpensChildren: opens, below: below)
+        let level = SidebarDropLevel.level(
+            pointerX: Double(pointerX), firstLevelX: Double(firstLevelX(near: row)), step: Double(Self.childIndent),
+            in: levels)
+        if level > aboveLevel { return (above, 0) }
+        // The row above's ancestor at that level; the drop goes right after it in its parent.
+        var ancestor: Any = above
+        while self.level(forItem: ancestor) > level, let up = parent(forItem: ancestor) { ancestor = up }
+        return (parent(forItem: ancestor), childIndex(forItem: ancestor) + 1)
+    }
+
+    /// Where rows at level 1 start their cell: measured on row `row` or, for a section header, the row below it.
+    private func firstLevelX(near row: Int) -> CGFloat {
+        let measured = level(forRow: row) > 0 ? row : row + 1
+        guard measured < numberOfRows, level(forRow: measured) > 0 else {
+            return CGFloat(indentationPerLevel)
+        }
+        let level = level(forRow: measured)
+        return frameOfCell(atColumn: 0, row: measured).minX - CGFloat(level - 1) * Self.childIndent
+    }
+
+    /// The row just above the gap at child `index` of `item` (nil for the top level): the item itself for its first
+    /// slot, else the last row shown inside the child before the gap. Nil for the very top of the outline.
+    private func rowAboveGap(in item: Any?, at index: Int) -> Int? {
+        if index == 0 {
+            let row = row(forItem: item)
+            return row >= 0 ? row : nil
+        }
+        guard index <= numberOfChildren(ofItem: item), let previous = child(index - 1, ofItem: item) else { return nil }
+        let start = row(forItem: previous)
+        guard start >= 0 else { return nil }
+        let level = level(forRow: start)
+        var last = start
+        while last + 1 < numberOfRows, self.level(forRow: last + 1) > level { last += 1 }
+        return last
+    }
+
+    // MARK: Hover after scrolling
+
+    override func viewWillMove(toSuperview newSuperview: NSView?) {
+        if let clip = superview as? NSClipView {
+            NotificationCenter.default.removeObserver(self, name: NSView.boundsDidChangeNotification, object: clip)
+        }
+        super.viewWillMove(toSuperview: newSuperview)
+    }
+
+    override func viewDidMoveToSuperview() {
+        super.viewDidMoveToSuperview()
+        guard let clip = superview as? NSClipView else { return }
+        clip.postsBoundsChangedNotifications = true
+        NotificationCenter.default.addObserver(
+            self, selector: #selector(clipBoundsChanged(_:)), name: NSView.boundsDidChangeNotification, object: clip)
+    }
+
+    /// A scroll moves rows under a still pointer without telling their tracking areas, so each row on screen checks
+    /// again whether the pointer is over it.
+    @objc private func clipBoundsChanged(_ notification: Notification) {
+        refreshHover()
+    }
+
+    /// Has every row on screen light or clear its hover for where the pointer is now.
+    func refreshHover() {
+        enumerateAvailableRowViews { rowView, _ in
+            (rowView as? SidebarRowView)?.refreshHover()
+            for case let cell as TabSidebarRow in rowView.subviews { cell.refreshHover() }
+        }
+    }
 }
