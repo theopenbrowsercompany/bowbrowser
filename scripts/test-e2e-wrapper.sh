@@ -59,6 +59,19 @@ case $FAKE_MODE in
     [ "$n" = 2 ] && { echo "E2E: TIMEOUT a.one: open window" | tee "$r"; exit 2; }
     loudpass ;;
   repeatcrash) [ "$n" = 1 ] && kill -SEGV $$; loudpass ;;
+  # The second run's quit test passes its RESULT line (quit=pending), then its quit check fails, as the real runner
+  # reports the quit after the engine stops.
+  repeatquit)
+    [ "$n" = 2 ] || loudpass
+    { echo "RESULT a.one pass seconds=0.1 checks=0/0 quit=pending"; echo "FAIL a.one: closing took too long"
+      echo "PASS chromium.errors: unexpected=0"; echo "E2E: FAIL 1/2"; } | tee "$r"
+    exit 1 ;;
+  # The second run's quit test passes its RESULT line (quit=pending), then Chromium's teardown watchdog ends the app.
+  repeatquitcrash)
+    [ "$n" = 2 ] || loudpass
+    echo "RESULT a.one pass seconds=0.1 checks=0/0 quit=pending" | tee "$r"
+    echo "[1:2:ERROR:foo] Teardown watchdog expired; ending the process" > "$out/chromium.log"
+    exit 2 ;;
   # The second run starts a helper and never ends.
   repeathang)
     [ "$n" = 2 ] || loudpass
@@ -354,6 +367,14 @@ rroot crash
 E2E_REPEAT=2 run repeatcrash
 check "a repeat that crashes: exit 4" is "$code" 4
 check "a repeat that crashes: the summary names it" is "$last" "E2E: CRASH 1/2 repeats passed; failed: repeat 1 (CRASH exit=139 signal=11 without a summary line)"
+rroot quit
+E2E_REPEAT=3 run repeatquit
+check "a repeat whose quit check fails after a passing RESULT: the summary" is "$last" "E2E: FAIL 2/3 repeats passed; failed: repeat 2 (FAIL 1/2)"
+check "a repeat whose quit check fails after a passing RESULT: the test's passes" says "REPEAT a.one 2/3"
+rroot quitcrash
+E2E_REPEAT=3 run repeatquitcrash
+check "a repeat that crashes after quit=pending: exit 4" is "$code" 4
+check "a repeat that crashes after quit=pending: the test's passes" says "REPEAT a.one 2/3"
 rroot usage
 E2E_REPEAT=3 run usage nope.test
 check "a repeat that cannot start: exit 64" is "$code" 64
@@ -437,6 +458,9 @@ check "flakes: a test that never ran is not counted" is "$(row a.three)" ""
 check "flakes: the newest failure is named" is "$(printf '%s\n' "$flakes" | awk '$1 == "a.two" { print $7 }')" "$newest"
 check "flakes: also takes a run folder" is "$(./scripts/e2e-flakes.sh "$BOW_E2E_ROOT/$newest" | tail -n 1)" "e2e-flakes: 1 runs"
 check "flakes: an empty root exits 1" not ./scripts/e2e-flakes.sh "$tmp/none" 2> /dev/null
+quit_row() { ./scripts/e2e-flakes.sh "$tmp/repeat-$1" | awk '$1 == "a.one" { print $2, $3, $4, $5, $6 }'; }
+check "flakes: a quit check failing after a passing RESULT fails the test" is "$(quit_row quit)" "3 2 0 1 0"
+check "flakes: a crash after quit=pending fails the test" is "$(quit_row quitcrash)" "3 2 0 1 0"
 export BOW_E2E_ROOT="$tmp/runs"
 
 # interrupt <signal> [mode] [tenths]: runs the wrapper on an app that never ends (FAKE_MODE hang), sends the signal
