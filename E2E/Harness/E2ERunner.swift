@@ -174,6 +174,12 @@ final class E2ERunner {
         watchdog.arm("engine.start", timeout: Self.engineStartTimeout)
     }
 
+    /// Called once the app has installed its handler for links from other apps, the first moment a link can reach
+    /// it and before the first test: delivers the selected tests' early links (`E2EEarlyLinksTest`).
+    func linkHandlerInstalled(delegate: AppDelegate) {
+        E2EAppAdapter.deliverEarlyLinks(of: tests.compactMap { $0 as? any E2EEarlyLinksTest }, delegate: delegate)
+    }
+
     /// Runs the tests once the engine has started, then quits.
     func start(delegate: AppDelegate) {
         watchdog.disarm()

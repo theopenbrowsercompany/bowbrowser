@@ -14,8 +14,9 @@ private func link(_ path: String) -> IncomingLink {
     }
 
     @Test func appExecutableGivesItsApp() {
-        #expect(LinkSource.appBundlePath(containing: "/System/Applications/Mail.app/Contents/MacOS/Mail")
-            == "/System/Applications/Mail.app")
+        #expect(
+            LinkSource.appBundlePath(containing: "/System/Applications/Mail.app/Contents/MacOS/Mail")
+                == "/System/Applications/Mail.app")
     }
 
     @Test func toolOutsideAnyAppHasNone() {
@@ -27,7 +28,8 @@ private func link(_ path: String) -> IncomingLink {
 
 @Suite struct IncomingLinkTests {
     @Test func acceptsWebAddresses() {
-        #expect(IncomingLink(text: " https://example.com/a\n", source: nil)?.url.absoluteString == "https://example.com/a")
+        #expect(
+            IncomingLink(text: " https://example.com/a\n", source: nil)?.url.absoluteString == "https://example.com/a")
         #expect(IncomingLink(text: "HTTP://Example.com", source: nil) != nil)
     }
 

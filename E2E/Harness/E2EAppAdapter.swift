@@ -734,9 +734,6 @@ extension E2EAppAdapter {
         return opening(page, opened: true)
     }
 
-    func deliverLinkFromOtherApp(_ url: URL) {
-        delegate.application(NSApp, open: [url])
-    }
 }
 
 extension E2ESidebarNotice {
@@ -753,7 +750,7 @@ extension E2ETestApp: E2EStoreApp {
 
     func deliverLinkFromOtherApp(_ url: URL) throws {
         try adapter.requireActive(token, "deliver a link from another app")
-        adapter.deliverLinkFromOtherApp(url)
+        try adapter.deliverLinkFromOtherApp(url)
     }
 
     var appSidebarNotices: [E2ESidebarNotice] { adapter.appSidebarNotices }

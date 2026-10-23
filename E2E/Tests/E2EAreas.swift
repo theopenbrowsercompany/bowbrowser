@@ -24,5 +24,6 @@ enum E2EAreas {
         EngineTests.all,
         WindowHooksTests.all,
         SpacesAreaTests.all,
+        LinksTests.all,
     ]
 }

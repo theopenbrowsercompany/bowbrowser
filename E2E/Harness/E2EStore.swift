@@ -68,7 +68,8 @@ protocol E2EStoreApp: E2EApp {
     /// window gets a sidebar of its own on the app's default profile instead, as a smoke window does. Notices are
     /// recorded in the session, never shown.
     func openSavedSidebar(in session: E2ESidebarSession, url: URL, ownSidebar: Bool) async throws -> E2ESidebarOpening
-    /// Hands the app `url` the way the system delivers a link clicked in another app.
+    /// Hands the app `url` as a GetURL Apple Event sent to it, the way a link clicked in another app arrives, and not
+    /// as the harness's own link (`E2ELinksApp`).
     func deliverLinkFromOtherApp(_ url: URL) throws
     /// The sidebar notices the app showed outside `openSavedSidebar`, since the run started.
     var appSidebarNotices: [E2ESidebarNotice] { get }
