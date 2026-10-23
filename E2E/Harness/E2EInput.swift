@@ -21,6 +21,24 @@ enum E2EKey {
     }
 }
 
+/// A mouse button `E2EPage.click(_:button:modifiers:)` can press.
+enum E2EMouseButton: String {
+    case left
+    case middle
+
+    /// The Input.dispatchMouseEvent `buttons` bit for this button while it is held.
+    fileprivate var heldBit: Int { self == .left ? 1 : 4 }
+}
+
+/// Modifier keys held during a page click, as the Input domain's `modifiers` bit field.
+struct E2EInputModifiers: OptionSet {
+    let rawValue: Int
+    static let option = E2EInputModifiers(rawValue: 1)
+    static let control = E2EInputModifiers(rawValue: 2)
+    static let command = E2EInputModifiers(rawValue: 4)
+    static let shift = E2EInputModifiers(rawValue: 8)
+}
+
 extension E2EPage {
     /// Makes the page behave as if its window were focused. An e2e window never becomes key, so without this
     /// the page has no focus: `document.hasFocus()` is false and focus events do not fire.
@@ -29,17 +47,20 @@ extension E2EPage {
         _ = try await devTools("Emulation.setFocusEmulationEnabled", ["enabled": true])
     }
 
-    /// Clicks the center of the first element matching `selector` with the left mouse button,
-    /// scrolling it into view first. Throws when no element matches, it has no size, or something else covers
-    /// its center (so the click would land elsewhere).
+    /// Clicks the center of the first element matching `selector` with `button` (the left one by default) while
+    /// `modifiers` are held, scrolling it into view first. The keys count as held for this click only, so a Cmd-click
+    /// on a link opens it the way Chromium opens a modified click. Throws when no element matches, it has no size, or
+    /// something else covers its center (so the click would land elsewhere).
     ///
     /// Chromium's renderer drops every input but moves while a page's main frame updates are deferred or its
     /// commits are held for its first contentful paint (WidgetInputHandlerManager), and the DevTools call still
-    /// succeeds, so under load a click right after a load can vanish with no error. The click is therefore confirmed: capturing `pointerdown` and `click` listeners record
-    /// what reached the page, and a press or click the page never saw is sent again, a short moment later, until it
+    /// succeeds, so under load a click right after a load can vanish with no error. The click is therefore confirmed:
+    /// capturing `pointerdown` and `click` listeners record what reached the page, and a press or click the page never saw is sent again, a short moment later, until it
     /// lands or the step's wait budget runs out. Each resend is logged to stderr (chromium.log). A click into a
-    /// frame is not confirmed, since the frame's own document receives it.
-    func click(_ selector: String) async throws {
+    /// frame is not confirmed, since the frame's own document receives it. Any button and modifiers
+    /// are confirmed and resent alike: a click of another button than the left one reaches the page as `auxclick`,
+    /// which counts as the click.
+    func click(_ selector: String, button: E2EMouseButton = .left, modifiers: E2EInputModifiers = []) async throws {
         try await emulateFocus()
         let center = try await evaluate(
             """
@@ -60,11 +81,14 @@ extension E2EPage {
             throw E2EError("cannot click \(selector): \(center as? String ?? "no position")")
         }
         let confirms = point[2] == 1
-        // `buttons` is the buttons held after the event: the left one while pressed, none once released.
+        // `buttons` is the buttons held after the event: the clicked one while pressed, none once released.
         func send(_ type: String, buttons: Int) async throws {
             _ = try await devTools(
                 "Input.dispatchMouseEvent",
-                ["type": type, "x": point[0], "y": point[1], "button": "left", "buttons": buttons, "clickCount": 1]
+                [
+                    "type": type, "x": point[0], "y": point[1], "button": button.rawValue, "buttons": buttons,
+                    "clickCount": 1, "modifiers": modifiers.rawValue,
+                ]
             )
         }
         // Whether the page saw `event` since it was armed. The DevTools call returns once the renderer handled
@@ -77,7 +101,7 @@ extension E2EPage {
         var resends = 0
         while true {
             if confirms { _ = try await evaluate(Self.armClickRecord) }
-            try await send("mousePressed", buttons: 1)
+            try await send("mousePressed", buttons: button.heldBit)
             var lost: String?
             if confirms, try await missed("pressed") {
                 lost = "press"
@@ -106,7 +130,10 @@ extension E2EPage {
         (() => {
           const record = window.\(clickRecord) = { pressed: false, clicked: false };
           addEventListener('pointerdown', () => { record.pressed = true; }, { capture: true, once: true });
-          addEventListener('click', () => { record.clicked = true; }, { capture: true, once: true });
+          // A click of another button than the left one arrives as `auxclick`, not `click`.
+          for (const type of ['click', 'auxclick']) {
+            addEventListener(type, () => { record.clicked = true; }, { capture: true, once: true });
+          }
         })()
         """
     }
