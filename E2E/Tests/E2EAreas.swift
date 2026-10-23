@@ -33,5 +33,6 @@ enum E2EAreas {
         ChromeTests.all,
         NewTabRowTests.all,
         CollapseTests.all,
+        PinnedTests.all,
     ]
 }
