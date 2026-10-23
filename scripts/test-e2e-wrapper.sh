@@ -1127,6 +1127,15 @@ check "threshold: a FLAKY and a QUARANTINED-FLAKY are 2 events: FILE" is "$(tr_r
 check "threshold: no ledger exits 1" not ./scripts/e2e-flakes.sh --ledger "$tmp/missing.tsv" 2> /dev/null
 printf 'date\ttest\toutcome\tbranch\ttree\tload\tshard\trun\n%s\tt.old\tFLAKY\tb\taaa\t1.00\t-\tr\n' "$old" > "$tmp/oldonly.tsv"
 check "threshold: a window with no line exits 1" not ./scripts/e2e-flakes.sh --ledger "$tmp/oldonly.tsv" 2> /dev/null
+check "threshold: --days 00 exits 64" is "$(./scripts/e2e-flakes.sh --days 00 > /dev/null 2>&1; echo $?)" 64
+check "threshold: --days with --local exits 64" is "$(./scripts/e2e-flakes.sh --days 3 --local > /dev/null 2>&1; echo $?)" 64
+# An untracked file gives the tree its own key, so a fail fixed by adding one is not a flake.
+fakewt four
+wtrun four loudpass > /dev/null
+touch "$tmp/wt-four/newfile"
+wtrun four loudpass > /dev/null
+check "ledger: an untracked file changes the tree key" \
+  is "$(tail -n 2 "$BOW_E2E_LEDGER" | cut -f 5 | sort -u | wc -l | tr -d ' ')" 2
 check "threshold: a bad --days exits 64" is "$(./scripts/e2e-flakes.sh --days x > /dev/null 2>&1; echo $?)" 64
 
 [ "$failed" = 0 ] && echo "e2e wrapper: all checks passed" || echo "e2e wrapper: some checks failed"

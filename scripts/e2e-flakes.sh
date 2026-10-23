@@ -47,9 +47,9 @@ while [ $# -gt 0 ]; do
   case $1 in
     --days)
       shift
-      case ${1:-} in '' | *[!0-9]* | 0) echo "e2e-flakes: --days wants a whole number of 1 or more" >&2; exit 64 ;; esac
-      days=$1 ;;
-    --ledger) shift; ledger=${1:?e2e-flakes: --ledger wants a file} ;;
+      [[ ${1:-} =~ ^0*[1-9][0-9]*$ ]] || { echo "e2e-flakes: --days wants a whole number of 1 or more" >&2; exit 64; }
+      days=$((10#$1)); ledger_opts=1 ;;
+    --ledger) shift; ledger=${1:?e2e-flakes: --ledger wants a file}; ledger_opts=1 ;;
     --local) mode=local ;;
     --emit) mode=emit ;;
     -*) echo "e2e-flakes: unknown option $1" >&2; exit 64 ;;
@@ -57,6 +57,10 @@ while [ $# -gt 0 ]; do
   esac
   shift
 done
+if [ "$mode" != ledger ] && [ "${ledger_opts:-0}" = 1 ]; then
+  echo "e2e-flakes: --days and --ledger read the ledger; they do not combine with --local, --emit or paths" >&2
+  exit 64
+fi
 
 # The perl below holds three modes: local, emit and ledger. run_outcomes turns one results.json into name => kind
 # (pass, flaky, timeout or fail), for the local count and for the ledger lines e2e.sh writes.
