@@ -16,14 +16,20 @@ import Testing
 
     // MARK: Validation
 
-    @Test(arguments: ["💼", "🏠", "❤️", "🇳🇱", "👍🏽", "👨‍👩‍👧", "1️⃣", " 🎯 \n"])
+    @Test(arguments: [
+        "💼", "🏠", "❤️", "🇳🇱", "👍🏽", "👨‍👩‍👧", "1️⃣", " 🎯 \n", "©\u{FE0F}", "#\u{FE0F}\u{20E3}",
+        "🏴\u{E0067}\u{E0062}\u{E0065}\u{E006E}\u{E0067}\u{E007F}",
+    ])
     func oneEmojiIsAccepted(text: String) throws {
         let icon = try SpaceIcon(emoji: text)
         #expect(icon.kind == .emoji)
         #expect(icon.value == text.trimmingCharacters(in: .whitespacesAndNewlines))
     }
 
-    @Test(arguments: ["", "  ", "a", "1", "#", "©", "💼💼", "💼a", "🏠 🏠", "work"])
+    @Test(arguments: [
+        "", "  ", "a", "1", "#", "©", "💼💼", "💼a", "🏠 🏠", "work", "1\u{FE0F}", "#\u{FE0F}", "🇺", "🏻", "😀\u{0301}",
+        "😀1", "🇳🇱🇳",
+    ])
     func anythingButOneEmojiIsRefused(text: String) {
         #expect(throws: SpaceAppearanceError.invalidEmoji(text)) { try SpaceIcon(emoji: text) }
     }
