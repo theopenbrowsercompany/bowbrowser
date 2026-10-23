@@ -2,13 +2,17 @@ import AppKit
 import BowCore
 
 /// What a sidebar item is, for choosing its context menu items.
-enum SidebarItemKind: Sendable {
+enum SidebarItemKind: Hashable, Sendable {
     case tab
     case folder
     case split
     case favorite
+    /// A section's header row, for the section listing items of that zone. The menu's item is the container the
+    /// section lists (for "New Folder" in pinned, say).
+    case section(SidebarZone)
 
-    /// The kind of `id` in `graph`, or nil for a section or an unknown item.
+    /// The kind of `id` in `graph`, or nil for a container or an unknown item. A section's kind comes from the row
+    /// clicked, not the graph: see `SidebarMenus.menu(for:kind:context:)`.
     init?(of id: SidebarItemID, in graph: SidebarGraph) {
         switch graph[id]?.data {
         case .tab?: self = graph.isInFavorites(id) ? .favorite : .tab
@@ -34,18 +38,23 @@ protocol SidebarActionContext: AnyObject {
     func changeSidebar(_ body: (SidebarStore) throws -> Void) -> Bool
     /// The page tab `item` shows right now, nil while it has not loaded.
     func livePage(of item: SidebarItemID) -> (url: URL, title: String)?
+    /// Loads `url` in tab `item` of the Space on screen (as "Back to pinned URL" does): a loaded tab navigates, and a
+    /// tab whose saved page has not loaded is shown and loaded there, the way the window loads saved pages. Returns
+    /// whether a page was asked to load; false for a Favorite or an item that is not such a tab.
+    @discardableResult
+    func load(_ item: SidebarItemID, url: URL) -> Bool
 }
 
 /// Context menu items for sidebar items of some kinds.
 ///
-/// Extension point: a new set of items (Pin and Unpin, folder actions, Favorite actions) is one new file with a type
-/// conforming to this protocol plus one line in `SidebarMenus.all` (`SidebarMenuList.swift`). The menu lists each
-/// provider's items in list order, with a separator between providers.
+/// Extension point: a new set of items (Pin and Unpin, folder actions, Favorite actions, a section's "New Folder")
+/// is one new file with a type conforming to this protocol plus one line in `SidebarMenus.all`
+/// (`SidebarMenuList.swift`). The menu lists each provider's items in list order, with a separator between providers.
 @MainActor
 protocol SidebarMenuItems {
     /// The kinds of item this provider adds to.
     static var kinds: Set<SidebarItemKind> { get }
-    /// The items for `item`; empty adds nothing.
+    /// The items for `item` (for a `.section` kind, the container the section lists); empty adds nothing.
     static func menuItems(for item: SidebarItemID, context: any SidebarActionContext) -> [NSMenuItem]
 }
 
@@ -53,6 +62,12 @@ extension SidebarMenus {
     /// The context menu of `item`: each provider's items for its kind, separated by provider.
     static func menu(for item: SidebarItemID, context: any SidebarActionContext) -> [NSMenuItem] {
         guard let kind = SidebarItemKind(of: item, in: context.graph) else { return [] }
+        return menu(for: item, kind: kind, context: context)
+    }
+
+    /// The context menu of `item` as an item of `kind` (a section's container as `.section`).
+    static func menu(for item: SidebarItemID, kind: SidebarItemKind, context: any SidebarActionContext) -> [NSMenuItem]
+    {
         var result: [NSMenuItem] = []
         for provider in all where provider.kinds.contains(kind) {
             let items = provider.menuItems(for: item, context: context)

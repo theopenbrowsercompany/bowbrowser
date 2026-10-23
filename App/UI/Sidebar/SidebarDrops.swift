@@ -61,13 +61,6 @@ enum StructureDropValidator: SidebarDropValidator {
     }
 }
 
-/// Favorites are not a drag target or source yet: the Favorites grid brings its own drops.
-enum FavoritesDropValidator: SidebarDropValidator {
-    static func validate(_ drop: SidebarDrop, in graph: SidebarGraph) -> SidebarDropVerdict {
-        graph.isInFavorites(drop.parent) || graph.isInFavorites(drop.item) ? .refuse : .abstain
-    }
-}
-
 /// A split's tabs stay together: a tab inside a split moves only with its split, apart from reordering within it,
 /// and no tab joins a split by a drag (making a split is its own action).
 enum SplitTabDropValidator: SidebarDropValidator {

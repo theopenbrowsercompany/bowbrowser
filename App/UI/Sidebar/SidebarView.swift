@@ -44,7 +44,10 @@ final class SidebarNode: NSObject {
 /// the Favorites area, the pinned tabs with their folders, a divider and today's tabs. Each tab row shows its site
 /// icon (a spinner while it loads), its title and, on hover or when active, a close button; the active tab's row is
 /// highlighted. Rows can be dragged within and across pinned and today (`SidebarDrop`), and right-clicking a row
-/// shows its kind's menu items (`SidebarMenus`). The footer below the outline is empty, kept for footer controls.
+/// shows its kind's menu items (`SidebarMenus`), a section header's its zone's. Accessories (`SidebarAccessories`)
+/// sit in a slot between the New Tab button and the outline and in the footer below it, tab rows can carry an
+/// accessory (`SidebarRowAccessories`), a sideways two-finger swipe goes to `swipeHandler`, and
+/// `slideOutline(_:change:)` slides the outline's content out for new content.
 @MainActor
 final class SidebarView: NSView, NSOutlineViewDataSource, NSOutlineViewDelegate, NSMenuDelegate {
     static let width: CGFloat = 240
@@ -54,9 +57,30 @@ final class SidebarView: NSView, NSOutlineViewDataSource, NSOutlineViewDelegate,
     weak var delegate: (any SidebarViewDelegate)?
     let newTabButton: NSButton
     let outlineView = NSOutlineView()
-    /// Controls along the bottom edge (the archive button); empty for now, and then it takes no room.
+    /// The top accessory slot, between the New Tab button and the outline; empty, it takes no room.
+    let topSlot = NSStackView()
+    /// The footer accessory slot along the bottom edge (the archive button); empty, it takes no room.
     let footer = NSStackView()
+    /// Gets each horizontal two-finger swipe on the outline (`SidebarSwipeHandler`); nil leaves every scroll to the
+    /// outline.
+    weak var swipeHandler: (any SidebarSwipeHandler)? {
+        get { scrollView.swipeHandler }
+        set { scrollView.swipeHandler = newValue }
+    }
+    private let scrollView = SidebarScrollView()
     private let sections = SidebarSections.all.map { $0.init() }
+    /// The header view each section made, by section index, kept so every show can update it.
+    private var headerViews: [Int: NSView] = [:]
+    /// The sections already asked for a header view, including those that gave none.
+    private var askedHeaders: Set<Int> = []
+    /// Each section's header row height for the content on screen, by section index.
+    private var headerHeights: [CGFloat] = []
+    /// True while `show(_:)` runs, which updates every header once at its end.
+    private var isShowing = false
+    /// How many `slideOutline` animations are running, and whether the view clipped before the first began.
+    private var slidesRunning = 0
+    private var clipsBeforeSlides = false
+    private let accessories = SidebarAccessories.all.map { $0.init() }
     private(set) var content = SidebarContent(graph: .fresh(), tabs: [:], activeItem: nil)
     private var roots: [SidebarNode] = []
     private var nodes: [SidebarNode.Key: SidebarNode] = [:]
@@ -114,16 +138,27 @@ final class SidebarView: NSView, NSOutlineViewDataSource, NSOutlineViewDelegate,
         menu.delegate = self
         outlineView.menu = menu
 
-        let scrollView = NSScrollView()
         scrollView.documentView = outlineView
         scrollView.drawsBackground = false
         scrollView.hasVerticalScroller = true
         scrollView.autohidesScrollers = true
 
+        topSlot.orientation = .vertical
+        topSlot.alignment = .width
+        // Empty, the slot has no height of its own; its accessories' fitting heights win over this.
+        let emptyHeight = topSlot.heightAnchor.constraint(equalToConstant: 0)
+        emptyHeight.priority = .defaultLow
+        emptyHeight.isActive = true
         footer.orientation = .horizontal
         footer.edgeInsets = NSEdgeInsets(top: 0, left: 10, bottom: 0, right: 10)
+        for accessory in accessories {
+            switch type(of: accessory).placement {
+            case .top: topSlot.addArrangedSubview(accessory.view)
+            case .footer: footer.addArrangedSubview(accessory.view)
+            }
+        }
 
-        for view in [background, newTabButton, scrollView, footer] as [NSView] {
+        for view in [background, newTabButton, topSlot, scrollView, footer] as [NSView] {
             view.translatesAutoresizingMaskIntoConstraints = false
             addSubview(view)
         }
@@ -138,7 +173,10 @@ final class SidebarView: NSView, NSOutlineViewDataSource, NSOutlineViewDelegate,
             newTabButton.heightAnchor.constraint(equalToConstant: 28),
             scrollView.leadingAnchor.constraint(equalTo: leadingAnchor),
             scrollView.trailingAnchor.constraint(equalTo: trailingAnchor),
-            scrollView.topAnchor.constraint(equalTo: newTabButton.bottomAnchor, constant: 6),
+            topSlot.leadingAnchor.constraint(equalTo: leadingAnchor),
+            topSlot.trailingAnchor.constraint(equalTo: trailingAnchor),
+            topSlot.topAnchor.constraint(equalTo: newTabButton.bottomAnchor, constant: 6),
+            scrollView.topAnchor.constraint(equalTo: topSlot.bottomAnchor),
             scrollView.bottomAnchor.constraint(equalTo: footer.topAnchor),
             footer.leadingAnchor.constraint(equalTo: leadingAnchor),
             footer.trailingAnchor.constraint(equalTo: trailingAnchor),
@@ -160,7 +198,13 @@ final class SidebarView: NSView, NSOutlineViewDataSource, NSOutlineViewDelegate,
         self.content = content
         let newShape = rebuildNodes()
         isSyncing = true
-        defer { isSyncing = false }
+        isShowing = true
+        defer {
+            isSyncing = false
+            isShowing = false
+        }
+        let oldHeights = headerHeights
+        headerHeights = sections.map { max($0.headerHeight(for: content), 1) }
         if newShape != shape {
             shape = newShape
             outlineView.reloadData()
@@ -174,9 +218,72 @@ final class SidebarView: NSView, NSOutlineViewDataSource, NSOutlineViewDelegate,
                     return previous.tabs[id] != content.tabs[id] || previous.graph[id] != content.graph[id]
                 })
             if !changed.isEmpty { outlineView.reloadData(forRowIndexes: changed, columnIndexes: IndexSet(integer: 0)) }
+            // A header whose height changed with the content gets its new height without rebuilding the rows.
+            let resized = IndexSet(
+                headerHeights.indices.filter { oldHeights.indices.contains($0) && oldHeights[$0] != headerHeights[$0] }
+                    .map { outlineView.row(forItem: roots[$0]) }.filter { $0 >= 0 })
+            if !resized.isEmpty { outlineView.noteHeightOfRows(withIndexesChanged: resized) }
         }
         syncSelection()
-        refreshActiveMarks()
+        refreshRows()
+        for (index, view) in headerViews {
+            sections[index].updateHeaderView(view, content: content, context: delegate)
+        }
+        for accessory in accessories { accessory.update(content: content, context: delegate) }
+    }
+
+    /// Swaps the outline's content with a slide, as swiping between Spaces does: the content on screen now slides
+    /// out towards `direction` while the content `change` shows (by calling `show(_:)`) comes in from the other side.
+    /// Without a window, or with Reduce Motion on, `change` runs without the slide.
+    func slideOutline(_ direction: SidebarSlideDirection, duration: TimeInterval = 0.25, change: () -> Void) {
+        let bounds = scrollView.bounds
+        guard window != nil, !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion, !bounds.isEmpty,
+            let picture = scrollView.bitmapImageRepForCachingDisplay(in: bounds)
+        else {
+            change()
+            return
+        }
+        scrollView.cacheDisplay(in: bounds, to: picture)
+        let image = NSImage(size: bounds.size)
+        image.addRepresentation(picture)
+        let snapshot = SidebarSlideSnapshot(frame: scrollView.frame)
+        snapshot.image = image
+        snapshot.imageScaling = .scaleNone
+        snapshot.wantsLayer = true
+        addSubview(snapshot, positioned: .above, relativeTo: scrollView)
+        change()
+        layoutSubtreeIfNeeded()
+        scrollView.wantsLayer = true
+        guard let oldLayer = snapshot.layer, let newLayer = scrollView.layer else {
+            snapshot.removeFromSuperview()
+            return
+        }
+        // Neither side may draw over the page next to the sidebar while it slides; clipping goes back as it was once
+        // the last slide running ends.
+        if slidesRunning == 0 { clipsBeforeSlides = clipsToBounds }
+        slidesRunning += 1
+        clipsToBounds = true
+        let offset = bounds.width * (direction == .left ? -1 : 1)
+        func slide(_ layer: CALayer, from: CGFloat, to: CGFloat) {
+            let animation = CABasicAnimation(keyPath: "transform.translation.x")
+            animation.fromValue = from
+            animation.toValue = to
+            animation.duration = duration
+            animation.timingFunction = CAMediaTimingFunction(name: .easeOut)
+            layer.add(animation, forKey: "bow.slide")
+        }
+        CATransaction.begin()
+        CATransaction.setCompletionBlock { [weak self] in
+            snapshot.removeFromSuperview()
+            guard let self else { return }
+            self.slidesRunning -= 1
+            if self.slidesRunning == 0 { self.clipsToBounds = self.clipsBeforeSlides }
+        }
+        // The snapshot ends off screen, so it stays there (and not back at its start) until it is removed.
+        oldLayer.transform = CATransform3DMakeTranslation(offset, 0, 0)
+        slide(oldLayer, from: 0, to: offset)
+        slide(newLayer, from: -offset, to: 0)
+        CATransaction.commit()
     }
 
     /// Redraws the row of tab `item`, for a change the content does not hold (its site icon loaded).
@@ -284,14 +391,26 @@ final class SidebarView: NSView, NSOutlineViewDataSource, NSOutlineViewDelegate,
         outlineView.selectRowIndexes(wanted, byExtendingSelection: false)
     }
 
-    /// Updates which row shows itself active (its close button), after the highlight moved.
-    private func refreshActiveMarks() {
+    /// Updates each tab row on screen for the content: which shows itself active (its close button), after the
+    /// highlight moved, and its accessory.
+    private func refreshRows() {
         for row in 0..<outlineView.numberOfRows {
             guard let view = outlineView.view(atColumn: 0, row: row, makeIfNecessary: false) as? TabSidebarRow,
                 let id = (outlineView.item(atRow: row) as? SidebarNode)?.itemID
             else { continue }
             view.isActive = id == content.activeItem
+            updateAccessory(of: view, for: id)
         }
+    }
+
+    /// Gives tab `item`'s row the view of the first row accessory provider that has one, or none.
+    private func updateAccessory(of view: TabSidebarRow, for item: SidebarItemID) {
+        guard !SidebarRowAccessories.all.isEmpty else { return }
+        let current = view.accessoryView
+        view.accessoryView =
+            SidebarRowAccessories.all.lazy.compactMap {
+                $0.accessoryView(for: item, reusing: current, content: self.content, context: self.delegate)
+            }.first
     }
 
     @objc private func newTabClicked(_ sender: Any?) {
@@ -441,14 +560,21 @@ final class SidebarView: NSView, NSOutlineViewDataSource, NSOutlineViewDelegate,
 
     func outlineView(_ outlineView: NSOutlineView, heightOfRowByItem item: Any) -> CGFloat {
         guard case .section(let index)? = (item as? SidebarNode)?.key else { return Self.rowHeight }
-        return max(sections[index].headerHeight, 1)
+        return headerHeights.indices.contains(index) ? headerHeights[index] : max(sections[index].headerHeight, 1)
     }
 
     func outlineView(_ outlineView: NSOutlineView, viewFor tableColumn: NSTableColumn?, item: Any) -> NSView? {
         guard let node = item as? SidebarNode else { return nil }
         switch node.key {
         case .section(let index):
-            return sections[index].makeHeaderView()
+            if let view = headerViews[index] { return view }
+            guard !askedHeaders.contains(index) else { return nil }
+            askedHeaders.insert(index)
+            guard let view = sections[index].makeHeaderView() else { return nil }
+            headerViews[index] = view
+            // During `show(_:)` every header is updated once, at its end.
+            if !isShowing { sections[index].updateHeaderView(view, content: content, context: delegate) }
+            return view
         case .item(let id):
             guard let item = content.graph[id] else { return nil }
             guard let saved = item.tab else {
@@ -467,6 +593,8 @@ final class SidebarView: NSView, NSOutlineViewDataSource, NSOutlineViewDelegate,
             // Only the Space's own tabs close from their row; a Favorite's actions come with the Favorites grid.
             view.isClosable = content.tabs[id] != nil
             view.onClose = { [weak self] in self?.delegate?.close(id) }
+            // During `show(_:)` its `refreshRows()` gives every row on screen its accessory once, at the end.
+            if !isShowing { updateAccessory(of: view, for: id) }
             return view
         }
     }
@@ -553,8 +681,19 @@ final class SidebarView: NSView, NSOutlineViewDataSource, NSOutlineViewDelegate,
 
     func menuNeedsUpdate(_ menu: NSMenu) {
         menu.removeAllItems()
-        let row = outlineView.clickedRow
-        guard row >= 0, let id = (outlineView.item(atRow: row) as? SidebarNode)?.itemID, let delegate else { return }
-        for item in SidebarMenus.menu(for: id, context: delegate) { menu.addItem(item) }
+        for item in menuItems(forRow: outlineView.clickedRow) { menu.addItem(item) }
+    }
+
+    /// The context menu of row `row`: its item's kind's items, or for a section header its zone's items for the
+    /// container it lists (none for the divider). Empty outside the rows.
+    func menuItems(forRow row: Int) -> [NSMenuItem] {
+        guard row >= 0, let node = outlineView.item(atRow: row) as? SidebarNode, let delegate else { return [] }
+        switch node.key {
+        case .item(let id):
+            return SidebarMenus.menu(for: id, context: delegate)
+        case .section(let index):
+            guard let zone = sections[index].zone, let container = container(ofSection: index) else { return [] }
+            return SidebarMenus.menu(for: container, kind: .section(zone), context: delegate)
+        }
     }
 }

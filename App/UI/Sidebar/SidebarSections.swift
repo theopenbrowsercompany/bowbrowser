@@ -23,13 +23,26 @@ protocol SidebarSection {
     /// The height of the section's header row (at least 1 point, as the outline needs a visible row).
     var headerHeight: CGFloat { get }
 
-    /// The view drawn in the section's header row, or nil to leave it empty.
+    /// The height of the header row for `content`, for a header that grows or shrinks with it (a Favorites grid
+    /// gaining a row of icons). Asked on every `SidebarView.show(_:)`; a change resizes the row. Defaults to
+    /// `headerHeight`.
+    func headerHeight(for content: SidebarContent) -> CGFloat
+
+    /// The view drawn in the section's header row, or nil to leave it empty. The outline asks once per window and
+    /// keeps the view (or the lack of one) for the section's row.
     func makeHeaderView() -> NSView?
+
+    /// Brings `view`, the one `makeHeaderView()` made, up to date with `content`: once on every `SidebarView.show(_:)`,
+    /// and when the view is made outside one, so a header such as a Space switcher always shows the Space on screen.
+    /// `context` is nil while the sidebar has no window to act on.
+    func updateHeaderView(_ view: NSView, content: SidebarContent, context: (any SidebarActionContext)?)
 }
 
 extension SidebarSection {
     var headerHeight: CGFloat { 4 }
+    func headerHeight(for content: SidebarContent) -> CGFloat { headerHeight }
     func makeHeaderView() -> NSView? { nil }
+    func updateHeaderView(_ view: NSView, content: SidebarContent, context: (any SidebarActionContext)?) {}
 }
 
 /// The three zones of a Space's sidebar. Arc's model: Favorites are shared by the profile's Spaces, pinned tabs are
