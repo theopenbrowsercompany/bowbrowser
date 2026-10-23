@@ -112,6 +112,7 @@ public struct ArcImportPreview: Equatable, Sendable {
             case recoveredItemsWithoutSpace
             case recoveredItemsNotIncluded
             case unpinnedTabsNotIncluded
+            case favoritesAlreadyThere
 
             public var summary: String {
                 switch self {
@@ -122,6 +123,7 @@ public struct ArcImportPreview: Equatable, Sendable {
                 case .recoveredItemsWithoutSpace: "Recovered items need a Space to go into"
                 case .recoveredItemsNotIncluded: "Recovered items are not included"
                 case .unpinnedTabsNotIncluded: "Unpinned tabs are not included"
+                case .favoritesAlreadyThere: "Already in your Favorites"
                 }
             }
         }
@@ -232,7 +234,12 @@ public struct ArcImportPreview: Equatable, Sendable {
 
 extension ArcImporter {
     /// Builds what `plan` would bring from `result`. It reads nothing and changes nothing.
-    public static func preview(_ result: ArcImportResult, plan: ArcImportPlan = ArcImportPlan()) -> ArcImportPreview {
+    ///
+    /// With `existing` (the sidebar the import would land in), Favorites the profile already has at the same address
+    /// are left out and listed, so a second import does not repeat them and the preview shows what will arrive.
+    public static func preview(
+        _ result: ArcImportResult, plan: ArcImportPlan = ArcImportPlan(), existing: SidebarGraph? = nil
+    ) -> ArcImportPreview {
         var omissions: [ArcImportPreview.Omission] = []
         func tabCount(_ nodes: [ArcImportNode]) -> Int { nodes.map(ArcImportPreviewNode.init).flatMap(\.tabs).count }
 
@@ -320,9 +327,45 @@ extension ArcImporter {
             }
         }
 
+        if let existing {
+            var kept: [ArcImportPreview.FavoritesEntry] = []
+            for var entry in favoriteEntries {
+                let (fresh, repeated) = withoutKnownFavorites(entry.items, for: entry.profile, in: existing)
+                if !repeated.isEmpty {
+                    omissions.append(
+                        .init(
+                            reason: .favoritesAlreadyThere, label: repeated.map(\.title).joined(separator: ", "),
+                            tabs: repeated.count))
+                }
+                entry.items = fresh
+                if !fresh.isEmpty { kept.append(entry) }
+            }
+            favoriteEntries = kept
+        }
+
         return ArcImportPreview(
             mode: plan.mode, spaces: spaceEntries, favorites: favoriteEntries, omissions: omissions,
             skippedByImporter: result.report.skipped)
+    }
+
+    /// Splits Favorites into those the profile's Favorites section does not have yet (by saved address) and those it
+    /// has. A profile that has no section yet, and a profile made for one Space, have none.
+    static func withoutKnownFavorites(
+        _ items: [ArcImportPreviewNode], for target: ArcImportProfileTarget, in graph: SidebarGraph
+    ) -> (fresh: [ArcImportPreviewNode], repeated: [ArcImportPreviewNode]) {
+        let profile: SidebarProfileID
+        switch target {
+        case .defaultProfile: profile = .default
+        case .arcProfile(let id): profile = id
+        case .separateProfile: return (items, [])
+        }
+        var known = Set(graph.favoriteIDs(for: profile).compactMap { graph.items[$0]?.tab?.savedURL })
+        var fresh: [ArcImportPreviewNode] = []
+        var repeated: [ArcImportPreviewNode] = []
+        for item in items {
+            if let url = item.url, !known.insert(url).inserted { repeated.append(item) } else { fresh.append(item) }
+        }
+        return (fresh, repeated)
     }
 
     private static func profileLabel(_ profile: ArcImportProfile) -> String {
