@@ -84,7 +84,7 @@ final class CommandBarPanel: NSView, NSTextFieldDelegate {
         field.isBordered = false
         field.drawsBackground = false
         field.focusRingType = .none
-        field.font = .systemFont(ofSize: 20)
+        field.font = BowBrand.ui(20)
         field.placeholderString = "Search or enter address"
         field.setAccessibilityLabel("Command bar")
         field.delegate = self
@@ -193,9 +193,9 @@ final class CommandBarRowView: NSView {
         super.init(frame: .zero)
         wantsLayer = true
         layer?.cornerRadius = 6
-        titleLabel.font = .systemFont(ofSize: 14, weight: .medium)
-        detailLabel.font = .systemFont(ofSize: 12)
-        badgeLabel.font = .systemFont(ofSize: 12)
+        titleLabel.font = BowBrand.ui(14, weight: .medium)
+        detailLabel.font = BowBrand.ui(12)
+        badgeLabel.font = BowBrand.ui(12)
         for label in [titleLabel, detailLabel] {
             label.lineBreakMode = .byTruncatingTail
             label.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)

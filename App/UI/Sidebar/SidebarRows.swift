@@ -42,7 +42,7 @@ final class TabSidebarRow: NSTableCellView {
         identifier = Self.identifier
 
         titleField.lineBreakMode = .byTruncatingTail
-        titleField.font = .systemFont(ofSize: 13)
+        titleField.font = BowBrand.ui()
         titleField.textColor = BowBrand.text
         titleField.cell?.usesSingleLineMode = true
         titleField.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
@@ -123,7 +123,7 @@ final class TabSidebarRow: NSTableCellView {
         isLoading = tab.isLoading
         self.isActive = isActive
         // The active tab's title is bold.
-        titleField.font = .systemFont(ofSize: 13, weight: isActive ? .bold : .regular)
+        titleField.font = BowBrand.ui(weight: isActive ? .bold : .regular)
     }
 
     /// True while the row shows the spinner.
@@ -198,7 +198,7 @@ final class SidebarGroupRow: NSTableCellView, NSTextFieldDelegate {
         super.init(frame: .zero)
         identifier = Self.identifier
         titleField.lineBreakMode = .byTruncatingTail
-        titleField.font = .systemFont(ofSize: 13, weight: .semibold)
+        titleField.font = BowBrand.ui(weight: .semibold)
         titleField.textColor = BowBrand.text
         titleField.cell?.usesSingleLineMode = true
         titleField.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)

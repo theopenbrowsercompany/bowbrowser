@@ -29,6 +29,40 @@ enum BowBrand {
     /// Night: the shadow's color.
     static let shadow = color(0x2A1710)
 
+    // MARK: Fonts
+
+    /// The brand's UI face, bundled in Resources/Fonts and registered at launch through Info.plist's
+    /// ATSApplicationFontsPath (Apple's Information Property List Key Reference).
+    static let uiFamily = "Nunito Sans"
+    /// The display face, for the start screen greeting only.
+    static let displayFamily = "Fredoka"
+    /// The size of UI text.
+    static let uiSize: CGFloat = 13.5
+    /// The group label (the Space name): 11 point bold, uppercase, letter spacing 0.8.
+    static let labelSize: CGFloat = 11
+    static let labelKern: CGFloat = 0.8
+    /// The greeting's size, 40 points, in Fredoka 600. A later item draws it; nothing does yet.
+    static let displaySize: CGFloat = 40
+
+    /// The UI font at `size` (13.5 points by default) and `weight`: the bundled variable font's named instance, or
+    /// the system font when the font did not load.
+    static func ui(_ size: CGFloat = uiSize, weight: NSFont.Weight = .regular) -> NSFont {
+        font(family: uiFamily, size: size, weight: weight)
+    }
+
+    /// The display font: Fredoka 600 at 40 points, or the system font in the same weight when it did not load.
+    static func display(_ size: CGFloat = displaySize) -> NSFont {
+        font(family: displayFamily, size: size, weight: .semibold)
+    }
+
+    private static func font(family: String, size: CGFloat, weight: NSFont.Weight) -> NSFont {
+        let descriptor = NSFontDescriptor(fontAttributes: [
+            .family: family, .traits: [NSFontDescriptor.TraitKey.weight: weight.rawValue],
+        ])
+        if let font = NSFont(descriptor: descriptor, size: size), font.familyName == family { return font }
+        return .systemFont(ofSize: size, weight: weight)
+    }
+
     // MARK: Shape
 
     /// The page card.
