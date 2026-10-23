@@ -31,17 +31,24 @@ final class E2EWindowWatch {
             NSWindow.didChangeOcclusionStateNotification,
         ]
         observers = names.map { name in
+            // Delivered on the posting thread, so a window change is checked before the next one; AppKit posts these
+            // on the main thread, and a post from any other thread is ignored rather than trusted.
             NotificationCenter.default.addObserver(forName: name, object: nil, queue: nil) { [weak self] note in
-                guard let window = note.object as? NSWindow else { return }
+                guard Thread.isMainThread, let window = note.object as? NSWindow else { return }
                 MainActor.assumeIsolated { self?.check(window) }
             }
         }
     }
 
-    /// Checks every test window once more, stops watching, and returns each test window seen on a screen, or nil.
-    /// The runner calls it once the test ends, before it closes the test's windows.
-    func finish() -> String? {
+    /// Checks every test window now. The runner calls it once the test ends, before it closes the test's windows,
+    /// for a window that reached a screen without a notification.
+    func checkAll() {
         for window in NSApp.windows { check(window) }
+    }
+
+    /// Stops watching and returns each test window seen on a screen, or nil. The runner calls it after closing the
+    /// test's windows, so what closing them did is checked too.
+    func finish() -> String? {
         for observer in observers { NotificationCenter.default.removeObserver(observer) }
         observers.removeAll()
         return shown.isEmpty ? nil : "windows shown on a screen: " + shown.joined(separator: ", ")

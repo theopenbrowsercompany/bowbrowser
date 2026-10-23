@@ -295,6 +295,7 @@ final class E2ERunner {
 
         // The quit test keeps its window, so quitting is timed with it open.
         if !test.quitsApp { chromiumLog.mark("closing windows of \(test.name)") }
+        windowWatch.checkAll()
         let browsersLeft =
             test.quitsApp ? nil : await app.closeTestWindows(timeout: Self.cleanupTimeout, baseline: baseline)
         let left = [browsersLeft, windowWatch.finish()].compactMap { $0 }
