@@ -54,14 +54,15 @@ public enum ProfileRef: Hashable, Sendable {
 
 /// What moving a tab from one Space to another means for its page.
 public enum TabMoveKind: Equatable, Sendable {
-    /// Both Spaces show the same profile: the tab keeps its live page and its logins.
+    /// Both Spaces show the same profile (IDs match ignoring case): the tab keeps its live page and its logins.
     case keepsLivePage
     /// The Spaces show different profiles: the page cannot move between them. The app asks first, then loads the
     /// tab's address again in the target profile.
     case needsReload(from: SidebarProfileID, to: SidebarProfileID)
 
     public static func between(_ source: SidebarProfileID, _ target: SidebarProfileID) -> TabMoveKind {
-        source == target ? .keepsLivePage : .needsReload(from: source, to: target)
+        source.rawValue.lowercased() == target.rawValue.lowercased()
+            ? .keepsLivePage : .needsReload(from: source, to: target)
     }
 }
 
