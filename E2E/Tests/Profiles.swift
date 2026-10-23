@@ -12,12 +12,13 @@ enum ProfilesTests {
 /// profile ID is refused.
 struct ProfilesIsolationTest: E2ETest {
     let name = "profiles.isolation"
+    let checks = ["profiles.fixtures", "profiles.storage", "profiles.isolation", "profiles.taken"]
 
     func run(_ run: E2ERun) async throws {
         let url = E2EFixture.url("profiles/index.html")
         let pages = try await run.step("open windows", timeout: E2ETimeouts.step) {
             [
-                try await run.app.openWindow(at: url),
+                try await run.app.openWindow(at: url, profile: .appDefault),
                 try await run.app.openWindow(at: url, newProfile: E2EProfile(id: "e2e-memory", isPersistent: false)),
                 try await run.app.openWindow(at: url, newProfile: E2EProfile(id: "e2e-disk", isPersistent: true)),
             ]
@@ -56,15 +57,23 @@ struct ProfilesIsolationTest: E2ETest {
         }
 
         try await run.step("refuse a taken ID", timeout: E2ETimeouts.step) {
+            // Only a refusal because the ID is taken counts; any other error (a window that would show, a missing
+            // tab) fails the check with its reason.
             var refused: [String] = []
+            var problems: [String] = []
             for id in ["Default", "e2e-memory", "E2E-DISK"] {
                 do {
                     _ = try await run.app.openWindow(at: url, newProfile: E2EProfile(id: id, isPersistent: false))
-                } catch {
+                    problems.append("\(id) was accepted")
+                } catch let error as E2EError where error.reason == .profileTaken {
                     refused.append(id)
+                } catch {
+                    problems.append("\(id) failed for another reason: \(error)")
                 }
             }
-            run.check("profiles.taken", passed: refused.count == 3, "refused=\(refused.joined(separator: ","))")
+            run.check(
+                "profiles.taken", passed: problems.isEmpty,
+                problems.isEmpty ? "refused=\(refused.joined(separator: ","))" : problems.joined(separator: "; "))
         }
     }
 }

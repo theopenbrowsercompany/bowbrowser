@@ -19,6 +19,10 @@ CefRefPtr<CefBrowser> BowEngineBrowserForTabID(uint64_t tabID);
 /// True while the tab with this ID exists but its browser is still being created.
 bool BowEngineTabIsOpening(uint64_t tabID);
 
+/// How many browsers are open or being created, popups included. The harness checks it is back to zero after
+/// each test has closed its windows. Call on the main thread.
+size_t BowEngineOpenBrowserCount();
+
 /// Calls `observer` now with the request context of every existing profile, and later with each new profile's
 /// context as it is created, before any of its tabs. The fixture server uses it to serve every profile.
 void BowEngineObserveProfileContexts(std::function<void(CefRefPtr<CefRequestContext>)> observer);

@@ -212,18 +212,19 @@ struct NavigationPopupTest: E2ETest {
                 "window.open('child.html?via=popup', 'child', 'width=480,height=360')",
                 "window.open('child.html?via=open')",
             ] {
-                // As if from a click: pages open popups from user actions.
+                // As if from a click: pages open popups from user actions. The page keeps each popup to close it.
                 _ = try await page.devTools(
-                    "Runtime.evaluate", ["expression": "void \(open)", "userGesture": true])
+                    "Runtime.evaluate",
+                    ["expression": "void (window.bowPopups ??= []).push(\(open))", "userGesture": true])
             }
-            // The messages the children posted, once both have arrived or after five seconds.
+            // The messages the children posted, once both have arrived or when the step's time is nearly up.
             return try await page.string(
                 """
                 new Promise(resolve => {
                   const done = () => window.bowMessages.length >= \(expected.count);
                   const finish = () => resolve(window.bowMessages.slice().sort().join(","));
                   if (done()) return finish();
-                  const timer = setTimeout(finish, 5000);
+                  const timer = setTimeout(finish, \(Int(E2EWaits.budget() * 1000)));
                   window.addEventListener("message", () => {
                     if (!done()) return;
                     clearTimeout(timer);
@@ -235,6 +236,11 @@ struct NavigationPopupTest: E2ETest {
         }
         let passed = messages == expected.sorted().joined(separator: ",")
         run.check(name, passed: passed, passed ? "opener=kept" : "messages=\"\(messages)\" expected=\(expected)")
+        // Popups have no window of their own to close, so the opener closes them, as sign in flows do.
+        try await run.step("close popups", timeout: E2ETimeouts.step) {
+            _ = try await page.evaluate("window.bowPopups.forEach(popup => popup.close())")
+            try await E2EWaits.until(page, "window.bowPopups.every(popup => popup.closed)")
+        }
     }
 }
 
@@ -244,6 +250,7 @@ struct NavigationPopupTest: E2ETest {
 /// (start, commit, finish), and a 204 answer (start, then fail as aborted, and the page stays).
 struct NavigationEventsTest: E2ETest {
     let name = "nav.events"
+    let checks = ["nav.events", "nav.redirect", "nav.fail", "nav.policy", "nav.back", "nav.abort"]
 
     func run(_ run: E2ERun) async throws {
         let start = E2EFixture.url("navigation/start.html")

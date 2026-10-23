@@ -11,6 +11,7 @@ enum SandboxTests {
 /// and that no helper turns the sandbox off.
 struct SandboxTest: E2ETest {
     let name = "sandbox"
+    let checks = ["sandbox.renderers", "sandbox.gpu", "sandbox.network", "sandbox.switches"]
 
     /// The helper kinds that must be sandboxed, by check name.
     private static let required: [(check: String, matches: (Helper) -> Bool)] = [

@@ -9,6 +9,8 @@ enum AppTests {
 /// Loads a fixture page in an off-screen window, checks that the page renders, and quits within 2 seconds.
 struct AppQuitTest: E2ETest {
     let name = "app.quit"
+    let tags = ["smoke"]
+    let quitsApp = true
 
     func run(_ run: E2ERun) async throws {
         let page = try await run.step("open window", timeout: E2ETimeouts.step) {
