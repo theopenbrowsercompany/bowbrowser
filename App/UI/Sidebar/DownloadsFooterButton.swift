@@ -66,7 +66,10 @@ final class DownloadsFooterButton: SidebarAccessory {
     }
 
     @objc private func clicked(_ sender: Any?) {
-        center?.openWindow().showWindow(sender)
+        guard let controller = center?.openWindow() else { return }
+        // A minimized downloads window comes back out of the Dock too.
+        if controller.window?.isMiniaturized == true { controller.window?.deminiaturize(sender) }
+        controller.showWindow(sender)
     }
 }
 
