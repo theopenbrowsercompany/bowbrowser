@@ -68,8 +68,8 @@ public enum KeyShortcut: String, CaseIterable, Hashable, Sendable {
     case newTab
     /// Cmd+L: the command bar filled with the shown page's address, to load a page in the current tab.
     case changeURL
-    /// Escape while an overlay is open (the command bar, the recent tabs switcher): close it. Each overlay claims it
-    /// only while it shows, so the claims do not conflict (`KeyShortcuts.sharedShortcuts`).
+    /// Escape while an overlay is open (the command bar, the recent tabs switcher, a Peek): close it. Each overlay
+    /// claims it only while it shows, so the claims do not conflict (`KeyShortcuts.sharedShortcuts`).
     case closeCommandBar
     /// Cmd+Shift+C: copy the shown page's address.
     case copyURL
@@ -129,6 +129,8 @@ public enum KeyShortcutOwner: String, Hashable, Sendable {
     case pageFullscreen
     /// Split view.
     case splitView
+    /// Peek: Escape while a Peek is open.
+    case peek
 }
 
 /// One feature's claim on one shortcut.
@@ -174,6 +176,7 @@ public enum KeyShortcuts {
         KeyShortcutClaim(.closeCommandBar, .recentTabs),
         KeyShortcutClaim(.exitPageFullscreen, .pageFullscreen),
         KeyShortcutClaim(.addSplitView, .splitView),
+        KeyShortcutClaim(.closeCommandBar, .peek),
     ]
 
     /// The shortcut `event` triggers among those `owner` claims in `claims`, or nil. A feature's

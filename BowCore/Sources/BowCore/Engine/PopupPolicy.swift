@@ -70,8 +70,6 @@ public enum PopupPolicy {
     public static let commandDecision = PopupDecision.backgroundTab
     /// Cmd-Shift-click.
     public static let commandShiftDecision = PopupDecision.foregroundTab
-    /// Shift-click, the future Peek gesture: a foreground tab until Peek exists.
-    public static let shiftDecision = PopupDecision.foregroundTab
     /// A request with no user gesture.
     public static let noGestureDecision = PopupDecision.block
     /// What a request `opensPanel` accepts gets: a panel attached to the opener's window, as Arc shows sign in popups
@@ -107,8 +105,11 @@ public enum PopupPolicy {
     public static let pinnedOrFavoritePlacement = PopupPlacement.topOfToday
 
     /// The modifiers come from the request's click (`PopupRequest.clickModifiers`), which the engine's disposition
-    /// alone cannot tell apart (`target="_blank"` and Cmd-Shift-click both arrive as a foreground tab).
-    public static func outcome(for request: PopupRequest, openerZone: PopupOpenerZone) -> PopupOutcome {
+    /// alone cannot tell apart (`target="_blank"` and Cmd-Shift-click both arrive as a foreground tab). A Shift-click
+    /// is answered by `PeekPolicy.shiftClickDecision(context:)` (a Peek, with no tab placement, under Arc's defaults).
+    public static func outcome(
+        for request: PopupRequest, openerZone: PopupOpenerZone, peek: PeekContext = .arcDefault
+    ) -> PopupOutcome {
         let modifiers = request.clickModifiers
         guard request.isUserGesture else { return PopupOutcome(decision: noGestureDecision) }
         if opensPanel(request) { return PopupOutcome(decision: panelDecision) }
@@ -116,7 +117,9 @@ public enum PopupPolicy {
         let decision: PopupDecision
         switch (modifiers.command, modifiers.shift) {
         case (true, true): decision = commandShiftDecision
-        case (false, true): decision = shiftDecision
+        case (false, true):
+            decision = PeekPolicy.shiftClickDecision(context: peek)
+            if decision != .foregroundTab { return PopupOutcome(decision: decision) }
         case (true, false): decision = commandDecision
         default: decision = plainLinkDecision
         }

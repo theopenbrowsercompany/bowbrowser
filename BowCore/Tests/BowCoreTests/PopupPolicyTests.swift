@@ -44,10 +44,27 @@ import Testing
         #expect(outcome == PopupOutcome(decision: .foregroundTab, placement: .afterOpener))
     }
 
-    @Test func shiftClickOpensInTheForeground() {
+    @Test func shiftClickOpensAPeekUnderArcDefaults() {
         let outcome = PopupPolicy.outcome(
             for: request(disposition: .window, modifiers: .init(shift: true)), openerZone: .today)
+        #expect(outcome == PopupOutcome(decision: .peek))
+        let fromPinned = PopupPolicy.outcome(for: request(modifiers: .init(shift: true)), openerZone: .pinned)
+        #expect(fromPinned == PopupOutcome(decision: .peek))
+    }
+
+    @Test func shiftClickWithPeekOffOpensInTheForeground() {
+        let off = PeekContext(settings: PeekSettings(shiftClickOpensPeek: false))
+        let outcome = PopupPolicy.outcome(
+            for: request(disposition: .window, modifiers: .init(shift: true)), openerZone: .today, peek: off)
         #expect(outcome == PopupOutcome(decision: .foregroundTab, placement: .afterOpener))
+    }
+
+    @Test func shiftClickWhileAPeekIsOpenOpensNothing() {
+        let open = PeekContext(isOpen: true)
+        let outcome = PopupPolicy.outcome(for: request(modifiers: .init(shift: true)), openerZone: .today, peek: open)
+        #expect(outcome == PopupOutcome(decision: .block))
+        // Other clicks are not Peek's.
+        #expect(PopupPolicy.outcome(for: request(), openerZone: .today, peek: open).decision == .foregroundTab)
     }
 
     @Test func fromPinnedGoesToTopOfToday() {
@@ -121,7 +138,7 @@ import Testing
         let command = request(to: address, modifiers: .init(command: true))
         #expect(PopupPolicy.outcome(for: command, openerZone: .today).decision == .backgroundTab)
         let shift = request(to: address, modifiers: .init(shift: true))
-        #expect(PopupPolicy.outcome(for: shift, openerZone: .today).decision == .foregroundTab)
+        #expect(PopupPolicy.outcome(for: shift, openerZone: .today).decision == .peek)
         let noClick = request(to: address, gesture: false)
         #expect(PopupPolicy.outcome(for: noClick, openerZone: .today).decision == .block)
     }
