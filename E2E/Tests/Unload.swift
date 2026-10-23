@@ -7,6 +7,7 @@ import Foundation
 enum UnloadTests {
     static let all: [any E2ETest] = [
         UnloadEngineReloadTest(), UnloadOffTest(), UnloadPolicyTest(), UnloadExemptTest(), UnloadPressureTest(),
+        UnloadDialogTest(),
     ]
 
     /// Longer than every idle limit at normal pressure, pinned tabs included.
@@ -67,10 +68,18 @@ struct UnloadEngineReloadTest: E2ETest {
         let page = try await UnloadTests.openWindow(run, "home")
         let other = try await UnloadTests.openBackground(run, ["away"], besides: page)[0]
         let item = try app.unloadItem(of: other)
+        try await run.step("wait for the tab's icon", timeout: E2ETimeouts.step) {
+            guard try await TabEdgesTests.until({ try app.unloadTabState(item, besides: page).hasFavicon }) else {
+                throw E2EError("the tab's row never showed its icon")
+            }
+        }
         let (unloaded, during) = try await run.step("unload through the engine", timeout: E2ETimeouts.step) {
             let unloaded = try await app.unloadThroughEngine(other)
+            // The window hears of the unload on a later main thread task: wait until it has let go of the page.
+            _ = try await TabEdgesTests.until { try app.unloadTabState(item, besides: page).isReleased }
             return (unloaded, try app.unloadTabState(item, besides: page))
         }
+        let icon = during.hasFavicon
         let after = try await run.step("choose the unloaded tab", timeout: E2ETimeouts.firstLoad) {
             try edges.selectSavedTab(item, besides: page)
             _ = try await TabEdgesTests.until {
@@ -82,10 +91,11 @@ struct UnloadEngineReloadTest: E2ETest {
         let path = URL(string: after.url).map { "\($0.path)?\($0.query ?? "")" } ?? after.url
         run.check(
             name,
-            passed: unloaded && during.isListed && !during.isLoaded
+            passed: unloaded && during.isListed && !during.isLoaded && icon
                 && during.url == UnloadTests.url("away").absoluteString && during.title == "Unload away"
                 && after.isLoaded && after.isShown && after.url == UnloadTests.url("away").absoluteString,
             "unloaded=\(unloaded) row=\(during.isListed ? "kept" : "gone") title=\"\(during.title)\""
+                + " icon=\(icon ? "kept" : "gone")"
                 + " reloaded=\(after.isShown) url=\(path)")
     }
 }
@@ -215,5 +225,45 @@ struct UnloadPressureTest: E2ETest {
             name, passed: idle == 0 && pressure == 1 && states[0].isShown && !states[1].isLoaded,
             "idle_pass=\(idle) critical=\(pressure) active=\(UnloadTests.describe(states[0]))"
                 + " background=\(UnloadTests.describe(states[1]))")
+    }
+}
+
+/// A background tab's alert shows as a sheet on its window: a pass while it is up unloads nothing and leaves the
+/// alert for the person to answer; once it is answered, the next pass unloads the tab.
+struct UnloadDialogTest: E2ETest {
+    let name = "unload.dialog"
+
+    func run(_ run: E2ERun) async throws {
+        let (app, _) = try UnloadTests.apps(run)
+        defer { app.resetUnloader() }
+        let page = try await UnloadTests.openWindow(run, "home")
+        let other = try await UnloadTests.openBackground(run, ["dialog"], besides: page)[0]
+        let item = try app.unloadItem(of: other)
+        try await run.step("show an alert from the background tab", timeout: E2ETimeouts.step) {
+            _ = try await other.evaluate("setTimeout(() => alert('unload dialog'), 0); true")
+            guard try await TabEdgesTests.until({ try app.unloadDialogShown(besides: page) }) else {
+                throw E2EError("the alert never showed")
+            }
+        }
+        let (during, duringState, sheetKept) = try await run.step("pass with the alert up", timeout: E2ETimeouts.step) {
+            try app.setUnloadEnabled(true)
+            try app.useManualUnloadClock()
+            try app.advanceUnloadClock(by: UnloadTests.longIdle)
+            let unloaded = try await app.runUnloadPass()
+            return (unloaded, try app.unloadTabState(item, besides: page), try app.unloadDialogShown(besides: page))
+        }
+        let (after, afterState) = try await run.step("answer the alert, then pass", timeout: E2ETimeouts.step) {
+            guard try app.cancelUnloadDialog(besides: page) else { throw E2EError("no alert to answer") }
+            // The alert is answered once the page runs script again.
+            _ = try await other.evaluate("true")
+            let unloaded = try await app.runUnloadPass()
+            return (unloaded, try app.unloadTabState(item, besides: page))
+        }
+        run.check(
+            name,
+            passed: during == 0 && duringState.isLoaded && sheetKept && after == 1 && !afterState.isLoaded
+                && afterState.isListed,
+            "with-alert=\(during) tab=\(UnloadTests.describe(duringState)) alert=\(sheetKept ? "kept" : "gone")"
+                + " answered=\(after) tab=\(UnloadTests.describe(afterState))")
     }
 }

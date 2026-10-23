@@ -23,6 +23,11 @@ protocol E2EUnloadApp: E2EApp {
     func unloadItem(of page: any E2EPage) throws -> String
     /// Sidebar tab `item` of `page`'s window as the checks read it.
     func unloadTabState(_ item: String, besides page: any E2EPage) throws -> E2EUnloadTabState
+    /// Whether a page's dialog is up: the engine's own alert panel (app modal) or a sheet on `page`'s window (a
+    /// leave prompt).
+    func unloadDialogShown(besides page: any E2EPage) throws -> Bool
+    /// Answers that dialog with Cancel, as a person pressing Escape does. Returns whether there was one.
+    func cancelUnloadDialog(besides page: any E2EPage) throws -> Bool
     /// Turns the setting off and puts the real clock back. Never refused, so a test can always clean up.
     func resetUnloader()
 }
@@ -40,4 +45,8 @@ struct E2EUnloadTabState: Equatable {
     var title: String
     /// Its page is using the camera or microphone.
     var isCapturing: Bool
+    /// The window holds no page for it (it has heard the page closed or unloaded).
+    var isReleased: Bool
+    /// Its row shows a site icon.
+    var hasFavicon: Bool
 }
