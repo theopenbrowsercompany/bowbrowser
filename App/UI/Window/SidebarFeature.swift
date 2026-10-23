@@ -67,7 +67,7 @@ final class SidebarFeature: NSResponder, BrowserWindowFeature, SidebarViewDelega
     /// that is at `index` once `id` has left its own (in that tab's section or folder, so it pins or unpins when that
     /// is the other zone), or to the end of today past the last tab. Returns whether it moved.
     @discardableResult
-    func moveTab(_ id: BrowserTabID, to index: Int) -> Bool {
+    func dropTab(_ id: BrowserTabID, atTabIndex index: Int) -> Bool {
         let graph = window.store.graph
         guard let item = window.sidebarItemID(for: id), let space = graph.activeSpace else { return false }
         let others = graph.tabIDs(in: space.id).filter { $0 != item }

@@ -813,7 +813,7 @@ extension E2EAppAdapter {
         guard let id = page.controller.modelID(of: page.tab) else {
             throw E2EError("tab \(page.tab.tabID) is not in its window")
         }
-        guard page.controller.sidebarFeature.moveTab(id, to: index) else {
+        guard page.controller.sidebarFeature.dropTab(id, atTabIndex: index) else {
             throw E2EError("the sidebar refused to move the tab to \(index)")
         }
     }
