@@ -136,6 +136,7 @@ final class SidebarView: NSView, NSOutlineViewDataSource, NSOutlineViewDelegate,
         outlineView.delegate = self
         outlineView.target = self
         outlineView.action = #selector(outlineClicked(_:))
+        outlineView.doubleAction = #selector(outlineDoubleClicked(_:))
         outlineView.registerForDraggedTypes([Self.dragType])
         outlineView.draggingDestinationFeedbackStyle = .gap
         outlineView.setAccessibilityLabel("Tabs")
@@ -506,6 +507,19 @@ final class SidebarView: NSView, NSOutlineViewDataSource, NSOutlineViewDelegate,
             content.graph[id]?.data.isTab == true
         else { return }
         delegate?.select(id)
+    }
+
+    @objc private func outlineDoubleClicked(_ sender: Any?) {
+        doubleClickRow(outlineView.clickedRow)
+    }
+
+    /// What a double click on row `row` does beyond its two clicks: on a folder or split row it starts renaming it in
+    /// place (`SidebarActionContext.beginRename`). Elsewhere it does nothing more.
+    func doubleClickRow(_ row: Int) {
+        guard row >= 0, let id = (outlineView.item(atRow: row) as? SidebarNode)?.itemID,
+            let item = content.graph[id], !item.data.isTab, !item.data.isContainer
+        else { return }
+        delegate?.beginRename(id)
     }
 
     /// A drop the outline resolved: what it makes, and the row and child index the outline shows its gap at (-1, on
