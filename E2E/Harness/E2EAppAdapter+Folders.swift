@@ -71,6 +71,38 @@ extension E2ETestApp: E2EFoldersApp {
         }
     }
 
+    func dragSidebarRow(_ row: Int, gapBelowRow gapRow: Int, atXOfRow xRow: Int, in page: any E2EPage) throws -> Int {
+        try adapter.requireActive(token, "drag a sidebar row into a gap")
+        let sidebar = try E2EAppAdapter.tabPage(page).controller.e2eSidebar
+        guard let outline = sidebar.outlineView as? SidebarOutlineView else { throw E2EError("no sidebar outline") }
+        let rows = 0..<outline.numberOfRows
+        guard rows.contains(row), rows.contains(gapRow), rows.contains(xRow),
+            let id = (outline.item(atRow: row) as? SidebarNode)?.itemID, let above = outline.item(atRow: gapRow)
+        else { throw E2EError("rows \(row), \(gapRow) and \(xRow) are not all rows") }
+        // The outline's own proposal for the gap: the open folder's first slot, else right after the row above.
+        let proposed: (item: Any?, childIndex: Int) =
+            outline.isExpandable(above) && outline.isItemExpanded(above)
+            ? (above, 0) : (outline.parent(forItem: above), outline.childIndex(forItem: above) + 1)
+        // A person aims at the icon, 8 points into the row's cell.
+        let pointerX = outline.frameOfCell(atColumn: 0, row: xRow).minX + 8
+        // What validateDrop does with it: retarget the level, then resolve the drop the outline shows its gap at.
+        let target = outline.retargetedDrop(
+            proposedItem: proposed.item, childIndex: proposed.childIndex, pointerX: pointerX)
+        guard let proposal = sidebar.proposeDrop(of: id, on: target.item as? SidebarNode, childIndex: target.childIndex)
+        else { throw E2EError("the sidebar refused to drop row \(row) below row \(gapRow) at row \(xRow)'s x") }
+        let gapLevel = outline.level(forItem: proposal.node) + 1
+        guard sidebar.acceptDrop(of: id, on: proposal.node, childIndex: proposal.childIndex) else {
+            throw E2EError("the sidebar did not take the drop of row \(row) below row \(gapRow)")
+        }
+        return gapLevel
+    }
+
+    func sidebarRowHeights(of page: any E2EPage) throws -> [Double] {
+        try adapter.requireActive(token, "read the sidebar's row heights")
+        let outline = try E2EAppAdapter.tabPage(page).controller.e2eSidebar.outlineView
+        return (0..<outline.numberOfRows).map { Double(outline.rect(ofRow: $0).height) }
+    }
+
     func sidebarSheet(in page: any E2EPage) throws -> E2ESheet? {
         try adapter.requireActive(token, "read a window's sheet")
         guard let attached = try E2EAppAdapter.tabPage(page).controller.window?.attachedSheet,

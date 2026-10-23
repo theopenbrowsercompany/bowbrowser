@@ -36,6 +36,13 @@ protocol E2EFoldersApp: E2EZonesApp, E2EStoreSeedApp, E2EStoreApp {
     /// Drags the item of row `row` (a tab, folder or split) onto the outline as `E2EZonesApp.dragTab` does. Throws
     /// when the sidebar refuses the drop.
     func dragSidebarRow(_ row: Int, onRow target: Int?, childIndex: Int, in page: any E2EPage) throws
+    /// Drags the item of row `row` into the gap below row `gapRow` with the pointer at the x of row `xRow`'s icon,
+    /// as the outline proposes it (the deepest place the gap offers) and retargets its level by the pointer's x.
+    /// Returns the level the outline's drop gap shows (one more than its drop row's). Throws when the sidebar refuses
+    /// the drop.
+    func dragSidebarRow(_ row: Int, gapBelowRow gapRow: Int, atXOfRow xRow: Int, in page: any E2EPage) throws -> Int
+    /// The height of each row of the outline, top to bottom, as the outline lays it out now.
+    func sidebarRowHeights(of page: any E2EPage) throws -> [Double]
     /// The sheet attached to `page`'s window, nil when there is none.
     func sidebarSheet(in page: any E2EPage) throws -> E2ESheet?
     /// Clicks the button titled `title` on the sheet attached to `page`'s window.

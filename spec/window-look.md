@@ -12,8 +12,10 @@ It uses Bow's brand colors as light and dark tokens, soft radii and one soft sha
 - The sidebar's top row, level with the window buttons, holds Back, Forward and Reload as plain 17 point icons in Soft, right aligned.
 - The page is a White card inset 8 points from the frame at the top, trailing and bottom edges (the sidebar side meets the sidebar), with 10 point continuous rounded corners and one soft shadow (1 point down, 3 point blur, 14 percent Night).
 - A click near the card's top edge reaches the page.
+- Pressing and dragging on the frame around the card (its 8 point inset) or on the sidebar's empty top area moves the window, as a title bar does; the card itself and every control keep their clicks, so the card's top edge does not drag the window.
 - Favorites are tiles 44 points tall in 4 equal columns 8 points apart, filling the sidebar between its padding (about 53.5 points wide at 264), with 10 point corners in Pin; site icons are 20 points.
 - The Space name is a group label below the Favorites and above the Space's tabs, as in Arc: 11 point bold uppercase in Soft, with letter spacing, inset 10 points within the sidebar's padding.
+  It is a row of the list and scrolls with the tabs.
 - Tab rows are 34 points tall with 15 point site icons and 10 points between icon and title; rows inside a folder are 32 points tall and step in 22 points per level, so their icons sit under the folder's name, while rows directly under the Space name keep their place.
 - The active tab's row is lifted: Active fill, 9 point corners, the soft shadow and a bold title; a hovered row is tinted Pin; other rows have no background.
 - Folder rows show a chevron and a semibold name.

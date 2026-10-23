@@ -1,4 +1,5 @@
 import AppKit
+import BowCore
 
 /// The sidebar's outline, placing its rows' views as the reference design does:
 /// - a section header (level 0: the Favorites grid, the Space name, the divider) spans the whole row, so it lays out
@@ -40,15 +41,6 @@ final class SidebarOutlineView: NSOutlineView {
         return frame
     }
 
-    /// The outline's level for `item`, or, for an item it has no row for yet (a folder's child while the folder opens,
-    /// when the outline asks its row's height), the depth of its node, so its row is sized for its level from the
-    /// first layout.
-    override func level(forItem item: Any?) -> Int {
-        let level = super.level(forItem: item)
-        guard level < 0, let node = item as? SidebarNode else { return level }
-        return sequence(first: node, next: \.parent).dropFirst().reduce(0) { count, _ in count + 1 }
-    }
-
     // MARK: Drop level
 
     /// Retargets a drop the outline proposes in a gap (`childIndex` 0 or more in `item`, nil for the top level) to
@@ -63,15 +55,17 @@ final class SidebarOutlineView: NSOutlineView {
     }
 
     /// Where a drop in the gap below row `row` lands with the pointer at `pointerX`: a parent and a child index in it.
-    /// Nil when `row` is not a row.
+    /// Nil when `row` is not an item's row: below a section's header row the gap has one place only, which the
+    /// outline's proposal already names.
     func retargetedDrop(gapBelowRow row: Int, pointerX: CGFloat) -> (item: Any?, childIndex: Int)? {
-        guard row >= 0, row < numberOfRows, let above = item(atRow: row) else { return nil }
+        guard row >= 0, row < numberOfRows, let above = item(atRow: row), level(forRow: row) > 0 else { return nil }
         let aboveLevel = level(forRow: row)
         let below = row + 1 < numberOfRows ? level(forRow: row + 1) : nil
         let opens = isExpandable(above) && isItemExpanded(above)
         let levels = SidebarDropLevel.levels(above: aboveLevel, aboveOpensChildren: opens, below: below)
         let level = SidebarDropLevel.level(
-            pointerX: Double(pointerX), firstLevelX: Double(firstLevelX(near: row)), step: Double(Self.childIndent),
+            pointerX: Double(pointerX), firstLevelX: Double(firstLevelX(measuredOn: row)),
+            step: Double(Self.childIndent),
             in: levels)
         if level > aboveLevel { return (above, 0) }
         // The row above's ancestor at that level; the drop goes right after it in its parent.
@@ -80,14 +74,9 @@ final class SidebarOutlineView: NSOutlineView {
         return (parent(forItem: ancestor), childIndex(forItem: ancestor) + 1)
     }
 
-    /// Where rows at level 1 start their cell: measured on row `row` or, for a section header, the row below it.
-    private func firstLevelX(near row: Int) -> CGFloat {
-        let measured = level(forRow: row) > 0 ? row : row + 1
-        guard measured < numberOfRows, level(forRow: measured) > 0 else {
-            return CGFloat(indentationPerLevel)
-        }
-        let level = level(forRow: measured)
-        return frameOfCell(atColumn: 0, row: measured).minX - CGFloat(level - 1) * Self.childIndent
+    /// Where rows at level 1 start their cell, measured on item row `row`.
+    private func firstLevelX(measuredOn row: Int) -> CGFloat {
+        frameOfCell(atColumn: 0, row: row).minX - CGFloat(level(forRow: row) - 1) * Self.childIndent
     }
 
     /// The row just above the gap at child `index` of `item` (nil for the top level): the item itself for its first

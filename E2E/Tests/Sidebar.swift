@@ -6,7 +6,27 @@ import Foundation
 enum SidebarViewTests {
     static let all: [any E2ETest] = [
         SidebarTabsTest(), SidebarLongTitleTest(), SidebarMenuShortcutsTest(), SidebarSeedTest(),
+        SidebarWindowDragTest(),
     ]
+}
+
+/// The frame around the page card and the sidebar's empty top area drag the window as a title bar does, while a
+/// press just inside the card's top edge stays the page's.
+struct SidebarWindowDragTest: E2ETest {
+    let name = "sidebar.windowDrag"
+
+    func run(_ run: E2ERun) async throws {
+        guard let app = run.app as? any E2EWindowDragApp else { throw E2EError("the app cannot read window drags") }
+        let page = try await run.step("open a window", timeout: E2ETimeouts.firstLoad) {
+            let page = try await app.openWindow(at: E2EFixture.url("sidebar/page.html?name=Drag"))
+            _ = try await page.waitForLoad(after: 0)
+            return page
+        }
+        let places = try app.windowDragPlaces(of: page)
+        let want = E2EWindowDragPlaces(
+            trailingInset: true, bottomInset: true, sidebarTop: true, cardTop: false, cardTopReachesPage: true)
+        run.check("sidebar.windowDrag", passed: places == want, places.description)
+    }
 }
 
 /// Waits on the sidebar shared by the sidebar and tab list tests.

@@ -46,6 +46,37 @@ extension E2ETestApp: E2ESidebarApp {
     }
 }
 
+extension E2ETestApp: E2EWindowDragApp {
+    func windowDragPlaces(of page: any E2EPage) throws -> E2EWindowDragPlaces {
+        try adapter.requireActive(token, "read where the window drags")
+        let controller = try E2EAppAdapter.tabPage(page).controller
+        guard let window = controller.window, let content = window.contentView, let frame = content.superview,
+            let dragArea = controller.feature(WindowLookFeature.self)?.dragArea,
+            let card = controller.pageShadowContainer?.frame
+        else { throw E2EError("the window has no content, drag area or page card") }
+        content.layoutSubtreeIfNeeded()
+        let bounds = content.bounds
+        // The title bar band: above the content layout rect, where AppKit's title bar takes a press on a view that
+        // lets it (mouseDownCanMoveWindow) and is no control.
+        let titleBarBottom = content.convert(window.contentLayoutRect, from: frame).maxY
+        func hit(_ point: NSPoint) -> NSView? { frame.hitTest(content.convert(point, to: frame)) }
+        func drags(_ point: NSPoint) -> Bool {
+            guard let hit = hit(point) else { return false }
+            if hit === dragArea { return true }
+            // The page handles its own presses; a plain view in the title bar band passes them on to the title bar.
+            return point.y >= titleBarBottom && hit.mouseDownCanMoveWindow && !(hit is NSControl)
+                && !hit.isDescendant(of: controller.webView)
+        }
+        let cardTop = NSPoint(x: card.midX, y: card.maxY - 10)
+        return E2EWindowDragPlaces(
+            trailingInset: drags(NSPoint(x: bounds.maxX - BowBrand.pageInset / 2, y: bounds.midY)),
+            bottomInset: drags(NSPoint(x: card.midX, y: bounds.minY + BowBrand.pageInset / 2)),
+            // Between the window buttons and the navigation buttons, level with both.
+            sidebarTop: drags(NSPoint(x: SidebarView.width * 0.4, y: (bounds.maxY + titleBarBottom) / 2)),
+            cardTop: drags(cardTop), cardTopReachesPage: hit(cardTop)?.isDescendant(of: controller.webView) == true)
+    }
+}
+
 extension E2ETestApp: E2EZonesApp {
     func sidebarOutline(of page: any E2EPage) throws -> [String] {
         try adapter.sidebarOutline(of: page)

@@ -43,6 +43,31 @@ protocol E2ESidebarApp: E2EApp {
     func moveTab(_ page: any E2EPage, to index: Int) throws
 }
 
+/// Where a press drags the window (`E2EWindowDragApp.windowDragPlaces(of:)`): the view AppKit hit-tests at each place
+/// and whether a press there moves the window, by the window's drag area or, in the title bar band, by a view that
+/// lets the title bar take the press.
+struct E2EWindowDragPlaces: Equatable, CustomStringConvertible {
+    var trailingInset: Bool
+    var bottomInset: Bool
+    var sidebarTop: Bool
+    var cardTop: Bool
+    /// Whether a press 10 points inside the card's top edge reaches the page's own view.
+    var cardTopReachesPage: Bool
+
+    var description: String {
+        "trailing_inset=\(trailingInset) bottom_inset=\(bottomInset) sidebar_top=\(sidebarTop) card_top=\(cardTop)"
+            + " card_top_page=\(cardTopReachesPage)"
+    }
+}
+
+/// Dragging the window by its frame, as a test reads it.
+@MainActor
+protocol E2EWindowDragApp: E2EApp {
+    /// Whether a press drags the window at the middle of the frame's trailing and bottom insets, on the sidebar's
+    /// empty top area and 10 points inside the page card's top edge, in `page`'s window.
+    func windowDragPlaces(of page: any E2EPage) throws -> E2EWindowDragPlaces
+}
+
 /// One row of the sidebar outline (`E2EZonesApp.sidebarOutlineRows(of:)`): its text and its depth.
 struct E2EOutlineRow: Equatable, CustomStringConvertible {
     var title: String
