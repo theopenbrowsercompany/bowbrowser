@@ -23,5 +23,7 @@ enum WindowFeatures {
         ToolbarFeature.self,
         CollapseFoldersFeature.self,
         TopTabsLayoutFeature.self,
+        ZoomFeature.self,
+        CrashedTabFeature.self,
     ]
 }

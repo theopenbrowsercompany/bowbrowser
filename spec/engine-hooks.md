@@ -23,6 +23,12 @@ This spec covers what those hooks promise; the features that use them have their
 - New Tab: choosing New Tab asks the features first (the command bar takes it once it exists); with no taker a new tab opens on the new tab page.
 - Page container: window chrome can inset the page area, round its corners and run the window's content under a transparent title bar without changing the window core; by default the page fills the window beside the sidebar with square corners.
 - Zoom: zooming a page zooms every tab on the same site in that profile, now and later.
+- Zoom keys and menu: Cmd+plus (also Cmd+=), Cmd+minus and Cmd+0 are taken before the page, and View > Zoom In, Zoom Out and Actual Size do the same.
+  Zoom In and Out move to the next preset size (25, 33, 50, 67, 75, 80, 90, 100, 110, 125, 150, 175, 200, 250, 300, 400, 500 percent), Actual Size goes back to 100%, and another site keeps its own zoom.
+  The items are disabled at the largest and smallest size, and Actual Size at 100%; the keys are still taken there, so the page never sees them.
+- Crashed page: when a tab's page process ends (a crash, a kill or running out of memory), the page area shows "This page crashed" with a Reload button while that tab is shown.
+  Reload reloads the tab and takes the message away, as does any navigation the tab starts; a tab that crashed in the background shows the message once it is shown.
+- Copy Image: the context menu's Copy Image puts the image itself on the pasteboard, fetched through the tab's own profile; an image that cannot be fetched leaves the pasteboard alone.
 - Unloading: the app can free a page's memory and keep its tab (see `unload.md`).
 - Why a tab closed: once a tab has closed, the app can tell whether it closed it, the page closed itself (`window.close()`, or a page that could not be created at all), or quitting closed it, so a window drops a tab that closed itself from its sidebar.
 - Sound: a tab never reports playing sound yet, because the engine version Bow uses gives no signal for it.
@@ -59,6 +65,7 @@ This spec covers what those hooks promise; the features that use them have their
 4. `make test` checks that no app shortcut is claimed by two features.
 5. Run `make e2e E2E=window`: right clicking a link reaches the app with its address, and choosing Open Link in New Tab opens it as the next tab, printing `PASS window.context-menu: link=opened.html tabs=[A,B]` followed by the items shown; choosing Inspect asks the tab's DevTools to inspect the element under the pointer with nothing shown on screen, printing `PASS window.inspect: requests=1 at-element=true`.
 6. `make test` checks Bow's menu for links, images, fields, selections and bare pages.
+7. Run `make e2e E2E=page`: `PASS page.zoom.keys`, `PASS page.zoom.menu` and `PASS page.zoom.site` for zoom by key and menu with another site keeping its own level; `PASS page.crash.overlay` and `PASS page.crash.reload` for a crashed page and its Reload button; `PASS page.copy-image` for the copied image's data.
 
 ## Out of scope
 
