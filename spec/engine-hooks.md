@@ -19,6 +19,7 @@ This spec covers what those hooks promise; the features that use them have their
 ## Edge cases
 
 - A page that closes itself while the app is closing it counts as closed by the app.
+- A tab that closed while quitting counts as closed by quitting, even when another page then asks to stay and the quit is cancelled.
 - A page opened as a tab whose opener closes before the new page exists is closed, never left without an owner.
 - Pressing another key before releasing a claimed one still keeps the claimed key's release from the page.
 

@@ -97,6 +97,7 @@ bool BowTabClient::OnBeforePopup(CefRefPtr<CefBrowser> browser,
 void BowTabClient::OnBeforePopupAborted(CefRefPtr<CefBrowser> browser, int popupID) {
   BowTab* newTab = [pendingPopupTabs_ objectForKey:@(popupID)];
   [pendingPopupTabs_ removeObjectForKey:@(popupID)];
+  if (newTab) newTab->_client->openerClient_ = nullptr;
   [newTab popupCreationFailed];
 }
 
@@ -138,7 +139,10 @@ bool BowTabClient::DoClose(CefRefPtr<CefBrowser> browser) {
 void BowTabClient::OnBeforeClose(CefRefPtr<CefBrowser> browser) {
   if (IsOwn(browser)) {
     // CEF skips OnBeforePopupAborted once the opener is gone, so popup tabs still waiting for a browser end here.
-    for (BowTab* newTab in pendingPopupTabs_.objectEnumerator.allObjects) [newTab popupCreationFailed];
+    for (BowTab* newTab in pendingPopupTabs_.objectEnumerator.allObjects) {
+      newTab->_client->openerClient_ = nullptr;
+      [newTab popupCreationFailed];
+    }
     [pendingPopupTabs_ removeAllObjects];
     [tab_ browserClosed];
   }

@@ -44,9 +44,11 @@ NS_SWIFT_UI_ACTOR
 /// asked about.
 - (BowPopupDecision)tab:(BowTab *)tab decidePopup:(BowPopupRequest *)request NS_SWIFT_NAME(tab(_:decidePopup:));
 
-/// A popup decided as a tab arrived as `newTab`, in the same profile and still connected to its opener. Called on a
-/// later main thread task. The app owns the new tab from now on; without this method (or once the delegate is gone)
-/// the tab closes.
+/// A popup decided as a tab arrived as `newTab`, in the same profile and still connected to its opener. Called at
+/// once, right after the decision and inside the engine's callback, before the new tab's browser exists, so its
+/// first navigation reaches its new owner: take the tab (keep it, attach it, load or close it later) but show no
+/// modal UI and do not close the opener here. The app owns the new tab from now on; without this method the tab
+/// closes.
 - (void)tab:(BowTab *)tab
     didOpenPopupTab:(BowTab *)newTab
             request:(BowPopupRequest *)request NS_SWIFT_NAME(tab(_:didOpenPopup:request:));
