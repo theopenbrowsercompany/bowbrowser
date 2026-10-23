@@ -42,6 +42,8 @@ struct E2EStartScreenLook {
     var placeholderFont: E2EFontInfo?
     /// The titles of the quick links on screen, in order (links left out for lack of room are not listed).
     var linkTitles: [String]
+    /// For each quick link on screen, in order, whether its tile shows the site's icon rather than a letter.
+    var linkIcons: [Bool] = []
     /// The first link's frame (76 wide) and its tile's size, radius and fill; zero without links.
     var linkFrame: CGRect
     var tileSize: CGSize

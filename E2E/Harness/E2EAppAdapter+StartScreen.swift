@@ -101,6 +101,7 @@ extension E2EAppAdapter {
             placeholder: screen.searchPill.placeholderLabel.stringValue,
             placeholderFont: info(screen.searchPill.placeholderLabel.font),
             linkTitles: visibleLinks.map(\.titleLabel.stringValue),
+            linkIcons: visibleLinks.map { $0.iconView.image != nil && !$0.iconView.isHidden },
             linkFrame: first.map(frame) ?? .zero,
             tileSize: first?.tile.frame.size ?? .zero,
             tileRadius: Double(first?.tile.layer?.cornerRadius ?? 0),
