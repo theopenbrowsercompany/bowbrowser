@@ -109,7 +109,7 @@ struct AuthSignInTest: E2ETest {
         let expected = E2ESignInSheet(
             title: "Sign in", message: AuthTests.message(realm), buttons: ["Sign In", "Cancel"],
             defaultButton: "Sign In",
-            fieldsReady: true, isAttached: true)
+            fieldsReady: true, isAttached: true, offScreen: true)
         let signedIn = fixtures.authorizedRequests - authorized
         run.check(
             name,
@@ -185,7 +185,7 @@ struct AuthRetryTest: E2ETest {
         run.check(
             name,
             passed: first.message == AuthTests.message(realm) && second.message == AuthTests.message(realm)
-                && second.fieldsReady && title == "Signed in" && questions.count == 2
+                && second.fieldsReady && second.offScreen && title == "Signed in" && questions.count == 2
                 && questions.allSatisfy { $0.answered && $0.answeredUser == E2ELoopback.authUser } && signedIn == 1
                 && refused == 2,
             "first=\(first) second=\(second) title=\(title) questions=\(questions) signed-in=\(signedIn) "
@@ -280,7 +280,9 @@ struct AuthCloseTest: E2ETest {
         run.check(
             "auth.background",
             passed: hiddenSheet == nil && waits && hiddenQuestions.first?.answered == false && shown.isAttached
-                && awaySheet == nil && back.isAttached && final.count == 1 && final.first?.answeredUser == nil,
+                && shown.offScreen
+                && awaySheet == nil && back.isAttached && back.offScreen && final.count == 1
+                && final.first?.answeredUser == nil,
             "hidden-sheet=\(AuthTests.describe(hiddenSheet)) waits=\(waits) hidden=\(hiddenQuestions) "
                 + "shown=\(shown.isAttached) away=\(AuthTests.describe(awaySheet)) back=\(back.isAttached) "
                 + "final=\(final)")

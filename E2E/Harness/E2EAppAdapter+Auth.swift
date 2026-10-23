@@ -15,7 +15,11 @@ extension E2ETestApp: E2EAuthApp {
             title: alert.messageText, message: alert.informativeText, buttons: alert.buttons.map(\.title),
             defaultButton: alert.window.defaultButtonCell?.title ?? "",
             fieldsReady: sheet.user.stringValue.isEmpty && sheet.password.stringValue.isEmpty,
-            isAttached: controller.window != nil && alert.window.sheetParent === controller.window)
+            isAttached: controller.window != nil && alert.window.sheetParent === controller.window,
+            offScreen: [controller.window, alert.window].allSatisfy { window in
+                guard let frame = window?.frame else { return true }
+                return !NSScreen.screens.contains { $0.frame.intersects(frame) }
+            })
     }
 
     func signInWaits(for page: any E2EPage) throws -> Bool {

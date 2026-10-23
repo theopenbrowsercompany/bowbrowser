@@ -32,9 +32,12 @@ struct E2ESignInSheet: Equatable, CustomStringConvertible {
     var fieldsReady: Bool
     /// The sheet is attached to the window (not queued or floating).
     var isAttached: Bool
+    /// The window and its sheet are still on no screen, as an e2e window must stay.
+    var offScreen: Bool
 
     var description: String {
         "title=\"\(title)\" message=\"\(message)\" buttons=\(buttons.joined(separator: "+"))"
+            + (offScreen ? "" : " on-screen")
             + " default=\(defaultButton.isEmpty ? "none" : defaultButton)" + (fieldsReady ? "" : " fields-not-ready")
             + (isAttached ? "" : " detached")
     }
