@@ -49,7 +49,7 @@ protocol SidebarActionContext: AnyObject {
     func favicon(for item: SidebarItemID) -> NSImage?
     /// Opens Favorite `item` (a click on it in the Favorites grid): its saved page loads in a new tab in today of the
     /// Space on screen, which is shown, as opening any address does. Returns whether a tab opened; false for an item
-    /// that is not a tab in the Favorites.
+    /// that is not a tab in the Favorites the Space on screen shows.
     @discardableResult
     func open(favorite item: SidebarItemID) -> Bool
     /// Makes the name of folder or split `item` editable in its row (a "Rename" menu item, a new folder); the new

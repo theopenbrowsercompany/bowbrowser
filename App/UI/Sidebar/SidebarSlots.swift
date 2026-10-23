@@ -80,8 +80,9 @@ struct SidebarSwipe: Equatable, Sendable {
 /// Extension point: return the handler from an accessory's `SidebarAccessory.swipeHandler` (the Space switcher
 /// accessory, which is made with the sidebar), or assign `SidebarView.swipeHandler` from code that holds the view
 /// once the window has opened. A window feature cannot do it from its `init`: the window finds its features only
-/// after making all of them. The sidebar keeps its handler, so the handler must not keep the sidebar or its window
-/// (hold the context it is given instead).
+/// after making all of them. The sidebar keeps its handler strongly, so the handler must not keep the sidebar, its
+/// window or the context strongly (the context owns the sidebar): use the context each call is given, or hold it
+/// weakly.
 ///
 /// Without a handler, every scroll goes to the outline as before. With one, a trackpad scroll whose first few
 /// points of movement are mostly sideways (more than twice as far as vertically) is the handler's from then until

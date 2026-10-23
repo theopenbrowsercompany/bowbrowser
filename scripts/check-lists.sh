@@ -29,7 +29,7 @@ for file in $swift_lists; do
   [ -f "$file" ] || { fail "$file is missing"; continue; }
   # Each entry is printed as "<list number> <entry>", so duplicates are found per list.
   entries=$(awk -v file="$file" '
-    /static let all/ {
+    /^ *static let all[:= ]/ {
       if (inside) { printf "%s:%d: a list opens before the one above it closes\n", file, NR > "/dev/stderr"; bad = 1 }
       inside = 0
       if ($0 !~ /^    static let all: .* = \[$/) {
