@@ -59,16 +59,10 @@ final class E2EEngineProbe: EngineTabDelegate {
     }
 
     /// Waits until `condition` holds, within the running step's wait budget, and throws naming `what` otherwise.
-    func until(_ what: String, _ condition: () -> Bool) async throws {
-        let deadline = Date().addingTimeInterval(E2EWaits.budget())
-        while !condition() {
-            if Date() > deadline { throw E2EError("gave up waiting for \(what)") }
-            try await Task.sleep(nanoseconds: 50_000_000)
-        }
-    }
-
-    /// Waits until `condition` holds, running `refresh` (which reads the page) before each look.
-    func until(_ what: String, _ condition: () -> Bool, refresh: () async throws -> Void) async throws {
+    /// `refresh` (for example reading the page) runs before each look.
+    func until(
+        _ what: String, _ condition: () -> Bool, refresh: () async throws -> Void = {}
+    ) async throws {
         let deadline = Date().addingTimeInterval(E2EWaits.budget())
         while true {
             try await refresh()
@@ -121,8 +115,8 @@ final class E2EEngineProbe: EngineTabDelegate {
     }
 
     /// Presses and releases a character key, with Command when `command` is true.
+    /// Call `focusPage` first, so the page can receive it.
     func pressKey(_ character: String, keyCode: Int, macKeyCode: Int, command: Bool = false) async throws {
-        _ = try await devTools("Emulation.setFocusEmulationEnabled", ["enabled": true])
         var down: [String: Any] = [
             "type": "keyDown", "key": character, "code": "Key\(character.uppercased())",
             "windowsVirtualKeyCode": keyCode, "nativeVirtualKeyCode": macKeyCode, "modifiers": command ? 4 : 0,

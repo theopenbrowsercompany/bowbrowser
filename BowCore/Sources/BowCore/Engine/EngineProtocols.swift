@@ -156,7 +156,9 @@ extension EngineTab {
     func tab(_ tab: any EngineTab, decidePopup request: PopupRequest) -> PopupDecision
 
     /// A popup decided as `.foregroundTab` or `.backgroundTab` arrived as a new tab in the same profile, still
-    /// connected to its opener (`window.opener`). The app owns it from now on. Defaults to closing it.
+    /// connected to its opener (`window.opener`). The app owns it from now on. Asked at once, right after
+    /// `decidePopup` and before the new tab's first navigation, so the app's navigation policy covers that too: take
+    /// the tab, but show no modal UI and do not close the opener here. Defaults to closing it.
     func tab(_ tab: any EngineTab, didOpenPopup newTab: any EngineTab, request: PopupRequest)
 
     /// A key event is about to reach the page; true claims it, so the page never sees it. Asked synchronously.

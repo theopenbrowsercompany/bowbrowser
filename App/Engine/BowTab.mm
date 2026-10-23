@@ -253,9 +253,10 @@ void BowTearDownBrowserView(CefRefPtr<CefBrowser> browser) {
 - (void)browserCreated:(CefRefPtr<CefBrowser>)browser {
   if (self.closed) {
     // A popup browser CEF created after the tab had given up on it (its opener closed first) has no owner left:
-    // close it, still parked and never shown. Not from inside OnAfterCreated.
+    // close it, still parked and never shown, without running its beforeunload (nobody could answer a prompt for
+    // it). Not from inside OnAfterCreated.
     dispatch_async(dispatch_get_main_queue(), ^{
-      BowEngineCloseBrowser(browser, true);
+      browser->GetHost()->CloseBrowser(true);
     });
     return;
   }
@@ -283,13 +284,21 @@ void BowTearDownBrowserView(CefRefPtr<CefBrowser> browser) {
 }
 
 - (void)browserWillClose {
+  // The ownerless popup browser browserCreated: closes: the tab reported its close, and its reason, already.
+  if (self.closed) return;
   _willClose = YES;
+  if (_unloading && BowEngineIsQuitting()) {
+    // A quit that began while an unload was pending (the quit's own close request was absorbed by it, and the page
+    // did not prompt) closes the page: the tab reports a close by quitting, and the unload answers NO.
+    _unloading = NO;
+    [self finishCloseCompletions:NO];
+  }
   if (_unloading) return;
-  // A close the app asked for stays the app's even if the page also called window.close().
-  if (BowEngineIsQuitting()) {
-    _closeReason = BowTabCloseReasonQuit;
+  // A close the app asked for stays the app's even if the page also called window.close() or a quit began.
+  if (_closeCompletions.count > 0) {
+    _closeReason = BowTabCloseReasonApp;
   } else {
-    _closeReason = _closeCompletions.count > 0 ? BowTabCloseReasonApp : BowTabCloseReasonPage;
+    _closeReason = BowEngineIsQuitting() ? BowTabCloseReasonQuit : BowTabCloseReasonPage;
   }
 }
 
@@ -363,7 +372,8 @@ void BowTearDownBrowserView(CefRefPtr<CefBrowser> browser) {
 #pragma mark UI requests
 
 // Requests that need an answer reach the UI delegate on a later main thread task, never inside the engine
-// callback, so the app can show modal UI or open tabs safely. Whether the tab takes a request (instead of the
+// callback, so the app can show modal UI or open tabs safely (the popup decision and the popup tab hand-off are
+// the exceptions: both are answered at once, inside OnBeforePopup). Whether the tab takes a request (instead of the
 // engine's default) is decided when it arrives. If the delegate is gone by the time it would be asked, the request
 // answers as cancel, except a beforeunload question, which the tab then asks itself.
 
@@ -509,11 +519,11 @@ void BowTearDownBrowserView(CefRefPtr<CefBrowser> browser) {
     return;
   }
   // A close asked for while an unload is pending wins: the unload answers NO (the tab reports a close, not an
-  // unload), and the page may prompt. Past DoClose the unload had already been accepted, so the close is the app's.
-  if (_unloading) {
+  // unload), and the page may prompt. Past DoClose the unload is done but for the teardown, so it stands and the
+  // close just waits for it (answering YES).
+  if (_unloading && !_willClose) {
     _unloading = NO;
     [self finishCloseCompletions:NO];
-    if (_willClose) _closeReason = BowEngineIsQuitting() ? BowTabCloseReasonQuit : BowTabCloseReasonApp;
   }
   [_closeCompletions addObject:[completion copy]];
   if (!_browser) {
