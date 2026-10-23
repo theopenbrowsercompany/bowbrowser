@@ -37,21 +37,31 @@ import Testing
         #expect(results.first?.url.absoluteString == AddressInput.searchURL + "unmatched%20words")
     }
 
-    @Test func aSlowProviderDoesNotHoldUpTheOthers() async {
+    /// The provider is stuck behind a gate and ignores cancellation, so only the registry's own deadline can
+    /// end the wait. A regression hangs the test until the time limit instead of racing a clock.
+    @Test(.timeLimit(.minutes(1))) func aSlowProviderDoesNotHoldUpTheOthers() async {
         let registry = await registry(timeout: .milliseconds(50))
-        await registry.register(StubCommandBarProvider([], delayMilliseconds: 60_000, ignoresCancellation: true))
-        let start = ContinuousClock.now
-        let results = await registry.results(for: "a")
-        #expect(ContinuousClock.now - start < .seconds(5))
-        #expect(results.first?.title == "A")
+        let gate = Gate()
+        await registry.register(GatedProvider([], gate: gate))
+        var snapshots: [[String]] = []
+        for await update in await registry.updates(for: "a") { snapshots.append(update.map(\.title)) }
+        // Three fast providers and the timed out one each count as an answer.
+        #expect(snapshots.count == 4)
+        #expect(snapshots.last?.first == "A")
+        await gate.open()  // lets the abandoned provider finish, so nothing leaks
     }
 
-    @Test func updatesArriveAsProvidersAnswer() async {
-        let registry = await registry(timeout: .seconds(2))
+    @Test(.timeLimit(.minutes(1))) func updatesArriveAsProvidersAnswer() async {
+        let registry = await registry(timeout: .seconds(60))
         let late = CommandBarCandidate(kind: .history, title: "Late page", url: URL(string: "https://late.test/")!)
-        await registry.register(StubCommandBarProvider([late], delayMilliseconds: 200))
+        let gate = Gate()
+        await registry.register(GatedProvider([late], gate: gate))
         var snapshots: [[String]] = []
-        for await update in await registry.updates(for: "late") { snapshots.append(update.map(\.title)) }
+        for await update in await registry.updates(for: "late") {
+            snapshots.append(update.map(\.title))
+            // Release the late provider only once every fast provider has been heard.
+            if snapshots.count == 3 { await gate.open() }
+        }
         #expect(snapshots.count == 4)
         #expect(snapshots.last?.first == "Late page")
         #expect(snapshots.first?.contains("Late page") == false)
@@ -91,5 +101,38 @@ import Testing
 
     @Test func blankInputGivesNothing() async {
         #expect(await AddressInputProvider().candidates(for: "  ").isEmpty)
+    }
+}
+
+/// A one shot latch: waiters resume when it opens.
+private actor Gate {
+    private var isOpen = false
+    private var waiters: [CheckedContinuation<Void, Never>] = []
+
+    func wait() async {
+        if isOpen { return }
+        await withCheckedContinuation { waiters.append($0) }
+    }
+
+    func open() {
+        isOpen = true
+        for waiter in waiters { waiter.resume() }
+        waiters = []
+    }
+}
+
+/// A provider that answers only after its gate opens.
+private struct GatedProvider: CommandBarProvider {
+    let result: [CommandBarCandidate]
+    let gate: Gate
+
+    init(_ result: [CommandBarCandidate], gate: Gate) {
+        self.result = result
+        self.gate = gate
+    }
+
+    func candidates(for query: String) async -> [CommandBarCandidate] {
+        await gate.wait()
+        return result
     }
 }
