@@ -53,4 +53,31 @@ extension CEFTab: BowTabUIDelegate {
             }
         }
     }
+
+    func tab(
+        _ tab: BowTab,
+        runJavaScriptDialog request: BowJSDialogRequest,
+        completionHandler: @escaping (Bool, String?) -> Void
+    ) {
+        let kind: PageDialogKind
+        switch request.kind {
+        case .alert: kind = .alert
+        case .confirm: kind = .confirm
+        case .prompt: kind = .prompt
+        case .beforeUnload:
+            // The tab asks its leave prompt itself; one never comes here.
+            completionHandler(false, nil)
+            return
+        }
+        let dialog = PageDialog(
+            kind: kind, origin: request.originURL, message: request.message,
+            defaultPromptText: request.defaultPromptText)
+        Task { @MainActor [weak self] in
+            var answer = PageDialogAnswer.cancelled
+            if let self, let delegate = self.delegate {
+                answer = await delegate.tab(self, runDialog: dialog)
+            }
+            completionHandler(answer.accepted, answer.text)
+        }
+    }
 }

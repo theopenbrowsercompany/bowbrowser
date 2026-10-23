@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Dialogs</title>
+  <style>
+    body { margin: 0; font: 16px -apple-system, sans-serif; background: #fff; color: #111; }
+    h1 { margin: 0; padding: 24px; background: #2f6fde; color: #fff; }
+    button { display: block; margin: 16px 24px; padding: 12px 20px; background: #eef; border: 0; font: inherit; }
+  </style>
+  <script>
+    document.title = "Dialogs " + (new URLSearchParams(location.search).get("name") || "?");
+    // Asks for a dialog outside the caller's script, so the caller is not held while it is up, and records what
+    // the page got back in bowResults ("alert:undefined", "confirm:true", "prompt:null") once the call returns.
+    window.bowResults = [];
+    window.bowAsk = (kind, message, value) => setTimeout(() => {
+      const result = kind === "alert" ? alert(message) : kind === "confirm" ? confirm(message) : prompt(message, value);
+      window.bowResults.push(kind + ":" + String(result));
+    }, 0);
+  </script>
+</head>
+<body>
+  <h1>Dialogs fixture</h1>
+  <button id="popup" onclick="window.open('popup.html', '', 'width=320,height=240')">Open a popup window</button>
+  <script>
+    window.bowMessages = [];
+    window.addEventListener("message", (event) => window.bowMessages.push(String(event.data)));
+  </script>
+</body>
+</html>

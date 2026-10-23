@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Dialogs popup</title>
+</head>
+<body>
+  <h1>Popup</h1>
+  <script>
+    // Asks as it loads, tells its opener what it got back, and closes.
+    setTimeout(() => {
+      const alerted = alert("from the popup");
+      const confirmed = confirm("popup confirm");
+      window.opener.postMessage("popup:" + String(alerted) + ":" + String(confirmed), "*");
+      window.close();
+    }, 0);
+  </script>
+</body>
+</html>

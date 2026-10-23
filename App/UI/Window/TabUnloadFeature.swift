@@ -3,9 +3,10 @@ import BowCore
 
 /// Lists a window's loaded tabs, in every Space, for the app's `TabUnloader`, and unloads the ones it picks.
 ///
-/// Never offered: the tab the window shows, every tab while the window closes, shows a sheet (a leave prompt) or the
-/// app shows a modal panel (a page's alert, even from a background tab), which an unload would take away unanswered
-/// (the next pass tries again), a tab whose row left the sidebar,
+/// Never offered: the tab the window shows, every tab while the window closes, shows a sheet (a leave prompt or a
+/// page's dialog) or the app shows a modal panel, which an unload would take away unanswered (the next pass tries
+/// again), a tab whose page dialog waits for the tab to be shown (`PageDialogsFeature`), a tab whose row left the
+/// sidebar,
 /// a tab still loading (a navigation under way), every tab of a profile with a download under way, since the
 /// engine cannot tell which page a download came from and destroying that page would cancel it, a tab the person
 /// typed into since its page last committed a navigation (form input with no beforeunload handler would be lost, as
@@ -89,12 +90,13 @@ final class TabUnloadFeature: NSResponder, BrowserWindowFeature {
         guard let window, Self.isIdle(window) else { return [] }
         let graph = window.store.graph
         let shown = window.selectedTab
+        let dialogs = window.feature(PageDialogsFeature.self)
         var busyProfiles: [ProfileID: Bool] = [:]
         var result: [Candidate] = []
         for entry in loaded.values {
             let tab = entry.tab
             guard !tab.isClosed, window.modelID(of: tab) != nil, let item = graph[entry.item], !tab.state.isLoading,
-                !typedInto.contains(tab.tabID)
+                !typedInto.contains(tab.tabID), dialogs?.hasDialog(for: tab) != true
             else { continue }
             let returnsToSaved = graph.isPinned(entry.item) || graph.isInFavorites(entry.item)
             if returnsToSaved, item.tab?.hasNavigatedAway(from: tab.state.url) == true { continue }
@@ -124,8 +126,8 @@ final class TabUnloadFeature: NSResponder, BrowserWindowFeature {
         return await tab.unload()
     }
 
-    /// The window is neither closing nor showing a sheet, and the app shows no modal panel (the engine shows a page's
-    /// alert as one, even from a background tab), so the window's tabs may be unloaded.
+    /// The window is neither closing nor showing a sheet, and the app shows no modal panel, so the window's tabs may
+    /// be unloaded.
     private static func isIdle(_ window: BrowserWindowController) -> Bool {
         !window.isClosing && window.window?.attachedSheet == nil && NSApp.modalWindow == nil
     }
