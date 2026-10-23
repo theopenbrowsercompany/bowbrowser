@@ -16,6 +16,25 @@ import Testing
         try FileManager.default.contentsOfDirectory(atPath: folder.path).sorted()
     }
 
+    // MARK: Deferred saves
+
+    @Test func applyWithoutSavingKeepsTheChangeInMemoryUntilSave() throws {
+        try withTemporaryFolder { folder in
+            let url = file(in: folder)
+            let store = try SidebarStore(fileURL: url)
+            let tab = SidebarItem.tab(id: "page", url: "https://a.example", title: "A")
+            try store.apply([.insert(tab, parent: store.graph.pinnedID)])
+            try store.apply([.setSavedPage("page", url: "https://b.example", title: "B")], saving: false)
+            #expect(store.graph["page"]?.tab?.savedTitle == "B")
+            #expect(store.hasUnsavedChanges)
+            #expect(try SidebarStore(fileURL: url).graph["page"]?.tab?.savedTitle == "A")
+
+            try store.save()
+            #expect(!store.hasUnsavedChanges)
+            #expect(try SidebarStore(fileURL: url).graph["page"]?.tab?.savedTitle == "B")
+        }
+    }
+
     // MARK: Round trip
 
     @Test func roundTripKeepsEveryItemAndSpace() throws {
