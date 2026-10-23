@@ -7,6 +7,10 @@ enum TabsTests {
     static let all: [any E2ETest] = [
         TabsSwitchTest(), TabsBackgroundHiddenTest(), TabsBeforeUnloadTest(), TabsCloseWindowTest(), TabsModelTest(),
     ]
+
+    /// The longest one visibility wait may take, so a show step keeps time for its frames and the other tab's wait
+    /// (each wait also leaves room for the rest of its step).
+    static let visibilityLimit: TimeInterval = 1.5
 }
 
 /// Opens a tab in the background and checks that its page counts as hidden from its first script on and paints no
@@ -35,7 +39,8 @@ struct TabsBackgroundHiddenTest: E2ETest {
         }
         let shown = try await run.step("show background tab", timeout: E2ETimeouts.step) {
             try run.app.select(background)
-            let visible = try await E2EWaits.visibility(of: background, becoming: "visible", limit: 1.5)
+            let visible = try await E2EWaits.visibility(
+                of: background, becoming: "visible", limit: TabsTests.visibilityLimit)
             if visible == "visible" { try await E2EWaits.untilRendering(background) }
             return visible
         }
@@ -245,7 +250,8 @@ struct TabsSwitchTest: E2ETest {
             guard second.isShown, !first.isShown else { throw E2EError("the new tab is not the one shown") }
         }
         let loadIDs = try await run.step("record pages", timeout: E2ETimeouts.step) {
-            let visible = try await E2EWaits.visibility(of: second, becoming: "visible", limit: Self.visibilityLimit)
+            let visible = try await E2EWaits.visibility(
+                of: second, becoming: "visible", limit: TabsTests.visibilityLimit)
             guard visible == "visible" else { throw E2EError("the new tab is \(visible)") }
             return [try await first.string("window.bowLoadID"), try await second.string("window.bowLoadID")]
         }
@@ -259,12 +265,12 @@ struct TabsSwitchTest: E2ETest {
                     let start = Date()
                     try run.app.select(shown)
                     let visible = try await E2EWaits.visibility(
-                        of: shown, becoming: "visible", limit: Self.visibilityLimit)
+                        of: shown, becoming: "visible", limit: TabsTests.visibilityLimit)
                     guard visible == "visible" else { throw E2EError("the shown tab is \(visible)") }
                     slowestShow = max(slowestShow, Date().timeIntervalSince(start))
                     try await E2EWaits.untilRendering(shown)
                     hiddenStates.append(
-                        try await E2EWaits.visibility(of: other, becoming: "hidden", limit: Self.visibilityLimit))
+                        try await E2EWaits.visibility(of: other, becoming: "hidden", limit: TabsTests.visibilityLimit))
                 }
             }
         }
@@ -302,8 +308,4 @@ struct TabsSwitchTest: E2ETest {
         let title = try await page.string("document.title")
         guard title == "Tab \(name)" else { throw E2EError("tab \(name) has the title \"\(title)\"") }
     }
-
-    /// The longest one visibility wait may take, so a show step keeps time for its frames and the other tab's wait
-    /// (each wait also leaves room for the rest of its step).
-    private static let visibilityLimit: TimeInterval = 1.5
 }
