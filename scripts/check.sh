@@ -8,7 +8,8 @@
 #           every file when the changes cannot be listed);
 #   guards  make guards, always;
 #   test    the BowCore unit tests, when BowCore/ changed (or the changes cannot be listed);
-#   build   make build, when the e2e selection is not empty;
+#   build   make build, when the e2e selection is not empty (the selection is all when scripts/e2e-affected.sh
+#           fails, or prints nothing while a changed file is not docs);
 #   e2e     make e2e-run with the selection scripts/e2e-affected.sh prints, when it is not empty and the build passed.
 # Each part prints one "check: <part> ok|FAIL|skip ..." line with its seconds, and the last line is
 # "check: PASS <parts> in <seconds>s (e2e: <selection>)" or "check: FAIL <parts> (<seconds>s)".
@@ -59,7 +60,15 @@ else
   listed=0
   echo "check: the changed files cannot be listed, so check runs everything"
 fi
-selection=$(scripts/e2e-affected.sh --why)
+# A selection that cannot be computed runs everything, and so does an empty one unless every changed file is docs
+# (*.md or spec/), the only changes e2e-affected.sh maps to nothing.
+if ! selection=$(scripts/e2e-affected.sh --why); then
+  echo "check: the e2e selection cannot be computed, so check runs everything"
+  selection=all
+elif [ -z "$selection" ] && echo "$changed" | grep -v '^$' | grep -qvE '(\.md$|^spec/)'; then
+  echo "check: the e2e selection is empty but not every changed file is docs, so check runs everything"
+  selection=all
+fi
 echo "check: $(echo "$changed" | grep -c .) changed files, e2e selection: ${selection:-none}"
 
 if [ "$listed" = 0 ]; then
