@@ -17,5 +17,6 @@ enum E2EAreas {
         ImportTests.all,
         DownloadsTests.all,
         StoreTests.all,
+        ActivityTests.all,
     ]
 }

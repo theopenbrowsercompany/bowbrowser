@@ -273,6 +273,15 @@ final class E2EAppAdapter {
         return nil
     }
 
+    func lastActive(of page: any E2EPage) throws -> Date? {
+        let page = try Self.tabPage(page)
+        let controller = page.controller
+        guard let id = controller.modelID(of: page.tab), let item = controller.sidebarItemID(for: id) else {
+            throw E2EError("tab \(page.tab.tabID) has no sidebar item")
+        }
+        return controller.appFeatures.require(TabActivityLog.self).lastActive(item)
+    }
+
     private static func tabPage(_ page: any E2EPage) throws -> TabPage {
         guard let page = page as? TabPage else { throw E2EError("the page did not come from this app") }
         return page
@@ -893,6 +902,12 @@ extension E2EAppAdapter {
 
     func tabProfileID(of page: any E2EPage) throws -> String {
         try Self.tabPage(page).tab.profileID.rawValue
+    }
+}
+
+extension TestApp: E2EActivityApp {
+    func lastActive(of page: any E2EPage) throws -> Date? {
+        try adapter.lastActive(of: page)
     }
 }
 

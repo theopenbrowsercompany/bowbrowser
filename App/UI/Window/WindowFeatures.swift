@@ -9,5 +9,6 @@ enum WindowFeatures {
         PermissionsFeature.self,
         SidebarFeature.self,
         DownloadsFeature.self,
+        TabActivityFeature.self,
     ]
 }
