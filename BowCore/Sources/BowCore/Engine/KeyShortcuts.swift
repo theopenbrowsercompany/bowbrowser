@@ -77,6 +77,9 @@ public enum KeyShortcut: String, CaseIterable, Hashable, Sendable {
     case toggleToolbar
     /// Cmd+plus (Cmd+= on a US keyboard): zoom in.
     case zoomIn
+    /// Cmd+Shift+plus (Cmd+Shift+= on a US keyboard), Arc's Add Split View: open a new tab as a pane beside the shown
+    /// one.
+    case addSplitView
     /// Cmd+minus: zoom out.
     case zoomOut
     /// Cmd+0: back to 100%.
@@ -97,7 +100,8 @@ public enum KeyShortcut: String, CaseIterable, Hashable, Sendable {
         case .closeCommandBar, .exitPageFullscreen: [KeyChord(.keyCode(KeyChord.escapeKeyCode), [])]
         case .copyURL: [.character("c", [.command, .shift])]
         case .toggleToolbar: [.character("d", [.command, .shift])]
-        case .zoomIn: [.character("=", .command), .character("+", .command), .character("+", [.command, .shift])]
+        case .zoomIn: [.character("=", .command), .character("+", .command)]
+        case .addSplitView: [.character("+", [.command, .shift]), .character("=", [.command, .shift])]
         case .zoomOut: [.character("-", .command)]
         case .actualSize: [.character("0", .command)]
         case .recentTabs: [KeyChord(.keyCode(KeyChord.tabKeyCode), .control)]
@@ -123,6 +127,8 @@ public enum KeyShortcutOwner: String, Hashable, Sendable {
     case recentTabs
     /// Page fullscreen: Escape while a page fills the window.
     case pageFullscreen
+    /// Split view.
+    case splitView
 }
 
 /// One feature's claim on one shortcut.
@@ -167,6 +173,7 @@ public enum KeyShortcuts {
         KeyShortcutClaim(.recentTabsBack, .recentTabs),
         KeyShortcutClaim(.closeCommandBar, .recentTabs),
         KeyShortcutClaim(.exitPageFullscreen, .pageFullscreen),
+        KeyShortcutClaim(.addSplitView, .splitView),
     ]
 
     /// The shortcut `event` triggers among those `owner` claims in `claims`, or nil. A feature's
