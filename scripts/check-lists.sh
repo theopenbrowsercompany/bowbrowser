@@ -2,8 +2,10 @@
 # Checks the registration lists that git merges by union (see .gitattributes). A union merge keeps every line both
 # sides added, so these lists stay one entry per line, and this check fails on what a merge can get wrong:
 #   - the Swift lists (WindowFeatures, AppFeatures, E2EAreas, and the sidebar's section, menu, drop rule and accessory
-#     lists): a line inside a `static let all ... = [` literal that is not exactly one `Name.self,` or `Name.all,`
-#     entry, or the same entry twice in a file (a file may hold more than one list);
+#     lists): a `static let all` line that does not open a list on its own (`    static let all: [...] = [`, with
+#     the entries on the lines below and `    ]` alone on a later line), a list left open, a line inside a list
+#     that is not exactly one `Name.self,` or `Name.all,` entry, or the same entry twice in one list (a file may
+#     hold more than one list, and two lists may share an entry);
 #   - the bridging header: an #import line that is not one `#import "File.h"` (with an optional // comment), or
 #     the same header imported twice;
 #   - the e2e tests: two tests with the same `let name = "..."` in E2E/Tests (the form every test uses; the runner's
@@ -25,23 +27,35 @@ fail() {
 
 for file in $swift_lists; do
   [ -f "$file" ] || { fail "$file is missing"; continue; }
+  # Each entry is printed as "<list number> <entry>", so duplicates are found per list.
   entries=$(awk -v file="$file" '
-    /static let all: .* = \[$/ { inside = 1; found = 1; next }
+    /static let all/ {
+      if (inside) { printf "%s:%d: a list opens before the one above it closes\n", file, NR > "/dev/stderr"; bad = 1 }
+      inside = 0
+      if ($0 !~ /^    static let all: .* = \[$/) {
+        printf "%s:%d: not a `static let all: [...] = [` line opening a one-entry-per-line list: %s\n", file, NR, $0 > "/dev/stderr"
+        bad = 1
+        next
+      }
+      inside = 1; lists++; next
+    }
     inside && /^    \]$/ { inside = 0; next }
     inside {
       if ($0 !~ /^        [A-Z][A-Za-z0-9_]*\.(self|all),$/) {
         printf "%s:%d: not one entry with a trailing comma: %s\n", file, NR, $0 > "/dev/stderr"
         bad = 1
       }
-      print $0
+      entry = $0; sub(/^ */, "", entry); sub(/,$/, "", entry)
+      print lists, entry
     }
     END {
-      if (!found || inside) { printf "%s: no one-entry-per-line `static let all ... = [` list\n", file > "/dev/stderr"; bad = 1 }
+      if (inside) { printf "%s: a `static let all` list is not closed by a `    ]` line\n", file > "/dev/stderr"; bad = 1 }
+      if (!lists) { printf "%s: no one-entry-per-line `static let all ... = [` list\n", file > "/dev/stderr"; bad = 1 }
       exit bad
     }
   ' "$file") || failed=1
-  duplicates=$(printf '%s\n' "$entries" | sed 's/^ *//; s/,$//' | sort | uniq -d)
-  for entry in $duplicates; do fail "$file lists $entry twice"; done
+  duplicates=$(printf '%s\n' "$entries" | sort | uniq -d | sed 's/^[0-9]* //')
+  for entry in $duplicates; do fail "$file lists $entry twice in one list"; done
 done
 
 bad_imports=$(grep -n '#import' "$header" | grep -Ev '^[0-9]+:#import "[A-Za-z0-9_+]+\.h"( +//.*)?$' || true)
