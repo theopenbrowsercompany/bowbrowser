@@ -109,7 +109,7 @@ struct ChromeCopyEdgesTest: E2ETest {
         run.check(
             "chrome.copy.page-key",
             passed: keyed.0 && board.string == ChromeTests.url("keys").absoluteString
-                && !keyed.1.contains { $0.contains("c") },
+                && !keyed.1.contains { $0.lowercased().hasSuffix("c") },
             "changed=\(keyed.0) string=\(board.string ?? "nil") page-keys=\(keyed.1)")
 
         let blank = try await run.step("copy on a blank tab", timeout: E2ETimeouts.firstLoad) {
@@ -120,7 +120,7 @@ struct ChromeCopyEdgesTest: E2ETest {
             var refused = false
             do {
                 try ChromeTests.copyViaMenu(app, in: blank)
-            } catch let error as E2EError where error.reason == nil {
+            } catch let error as E2EError where error.reason == nil && error.description.hasSuffix("is disabled") {
                 refused = true
             }
             let confirmation = try app.confirmation(of: blank)

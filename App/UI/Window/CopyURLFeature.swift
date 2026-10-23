@@ -64,8 +64,8 @@ final class CopyURLFeature: NSResponder, BrowserWindowFeature, NSMenuItemValidat
     }
 
     func selectedTabChanged(_ tab: (any EngineTab)?) {
-        // The confirmation belongs to the page it was shown over.
-        if tab == nil { hideConfirmation() }
+        // The confirmation belongs to the page it was shown over, so another tab (or none) clears it.
+        hideConfirmation()
     }
 
     private var copyableAddress: URL? {
