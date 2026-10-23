@@ -25,7 +25,9 @@ import Testing
 
     @Test func everyShortcutIsClaimedOnce() {
         let claimed = KeyShortcuts.claims.map(\.shortcut)
-        #expect(Set(claimed).count == claimed.count)
+        // A shared shortcut is claimed once per owner.
+        let unshared = claimed.filter { !KeyShortcuts.sharedShortcuts.contains($0) }
+        #expect(Set(unshared).count == unshared.count)
         #expect(Set(claimed) == Set(KeyShortcut.allCases))
     }
 
@@ -51,6 +53,14 @@ import Testing
         #expect(!KeyShortcut.toggleToolbar.matches(key("d", .command)))
         #expect(!KeyShortcut.closeCommandBar.matches(key("\u{1b}", .shift, keyCode: KeyChord.escapeKeyCode)))
         #expect(!KeyShortcut.recentTabs.matches(key("\t", [.control, .shift], keyCode: KeyChord.tabKeyCode)))
+    }
+
+    @Test func recentTabsKeysAndSharedEscape() {
+        #expect(KeyShortcut.recentTabsBack.matches(key("\t", [.control, .shift], keyCode: KeyChord.tabKeyCode)))
+        #expect(KeyShortcuts.shortcut(for: key("\u{1b}", [], keyCode: KeyChord.escapeKeyCode), claimedBy: .recentTabs) == .closeCommandBar)
+        #expect(KeyShortcuts.conflicts().isEmpty)
+        let twice = KeyShortcuts.claims + [KeyShortcutClaim(.closeCommandBar, .recentTabs)]
+        #expect(!KeyShortcuts.conflicts(in: twice).isEmpty)
     }
 
     @Test func onlyKeyDownsMatch() {
