@@ -19,6 +19,17 @@ public struct ProfileID: RawRepresentable, Hashable, Sendable, ExpressibleByStri
     /// The persistent profile that wraps the engine's global storage. It always exists.
     public static let `default`: ProfileID = "Default"
 
+    /// Whether the ID can name a profile's folder: not empty, not `.` or `..`, and only ASCII
+    /// letters, digits, `.`, `_` and `-`.
+    public var isValid: Bool {
+        guard !rawValue.isEmpty, rawValue != ".", rawValue != ".." else { return false }
+        return rawValue.unicodeScalars.allSatisfy { scalar in
+            scalar.isASCII
+                && (("a"..."z").contains(scalar) || ("A"..."Z").contains(scalar) || ("0"..."9").contains(scalar)
+                    || scalar == "." || scalar == "_" || scalar == "-")
+        }
+    }
+
     public var description: String { rawValue }
 }
 
@@ -109,6 +120,15 @@ public struct NavigationError: Error, Equatable, Sendable {
         self.code = code
         self.description = description
     }
+
+    /// The engine's code for a navigation that ended without failing to load: it was stopped, replaced by a
+    /// newer navigation, cancelled by the policy at a redirect, cut short by the tab closing or its render
+    /// process ending, or it left no new page (a 204 response or a download).
+    public static let abortedCode = -3
+
+    /// True when the navigation was aborted rather than failed to load (see `abortedCode`). An app showing load
+    /// errors should skip these: the page shown stays, or the navigation that replaced it reports its own result.
+    public var isAborted: Bool { code == Self.abortedCode }
 }
 
 /// Where a page asked a new page to open.
@@ -162,21 +182,39 @@ public enum ProcessGoneReason: Equatable, Sendable {
 }
 
 /// Something that happened in a tab, pushed by the engine in order.
+///
+/// Main frame navigations go start, then any redirects, then commit, then finish or fail, and every started
+/// navigation ends with finish or fail before the next one starts. A navigation the policy cancels before it
+/// starts sends nothing. Same document navigations (fragments, `history.pushState`) and the error page the engine
+/// shows after a failure send nothing either.
 public enum TabEvent: Equatable, Sendable {
     /// The tab's snapshot changed; the payload is the new value of `EngineTab.state`.
     case stateChanged(EngineTabState)
     case didStartNavigation(EngineNavigation)
+    /// The server redirected the navigation; the payload's URL is the new one.
     case didRedirect(EngineNavigation)
+    /// The new page committed: the address the tab shows is now the payload's URL.
     case didCommit(EngineNavigation)
+    /// The page finished loading. `httpStatus` is 0 when there is none: a scheme without one, or a page
+    /// restored from history that finishes when loading stops.
     case didFinish(EngineNavigation, httpStatus: Int)
+    /// The navigation failed or was aborted (`NavigationError.isAborted`).
     case didFail(EngineNavigation, NavigationError)
+    /// The page opened a new tab or window. This only informs the app: the engine opens the page itself, in a
+    /// popup window of its own, so it keeps `window.opener`; the app must not open `targetURL` again.
     case popupRequested(PopupRequest)
     case fullscreenChanged(Bool)
+    /// The render process ended; the page is gone until the tab reloads.
     case renderProcessGone(ProcessGoneReason)
+    /// The page has been destroyed, whoever closed it: the app, quitting, or the page itself. Sent
+    /// once, as the tab's last event.
+    case closed
 }
 
 /// Errors the engine reports to the app.
 public enum EngineError: Error, Equatable, Sendable {
     /// A profile with this ID already exists.
     case profileExists(ProfileID)
+    /// The ID cannot name a folder: see `ProfileID.isValid`.
+    case invalidProfileID(ProfileID)
 }

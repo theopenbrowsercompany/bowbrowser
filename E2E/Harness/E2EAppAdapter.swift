@@ -1,8 +1,9 @@
 import AppKit
+import BowCore
 
-// The only e2e file that knows the bridge (BowEngine, BowTab, BowWebView, BowDevToolsSession) and the window
-// controllers. When the bridge changes shape, rewrite this file to keep E2EApp and E2EPage working; tests stay as
-// they are.
+// The only e2e file that knows the app's engine (the BowCore protocols the app drives it through), the window
+// controllers and the bridge's BowDevToolsSession. When those change shape, rewrite this file to keep E2EApp and
+// E2EPage working; tests stay as they are.
 
 @MainActor
 final class E2EAppAdapter: E2EApp {
@@ -11,17 +12,17 @@ final class E2EAppAdapter: E2EApp {
 
     private(set) var lastOpenedPage: (any E2EPage)?
     private unowned let delegate: AppDelegate
+    /// Every open page, by tab, so each window's tab events and policy questions reach their page. A page leaves
+    /// when its tab closes.
+    private var pages: [TabID: TabPage] = [:]
 
     init(delegate: AppDelegate) {
         self.delegate = delegate
     }
 
     func openWindow(at url: URL, newProfile profile: E2EProfile?) async throws -> any E2EPage {
-        let bowProfile: BowProfile
-        if let profile {
-            bowProfile = try BowEngine.shared.createProfile(id: profile.id, persistent: profile.isPersistent)
-        } else {
-            bowProfile = BowEngine.shared.defaultProfile
+        let engineProfile = try profile.map {
+            try delegate.engine.createProfile(id: ProfileID($0.id), isPersistent: $0.isPersistent)
         }
         let window = OffscreenBrowserWindow(
             contentRect: Self.windowFrame,
@@ -29,11 +30,18 @@ final class E2EAppAdapter: E2EApp {
             backing: .buffered,
             defer: false
         )
-        let controller = delegate.openWindow(url: url, profile: bowProfile, window: window)
+        let controller = delegate.openWindow(url: url, profile: engineProfile, window: window)
+        controller.onTabEvent = { [weak self] tab, event in
+            self?.pages[tab.tabID]?.tabDidReceive(event)
+            if event == .closed { self?.pages[tab.tabID] = nil }
+        }
+        controller.navigationPolicy = { [weak self] tab, navigation in
+            self?.pages[tab.tabID]?.decidePolicy(for: navigation) ?? .allow
+        }
         guard let window = controller.window else { throw E2EError("the window controller has no window") }
         guard let tab = controller.selectedTab else { throw E2EError("the window opened without a tab") }
         // Made before the checks below wait, so the page hears every load event.
-        let page = TabPage(tab: tab, controller: controller)
+        let page = track(tab, in: controller)
         // Creating a titled window moves it onto a screen; put it back where it belongs.
         window.setFrame(window.frameRect(forContentRect: Self.windowFrame), display: false)
         // Check before ordering the window in, so a broken setup fails instead of showing a window.
@@ -48,7 +56,15 @@ final class E2EAppAdapter: E2EApp {
     func openTab(at url: URL, besides page: any E2EPage, select: Bool) throws -> any E2EPage {
         let controller = try Self.tabPage(page).controller
         let tab = controller.openTab(url: url, select: select)
-        return TabPage(tab: tab, controller: controller)
+        return track(tab, in: controller)
+    }
+
+    /// Creates the page for `tab` before the engine can report anything about it, which it does on later main
+    /// thread tasks.
+    private func track(_ tab: any EngineTab, in controller: BrowserWindowController) -> TabPage {
+        let page = TabPage(tab: tab, controller: controller)
+        pages[tab.tabID] = page
+        return page
     }
 
     func select(_ page: any E2EPage) throws {
@@ -103,17 +119,18 @@ final class E2EAppAdapter: E2EApp {
     }
 
     func quit() {
-        // Tests no longer hold their pages; releasing the last one here frees its DevTools session (and the
-        // Chromium objects it holds) while the engine still runs.
+        // Tests no longer hold their pages; releasing them here frees their DevTools sessions (and the Chromium
+        // objects they hold) while the engine still runs.
         lastOpenedPage = nil
+        pages.removeAll()
         NSApp.terminate(nil)
     }
 }
 
-/// E2EPage over one tab, as its navigation delegate, and a DevTools session on its browser.
+/// E2EPage over one tab, fed its events and policy questions by the adapter, and a DevTools session on its browser.
 @MainActor
-private final class TabPage: NSObject, E2EPage, BowTabNavigationDelegate {
-    let tab: BowTab
+private final class TabPage: E2EPage {
+    let tab: any EngineTab
     let controller: BrowserWindowController
     private let devToolsSession: BowDevToolsSession
     /// Every finished main frame load, in order; load number n is `loads[n - 1]`.
@@ -122,25 +139,13 @@ private final class TabPage: NSObject, E2EPage, BowTabNavigationDelegate {
     private(set) var navigationEvents: [E2ENavigationEvent] = []
     var navigationPolicy: ((URL) -> Bool)?
 
-    init(tab: BowTab, controller: BrowserWindowController) {
+    init(tab: any EngineTab, controller: BrowserWindowController) {
         self.tab = tab
         self.controller = controller
-        devToolsSession = BowDevToolsSession(tabID: tab.tabID)
-        super.init()
-        // The tab holds its delegate weakly; the test holds this page for as long as it uses it.
-        tab.navigationDelegate = self
-        // Let go of a tab that closes during the run, on a later main thread task as the UI delegate hears of it
-        // (the window controller is the tab's UI delegate). At quit this comes too late (it runs after the engine
-        // may have shut down), so quit() also drops the last page, and with it the session, before quitting.
-        closeObservation = tab.observe(\.isClosed, options: [.new]) { [weak devToolsSession] _, change in
-            guard change.newValue == true else { return }
-            DispatchQueue.main.async { devToolsSession?.close() }
-        }
+        devToolsSession = BowDevToolsSession(tabID: tab.tabID.rawValue)
     }
 
-    private var closeObservation: NSKeyValueObservation?
-
-    var isShown: Bool { controller.webView.attachedTab === tab }
+    var isShown: Bool { controller.webView.isShowing(tab) }
     /// The window's web view while it shows this tab; nil while another tab is shown or once the window is gone.
     var contentView: NSView? { isShown && controller.window != nil ? controller.webView : nil }
     var isClosed: Bool { tab.isClosed }
@@ -150,31 +155,36 @@ private final class TabPage: NSObject, E2EPage, BowTabNavigationDelegate {
         tab.load(url)
     }
 
-    func tab(_ tab: BowTab, decidePolicyFor navigation: BowNavigation) -> BowNavigation.Policy {
+    func decidePolicy(for navigation: EngineNavigation) -> NavigationPolicy {
         navigationPolicy?(navigation.url) == false ? .cancel : .allow
     }
 
-    func tab(_ tab: BowTab, didStartNavigation navigation: BowNavigation) {
-        navigationEvents.append(E2ENavigationEvent(kind: .start, url: navigation.url))
-    }
-
-    func tab(_ tab: BowTab, didRedirect navigation: BowNavigation) {
-        navigationEvents.append(E2ENavigationEvent(kind: .redirect, url: navigation.url))
-    }
-
-    func tab(_ tab: BowTab, didCommit navigation: BowNavigation) {
-        navigationEvents.append(E2ENavigationEvent(kind: .commit, url: navigation.url))
-    }
-
-    func tab(_ tab: BowTab, didFinish navigation: BowNavigation, httpStatus: Int) {
-        navigationEvents.append(E2ENavigationEvent(kind: .finish, url: navigation.url, code: httpStatus))
-        loadFinished(.success(httpStatus))
-    }
-
-    func tab(_ tab: BowTab, didFail navigation: BowNavigation, error: BowNavigationError) {
-        navigationEvents.append(E2ENavigationEvent(kind: .fail, url: navigation.url, code: error.code))
-        let url = navigation.url.absoluteString
-        loadFinished(.failure(E2EError("loading \(url) failed: \(error.code) \(error.errorText)")))
+    func tabDidReceive(_ event: TabEvent) {
+        switch event {
+        case .didStartNavigation(let navigation):
+            navigationEvents.append(E2ENavigationEvent(kind: .start, url: navigation.url))
+        case .didRedirect(let navigation):
+            navigationEvents.append(E2ENavigationEvent(kind: .redirect, url: navigation.url))
+        case .didCommit(let navigation):
+            navigationEvents.append(E2ENavigationEvent(kind: .commit, url: navigation.url))
+        case .didFinish(let navigation, let status):
+            navigationEvents.append(E2ENavigationEvent(kind: .finish, url: navigation.url, code: status))
+            loadFinished(.success(status))
+        case .didFail(let navigation, let error):
+            navigationEvents.append(E2ENavigationEvent(kind: .fail, url: navigation.url, code: error.code))
+            let url = navigation.url.absoluteString
+            loadFinished(.failure(E2EError("loading \(url) failed: \(error.code) \(error.description)")))
+        case .closed:
+            // Let go of a tab that closes during the run. At quit this comes too late (it runs after the engine
+            // may have shut down), so quit() also drops every page, and with it the session, before quitting.
+            devToolsSession.close()
+            // A load awaited on a closed page never comes; fail now rather than at the step timeout.
+            let waiters = loadWaiters
+            loadWaiters.removeAll()
+            for waiter in waiters { waiter.continuation.resume(throwing: E2EError("the tab closed")) }
+        default:
+            break
+        }
     }
 
     func waitForLoad(after finishedLoads: Int) async throws -> Int {

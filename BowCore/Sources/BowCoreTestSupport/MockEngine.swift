@@ -29,7 +29,10 @@ import Foundation
 
     public func createProfile(id: ProfileID, isPersistent: Bool) throws -> any EngineProfile {
         calls.append(.createProfile(id, isPersistent: isPersistent))
-        guard profiles[id] == nil else { throw EngineError.profileExists(id) }
+        guard id.isValid else { throw EngineError.invalidProfileID(id) }
+        // Matches the engine: IDs that differ only in case would share one folder.
+        guard !profiles.keys.contains(where: { $0.rawValue.caseInsensitiveCompare(id.rawValue) == .orderedSame })
+        else { throw EngineError.profileExists(id) }
         let profile = MockProfile(engine: self, id: id, isPersistent: isPersistent)
         profiles[id] = profile
         return profile
@@ -116,8 +119,12 @@ import Foundation
         return true
     }
 
-    fileprivate func markClosed() {
+    /// Marks the tab closed and sends `TabEvent.closed`, as the engine does whoever closed it. Call
+    /// it to script a page that closes itself.
+    public func markClosed() {
+        guard !isClosed else { return }
         isClosed = true
+        delegate?.tab(self, didReceive: .closed)
     }
 
     // MARK: Scripting what the engine pushes

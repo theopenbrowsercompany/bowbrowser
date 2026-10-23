@@ -9,7 +9,9 @@ import Foundation
 @MainActor public protocol BrowserEngine: AnyObject {
     /// Creates a profile with its own isolated storage. Persistent profiles keep cookies, cache and
     /// site data on disk; ephemeral ones keep them in memory and lose them when closed.
-    /// Throws `EngineError.profileExists` when the ID is taken.
+    /// Throws `EngineError.invalidProfileID` when the ID cannot name a folder (see
+    /// `ProfileID.isValid`), and `EngineError.profileExists` when
+    /// the ID is taken, ignoring case, since folder names on macOS volumes ignore case by default.
     func createProfile(id: ProfileID, isPersistent: Bool) throws -> any EngineProfile
 
     /// Returns the profile with this ID, or nil. `ProfileID.default` always returns a profile.
@@ -37,6 +39,9 @@ import Foundation
     /// The snapshot the engine pushed last, also delivered as `TabEvent.stateChanged`.
     var state: EngineTabState { get }
 
+    /// True once the page has been destroyed, whoever closed it. Navigation calls then do nothing.
+    var isClosed: Bool { get }
+
     /// Receives the tab's events. Implementations hold it weakly.
     var delegate: (any EngineTabDelegate)? { get set }
 
@@ -47,7 +52,8 @@ import Foundation
     func stop()
 
     /// Closes the tab after running the page's beforeunload handler. Returns true when the tab
-    /// closed and false when the page (or the person, at its prompt) kept it open.
+    /// closed (at once when it already had) and false when the page (or the person, at its prompt)
+    /// kept it open. A tab that closes also sends `TabEvent.closed`.
     func close() async -> Bool
 }
 
