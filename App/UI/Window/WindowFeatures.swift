@@ -20,5 +20,6 @@ enum WindowFeatures {
         WindowLookFeature.self,
         CopyURLFeature.self,
         SpaceThemeFeature.self,
+        ToolbarFeature.self,
     ]
 }

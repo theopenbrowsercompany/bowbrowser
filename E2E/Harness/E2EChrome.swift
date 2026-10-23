@@ -33,3 +33,38 @@ protocol E2EChromeApp: E2EApp {
     /// The confirmation of `page`'s window now.
     func confirmation(of page: any E2EPage) throws -> E2EChromeConfirmation
 }
+
+/// The sidebar's URL field of a window, as a test sees it.
+struct E2EURLField: Equatable, CustomStringConvertible {
+    /// The text it shows: the site, or the placeholder.
+    var text: String
+    /// True while it shows the placeholder rather than an address.
+    var isPlaceholder: Bool
+    /// True while it is on screen in the window (neither it nor anything holding it is hidden).
+    var isShown: Bool
+    /// True while the sidebar's top row (back, forward, reload) shows.
+    var isTopRowShown: Bool
+    /// Its size, in points.
+    var size: CGSize
+    /// True when it sits wholly below the top row and the window's close, minimize and zoom buttons.
+    var isBelowTopRow: Bool
+
+    var description: String {
+        "text=\"\(text)\" placeholder=\(isPlaceholder) shown=\(isShown) top-row=\(isTopRowShown) "
+            + "size=\(Int(size.width))x\(Int(size.height)) below-top-row=\(isBelowTopRow)"
+    }
+}
+
+@MainActor
+protocol E2EURLFieldApp: E2EApp {
+    /// The URL field of `page`'s window now.
+    func urlField(of page: any E2EPage) throws -> E2EURLField
+    /// Clicks the middle of `page`'s window's URL field the way a person does: a mouse down and up at that point,
+    /// sent to whatever the window has there. Throws when the field is hidden or something else is on top of it.
+    func clickURLField(of page: any E2EPage) throws
+    /// The title of the View menu's toolbar item now, validated as the menu bar does before it shows ("Hide Toolbar"
+    /// or "Show Toolbar").
+    func toolbarMenuTitle(of page: any E2EPage) throws -> String
+    /// The saved toolbar setting, nil when nothing is saved (the default: shown).
+    func savedShowsToolbar() throws -> Bool?
+}

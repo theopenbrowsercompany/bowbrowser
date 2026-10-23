@@ -34,6 +34,7 @@ import Testing
         #expect(KeyShortcut.changeURL.matches(key("l", .command)))
         // With Shift held the character arrives uppercase.
         #expect(KeyShortcut.copyURL.matches(key("C", [.command, .shift])))
+        #expect(KeyShortcut.toggleToolbar.matches(key("D", [.command, .shift])))
         #expect(KeyShortcut.zoomIn.matches(key("=", .command)))
         #expect(KeyShortcut.zoomIn.matches(key("+", [.command, .shift])))
         #expect(KeyShortcut.zoomOut.matches(key("-", .command)))
@@ -47,6 +48,7 @@ import Testing
         #expect(!KeyShortcut.changeURL.matches(key("l", [])))
         #expect(!KeyShortcut.changeURL.matches(key("l", [.command, .option])))
         #expect(!KeyShortcut.copyURL.matches(key("c", .command)))
+        #expect(!KeyShortcut.toggleToolbar.matches(key("d", .command)))
         #expect(!KeyShortcut.closeCommandBar.matches(key("\u{1b}", .shift, keyCode: KeyChord.escapeKeyCode)))
         #expect(!KeyShortcut.recentTabs.matches(key("\t", [.control, .shift], keyCode: KeyChord.tabKeyCode)))
     }
