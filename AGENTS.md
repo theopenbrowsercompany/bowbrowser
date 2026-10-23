@@ -67,8 +67,8 @@ Start every session in `~/code/GitHub/bowbrowser`: the maintainer's `.claude/set
 - `make verify`: lint, guards (`make guards`: the e2e seam check in `scripts/check-e2e-seams.sh` and the Swift header check in `scripts/check-swift-headers.sh`), tests (BowCore and `make test-e2e-wrapper`) and the Debug build.
   A change is done when this and its end-to-end check pass.
 - `make release`: a Release build that must carry no e2e harness code or fixtures. It is not part of `make verify`; the lead runs it once per branch before merging.
-- Builds take turns: every `xcodebuild` the Makefile runs goes through `scripts/build-lock.sh`, which leases one of `BOW_BUILD_SLOTS` slots (default 5) shared by all worktrees, queues waiting builds in arrival order (unless the priority file below says otherwise), and frees a slot when its build ends, fails or is interrupted (after a `kill -9` of the script, the orphaned build keeps the slot until it ends).
-  The launch step of `make e2e` takes a slot from a separate pool, `BOW_E2E_SLOTS` (default 3), so Chromium launches do not pile up beside builds.
+- Builds take turns: every `xcodebuild` the Makefile runs goes through `scripts/build-lock.sh`, which leases one of `BOW_BUILD_SLOTS` slots (default 6) shared by all worktrees, queues waiting builds in arrival order (unless the priority file below says otherwise), and frees a slot when its build ends, fails or is interrupted (after a `kill -9` of the script, the orphaned build keeps the slot until it ends).
+  The launch step of `make e2e` takes a slot from a separate pool, `BOW_E2E_SLOTS` (default 6), so Chromium launches do not pile up beside builds.
   Only the lead edits the priority file, `~/Library/Caches/bowbrowser/build-lock/priority` (or `$BOW_LOCK_DIR/priority`), shared by both pools; workers never write it.
   Replace it whole (write a temporary file in the same folder, then `mv` it over), since waiting builds read it every second and could catch an edit half written.
   It lists branch names, highest priority first, one per line; blank lines and lines starting with `#` are ignored.
@@ -76,7 +76,7 @@ Start every session in `~/code/GitHub/bowbrowser`: the maintainer's `.claude/set
   The file is read again while builds wait, so a reorder takes effect at once; a running build is never interrupted, and a missing or empty file means plain arrival order.
   A detached HEAD or a directory outside a checkout counts as unlisted.
   Xcode's compilation cache is shared too, in `~/Library/Caches/bowbrowser/compile-cache` (set in `project.yml`); it is not pruned, so delete the folder if it grows large.
-  `BOW_BUILD_JOBS` caps the parallel compile jobs of each build (default 6).
+  `BOW_BUILD_JOBS` caps the parallel compile jobs of each build (default 8).
   An unchanged build skips recopying and re-signing the CEF framework and helpers (a stamp in `scripts/package-cef.sh`), and `make project` runs XcodeGen with its cache, so a no-change `make build` takes about a second.
   A waiting build prints one line saying so, with its rank (`priority 1 of 3` or `unlisted`), and again if a reorder changes that rank; just let it wait.
   Never run two `make e2e` at once in the same worktree: their build steps race in `package-cef.sh`.

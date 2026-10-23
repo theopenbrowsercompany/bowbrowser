@@ -5,8 +5,8 @@
 #   scripts/build-lock.sh [--pool build|e2e] <command> [args...]
 #
 # Two separate pools of slots: "build" (default, for xcodebuild) and "e2e" (for launching the built app).
-# BOW_BUILD_SLOTS   builds that may run at once (default 5)
-# BOW_E2E_SLOTS     e2e runs that may run at once (default 3)
+# BOW_BUILD_SLOTS   builds that may run at once (default 6)
+# BOW_E2E_SLOTS     e2e runs that may run at once (default 6)
 # BOW_LOCK_DIR      lock state folder (default ~/Library/Caches/bowbrowser/build-lock); one subfolder per pool
 #
 # Priority: the lead may keep a plain text file, <lock dir>/priority, shared by both pools. It lists git branch
@@ -32,8 +32,8 @@ if [ "${1:-}" = "--pool" ]; then
   shift 2 2>/dev/null || shift $#
 fi
 case $pool in
-  build) slots_var=BOW_BUILD_SLOTS default_slots=5 ;;
-  e2e) slots_var=BOW_E2E_SLOTS default_slots=3 ;;
+  build) slots_var=BOW_BUILD_SLOTS default_slots=6 ;;
+  e2e) slots_var=BOW_E2E_SLOTS default_slots=6 ;;
   *) echo "build-lock: unknown pool '$pool' (use build or e2e)" >&2; exit 64 ;;
 esac
 slots=${!slots_var:-$default_slots}
