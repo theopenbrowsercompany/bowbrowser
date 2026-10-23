@@ -69,6 +69,11 @@ class BowTabClient;
   // The main frame navigation in progress: started and not yet finished, failed or replaced. Nil otherwise.
   BowNavigation* _navigation;
   BOOL _navigationCommitted;
+  // The engine's identifier of the main frame the navigation in progress committed in, once committed. The engine
+  // gives a frame a new identifier when a navigation commits in a new frame host, which this Chromium does for each
+  // new document (the error page shown after a failure also runs in its own process), so a late load end of the page
+  // it replaced is told apart from the committed page's own.
+  NSString* _navigationFrame;
   // YES once the app stopped the navigation in progress.
   BOOL _stopRequested;
   // The text and case of the search in progress; nil while not finding, so late results of a stopped search drop.
@@ -112,8 +117,10 @@ class BowTabClient;
                  transition:(BowNavigationTransition)transition
               isUserGesture:(BOOL)isUserGesture
                  isRedirect:(BOOL)isRedirect;
-- (void)navigationCommitted:(NSURL*)url transition:(BowNavigationTransition)transition;
-- (void)navigationFinished:(NSInteger)httpStatusCode;
+- (void)navigationCommitted:(NSURL*)url
+                  transition:(BowNavigationTransition)transition
+                       frame:(NSString*)frameIdentifier;
+- (void)navigationFinished:(NSInteger)httpStatusCode frame:(NSString*)frameIdentifier;
 - (void)navigationFailed:(NSInteger)errorCode text:(NSString*)errorText url:(nullable NSURL*)url;
 - (void)failNavigation:(NSInteger)errorCode text:(NSString*)errorText;
 - (void)loadingStopped;

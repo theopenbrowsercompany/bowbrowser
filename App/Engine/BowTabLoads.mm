@@ -20,12 +20,16 @@ void BowTabClient::OnLoadingStateChange(CefRefPtr<CefBrowser> browser,
 void BowTabClient::OnLoadStart(CefRefPtr<CefBrowser> browser, CefRefPtr<CefFrame> frame, TransitionType transitionType) {
   if (!IsOwn(browser) || !frame->IsMain()) return;
   NSURL* url = BowToNSURL(frame->GetURL());
-  if (url) [tab_ navigationCommitted:url transition:BowToTransition(transitionType)];
+  if (url) {
+    [tab_ navigationCommitted:url
+                   transition:BowToTransition(transitionType)
+                        frame:BowToNSString(frame->GetIdentifier())];
+  }
 }
 
 void BowTabClient::OnLoadEnd(CefRefPtr<CefBrowser> browser, CefRefPtr<CefFrame> frame, int httpStatusCode) {
   if (!IsOwn(browser) || !frame->IsMain()) return;
-  [tab_ navigationFinished:httpStatusCode];
+  [tab_ navigationFinished:httpStatusCode frame:BowToNSString(frame->GetIdentifier())];
 }
 
 void BowTabClient::OnLoadError(CefRefPtr<CefBrowser> browser,
@@ -42,7 +46,9 @@ void BowTabClient::OnLoadError(CefRefPtr<CefBrowser> browser,
 // Navigation events are delivered inside the engine callback that produced them, so they arrive in the engine's
 // order. Each belongs to the navigation in progress: start opens it, redirects and the commit move it on, and
 // finish or fail ends it. An engine callback that belongs to no navigation in progress (the load end of the error
-// page Chromium shows after a failure, or the abort of a navigation the policy cancelled) is not reported.
+// page Chromium shows after a failure, or the abort of a navigation the policy cancelled) is not reported. A load
+// end counts only from the main frame the navigation committed in: the error page runs in its own process, so its
+// load end can arrive after the next page commits.
 //
 // Every start gets an end. A navigation that is replaced, stopped, cancelled at a redirect, cut short by the tab
 // closing or its render process exiting, or that ends without a page (a 204 response or a download) fails with
@@ -83,6 +89,7 @@ void BowTabClient::OnLoadError(CefRefPtr<CefBrowser> browser,
 - (void)beginNavigation:(BowNavigation*)navigation {
   _navigation = navigation;
   _navigationCommitted = NO;
+  _navigationFrame = nil;
   _stopRequested = NO;
   id<BowTabNavigationDelegate> delegate = self.navigationDelegate;
   if ([delegate respondsToSelector:@selector(tab:didStartNavigation:)]) {
@@ -90,7 +97,9 @@ void BowTabClient::OnLoadError(CefRefPtr<CefBrowser> browser,
   }
 }
 
-- (void)navigationCommitted:(NSURL*)url transition:(BowNavigationTransition)transition {
+- (void)navigationCommitted:(NSURL*)url
+                  transition:(BowNavigationTransition)transition
+                       frame:(NSString*)frameIdentifier {
   // A commit the policy was not asked about (a page restored from the back/forward cache) is a navigation of its
   // own: end a committed one still open, and report its start first, keeping the order.
   if (_navigation && _navigationCommitted) [self failNavigation:ERR_ABORTED text:kBowAbortedText];
@@ -101,16 +110,26 @@ void BowTabClient::OnLoadError(CefRefPtr<CefBrowser> browser,
                                         transition:_navigation.transition
                                      isUserGesture:_navigation.isUserGesture];
   _navigationCommitted = YES;
+  _navigationFrame = [frameIdentifier copy];
   id<BowTabNavigationDelegate> delegate = self.navigationDelegate;
   if ([delegate respondsToSelector:@selector(tab:didCommitNavigation:)]) {
     [delegate tab:self didCommitNavigation:_navigation];
   }
 }
 
-- (void)navigationFinished:(NSInteger)httpStatusCode {
+// A load end, which finishes the committed navigation in progress when it comes from the frame that navigation
+// committed in.
+- (void)navigationFinished:(NSInteger)httpStatusCode frame:(NSString*)frameIdentifier {
+  if (![frameIdentifier isEqualToString:_navigationFrame]) return;
+  [self finishNavigation:httpStatusCode];
+}
+
+// Ends the committed navigation in progress, if any, as finished.
+- (void)finishNavigation:(NSInteger)httpStatusCode {
   if (!_navigation || !_navigationCommitted) return;
   BowNavigation* navigation = _navigation;
   _navigation = nil;
+  _navigationFrame = nil;
   id<BowTabNavigationDelegate> delegate = self.navigationDelegate;
   if ([delegate respondsToSelector:@selector(tab:didFinishNavigation:httpStatusCode:)]) {
     [delegate tab:self didFinishNavigation:navigation httpStatusCode:httpStatusCode];
@@ -130,6 +149,7 @@ void BowTabClient::OnLoadError(CefRefPtr<CefBrowser> browser,
   BowNavigation* navigation = _navigation;
   if (!navigation) return;
   _navigation = nil;
+  _navigationFrame = nil;
   id<BowTabNavigationDelegate> delegate = self.navigationDelegate;
   if ([delegate respondsToSelector:@selector(tab:didFailNavigation:error:)]) {
     [delegate tab:self
@@ -151,7 +171,7 @@ void BowTabClient::OnLoadError(CefRefPtr<CefBrowser> browser,
     if (tab->_stopRequested) {
       [tab failNavigation:ERR_ABORTED text:kBowAbortedText];
     } else {
-      [tab navigationFinished:0];
+      [tab finishNavigation:0];
     }
   });
 }
