@@ -96,7 +96,7 @@ orphans_killed=0
 # nap <seconds>: sleeps in the background and waits, so a signal's trap runs at once instead of after the sleep.
 nap() { sleep "$1" & wait $!; }
 sweep() {
-  local pids pid i n=0 snapshot
+  local pids pid i n=0
   # The folder followed by "/" (helpers) or by a space or the end of the line (the app's own --e2e-out=<folder>,
   # in case the app outlived its build lock), so a run never matches a sibling whose name starts with its own.
   # The build lock still running (child, during an interrupt) is left to end by itself and give back its slot.
@@ -108,6 +108,7 @@ sweep() {
     { line = $0 " " }
     index(line, ENVIRON["B"]) && (index(line, ENVIRON["D"] "/") || index(line, "=" ENVIRON["D"] " ")) && $1 != me && $1 != child { print $1 }' "$snapshot")
   rm -f "$snapshot"
+  snapshot=""
   [ -n "$pids" ] || return 0
   for pid in $pids; do kill -TERM "$pid" 2>/dev/null && n=$((n + 1)); done
   orphans_killed=$((orphans_killed + n))
@@ -135,6 +136,12 @@ commit_json() {
 # child is that background job, current the folder it runs in.
 current=""
 child=""
+# The snapshot file of a sweep in progress (in $run, or in $TMPDIR when that fails), removed by on_signal.
+snapshot=""
+# The real stdout, kept apart: list_tests redirects stdout for a while, and the summary of an interrupt must reach
+# the terminal whatever a signal interrupted. run_child closes it for the app, whose helpers may outlive the run and
+# would otherwise hold open a pipe that captures this script's output.
+exec 3>&1
 # gone <pid> <tries>: waits up to <tries> times 0.2 seconds for the process to end; fails if it still runs.
 gone() {
   local i
@@ -166,10 +173,10 @@ on_signal() {
     wait "$child" 2>/dev/null
   fi
   [ -z "$current" ] || sweep "$current"
-  rm -f "$run"/.ps.* # a snapshot left by a sweep this signal interrupted
+  rm -f "$run"/.ps.* ${snapshot:+"$snapshot"} # a snapshot left by a sweep this signal interrupted
   printf '{"status":"interrupted","exitCode":130,"signal":%s,"summary":"E2E: ERROR interrupted","selection":%s,"run":%s,%s}\n' \
     "$(json "$1")" "$(json "$selection")" "$(json "$run")" "$(commit_json)" > "$run/results.json"
-  echo "E2E: ERROR interrupted"
+  echo "E2E: ERROR interrupted" >&3
   echo "E2E: ERROR interrupted" >> "$run/report.txt"
   exit 130
 }
@@ -180,7 +187,7 @@ trap 'on_signal HUP' HUP
 # Runs a command as the background child, keeping this script's stdin, waits for it and returns its exit code.
 run_child() {
   local code
-  "$@" <&0 &
+  "$@" <&0 3>&- &
   child=$!
   wait "$child"
   code=$?
