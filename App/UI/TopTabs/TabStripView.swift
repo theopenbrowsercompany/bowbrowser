@@ -2,7 +2,7 @@ import AppKit
 import BowCore
 
 /// What one tab pill shows.
-struct TabPillContent {
+struct TabPillContent: Equatable {
     var item: SidebarItemID
     var title: String
     var favicon: NSImage?
@@ -19,6 +19,7 @@ final class TabPillView: NSView {
     let closeButton: NSButton
     private(set) var item: SidebarItemID
     private(set) var isActive = false
+    private var shown: TabPillContent?
     var onSelect: ((SidebarItemID) -> Void)?
     var onClose: ((SidebarItemID) -> Void)?
     /// Whether the pointer is over the pill; the tracking area sets it, and a test sets it the same way.
@@ -71,6 +72,10 @@ final class TabPillView: NSView {
 
     /// Shows `content`: the icon (a globe without one), the title and whether the pill is the shown tab's.
     func show(_ content: TabPillContent) {
+        // Page loading reports state often; an unchanged pill is left alone.
+        guard content != shown else { return }
+        shown = content
+        if item != content.item { isHovered = false }
         item = content.item
         isActive = content.isActive
         titleField.stringValue = content.title
@@ -165,7 +170,8 @@ private final class PillScrollView: NSScrollView {
             return
         }
         let maximum = max(0, document.frame.width - contentView.bounds.width)
-        let x = min(max(contentView.bounds.minX - event.scrollingDeltaY, 0), maximum)
+        let step = event.hasPreciseScrollingDeltas ? 1 : 12
+        let x = min(max(contentView.bounds.minX - event.scrollingDeltaY * step, 0), maximum)
         contentView.scroll(to: NSPoint(x: x, y: 0))
         reflectScrolledClipView(contentView)
     }

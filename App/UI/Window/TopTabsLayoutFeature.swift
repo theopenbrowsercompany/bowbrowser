@@ -165,7 +165,7 @@ final class TopTabsLayoutFeature: NSResponder, BrowserWindowFeature, NSMenuItemV
             return
         }
         if !applied {
-            window.feature(SidebarFeature.self)?.faviconDidChange = { [weak self] in self?.refreshStrip() }
+            window.feature(SidebarFeature.self)?.faviconDidChange = { [weak self] in self?.refresh() }
         }
         applied = true
         layout = wanted
