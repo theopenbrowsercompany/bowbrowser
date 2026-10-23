@@ -3,7 +3,7 @@ import Foundation
 /// Tests of the vertical sidebar: it lists the window's tabs with icon and title, highlights the active one, and
 /// its rows, close buttons and New Tab button drive the tabs. Fixtures in E2E/Fixtures/sidebar/.
 @MainActor
-enum SidebarTests {
+enum SidebarViewTests {
     static let all: [any E2ETest] = [SidebarTabsTest()]
 }
 
@@ -35,6 +35,24 @@ enum SidebarWaits {
     static func summary(_ rows: [E2ESidebarRow]) -> String {
         let active = rows.filter(\.isActive).map(\.title).joined(separator: ",")
         return "tabs=[\(rows.map(\.title).joined(separator: ","))] active=\(active.isEmpty ? "none" : active)"
+    }
+
+    /// Waits until a page just shown counts as visible, which Chromium reports a moment after the view is attached,
+    /// then until it paints. A page that stays hidden runs into the step timeout.
+    static func untilShown(_ page: any E2EPage) async throws {
+        _ = try await page.evaluate(
+            """
+            new Promise(resolve => {
+              if (document.visibilityState === "visible") return resolve(true);
+              document.addEventListener("visibilitychange", function listener() {
+                if (document.visibilityState !== "visible") return;
+                document.removeEventListener("visibilitychange", listener);
+                resolve(true);
+              });
+            })
+            """
+        )
+        try await E2EWaits.untilRendering(page)
     }
 }
 
@@ -90,7 +108,7 @@ struct SidebarTabsTest: E2ETest {
                     continue
                 }
                 try await SidebarWaits.rows(app, of: a) { $0.first(where: \.isActive)?.title == label }
-                try await E2EWaits.untilRendering(page)
+                try await SidebarWaits.untilShown(page)
             }
             for (page, loadID, label) in [(a, loadIDs[0], "A"), (b, loadIDs[1], "B")] {
                 if try await page.string("window.bowLoadID") != loadID || page.finishedLoads != 1 {
@@ -129,7 +147,7 @@ struct SidebarTabsTest: E2ETest {
         // Leave A shown, so the run's final screenshot shows the window's first tab with the sidebar beside it.
         try await run.step("show A", timeout: E2ETimeouts.step) {
             try app.clickSidebarRow(of: a)
-            try await E2EWaits.untilRendering(a)
+            try await SidebarWaits.untilShown(a)
         }
     }
 }
