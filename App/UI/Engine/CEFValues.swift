@@ -55,6 +55,10 @@ extension PopupRequest {
                 width: request.windowFeatures.width?.intValue,
                 height: request.windowFeatures.height?.intValue,
                 isPopup: request.windowFeatures.isPopup
+            ),
+            clickModifiers: PopupClickModifiers(
+                command: request.clickModifiers.contains(.command),
+                shift: request.clickModifiers.contains(.shift)
             )
         )
     }
