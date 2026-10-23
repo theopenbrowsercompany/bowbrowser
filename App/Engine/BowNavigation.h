@@ -30,7 +30,12 @@ __attribute__((objc_subclassing_restricted))
 
 - (instancetype)initWithURL:(NSURL *)url
                  transition:(BowNavigationTransition)transition
-              isUserGesture:(BOOL)isUserGesture NS_DESIGNATED_INITIALIZER;
+              isUserGesture:(BOOL)isUserGesture
+                 isRedirect:(BOOL)isRedirect NS_DESIGNATED_INITIALIZER;
+/// A navigation's first ask (`isRedirect` NO).
+- (instancetype)initWithURL:(NSURL *)url
+                 transition:(BowNavigationTransition)transition
+              isUserGesture:(BOOL)isUserGesture;
 - (instancetype)init NS_UNAVAILABLE;
 + (instancetype)new NS_UNAVAILABLE;
 
@@ -39,6 +44,9 @@ __attribute__((objc_subclassing_restricted))
 @property(nonatomic, readonly) BowNavigationTransition transition;
 /// YES when the navigation followed a user action in the page, such as a click.
 @property(nonatomic, readonly) BOOL isUserGesture;
+/// YES when the engine asks about a server redirect of a navigation already under way, NO for a navigation's first
+/// ask. A redirect keeps the transition and gesture of the navigation it belongs to.
+@property(nonatomic, readonly) BOOL isRedirect;
 
 @end
 
