@@ -6,6 +6,7 @@
 #include <sys/stat.h>
 
 #include <cstring>
+#include <memory>
 #include <string>
 
 #include "include/cef_parser.h"
@@ -30,16 +31,20 @@ const char kErrorPrefix[] = "/_error/";
 const char kNoContentPrefix[] = "/_204/";
 const char kSlowPrefix[] = "/_slow/";
 
-// Calls a read callback later, from a delayed task.
+// Calls a read callback later, from a delayed task, unless the request was cancelled meanwhile. Both run on the IO
+// thread, so the flag needs no lock.
 class ContinueReadTask : public CefTask {
  public:
-  ContinueReadTask(CefRefPtr<CefResourceReadCallback> callback, int bytesRead)
-      : callback_(callback), bytesRead_(bytesRead) {}
-  void Execute() override { callback_->Continue(bytesRead_); }
+  ContinueReadTask(CefRefPtr<CefResourceReadCallback> callback, int bytesRead, std::shared_ptr<bool> cancelled)
+      : callback_(callback), bytesRead_(bytesRead), cancelled_(std::move(cancelled)) {}
+  void Execute() override {
+    if (!*cancelled_) callback_->Continue(bytesRead_);
+  }
 
  private:
   CefRefPtr<CefResourceReadCallback> callback_;
   const int bytesRead_;
+  const std::shared_ptr<bool> cancelled_;
 
   IMPLEMENT_REFCOUNTING(ContinueReadTask);
 };
@@ -69,16 +74,18 @@ class SlowDownloadHandler : public CefResourceHandler {
     memset(dataOut, 'x', chunk);
     // Asynchronous read: the buffer stays valid until the callback runs.
     bytesRead = 0;
-    CefPostDelayedTask(TID_IO, new ContinueReadTask(callback, chunk), kDelayMs);
+    CefPostDelayedTask(TID_IO, new ContinueReadTask(callback, chunk, cancelled_), kDelayMs);
     return true;
   }
 
-  void Cancel() override {}
+  // A read still waiting in a delayed task must not continue a cancelled request.
+  void Cancel() override { *cancelled_ = true; }
 
  private:
   static constexpr int kChunk = 1024;
   static constexpr int64_t kDelayMs = 20;
   const std::string fileName_;
+  const std::shared_ptr<bool> cancelled_ = std::make_shared<bool>(false);
 
   IMPLEMENT_REFCOUNTING(SlowDownloadHandler);
 };

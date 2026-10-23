@@ -298,13 +298,13 @@ final class E2EAppAdapter {
     /// The downloads window, opened off screen the first time.
     private func downloadsList() async throws -> DownloadsWindowController {
         if let downloadsWindow { return downloadsWindow }
-        let frame = NSRect(x: -20_000, y: -21_000, width: 480, height: 360)
-        let window = OffscreenBrowserWindow(
-            contentRect: frame, styleMask: [.titled, .closable, .resizable], backing: .buffered, defer: false)
         // Every browser window shares the app's services; a test opens one before reading its downloads.
         guard let appFeatures = testControllers.first?.appFeatures else {
             throw E2EError("the downloads window needs a browser window open first")
         }
+        let frame = NSRect(x: -20_000, y: -21_000, width: 480, height: 360)
+        let window = OffscreenBrowserWindow(
+            contentRect: frame, styleMask: [.titled, .closable, .resizable], backing: .buffered, defer: false)
         let controller = appFeatures.require(DownloadsCenter.self).openWindow(in: window)
         window.setFrame(window.frameRect(forContentRect: frame), display: false)
         try await Self.checkInvisible(window)
