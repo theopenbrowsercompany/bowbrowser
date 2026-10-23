@@ -422,6 +422,9 @@ rroot flakes
 E2E_REPEAT=3 run repeatfail
 run results 'a.*'
 E2E_RETRY=0 run stucknototal 'a.*'
+newest=$(readlink "$BOW_E2E_ROOT/latest")
+# A run that could not start counts for nothing.
+run usage nope.test
 flakes=$(./scripts/e2e-flakes.sh "$BOW_E2E_ROOT")
 flakes_code=$?
 row() { printf '%s\n' "$flakes" | awk -v t="$1" '$1 == t { print $2, $3, $4, $5, $6 }'; }
@@ -431,9 +434,8 @@ check "flakes: a.one runs passes FLAKY FAIL TIMEOUT" is "$(row a.one)" "5 4 0 1 
 check "flakes: a.two flaked once and timed out once" is "$(row a.two)" "2 0 1 0 1"
 check "flakes: most failures first" is "$(printf '%s\n' "$flakes" | sed -n 2p | awk '{ print $1 }')" a.two
 check "flakes: a test that never ran is not counted" is "$(row a.three)" ""
-check "flakes: the newest failure is named" is "$(printf '%s\n' "$flakes" | awk '$1 == "a.two" { print $7 }')" \
-  "$(readlink "$BOW_E2E_ROOT/latest")"
-check "flakes: also takes a run folder" is "$(./scripts/e2e-flakes.sh "$BOW_E2E_ROOT/latest" | tail -n 1)" "e2e-flakes: 1 runs"
+check "flakes: the newest failure is named" is "$(printf '%s\n' "$flakes" | awk '$1 == "a.two" { print $7 }')" "$newest"
+check "flakes: also takes a run folder" is "$(./scripts/e2e-flakes.sh "$BOW_E2E_ROOT/$newest" | tail -n 1)" "e2e-flakes: 1 runs"
 check "flakes: an empty root exits 1" not ./scripts/e2e-flakes.sh "$tmp/none" 2> /dev/null
 export BOW_E2E_ROOT="$tmp/runs"
 
