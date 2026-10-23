@@ -22,6 +22,8 @@ public struct ArcImportApplied: Equatable, Sendable {
 
     public var isEmpty: Bool { spaceIDs.isEmpty && favoriteItemIDs.isEmpty }
 
+    public init() {}
+
     /// Takes the import out again in one transaction, without touching anything the person added or moved since.
     ///
     /// - The Favorites the import added are deleted, unless the person moved one out of the Favorites section it was
@@ -272,6 +274,8 @@ public struct ArcImportUndone: Equatable, Sendable {
     public var destinationSpaceID: SidebarSpaceID?
     /// The folders, tabs and splits the undo deleted, so the app can close the pages of the tabs among them.
     public var removedItemIDs: [SidebarItemID] = []
+
+    public init() {}
     /// Set when the change is in the sidebar but writing the file failed. The store keeps retrying on its next save.
     public var saveFailure: String?
 }

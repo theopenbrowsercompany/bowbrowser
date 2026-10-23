@@ -4,7 +4,7 @@
 
 People moving from Arc bring their Spaces, folders, pinned tabs and Favorites with them.
 This spec covers how an Arc sidebar file is read, what a preview of the import shows, how the person's choices shape it, and how the result is written into the sidebar and taken out again.
-The file picker and the wizard screens are separate pieces of work.
+The wizard that walks through it is described below.
 
 ## Behavior
 
@@ -65,7 +65,23 @@ The file picker and the wizard screens are separate pieces of work.
   - The Favorites the import added are deleted, except one the person moved out of the Favorites section it was added to.
   - If only imported Spaces are left, there is no Space to take what the person added, so undo is refused with a clear reason and changes nothing.
   - If writing the file fails, the undo still happened in the sidebar and the result carries the failure, the same way applying does.
-  - A new empty Favorites section made for a new profile stays behind, because the sidebar has no change that removes a section.
+  - A Favorites section the import made for a new profile is removed with it when it is empty and no Space uses the profile; one the person has since put a Favorite in, or a Space of theirs now uses, stays.
+- Applying never repeats a Favorite: one the profile's Favorites already has at the same address is left out, and the preview lists it as already there.
+  Importing the same file twice therefore adds the Spaces again but no Favorites.
+
+## The wizard
+
+- File > Import from Arc… opens a sheet on the window, one at a time across all windows.
+- The first screen says what is read (the sidebar file the person picks: Spaces, folders, pinned tabs and Favorites), that nothing leaves the Mac, that cookies, passwords and history are not read and Arc's file is never changed, and that a preview comes first.
+  Nothing is read until Choose File… is pressed.
+  The file picker starts in the folder where Arc keeps its sidebar file as a suggestion only; the app never opens that folder itself.
+- A file that is not JSON, not an Arc sidebar file, or empty of Spaces and Favorites stops at a message and changes nothing.
+- The Spaces screen has the three modes (default: Arc Spaces as Spaces), one checkbox per Arc Space (off when Spaces are skipped), and Favorites and unpinned tabs checkboxes.
+  Continue is off while the choices bring nothing.
+- The preview screen shows the counts, the tree of Spaces, folders and tabs with nesting, then the Favorites, and what the choices leave out.
+- Import adds everything in one step and registers the profiles the new Spaces use; if that fails the import is taken out again.
+  The last screen offers Undo, which gives back the sidebar as it was, and Done.
+  Undo is offered only on that screen: once it is closed, the import stays.
 - An Arc profile folder name becomes a Bow profile ID the engine accepts: `arc-`, a lowercase slug of the name, and a short stable hash of the exact name, such as `arc-profile-1-ef0ccd1ac1`.
   The engine allows only letters, digits, dot, underscore and hyphen in an ID and treats folder names without regard to case, so names that differ only in case or punctuation get different IDs, and the same name gets the same ID on every import.
 
@@ -119,10 +135,13 @@ The file picker and the wizard screens are separate pieces of work.
     Each reports the failure and the sidebar still shows the change.
 16. Import a file with Arc profiles named `Profile 1` and `profile 1`.
     Their Bow profile IDs differ, even when compared without regard to case, and use only letters, digits, dot, underscore and hyphen.
+17. Run the wizard on a fixture file of two Spaces: consent, choose the file, untick a Space and see it leave the preview, import, then Undo.
+    `import.apply` passes: the sidebar shows the preview's tree and Undo restores the sidebar exactly.
+18. Import the same file twice: the second preview lists the Favorites as already there and the sidebar keeps one copy.
+19. Choose a JSON file that is not an Arc sidebar file: the wizard says so and the sidebar is unchanged.
 
 ## Out of scope
 
-- Choosing the file, the consent text and the wizard and preview screens (the import wizard).
-- The end to end run line for the import in the running app.
+- Undoing an import after its wizard screen is closed.
 - Arc's archive, Little Arc, Easels, Notes, Boosts, cookies, passwords and history.
 - Mapping Arc's theme colors and Space profiles onto Bow's own.
