@@ -14,6 +14,7 @@ extension E2EAppAdapter {
     /// open in a browser window unless a test turns the setting on, so the links tests see the window path.
     static func prepareLittleArc() {
         LittleArcCenter.e2eVisibleFrame = littleArcScreen
+        LittleArcWindow.e2eKeepFrame = { E2EOffscreenFrame.kept($0, for: $1) }
         AppSettings.defaults.set(false, forKey: LittleArcCenter.opensExternalLinksKey)
     }
 
@@ -288,6 +289,20 @@ extension E2ETestApp: E2ELittleArcApp {
         try adapter.requireActive(token, "read what closing the last Little Arc window did")
         defer { adapter.delegate.e2eLittleArcClosedDecision = nil }
         return adapter.delegate.e2eLittleArcClosedDecision.map { "\($0)" } ?? "none"
+    }
+
+    func hideDownloadsWindow() throws -> Bool {
+        try adapter.requireActive(token, "hide the downloads window")
+        let shown = NSApp.windows.filter { $0.isVisible && $0.windowController is DownloadsWindowController }
+        for window in shown { window.orderOut(nil) }
+        return !shown.isEmpty
+    }
+
+    func showDownloadsWindow() throws {
+        try adapter.requireActive(token, "show the downloads window again")
+        for window in NSApp.windows where window.windowController is DownloadsWindowController {
+            window.orderFrontRegardless()
+        }
     }
 
     func failNextLittleArcAdopt(in window: E2ELittleArcWindow) throws {

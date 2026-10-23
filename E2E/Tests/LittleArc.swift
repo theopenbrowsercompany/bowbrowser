@@ -422,6 +422,9 @@ struct LittleArcLastWindowThenCloseTest: E2ETest {
         let main = try await LittleArcAreaTests.openWindow(app, run, seed: LittleArcAreaTests.homeAndWork)
         let littleArc = try await LittleArcAreaTests.deliver(app, run, LittleArcAreaTests.url("then_close"))
         _ = try app.takeLittleArcClosedDecision()
+        // The run's downloads window, when an earlier test opened it, would keep the app open as any window does.
+        let hidDownloads = try app.hideDownloadsWindow()
+        defer { if hidDownloads { try? app.showDownloadsWindow() } }
         try await run.step("close the browser window", timeout: E2ETimeouts.step) {
             try await app.closeWindow(of: main)
         }

@@ -491,6 +491,24 @@ final class LittleArcWindow: NSPanel {
         frameRect
     }
 
+    #if BOW_E2E  // E2E seam: e2e runs keep Little Arc off every screen, where AppKit moves it to show a sheet on it.
+        /// Given the frame asked for and the window, the frame to take.
+        static var e2eKeepFrame: ((NSRect, NSWindow) -> NSRect)?
+
+        override func setFrameOrigin(_ point: NSPoint) {
+            super.setFrameOrigin(Self.e2eKeepFrame?(NSRect(origin: point, size: frame.size), self).origin ?? point)
+        }
+
+        override func setFrame(_ frameRect: NSRect, display flag: Bool) {
+            super.setFrame(Self.e2eKeepFrame?(frameRect, self) ?? frameRect, display: flag)
+        }
+
+        override func setFrame(_ frameRect: NSRect, display displayFlag: Bool, animate animateFlag: Bool) {
+            super.setFrame(
+                Self.e2eKeepFrame?(frameRect, self) ?? frameRect, display: displayFlag, animate: animateFlag)
+        }
+    #endif
+
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
         if keyHandler?.performKeyEquivalent(with: event) == true { return true }
         return super.performKeyEquivalent(with: event)

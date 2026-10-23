@@ -447,11 +447,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     /// True while a browser window is open (shown, in the Dock or hidden with the app) or any other window is on
-    /// screen or in the Dock. A browser window that is closing does not count, even while it is still on screen.
+    /// screen or in the Dock. A browser window that is closing does not count, even while it is still on screen, nor
+    /// does a Little Arc window (its open ones are `LittleArcCenter.panels`; one closing may still be on screen).
     private var hasOpenWindow: Bool {
         windowControllers.contains { !$0.isClosing }
             || NSApp.windows.contains {
                 ($0.isVisible || $0.isMiniaturized) && !($0.windowController is BrowserWindowController)
+                    && !($0 is LittleArcWindow)
             }
     }
 
@@ -485,7 +487,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             waitsToQuitAfterDownloads = false
             // A browser window opened meanwhile or any other window keeps the app open, as it would have kept it from
             // quitting in the first place. A Little Arc window that keeps it open runs the rule again when it closes.
-            if !hasOpenWindow { NSApp.terminate(nil) }
+            let littleArc = appFeatures.require(LittleArcCenter.self).panels.count
+            if !hasOpenWindow && !LittleArc.keepsAppRunning(openLittleArcWindows: littleArc) { NSApp.terminate(nil) }
         }
     }
 
