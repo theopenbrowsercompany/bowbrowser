@@ -20,7 +20,9 @@
 #    time) with the retry off (E2E_REPEAT=<n> E2E_SHARDS=<k> make e2e-run), after the full e2e passed. A selection of
 #    fewer tests than shards gets the smoke tests as load filler. The gate reads the changed tests' own
 #    `REPEAT <test> <passes>/<n>` lines: a changed test below n/n, a crash, timeout or error, or a failing check that
-#    no filler test owns fails it; a filler test that fails prints a `note:` line and never fails make done. No such
+#    no filler test owns (a check belongs to the test of the RESULT line after it, the name prefix only when no RESULT
+#    line follows) fails it; a filler test that fails under make's `E2E: FAIL ... repeats` summary prints a `note:`
+#    line and never fails make done. DONE_REPEAT must be 2 or more (1 would be a plain run with the retry on). No such
 #    tests, no step. The block says the count and shards used.
 # Then it prints the block: each step's result line, the e2e summary line and run folder, the path to final.png,
 # the diff stat against the merge base with origin/main (origin/main itself unless the branch is behind), the tree
@@ -92,16 +94,18 @@ step() {
 step_status=0
 
 # The repeat step's size: DONE_REPEAT repeats (default 20) in DONE_REPEAT_SHARDS shards (default 3) of the tests the
-# branch adds or changes. Lower them to test or to check by hand; both must be whole numbers of 1 or more.
+# branch adds or changes. Lower them to test or to check by hand: DONE_REPEAT is a whole number of 2 or more (a single
+# repeat is a plain run, which turns e2e.sh's retry back on and prints no REPEAT lines, so the gate could not read it),
+# DONE_REPEAT_SHARDS a whole number of 1 or more.
 repeat_count=${DONE_REPEAT:-20}
 repeat_shards=${DONE_REPEAT_SHARDS:-3}
 case $repeat_count$repeat_shards in *[!0-9]* | "")
-  echo "done: DONE_REPEAT and DONE_REPEAT_SHARDS must be whole numbers of 1 or more"
+  echo "done: DONE_REPEAT must be a whole number of 2 or more and DONE_REPEAT_SHARDS a whole number of 1 or more"
   exit 2
   ;;
 esac
-if [ "$repeat_count" -lt 1 ] || [ "$repeat_shards" -lt 1 ]; then
-  echo "done: DONE_REPEAT and DONE_REPEAT_SHARDS must be whole numbers of 1 or more"
+if [ "$repeat_count" -lt 2 ] || [ "$repeat_shards" -lt 1 ]; then
+  echo "done: DONE_REPEAT must be a whole number of 2 or more and DONE_REPEAT_SHARDS a whole number of 1 or more"
   exit 2
 fi
 
@@ -111,25 +115,41 @@ fi
 #   fail <reason>            anything else, including a crash, timeout or error, a changed test below N/N, and a
 #                            failing check no test owns (chromium.errors, e2e.isolation): when in doubt, fail.
 # It reads the log's `REPEAT <test> <passes>/<N>` lines (short output prints only the tests below N) and its
-# `FAIL <check>: ...` lines, a check belonging to the longest test name it equals or continues with a dot.
+# `FAIL <check>: ...` lines. The runner prints a test's FAIL lines before its `RESULT <test> ...` line, so a check
+# belongs to the test of the next RESULT line (many checks do not start with their test's name: design.fonts_sidebar
+# is design.fonts'); a FAIL line no RESULT line follows before the next `E2E: ` summary (a run-wide check, or a short
+# output that left out a passing test's RESULT line) falls back to the longest test name it equals or continues with a
+# dot. A failing filler test only counts when make's summary is a FAIL naming repeats (not a crash or kill).
 repeat_gate() {
   local changed=$1 n=$2 summary=$3 log=$4
   case $summary in
     "") echo "fail no summary line"; return ;;
     "E2E: PASS"*) echo pass; return ;;
     "E2E: CRASH"* | "E2E: TIMEOUT"* | "E2E: ERROR"* | "E2E: FLAKY"* | *"(CRASH"* | *"(TIMEOUT"* | *"(ERROR"* | *"(FLAKY"*) echo "fail ${summary#E2E: }"; return ;;
+    "E2E: FAIL "*" repeats"*) ;;
+    *) echo "fail ${summary#E2E: }"; return ;;
   esac
   awk -v changed="$changed" -v n="$n" '
+    function flush(t,   j) {
+      for (j = 1; j <= np; j++) { checks[++nc] = pend[j]; owned[nc] = t }
+      np = 0
+    }
     BEGIN { k = split(changed, c, ","); for (i = 1; i <= k; i++) mine[c[i]] = 1 }
     /^REPEAT [^ ]+ [0-9]+\/[0-9]+$/ { split($3, p, "/"); if (p[1] + 0 < n) low[$2] = $3 }
-    /^FAIL [^ ]+/ { chk = $2; sub(/:$/, "", chk); checks[++nc] = chk }
+    /^FAIL [^ ]+/ { chk = $2; sub(/:$/, "", chk); pend[++np] = chk }
+    /^RESULT [^ ]+ [^ ]+/ { seen[$2] = 1; flush($2) }
+    /^E2E: / { flush("") }
     END {
+      flush("")
       for (t in low) if (t in mine) { print "fail changed test " t " passed " low[t] " repeats"; exit }
       if (nc == 0) { print "fail repeats failed with no FAIL line to attribute"; exit }
       for (i = 1; i <= nc; i++) {
-        owner = ""
-        for (t in low) if ((checks[i] == t || index(checks[i], t ".") == 1) && length(t) > length(owner)) owner = t
-        for (t in mine) if ((checks[i] == t || index(checks[i], t ".") == 1) && length(t) >= length(owner)) owner = t
+        owner = owned[i]
+        if (owner == "") {
+          for (t in low) if ((checks[i] == t || index(checks[i], t ".") == 1) && length(t) > length(owner)) owner = t
+          for (t in seen) if ((checks[i] == t || index(checks[i], t ".") == 1) && length(t) > length(owner)) owner = t
+          for (t in mine) if ((checks[i] == t || index(checks[i], t ".") == 1) && length(t) >= length(owner)) owner = t
+        }
         if (owner == "" || owner in mine) { print "fail check " checks[i] " is a changed test'"'"'s or no test'"'"'s"; exit }
       }
       list = ""
