@@ -37,7 +37,6 @@
       {BowPermissionKindNotifications, CEF_CONTENT_SETTING_TYPE_NOTIFICATIONS},
       {BowPermissionKindClipboard, CEF_CONTENT_SETTING_TYPE_CLIPBOARD_READ_WRITE},
       {BowPermissionKindMIDISysex, CEF_CONTENT_SETTING_TYPE_MIDI_SYSEX},
-      {BowPermissionKindStorageAccess, CEF_CONTENT_SETTING_TYPE_STORAGE_ACCESS},
       {BowPermissionKindWindowManagement, CEF_CONTENT_SETTING_TYPE_WINDOW_MANAGEMENT},
       {BowPermissionKindLocalFonts, CEF_CONTENT_SETTING_TYPE_LOCAL_FONTS},
   };

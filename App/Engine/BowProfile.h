@@ -22,8 +22,8 @@ NS_SWIFT_UI_ACTOR
 
 /// Stores an answer to a permission prompt in this profile's content settings: allowed or blocked for each of
 /// `kinds` on the site `origin`. Chromium's own permission checks then agree with it (a page's
-/// `navigator.permissions.query` reads it, and Chromium does not prompt again for that kind). Kinds with no content
-/// setting (screen capture, other) are skipped. An in-memory profile keeps the setting only while it runs.
+/// `navigator.permissions.query` reads it, and Chromium does not prompt again for that kind). Kinds the app never
+/// remembers (screen capture, storage access, other) are skipped. An in-memory profile keeps the setting only while it runs.
 - (void)setPermissionAllowed:(BOOL)allowed
                     forKinds:(BowPermissionKind)kinds
                       origin:(NSURL *)origin NS_SWIFT_NAME(setPermission(allowed:kinds:origin:));

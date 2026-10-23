@@ -21,10 +21,12 @@ public enum PermissionKind: String, CaseIterable, Codable, Sendable {
     case other
 
     /// Whether an answer for this kind is remembered. Screen capture asks every time, because the person picks
-    /// what to share each time, and an unknown kind cannot be told apart from another unknown kind.
+    /// what to share each time; storage access belongs to an embedded site under one top level site, which a
+    /// per-site answer would leak to every other top level site; and an unknown kind cannot be told apart from
+    /// another unknown kind.
     public var isRemembered: Bool {
         switch self {
-        case .screenCapture, .other: false
+        case .screenCapture, .storageAccess, .other: false
         default: true
         }
     }

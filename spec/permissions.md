@@ -18,6 +18,9 @@ Video calls, maps and web notifications work once allowed, and a site that was b
 - Answers in a profile kept on disk survive a restart; answers in an in-memory profile go away with it.
 - Pages also see the remembered answer when they check their permission state (for example through the Permissions API).
 - Screen sharing always asks, because the person picks what to share each time.
+- Storage access for embedded content always asks, because it belongs to one embedded site under one top level site.
+- The prompt's close button dismisses it without an answer: nothing is granted or remembered, and the page may ask again.
+- Neither Allow nor Block is a default button, so pressing Return never answers a prompt.
 - The first time an allowed site actually uses the camera, microphone or location, macOS may ask once whether Bow itself may use it; its text explains that only websites the person allows can use them.
 
 ## Edge cases
@@ -25,7 +28,7 @@ Video calls, maps and web notifications work once allowed, and a site that was b
 - Several requests at once wait in order; the prompt shows one at a time for the tab on screen.
 - Switching to another tab hides the prompt and shows that tab's own request, if it has one; switching back shows it again.
 - Closing the tab, or the tab leaving the page that asked, dismisses its waiting requests: nothing is granted or remembered, and the page may ask again.
-- When several waiting requests come from the same site, answering one also answers the others it covers.
+- When several waiting requests come from the same site, answering one also answers the others it covers, in every window of the profile.
 - A page with no web origin (a local file, `about:` or `data:` page) is asked every time and nothing is remembered for it.
 - A damaged permissions file is set aside and Bow starts with no remembered answers, so it asks again rather than granting anything.
 - Popup windows opened by pages keep the engine's default answer and show no prompt.
