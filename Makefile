@@ -52,7 +52,10 @@ smoke: build
 # e2e-run does the same without building: it reruns the last build.
 e2e: build
 e2e e2e-run:
-	@E2E='$(subst ','\'',$(E2E))' BOW_E2E_ROOT='$(BUILD_DIR)/e2e' ./scripts/e2e.sh '$(APP)'
+	@E2E=$(call shq,$(E2E)) BOW_E2E_ROOT=$(call shq,$(BUILD_DIR)/e2e) ./scripts/e2e.sh $(call shq,$(APP))
+
+# $(call shq,<text>): the text in single quotes for the shell.
+shq = '$(subst ','\'',$(1))'
 
 format:
 	swift format --in-place --recursive $(SWIFT_SOURCES)
