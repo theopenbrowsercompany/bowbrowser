@@ -54,7 +54,9 @@ final class TabUnloader: AppFeature {
     }
 
     /// True while the setting is on and the app is not quitting.
-    var isEnabled: Bool { !quitting && AppSettings.defaults.bool(forKey: Self.enabledKey) }
+    var isEnabled: Bool {
+        !quitting && !BowEngine.isQuitting && AppSettings.defaults.bool(forKey: Self.enabledKey)
+    }
 
     /// True while the pass timer and the memory pressure source are running.
     var isRunning: Bool { timer != nil }

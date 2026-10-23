@@ -52,10 +52,6 @@ final class TabUnloadFeature: NSResponder, BrowserWindowFeature {
         loaded[tab.tabID] = nil
     }
 
-    func tab(_ tab: any EngineTab, didReceive event: TabEvent) {
-        if event == .unloaded || event == .closed { loaded[tab.tabID] = nil }
-    }
-
     /// The window's loaded tabs the unloader may consider now (see the type's notes for those never offered).
     func unloadCandidates() -> [Candidate] {
         guard let window, Self.isIdle(window) else { return [] }

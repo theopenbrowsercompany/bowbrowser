@@ -18,6 +18,8 @@ final class SidebarFeature: NSResponder, BrowserWindowFeature, SidebarViewDelega
     private var faviconReported: [BrowserTabID: URL] = [:]
     /// Tabs whose page the engine unloaded, between that event and the window letting go of the page.
     private var unloadedIDs: Set<BrowserTabID> = []
+    /// Unloaded tabs whose icon stays for their row; dropped once the row leaves the window.
+    private var keptIcons: Set<BrowserTabID> = []
     /// The runtime ID of each tab the window lists (the Favorites shown and the tabs of the Space on screen), as last
     /// shown.
     private var runtimeIDs: [SidebarItemID: BrowserTabID] = [:]
@@ -52,7 +54,11 @@ final class SidebarFeature: NSResponder, BrowserWindowFeature, SidebarViewDelega
     /// An unloaded tab keeps its row, so it keeps its icon too; the icon goes with a tab that closed.
     func tabDidClose(_ tab: any EngineTab) {
         guard let id = window.modelID(of: tab) else { return }
-        if unloadedIDs.remove(id) == nil { favicons[id] = nil }
+        if unloadedIDs.remove(id) == nil {
+            favicons[id] = nil
+        } else {
+            keptIcons.insert(id)
+        }
         // The page that loads again reports its icon address anew; the same address keeps the icon without a reload.
         faviconReported[id] = nil
     }
@@ -60,6 +66,11 @@ final class SidebarFeature: NSResponder, BrowserWindowFeature, SidebarViewDelega
     /// Shows the window's sidebar with what each tab of the Space on screen last reported.
     private func refresh() {
         let list = window.tabList
+        for id in keptIcons where window.sidebarItemID(for: id) == nil || window.engineTab(for: id) != nil {
+            // The row left the window (its icon goes with it), or the page loaded again and owns its icon.
+            keptIcons.remove(id)
+            if window.sidebarItemID(for: id) == nil { favicons[id] = nil }
+        }
         var tabs: [SidebarItemID: BrowserTab] = [:]
         runtimeIDs = [:]
         for tab in list.tabs {
