@@ -79,6 +79,7 @@ Keep entries few and short lived, each with a filed flake item: fix the test, th
 
 A failed run keeps its profile in the run folder.
 After each run the wrapper ends any process left running with the run folder in its arguments (Chromium's helpers carry it), and says how many it ended.
+A crash report a Debug build's Crashpad kept (nothing is ever uploaded) is copied into `<run>/crash-reports/` and named by a `CRASH REPORT <path>` line before the summary line, in short output too, and in `results.json`'s `crashReports`; it never changes the outcome.
 
 ## Repeats
 
