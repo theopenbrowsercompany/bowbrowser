@@ -223,6 +223,21 @@ import Testing
         #expect(tab.hasNavigatedAway(from: URL(string: "https://example.com/x")))
     }
 
+    @Test func navigatedAwayIgnoresEscapeCaseAndAnEmptyQuery() {
+        let tab = SidebarTab(savedURL: "https://a.example.com/p%2fq?")
+        #expect(tab.hasNavigatedAway(from: URL(string: "https://a.example.com/p%2Fq")) == false)
+        #expect(tab.hasNavigatedAway(from: URL(string: "https://a.example.com/p%2Fr")))
+    }
+
+    @Test func aSavedAddressThatIsNotAURLHasNothingToGoBackTo() throws {
+        try withTemporaryFolder { folder in
+            let store = try makeStore(in: folder)
+            try store.apply([.setSavedPage("mail", url: "http://[not-an-address", title: "")])
+            #expect(store.graph.pinnedURL(of: "mail") == nil)
+            #expect(store.graph.hasNavigatedAwayFromPinnedURL("mail", liveURL: pageB) == false)
+        }
+    }
+
     @Test func navigatedAwayIsFalseWithoutALivePageOrASavedAddress() {
         #expect(SidebarTab(savedURL: "https://a.example.com").hasNavigatedAway(from: nil) == false)
         #expect(SidebarTab(savedURL: "").hasNavigatedAway(from: pageB) == false)
