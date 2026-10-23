@@ -106,6 +106,28 @@ NSView* BowEngineParkingView() {
   return parkingView;
 }
 
+void BowEngineParkNewBrowserView(NSView* browserView) {
+  // Chromium trusts a new page's starting visibility, which CEF sets to visible for windowed browsers, and ignores
+  // every hidden signal until the page has really been visible once (WebContentsImpl::UpdateWebContentsVisibility).
+  // A browser created in the parking view (in no window) would so stay visible and keep painting until first shown.
+  // Passing its view through a window gives Chromium that first visible state, and leaving the window marks the page
+  // hidden, both at once. The window is never put on screen, so nothing shows and the occlusion checker, which only
+  // looks at windows on screen, never marks it occluded.
+  static NSWindow* firstVisibleWindow = [] {
+    NSWindow* window = [[NSWindow alloc] initWithContentRect:NSMakeRect(0, 0, 800, 600)
+                                                   styleMask:NSWindowStyleMaskBorderless
+                                                     backing:NSBackingStoreBuffered
+                                                       defer:YES];
+    window.releasedWhenClosed = NO;
+    window.excludedFromWindowsMenu = YES;
+    return window;
+  }();
+  NSView* parkingView = BowEngineParkingView();
+  [firstVisibleWindow.contentView setFrameSize:parkingView.bounds.size];
+  [firstVisibleWindow.contentView addSubview:browserView];
+  [parkingView addSubview:browserView];
+}
+
 
 BowTab* BowEngineTabWithID(uint64_t tabID) {
   for (const auto& [identifier, entry] : gBrowsers) {

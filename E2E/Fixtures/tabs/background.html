@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Background tab</title>
+  <style>
+    body { margin: 0; font: 16px -apple-system, sans-serif; background: #fff; color: #111; }
+    h1 { margin: 0; padding: 24px; background: #2f6fde; color: #fff; }
+  </style>
+  <script>
+    // Records the page's visibility from its first script on, every visibility change, and its animation frames,
+    // so a tab opened in the background shows whether it was ever visible or painted before being shown.
+    window.bowBackground = {
+      initial: document.visibilityState,
+      changes: [],
+      frames: 0,
+    };
+    document.addEventListener("visibilitychange", () => {
+      window.bowBackground.changes.push(document.visibilityState);
+    });
+    const tick = () => {
+      window.bowBackground.frames += 1;
+      requestAnimationFrame(tick);
+    };
+    requestAnimationFrame(tick);
+  </script>
+</head>
+<body>
+  <h1>Background tab fixture</h1>
+  <p>Records its visibility and animation frames for the background tab check.</p>
+</body>
+</html>

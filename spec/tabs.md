@@ -16,6 +16,7 @@ The list is the base for pinned tabs, folders, spaces and restoring tabs after a
   Switching never reloads either page.
 - A tab that is not shown keeps running, but its page counts as hidden (`document.visibilityState` is `hidden`), so pages can pause animations and video while out of sight.
   The shown tab counts as visible and keeps painting.
+- A tab opened in the background counts as hidden from the start, before it has ever been shown: its page sees `hidden` from its first script on and paints nothing until the tab is shown, when it becomes visible.
 - Closing a tab runs its page's beforeunload handler first.
   - A page without a handler, or one that does not ask, closes at once.
   - A page that asks (for example one holding an unsaved draft) shows a "Leave this site?" prompt with Leave and Cancel.
