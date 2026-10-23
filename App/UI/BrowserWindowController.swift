@@ -226,7 +226,41 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
             pageArea.layer?.cornerRadius = pageCornerRadius
             pageArea.layer?.cornerCurve = .continuous
             pageArea.layer?.masksToBounds = pageCornerRadius > 0
+            if let pageShadow { pageShadowContainer?.apply(pageShadow, cornerRadius: pageCornerRadius) }
         }
+    }
+
+    /// A shadow under the page card: the window draws it on a container view pinned to the page area's edges and
+    /// right behind it, since the page area clips its own layer. The container follows the page area's corner radius
+    /// and `fill`; nil (the default) has no container.
+    var pageShadow: PageShadow? {
+        didSet { applyPageShadow() }
+    }
+
+    /// The container behind the page area that draws `pageShadow`, once one was set.
+    private(set) var pageShadowContainer: PageShadowContainer?
+
+    private func applyPageShadow() {
+        guard let pageShadow else {
+            pageShadowContainer?.removeFromSuperview()
+            pageShadowContainer = nil
+            return
+        }
+        let container: PageShadowContainer
+        if let existing = pageShadowContainer {
+            container = existing
+        } else {
+            container = PageShadowContainer()
+            rootView.addSubview(container, positioned: .below, relativeTo: pageArea)
+            NSLayoutConstraint.activate([
+                container.leadingAnchor.constraint(equalTo: pageArea.leadingAnchor),
+                container.trailingAnchor.constraint(equalTo: pageArea.trailingAnchor),
+                container.topAnchor.constraint(equalTo: pageArea.topAnchor),
+                container.bottomAnchor.constraint(equalTo: pageArea.bottomAnchor),
+            ])
+            pageShadowContainer = container
+        }
+        container.apply(pageShadow, cornerRadius: pageCornerRadius)
     }
 
     /// Whether the window's content runs under a transparent title bar (the full size content style), so chrome can
