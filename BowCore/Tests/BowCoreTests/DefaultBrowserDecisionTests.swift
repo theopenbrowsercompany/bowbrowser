@@ -2,7 +2,7 @@ import BowCore
 import Foundation
 import Testing
 
-@Suite struct DefaultBrowserTests {
+@Suite struct DefaultBrowserDecisionTests {
     private let bow = URL(fileURLWithPath: "/tmp/Apps/Bow.app")
 
     @Test func registersHttpThenHttps() {
@@ -19,10 +19,21 @@ import Testing
     @Test func pathsCompareByLocation() {
         #expect(DefaultBrowser.isDefault(handler: URL(fileURLWithPath: "/tmp/Apps/Bow.app/"), bundleURL: bow))
         #expect(DefaultBrowser.isDefault(handler: URL(fileURLWithPath: "/tmp/Apps/../Apps/Bow.app"), bundleURL: bow))
-        // /tmp is a link to /private/tmp.
-        #expect(DefaultBrowser.isDefault(handler: URL(fileURLWithPath: "/private/tmp/Apps/Bow.app"), bundleURL: bow))
         #expect(!DefaultBrowser.isDefault(handler: URL(fileURLWithPath: "/tmp/Apps/Bow.app.old"), bundleURL: bow))
         #expect(!DefaultBrowser.isDefault(handler: URL(string: "https://example.com/tmp/Apps/Bow.app"), bundleURL: bow))
+    }
+
+    @Test func aLinkToTheAppIsTheApp() throws {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let real = folder.appendingPathComponent("real")
+        try FileManager.default.createDirectory(
+            at: real.appendingPathComponent("Bow.app"), withIntermediateDirectories: true)
+        let link = folder.appendingPathComponent("link")
+        try FileManager.default.createSymbolicLink(at: link, withDestinationURL: real)
+        #expect(
+            DefaultBrowser.isDefault(
+                handler: link.appendingPathComponent("Bow.app"), bundleURL: real.appendingPathComponent("Bow.app")))
     }
 
     @Test func titlesFollowTheDefault() {

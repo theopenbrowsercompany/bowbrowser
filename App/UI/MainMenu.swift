@@ -1,4 +1,5 @@
 import AppKit
+import BowCore
 
 /// The menu bar, built in code because the app has no storyboard.
 ///
