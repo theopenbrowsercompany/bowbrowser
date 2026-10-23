@@ -37,7 +37,7 @@ People keep many pages open and move between them all day, so switching must be 
 2. Run `make e2e`: `PASS tabs.beforeunload: stay=kept leave=closed` shows a tab with a typed draft and a beforeunload handler asked once on close, kept with the same document and draft after Cancel, and closed after a second close and Leave.
 3. Run `make e2e`: `PASS tabs.close: neighbor=shown closed=true prompts=0` shows the neighbor tab shown after the draft tab closed, and a page without a handler closed at once without a prompt.
 4. Run `make e2e`: `PASS tabs.close-window` shows a window with three tabs, one shown and two hidden, closing all three and then itself while the app keeps running.
-5. By hand: open a page with a form, type into it, close its tab; the prompt appears; choose Cancel and the text is still there; close again and choose Leave and the tab is gone.
+5. By hand (until tabs have a close command of their own): open a page with a form in a window, type into it, close the window; the prompt appears as a sheet; choose Cancel and the window and text are still there; close again and choose Leave and the window is gone.
 
 ## Out of scope
 
