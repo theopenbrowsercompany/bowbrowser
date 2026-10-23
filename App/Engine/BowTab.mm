@@ -286,11 +286,14 @@ class BowTabClient;
   BOOL _navigationCommitted;
   // YES once the app stopped the navigation in progress.
   BOOL _stopRequested;
-  // The text of the search in progress; nil while not finding, so late results of a stopped search drop.
+  // The text and case of the search in progress; nil while not finding, so late results of a stopped search drop.
   NSString* _findText;
-  // The highest search identifier the engine has reported, so results of a replaced search drop.
+  BOOL _findMatchCase;
+  // The highest request identifier the engine has reported (each find request gets a higher one), so results of
+  // older requests drop, and the highest one when finding last stopped, so its late results drop too.
   int _findIdentifier;
-  // What that search has reported so far, since each report carries only what changed.
+  int _findStoppedIdentifier;
+  // What the search has reported so far, since each report carries only what changed.
   int _findMatchCount;
   int _findActiveMatch;
 }
@@ -1158,12 +1161,8 @@ class BowTabClient : public CefClient,
                       count:(int)count
                 activeMatch:(int)activeMatch
                 finalUpdate:(BOOL)finalUpdate {
-  if (!_findText || identifier < _findIdentifier) return;
-  if (identifier > _findIdentifier) {
-    _findIdentifier = identifier;
-    _findMatchCount = 0;
-    _findActiveMatch = 0;
-  }
+  if (!_findText || identifier < _findIdentifier || identifier <= _findStoppedIdentifier) return;
+  _findIdentifier = identifier;
   // Each report carries only what changed: -1 means the count or the position is as last reported.
   if (count >= 0) _findMatchCount = count;
   if (activeMatch >= 0) _findActiveMatch = activeMatch;
@@ -1182,7 +1181,13 @@ class BowTabClient : public CefClient,
     [self stopFind];
     return;
   }
+  if (!_findText || ![text isEqualToString:_findText] || matchCase != _findMatchCase) {
+    // A new search: nothing counted yet.
+    _findMatchCount = 0;
+    _findActiveMatch = 0;
+  }
   _findText = [text copy];
+  _findMatchCase = matchCase;
   // Always a follow-up: Chromium restarts the search itself when the text or case changed, and a first request
   // (findNext false) only highlights, selecting no active match.
   _browser->GetHost()->Find(text.UTF8String, forward, matchCase, true);
@@ -1191,6 +1196,7 @@ class BowTabClient : public CefClient,
 - (void)stopFind {
   if (!_browser || !_findText) return;
   _findText = nil;
+  _findStoppedIdentifier = _findIdentifier;
   // Keeping the selection makes the active match the page's selection, as Escape does in other browsers.
   _browser->GetHost()->StopFinding(false);
 }

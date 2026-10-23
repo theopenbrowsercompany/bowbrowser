@@ -51,6 +51,11 @@
   [BowEngineParkingView() setFrameSize:self.bounds.size];
 }
 
+- (void)focusAttachedTab {
+  NSView* browserView = self.attachedTab.browserView;
+  if (browserView.superview == self) [self.window makeFirstResponder:browserView];
+}
+
 - (void)detachTab {
   BowTab* tab = self.attachedTab;
   _tab = nil;

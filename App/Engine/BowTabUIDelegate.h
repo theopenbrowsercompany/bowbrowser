@@ -11,9 +11,9 @@
 
 NS_ASSUME_NONNULL_BEGIN
 
-/// Receives one tab's requests for UI, always on the main thread. State, fullscreen and find result changes come inside the
-/// engine callback that produced them; close, popups, dialogs, permissions, context menus and render process exits
-/// come on a later main thread task, so the app may show modal UI from them. A tab holds its UI
+/// Receives one tab's requests for UI, always on the main thread. State, fullscreen and find result changes come
+/// inside the engine callback that produced them; close, popups, dialogs, permissions, context menus and render
+/// process exits come on a later main thread task, so the app may show modal UI from them. A tab holds its UI
 /// delegate weakly.
 ///
 /// Every method is optional: when the delegate is nil or lacks a method, the engine does what it does by default
