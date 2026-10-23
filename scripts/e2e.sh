@@ -14,7 +14,9 @@
 #
 # Each run writes build/e2e/<time>-<pid>/: the app's report.txt, chromium.log and final.png, plus results.json
 # from this script. A retry runs in <run>/retry/: the failed, timed out and not run tests when RESULT lines name
-# them, else the whole selection.
+# them and every FAIL line belongs to one of those tests, else the whole selection (a failed chromium.errors,
+# e2e.isolation or quit check, a runner without RESULT lines). FLAKY therefore never hides a check the retry did
+# not run again. A retry that cannot start (exit 64) leaves the first attempt's outcome in place.
 #
 # The last line printed is always the summary:
 #   E2E: PASS n/n               exit 0
@@ -23,7 +25,8 @@
 #   E2E: FLAKY n/n retried ...  exit 3  failed or timed out, then passed on the retry: not a pass, report it
 #   E2E: CRASH exit=<code> ...  exit 4  the app ended without a summary line (a crash, Chromium's own watchdog),
 #                                       on the first run or on the retry
-#   E2E: ERROR ...              exit 64 the app could not start the run (an unknown selection, no build)
+#   E2E: ERROR ...              exit 64 the app could not start the run (an unknown selection, no build), or the
+#                                       build lock refused to run it (a bad BOW_E2E_SLOTS)
 set -u
 
 app=${1:-}
@@ -59,11 +62,11 @@ say "$run"
 # Keep the newest $keep run folders (only folders an e2e run made), so build/e2e does not grow without bound.
 prune() {
   local n=0 entry
-  for entry in $(cd "$root" && ls -1t); do
-    [ "$entry" != latest ] && [ -f "$root/$entry/$marker" ] || continue
+  while IFS= read -r entry; do
+    [ -n "$entry" ] && [ "$entry" != latest ] && [ -f "$root/$entry/$marker" ] || continue
     n=$((n + 1))
     if [ "$n" -gt "$keep" ] && [ "$entry" != "$run_name" ]; then rm -rf "${root:?}/$entry"; fi
-  done
+  done < <(cd "$root" && ls -1t)
 }
 prune
 
@@ -104,14 +107,18 @@ load() { sysctl -n vm.loadavg | awk '{ print $2 }'; }
 
 # Runs the app once into folder $1 with the remaining arguments. Sets: status (pass, fail, timeout, crash, error),
 # summary (its E2E line), app_code, signal, seconds.
+started=.app-started
 attempt() {
   local dir=$1 start
   shift
   mkdir -p "$dir"
   [ -f "$dir/$marker" ] || echo "Made by a Bow e2e run." > "$dir/$marker"
+  rm -f "$dir/$started"
   current=$dir
   start=$(now)
-  "$repo/scripts/build-lock.sh" --pool e2e "$binary" "$@" --e2e-out="$dir"
+  # The stamp tells an exit 64 of the app (it refused the selection) from one of the build lock (it never ran the
+  # app). exec keeps the app's pid, exit code and signal.
+  "$repo/scripts/build-lock.sh" --pool e2e /bin/sh -c ': > "$0/'"$started"'"; exec "$@"' "$dir" "$binary" "$@" --e2e-out="$dir"
   app_code=$?
   seconds=$(perl -e 'printf "%.2f", $ARGV[1] - $ARGV[0]' "$start" "$(now)")
   sweep "$dir"
@@ -129,7 +136,14 @@ attempt() {
     "0:E2E: PASS "*) status=pass ;;
     "1:E2E: FAIL "*) status=fail ;;
     "2:E2E: TIMEOUT "*) status=timeout ;;
-    "64:"*) status=error summary="E2E: ERROR the app could not start the run (exit 64): an unknown selection or switch" ;;
+    "64:"*)
+      status=error
+      if [ -f "$dir/$started" ]; then
+        summary="E2E: ERROR the app could not start the run (exit 64): an unknown selection or switch"
+      else
+        summary="E2E: ERROR the build lock refused to run the app (exit 64); see its message above"
+      fi
+      ;;
     *)
       status=crash
       local why="E2E: CRASH exit=$app_code${signal:+ signal=$signal}"
@@ -140,30 +154,62 @@ attempt() {
   esac
 }
 
-# What failed in folder $1, as "name<TAB>reason" lines: the tests whose RESULT line says fail or timeout and the
-# test a stuck main thread stopped in; when no test is named that way, the failed checks (chromium.errors, or a
-# runner without RESULT lines).
-failures() {
-  awk '
-    /^RESULT [^ ]+ (fail|timeout)( |$)/ { r = $0; sub(/^RESULT [^ ]+ /, "", r); add($2, r) }
-    /^E2E: TIMEOUT / { s = $0; sub(/^E2E: TIMEOUT /, "", s); n = s; sub(/:.*/, "", n); add(n, "TIMEOUT " s) }
-    /^FAIL / { n = $2; sub(/:$/, "", n); r = $0; sub(/^FAIL [^ ]*:? ?/, "", r); checks = checks n "\t" r "\n" }
-    function add(n, r) { if (!(n in seen)) { seen[n]; tests = tests n "\t" r "\n" } }
-    END { printf "%s", (tests != "" ? tests : checks) }
-  ' "$1/report.txt" 2>/dev/null
+# Fields in the lines below are split by the unit separator, not a tab: bash's read merges runs of tabs (IFS
+# whitespace), so an empty field would shift the ones after it.
+us=$'\037'
+
+# The test names the app knows, from the TEST lines of `--e2e=list` (which starts no engine). Asked only to check
+# the test a TIMEOUT line names; an app without the list selection prints none, so that name is not trusted.
+list_tests() {
+  "$repo/scripts/build-lock.sh" --pool e2e perl -e 'alarm 30; exec @ARGV' "$binary" --e2e=list --e2e-out="$1" 2> /dev/null |
+    awk '/^TEST [^ ]+/ { print $2 }'
+  sweep "$1" > /dev/null
 }
 
-# The tests a retry of folder $1 reruns, as a comma list: those that failed, timed out or never ran, when RESULT
-# lines name them; empty (rerun the whole selection) when the failure is not a test's (a failed chromium.errors or
-# app.quit check, whose RESULT line said pass) or the runner prints no RESULT lines.
-retry_tests() {
-  awk '
-    /^RESULT [^ ]+ (fail|timeout)( |$)/ { add($2) }
-    /^E2E: TIMEOUT / { n = $0; sub(/^E2E: TIMEOUT /, "", n); sub(/:.*/, "", n); add(n) }
-    /^NOT RUN / { add($3) }
-    /^RESULT / { results = 1 }
-    function add(n) { if (!(n in seen)) { seen[n]; list = list (list == "" ? "" : ",") n } }
-    END { if (results) print list }
+# What failed in folder $1 (its report.txt; $2 is a file of known test names, one per line, maybe empty), one line
+# each, fields split by $us:
+#   T test reason   a failed or timed out test, from its RESULT line, or the test a stuck main thread stopped in
+#                   (named by `E2E: TIMEOUT <test>: <step>`, trusted only when a RESULT, NOT RUN or TEST line names
+#                   that test)
+#   C check reason  a failure that is no test's: a FAIL line not followed by a failed test's RESULT line
+#                   (chromium.errors, e2e.isolation after a passing test, the quit check), or a TIMEOUT line naming
+#                   no known test (`E2E: TIMEOUT between tests (...)`)
+#   R test          a test the retry reruns: the failed, timed out and not run ones
+#   W               the retry reruns the whole selection: there is a C line, or there are no RESULT lines at all
+# The runner prints a test's FAIL lines before its RESULT line, and run-wide checks after the last RESULT line.
+analyze() {
+  awk -v us="$us" -v known_file="$2" '
+    BEGIN { if (known_file != "") while ((getline k < known_file) > 0) if (k != "") known[k] }
+    function test(n, r) { if (!(n in tseen)) { tseen[n]; out = out "T" us n us r "\n"; retry(n) } }
+    function retry(n) { if (!(n in rseen)) { rseen[n]; rlist = rlist "R" us n "\n" } }
+    function check(n, r) { checks = checks "C" us n us r "\n" }
+    function flush_pending(  i) { for (i = 1; i <= np; i++) check(pn[i], pr[i]); np = 0 }
+    /^FAIL / { n = $2; sub(/:$/, "", n); r = $0; sub(/^FAIL [^ ]*:? ?/, "", r); np++; pn[np] = n; pr[np] = r; next }
+    /^RESULT [^ ]+ [^ ]+/ {
+      results = 1; known[$2]
+      if ($3 == "fail" || $3 == "timeout") { r = $0; sub(/^RESULT [^ ]+ /, "", r); test($2, r); np = 0 }
+      else flush_pending()
+      next
+    }
+    /^NOT RUN [^ ]+/ { known[$3]; notrun[++nn] = $3; next }
+    /^E2E: TIMEOUT / && !timed {
+      timed = 1; tline = $0; sub(/^E2E: TIMEOUT /, "", tline)
+      if (match(tline, /^[^ :]+:/)) tname = substr(tline, 1, RLENGTH - 1)
+      # FAIL lines printed since the last RESULT line belong to the stuck test, if it is one.
+      for (i = 1; i <= np; i++) { tn[i] = pn[i]; tr[i] = pr[i] }
+      ntp = np; np = 0
+      next
+    }
+    END {
+      if (timed) {
+        if (tname != "" && (tname in known)) test(tname, "TIMEOUT " tline)
+        else { for (i = 1; i <= ntp; i++) check(tn[i], tr[i]); check("TIMEOUT", tline) }
+      }
+      flush_pending()
+      for (i = 1; i <= nn; i++) retry(notrun[i])
+      printf "%s%s%s", out, checks, rlist
+      if (checks != "" || !results) print "W"
+    }
   ' "$1/report.txt" 2>/dev/null
 }
 
@@ -176,26 +222,43 @@ flaky=""
 log_dir=$run
 
 if [ "$retry" = 1 ] && { [ "$status" = fail ] || [ "$status" = timeout ]; }; then
-  failed=$(failures "$run")
-  names=$(echo "$failed" | cut -f1 | grep -v '^$' | paste -sd, -)
+  known="$run/known-tests"
+  : > "$known"
+  # A TIMEOUT naming a test that no RESULT or NOT RUN line names: ask the app for its test list to check the name.
+  tname=$(sed -n 's/^E2E: TIMEOUT \([^ :]*\):.*/\1/p' "$run/report.txt" 2>/dev/null | head -n 1)
+  if [ -n "$tname" ] && ! awk -v t="$tname" '($1 == "RESULT" && $2 == t) || ($1 " " $2 == "NOT RUN" && $3 == t) { f = 1 } END { exit !f }' "$run/report.txt"; then
+    list_tests "$run/list" > "$known"
+  fi
+  analysis=$(analyze "$run" "$known")
+  # What failed, as name<US>reason lines: the tests, then the failures that are no test's.
+  failed=$(printf '%s\n' "$analysis" | awk -F "$us" '$1 == "T" || $1 == "C" { print $2 FS $3 }')
+  names=$(printf '%s\n' "$failed" | awk -F "$us" '$1 != "" { print $1 }' | paste -sd, -)
   retry_args=("${args[@]}")
-  subset=$(retry_tests "$run")
-  [ -z "$subset" ] || retry_args=("--e2e=$subset")
+  subset=$(printf '%s\n' "$analysis" | awk -F "$us" '$1 == "R" { print $2 }' | paste -sd, -)
+  if [ -n "$subset" ] && ! printf '%s\n' "$analysis" | grep -qx W; then retry_args=("--e2e=$subset"); fi
+  # The FLAKY count covers the whole selection: the first attempt's total, every check of which has now passed.
+  total=$(grep -E '^E2E: (PASS|FAIL) [0-9]+/[0-9]+' "$run/report.txt" 2>/dev/null | tail -n 1 | sed -E 's|^E2E: [A-Z]+ [0-9]+/([0-9]+).*|\1|')
   say "$first_summary; retrying once in a fresh app"
   attempt "$run/retry" "${retry_args[@]}"
   attempts+=("$run/retry|$status|$app_code|$signal|$seconds|$summary")
   if [ "$status" = pass ]; then
     flaky=$failed
-    echo "$failed" | while IFS="	" read -r name reason; do
+    printf '%s\n' "$failed" | while IFS="$us" read -r name reason; do
       [ -n "$name" ] && echo "FLAKY $name: failed then passed ($reason)"
     done | tee -a "$run/report.txt"
     status=flaky
-    summary="E2E: FLAKY ${summary#E2E: PASS } after retrying ${names:-the run}"
+    count=${summary#E2E: PASS }
+    [ -z "$total" ] || count="$total/$total"
+    summary="E2E: FLAKY $count after retrying ${names:-the run}"
   elif [ "$status" = fail ] || [ "$status" = timeout ]; then
     # Failed again: report the first attempt, whose run covered the whole selection.
     status=$first_status summary=$first_summary
+  elif [ "$status" = error ]; then
+    # The retry could not start: that says nothing about the tests, so the first attempt's outcome stands.
+    say "the retry could not start (${summary#E2E: ERROR }); reporting the first attempt"
+    status=$first_status summary=$first_summary
   else
-    # The retry crashed or could not start: report that, with its log.
+    # The retry crashed: report that, with its log.
     log_dir="$run/retry"
   fi
 fi
@@ -214,15 +277,15 @@ attempt_json() {
   printf '{"folder":%s,"status":%s,"appExitCode":%s,"signal":%s,"seconds":%s,"summary":%s,' \
     "$(json "$dir")" "$(json "$status")" "$code" "${sig:-null}" "$secs" "$(json "$line")"
   printf '"checks":['
-  awk '/^(PASS|FAIL) / { n = $2; sub(/:$/, "", n); d = $0; sub(/^[A-Z]+ [^ ]*:? ?/, "", d); print tolower($1) "\t" n "\t" d }' \
-    "$dir/report.txt" 2>/dev/null | { sep=""; while IFS="	" read -r s n d; do
+  awk -v us="$us" '/^(PASS|FAIL) / { n = $2; sub(/:$/, "", n); d = $0; sub(/^[A-Z]+ [^ ]*:? ?/, "", d); print tolower($1) us n us d }' \
+    "$dir/report.txt" 2>/dev/null | { sep=""; while IFS="$us" read -r s n d; do
       printf '%s{"name":%s,"status":%s,"detail":%s}' "$sep" "$(json "$n")" "$(json "$s")" "$(json "$d")"; sep=,; done; }
   printf '],"tests":['
   # RESULT <test> <status> seconds=<s> checks=<p>/<n> [quit=pending], and NOT RUN <test>.
-  awk '/^RESULT / { s = ""; c = ""; for (i = 4; i <= NF; i++) { if ($i ~ /^seconds=/) s = substr($i, 9); if ($i ~ /^checks=/) c = substr($i, 8) }
-      d = $0; sub(/^RESULT [^ ]+ [^ ]+ ?/, "", d); print $2 "\t" $3 "\t" s "\t" c "\t" d }
-    /^NOT RUN / { print $3 "\tnot run\t\t\t" }' \
-    "$dir/report.txt" 2>/dev/null | { sep=""; while IFS="	" read -r n s secs c d; do
+  awk -v us="$us" '/^RESULT / { s = ""; c = ""; for (i = 4; i <= NF; i++) { if ($i ~ /^seconds=/) s = substr($i, 9); if ($i ~ /^checks=/) c = substr($i, 8) }
+      d = $0; sub(/^RESULT [^ ]+ [^ ]+ ?/, "", d); print $2 us $3 us s us c us d }
+    /^NOT RUN / { print $3 us "not run" us us us }' \
+    "$dir/report.txt" 2>/dev/null | { sep=""; while IFS="$us" read -r n s secs c d; do
       printf '%s{"name":%s,"status":%s,"seconds":%s,"checks":%s,"detail":%s}' "$sep" "$(json "$n")" "$(json "$s")" \
         "$([[ $secs =~ ^[0-9]+(\.[0-9]+)?$ ]] && echo "$secs" || echo null)" "$(json "$c")" "$(json "$d")"; sep=,; done; }
   printf '],"app":%s}' "$app_json"
@@ -235,7 +298,7 @@ attempt_json() {
     "$(json "$status")" "$code" "$(json "$summary")" "$(json "$selection")" "$(json "$run")" "$(json "$commit")" "$dirty"
   printf '"load":{"start":%s,"end":%s,"cpus":%s},"orphansKilled":%s,"flaky":[' \
     "$load_start" "$load_end" "$(sysctl -n hw.ncpu)" "$orphans_killed"
-  echo "$flaky" | cut -f1 | { sep=""; while read -r n; do [ -n "$n" ] && printf '%s%s' "$sep" "$(json "$n")" && sep=,; done; }
+  printf '%s\n' "$flaky" | awk -F "$us" '{ print $1 }' | { sep=""; while IFS= read -r n; do [ -n "$n" ] && printf '%s%s' "$sep" "$(json "$n")" && sep=,; done; }
   printf '],"attempts":['
   sep=""
   for a in "${attempts[@]}"; do
