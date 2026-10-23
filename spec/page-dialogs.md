@@ -21,6 +21,8 @@ They come up as a sheet on the window showing that tab and never freeze the rest
 - A tab whose alert waits for it to be shown is not unloaded to save memory (see unload.md), so the alert is never lost unseen.
 - A popup window of its own (one a popup panel's page or another popup window opens) asks on its own window, as a sheet there, with the same title, buttons and answers as a tab's dialog.
 - A popup window that closes (the page closes it, or a quit asks every page to close) takes its sheet down first, answered as cancelled, so its window closes and the sheet never holds up a quit.
+- A popup panel's page (a sign in popup) asks on its panel, as a sheet there with the same title, buttons, answers and rules as a tab's dialog; the panel always shows its page, so a dialog comes up at once, also while the tab that opened the panel is hidden.
+- A panel that closes (the person closes it, its page closes it, its opener tab or window closes, or a quit) takes its sheet down first, answered once as cancelled.
 - The "leave this site?" prompt is not one of these dialogs: the tab asks it itself, as before (see quit.md and tabs.md).
 - No page dialog is ever an app modal panel: other tabs keep running and other windows stay usable.
 
@@ -41,11 +43,12 @@ They come up as a sheet on the window showing that tab and never freeze the rest
 6. With a confirm up, switch tabs: the page gets `false` and the sheet goes; with an alert up, switch away and back: the alert comes back.
 7. With a dialog up, go to another address, close the tab, or close the window: each happens at once and the sheet goes.
 8. From a popup panel's page, open a popup window that asks an alert, two confirms and a prompt: each comes up as a sheet on the popup's window, and the page gets `undefined`, `true` for OK, `false` for Cancel and the typed text; with its alert up, quitting closes the popup and its sheet.
-9. Run `make e2e E2E=dialogs`: `PASS dialogs.alert`, `PASS dialogs.confirm`, `PASS dialogs.prompt`, `PASS dialogs.background_alert`, `PASS dialogs.background_confirm`, `PASS dialogs.switch_away`, `PASS dialogs.navigate`, `PASS dialogs.close_tab`, `PASS dialogs.close_window`, `PASS dialogs.popup_window`, `PASS dialogs.popup_sheet.alert`, `PASS dialogs.popup_sheet.confirm`, `PASS dialogs.popup_sheet.prompt`, `PASS dialogs.popup_sheet.answers` and `PASS dialogs.popup_sheet_quit`.
+9. From a page, open a popup panel that asks an alert, two confirms and a prompt: each comes up as a sheet on the panel and the page gets `undefined`, `true`, `false` and the typed text; close the panel, its opener tab or its window with a confirm up and the sheet goes, the confirm answered as cancelled.
+10. Run `make e2e E2E=dialogs`: `PASS dialogs.panel_sheet`, `PASS dialogs.panel_twice`, `PASS dialogs.panel_hidden_opener`, `PASS dialogs.panel_close`, `PASS dialogs.panel_opener_close`, `PASS dialogs.panel_window_close`, and `PASS dialogs.alert`, `PASS dialogs.confirm`, `PASS dialogs.prompt`, `PASS dialogs.background_alert`, `PASS dialogs.background_confirm`, `PASS dialogs.switch_away`, `PASS dialogs.navigate`, `PASS dialogs.close_tab`, `PASS dialogs.close_window`, `PASS dialogs.popup_window`, `PASS dialogs.popup_sheet.alert`, `PASS dialogs.popup_sheet.confirm`, `PASS dialogs.popup_sheet.prompt`, `PASS dialogs.popup_sheet.answers` and `PASS dialogs.popup_sheet_quit`.
 
 ## Out of scope
 
 - A badge on a tab whose alert waits (Chrome marks the tab); a later change can add it.
 - Chrome's rule that a tab in a window that is not frontmost counts as a background tab: Bow counts the tab each window shows as shown.
-- HTTP sign in and other panels, which will reuse the same sheet pattern.
+- HTTP sign in, which will reuse the same sheet pattern.
 - The leave prompt (see quit.md).
