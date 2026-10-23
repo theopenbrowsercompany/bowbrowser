@@ -16,28 +16,22 @@ struct FavoritesGridTest: E2ETest {
     func run(_ run: E2ERun) async throws {
         guard let app = run.app as? any E2EFavoritesApp else { throw E2EError("the app has no Favorites grid") }
         let url = { (name: String) in E2EFixture.url("sidebar/page.html?name=\(name)") }
-        /// The grid's tiles once `condition` holds for them; a condition that never holds runs into the step timeout.
-        func tiles(of page: any E2EPage, until condition: ([E2EFavoriteTile]) -> Bool) async throws
-            -> [E2EFavoriteTile]
-        {
-            while true {
-                let tiles = try app.favoriteTiles(of: page)
-                if condition(tiles) { return tiles }
-                try await Task.sleep(nanoseconds: 10_000_000)
-            }
-        }
-        /// What `read` gives once `condition` holds for it, or what it gave last after `seconds`, so a check can say
-        /// what it saw.
-        func settle<T>(seconds: TimeInterval = 4, _ read: () throws -> T, until condition: (T) -> Bool) async throws
-            -> T
-        {
-            let deadline = Date().addingTimeInterval(seconds)
+        /// What `read` gives once `condition` holds for it, or what it gave last when the wait's budget (at most 3
+        /// seconds of the step's time) runs out, so the check that follows says what it saw.
+        func settle<T>(_ read: () throws -> T, until condition: (T) -> Bool) async throws -> T {
+            let deadline = Date().addingTimeInterval(E2EWaits.budget(limit: 3))
             var value = try read()
             while !condition(value), Date() < deadline {
                 try await Task.sleep(nanoseconds: 10_000_000)
                 value = try read()
             }
             return value
+        }
+        /// The grid's tiles in `page`'s window once `condition` holds for them, or as they are when the wait gives up.
+        func tiles(of page: any E2EPage, until condition: ([E2EFavoriteTile]) -> Bool) async throws
+            -> [E2EFavoriteTile]
+        {
+            try await settle({ try app.favoriteTiles(of: page) }, until: condition)
         }
         func titles(_ tiles: [E2EFavoriteTile]) -> String { "[\(tiles.map(\.title).joined(separator: ","))]" }
 
@@ -63,7 +57,7 @@ struct FavoritesGridTest: E2ETest {
             try app.dragToFavorites(a, at: 0)
             try app.dragToFavorites(b, at: 1)
             let tiles = try await tiles(of: c) { $0.count == 2 }
-            let rows = try await SidebarWaits.rows(app, of: c) { $0.map(\.title) == ["C"] }
+            let rows = try await settle({ try app.sidebarRows(of: c) }) { $0.map(\.title) == ["C"] }
             return (tiles: tiles, rows: rows, height: try app.favoritesGridHeight(of: c))
         }
         let icons = added.tiles.filter(\.hasIcon).count
@@ -87,7 +81,7 @@ struct FavoritesGridTest: E2ETest {
             let first = try await settle({ try app.sidebarRows(of: c) }) {
                 SidebarWaits.summary($0) == "tabs=[C,B] active=B"
             }
-            let lit = try await settle({ try app.favoriteTiles(of: c) }) { $0.first?.isActive == true }
+            let lit = try await tiles(of: c) { $0.first?.isActive == true }
             try app.clickSidebarRow(of: c)
             _ = try await settle({ try app.sidebarRows(of: c) }) { SidebarWaits.summary($0) == "tabs=[C,B] active=C" }
             try app.clickFavorite(b)

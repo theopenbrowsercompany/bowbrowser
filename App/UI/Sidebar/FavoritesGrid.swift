@@ -123,11 +123,12 @@ final class FavoritesGridView: NSView {
         return tile
     }
 
-    /// The name a Favorite shows: its own name, else its saved page's title, else its site's host.
+    /// The name a Favorite shows: its own name, else its saved page's title, else its site's host without "www.".
     static func title(of item: SidebarItem, saved: SidebarTab) -> String {
         if let custom = item.title, !custom.isEmpty { return custom }
         if !saved.savedTitle.isEmpty { return saved.savedTitle }
-        return saved.savedPageURL?.host() ?? saved.savedURL
+        guard let host = saved.savedPageURL?.host(), !host.isEmpty else { return saved.savedURL }
+        return host.hasPrefix("www.") ? String(host.dropFirst(4)) : host
     }
 
     // MARK: Actions
@@ -159,6 +160,10 @@ final class FavoritesGridView: NSView {
     /// Drops sidebar item `item` into the grid at gap `index` (counted before it leaves its place), as dropping it
     /// there does: a tab becomes a Favorite keeping its saved page, and a Favorite moves within the grid. Returns
     /// whether the drop went through; one no rule allows changes nothing.
+    ///
+    /// It does not go through `SidebarDrop.perform(in:)`, which gives a pinned tab leaving the pinned zone its live
+    /// page as its saved page: a tab made a Favorite keeps the address it was saved with (a pinned tab its pinned
+    /// address), as Favorites return to their saved address like pinned tabs.
     @discardableResult
     func drop(_ item: SidebarItemID, at index: Int) -> Bool {
         guard let context, let drop = proposedDrop(of: item, at: index, in: context.graph) else { return false }
@@ -230,21 +235,14 @@ final class FavoritesGridView: NSView {
         FavoritesGridLayout.gap(at: point, count: tiles.count, width: bounds.width)
     }
 
-    private var enclosingSidebar: SidebarView? {
-        var view = superview
-        while let current = view {
-            if let sidebar = current as? SidebarView { return sidebar }
-            view = current.superview
-        }
-        return nil
-    }
-
     /// Shows the drop line in gap `index`: before its tile, or after the last tile.
     private func showIndicator(at index: Int) {
         let width = bounds.width
         let frame: NSRect
         if tiles.isEmpty {
-            frame = NSRect(x: FavoritesGridLayout.insets.left, y: bounds.midY - 1, width: width - 20, height: 2)
+            frame = NSRect(
+                x: FavoritesGridLayout.insets.left, y: bounds.midY - 1,
+                width: width - FavoritesGridLayout.insets.left - FavoritesGridLayout.insets.right, height: 2)
         } else {
             let tile = FavoritesGridLayout.frame(ofTile: min(index, tiles.count - 1), width: width)
             let x = index < tiles.count ? tile.minX - FavoritesGridLayout.spacing / 2 : tile.maxX + 1
@@ -356,6 +354,7 @@ final class FavoriteTileView: NSView, NSDraggingSource {
             return image
         }
         dragItem.setDraggingFrame(bounds, contents: image)
+        enclosingSidebar?.itemDragBegan()
         beginDraggingSession(with: [dragItem], event: event, source: self)
     }
 
@@ -389,5 +388,18 @@ final class FavoriteTileView: NSView, NSDraggingSource {
     func draggingSession(_ session: NSDraggingSession, endedAt screenPoint: NSPoint, operation: NSDragOperation) {
         isDragging = false
         mouseDownPoint = nil
+        enclosingSidebar?.itemDragEnded()
+    }
+}
+
+extension NSView {
+    /// The sidebar this view is inside, nil when it is in none.
+    fileprivate var enclosingSidebar: SidebarView? {
+        var view = superview
+        while let current = view {
+            if let sidebar = current as? SidebarView { return sidebar }
+            view = current.superview
+        }
+        return nil
     }
 }
