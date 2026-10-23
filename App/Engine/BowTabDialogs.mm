@@ -11,6 +11,27 @@ namespace {
 std::function<void(uint64_t, bool, std::function<void(bool)>)> gLeavePromptAnswerer;
 #endif
 
+// The dialog sheet up on each popup window of the engine's own, by browser ID, so the engine can take it down.
+NSMutableDictionary<NSNumber*, NSAlert*>* PopupDialogs() {
+  static NSMutableDictionary<NSNumber*, NSAlert*>* dialogs = [NSMutableDictionary dictionary];
+  return dialogs;
+}
+
+// The sheet's title, by the same rules as PageDialog.title in BowCore (which the bridge cannot call): "<host> says"
+// for an http or https origin, with its port when it is not the scheme's default, else "This page says".
+NSString* PopupDialogTitle(NSURL* origin) {
+  NSString* scheme = origin.scheme.lowercaseString;
+  NSString* host = origin.host;
+  if (!host.length || !([scheme isEqualToString:@"http"] || [scheme isEqualToString:@"https"])) {
+    return @"This page says";
+  }
+  const NSInteger defaultPort = [scheme isEqualToString:@"https"] ? 443 : 80;
+  if (origin.port && origin.port.integerValue != defaultPort) {
+    return [NSString stringWithFormat:@"%@:%@ says", host, origin.port];
+  }
+  return [host stringByAppendingString:@" says"];
+}
+
 // A page in a popup window of the engine's own asked for an alert, confirm or prompt: a sheet on that window, so
 // only the popup waits. A popup in no window (an e2e run parks them off screen) is answered as cancelled.
 void RunPopupWindowDialog(CefRefPtr<CefBrowser> browser,
@@ -25,9 +46,9 @@ void RunPopupWindowDialog(CefRefPtr<CefBrowser> browser,
     callback->Continue(false, CefString());
     return;
   }
-  NSString* host = BowToNSURL(originURL).host;
+  NSNumber* browserID = @(browser->GetIdentifier());
   NSAlert* alert = [[NSAlert alloc] init];
-  alert.messageText = host.length ? [host stringByAppendingString:@" says"] : @"This page says";
+  alert.messageText = PopupDialogTitle(BowToNSURL(originURL));
   alert.informativeText = BowToNSString(messageText);
   [alert addButtonWithTitle:@"OK"];
   if (dialogType != JSDIALOGTYPE_ALERT) [alert addButtonWithTitle:@"Cancel"];
@@ -37,8 +58,14 @@ void RunPopupWindowDialog(CefRefPtr<CefBrowser> browser,
     field.frame = NSMakeRect(0, 0, 260, 22);
     alert.accessoryView = field;
   }
+  // A page asks one dialog at a time; a new one replaces any earlier sheet (as the window feature does for tabs).
+  NSAlert* earlier = PopupDialogs()[browserID];
+  if (earlier.window.sheetParent) [earlier.window.sheetParent endSheet:earlier.window returnCode:NSModalResponseAbort];
+  PopupDialogs()[browserID] = alert;
+  __weak NSAlert* weakAlert = alert;
   [alert beginSheetModalForWindow:window
                 completionHandler:^(NSModalResponse response) {
+                  if (PopupDialogs()[browserID] == weakAlert) [PopupDialogs() removeObjectForKey:browserID];
                   const bool accepted = response == NSAlertFirstButtonReturn;
                   callback->Continue(accepted, accepted && field ? field.stringValue.UTF8String : "");
                 }];
@@ -81,8 +108,20 @@ bool BowTabClient::OnJSDialog(CefRefPtr<CefBrowser> browser,
   return true;
 }
 
-// The tab always answers "leave this page?" itself (through its UI delegate or its own prompt), so it knows
-// whether the person stayed and can report that a close was cancelled. Popups keep CEF's own prompt.
+// The engine cancels a page's dialogs (a navigation, the page going away). A popup window's sheet is taken down
+// here, answering its page as cancelled; a tab's dialog is taken down by the window, which hears of the navigation
+// or close itself.
+void BowTabClient::OnResetDialogState(CefRefPtr<CefBrowser> browser) {
+  if (IsOwn(browser)) return;
+  NSNumber* browserID = @(browser->GetIdentifier());
+  NSAlert* alert = PopupDialogs()[browserID];
+  if (!alert) return;
+  [PopupDialogs() removeObjectForKey:browserID];
+  if (alert.window.sheetParent) [alert.window.sheetParent endSheet:alert.window returnCode:NSModalResponseAbort];
+}
+
+// The tab always answers "leave this page?" itself with its own prompt, so it knows whether the person stayed and
+// can report that a close was cancelled. Popups keep CEF's own prompt.
 bool BowTabClient::OnBeforeUnloadDialog(CefRefPtr<CefBrowser> browser,
                                         const CefString& messageText,
                                         bool isReload,

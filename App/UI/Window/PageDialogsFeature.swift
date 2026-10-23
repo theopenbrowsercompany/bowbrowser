@@ -24,19 +24,29 @@ final class PageDialogsFeature: NSResponder, BrowserWindowFeature {
     private var waiting: [Policy.DialogID: CheckedContinuation<PageDialogAnswer, Never>] = [:]
     /// The sheet on the window, if a dialog is up.
     private(set) var sheet: Sheet?
+    /// The dialog that is up for the policy but waits for another sheet on the window to end.
+    private var deferred: Policy.DialogID?
     private var observers: [NSObjectProtocol] = []
 
     init(window: BrowserWindowController) {
         self.window = window
         super.init()
-        // Closing the window or quitting answers every dialog, so no page waits on a sheet nobody can see and no
-        // close or quit waits on a page that waits on one.
+        // A closing tab (also each tab a closing window or quitting closes) has its dialog cancelled through
+        // `tabDidClose`, and the engine lets a page with a dialog up close. The window closing and the app
+        // terminating answer whatever is left, so no page is left waiting on a sheet nobody can see.
         let center = NotificationCenter.default
         if let nsWindow = window.window {
             observers.append(
                 center.addObserver(forName: NSWindow.willCloseNotification, object: nsWindow, queue: .main) {
                     [weak self] _ in
                     MainActor.assumeIsolated { self?.closeAll() }
+                })
+            // A sheet that had to wait for another one (a leave prompt) comes up once that one ends.
+            observers.append(
+                center.addObserver(forName: NSWindow.didEndSheetNotification, object: nsWindow, queue: .main) {
+                    [weak self] _ in
+                    // On the next turn, once AppKit has let go of the ended sheet.
+                    Task { @MainActor in self?.presentDeferred() }
                 })
         }
         observers.append(
@@ -74,8 +84,12 @@ final class PageDialogsFeature: NSResponder, BrowserWindowFeature {
     }
 
     func tab(_ tab: any EngineTab, didReceive event: TabEvent) {
-        // A dialog belongs to the page that asked; a navigation leaves it.
-        if case .didStartNavigation = event { apply(policy.navigated(tab.tabID)) }
+        // A dialog belongs to the page that asked; a navigation leaves it (as Chromium, also one that never
+        // commits), and a page whose render process ended can no longer hear the answer.
+        switch event {
+        case .didStartNavigation, .renderProcessGone: apply(policy.navigated(tab.tabID))
+        default: break
+        }
     }
 
     func tabDidClose(_ tab: any EngineTab) {
@@ -99,6 +113,12 @@ final class PageDialogsFeature: NSResponder, BrowserWindowFeature {
     private func present(_ id: Policy.DialogID) {
         guard let dialog = policy.dialog(id), let parent = window?.window else {
             apply(policy.answered(id, .cancelled))
+            return
+        }
+        // AppKit would queue a second sheet where nothing can take it down again, so the dialog waits for the
+        // window's sheet to end.
+        guard parent.attachedSheet == nil else {
+            deferred = id
             return
         }
         let alert = NSAlert()
@@ -128,7 +148,15 @@ final class PageDialogsFeature: NSResponder, BrowserWindowFeature {
         apply(policy.answered(id, PageDialogAnswer(accepted: accepted, text: sheet.field?.stringValue)))
     }
 
+    /// Presents the dialog that waited for another sheet, if the policy still has it up.
+    private func presentDeferred() {
+        guard let id = deferred, sheet == nil, window?.window?.attachedSheet == nil else { return }
+        deferred = nil
+        if policy.presented == id { present(id) }
+    }
+
     private func dismiss(_ id: Policy.DialogID) {
+        if deferred == id { deferred = nil }
         guard let sheet, sheet.id == id else { return }
         self.sheet = nil
         let sheetWindow = sheet.alert.window

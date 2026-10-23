@@ -286,6 +286,7 @@ class BowTabClient : public CefClient,
                             const CefString& messageText,
                             bool isReload,
                             CefRefPtr<CefJSDialogCallback> callback) override;
+  void OnResetDialogState(CefRefPtr<CefBrowser> browser) override;
 
   // CefDialogHandler (BowTabDialogs.mm)
   bool OnFileDialog(CefRefPtr<CefBrowser> browser,
