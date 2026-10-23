@@ -26,11 +26,17 @@ public struct UnloadTab: Equatable, Sendable {
     public var isVisible: Bool
     /// False when the tab is already unloaded, so there is nothing left to close.
     public var isLoaded: Bool
+    /// The person edited a form field in the page (typed, pasted, dropped, dictated, autofilled or chose a file) since
+    /// it last loaded a new document. Unloading would lose that input, so such a tab is kept at every memory pressure
+    /// but critical.
+    public var hasEditedForm: Bool
 
     public init(
         id: UUID = UUID(), lastActive: Date, isPinnedOrFavorite: Bool = false, isAudible: Bool = false,
-        lastAudibleAt: Date? = nil, isCapturing: Bool = false, isVisible: Bool = false, isLoaded: Bool = true
+        lastAudibleAt: Date? = nil, isCapturing: Bool = false, isVisible: Bool = false, isLoaded: Bool = true,
+        hasEditedForm: Bool = false
     ) {
+        self.hasEditedForm = hasEditedForm
         self.id = id
         self.lastActive = lastActive
         self.isPinnedOrFavorite = isPinnedOrFavorite
@@ -119,8 +125,10 @@ public struct UnloadPolicy: Sendable {
         let current = now()
         let loaded = tabs.filter(\.isLoaded)
         let window = max(0, configuration.recentlyAudibleWindow)
-        let candidates = loaded.filter { !$0.isExempt && !$0.wasAudible(within: window, of: current) }
-            .sorted(by: Self.leastRecentlyUsedFirst)
+        let candidates = loaded.filter {
+            !$0.isExempt && !$0.wasAudible(within: window, of: current) && !Self.keepsEditedForm($0, at: pressure)
+        }
+        .sorted(by: Self.leastRecentlyUsedFirst)
         // When trimming to the limit, pinned tabs and Favorites go last.
         let trimOrder = candidates.filter { !$0.isPinnedOrFavorite } + candidates.filter(\.isPinnedOrFavorite)
 
@@ -138,6 +146,13 @@ public struct UnloadPolicy: Sendable {
             remaining -= 1
         }
         return decisions
+    }
+
+    /// A tab with an edited form is neither unloaded for being idle nor trimmed to the loaded tab limit, except under
+    /// critical memory pressure, where it unloads like any other tab: as Chrome's discarding does, since the system
+    /// may end the page's process itself when memory runs out, and freeing memory then outweighs the input.
+    static func keepsEditedForm(_ tab: UnloadTab, at pressure: MemoryPressure) -> Bool {
+        tab.hasEditedForm && pressure < .critical
     }
 
     private func idleTime(of tab: UnloadTab, at current: Date) -> TimeInterval {

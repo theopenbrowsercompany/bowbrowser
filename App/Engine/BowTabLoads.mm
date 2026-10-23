@@ -112,6 +112,7 @@ void BowTabClient::OnLoadError(CefRefPtr<CefBrowser> browser,
                                      isUserGesture:_navigation.isUserGesture];
   _navigationCommitted = YES;
   _navigationFrame = [frameIdentifier copy];
+  [self keepPageSignalsOfFrame:frameIdentifier];
   id<BowTabNavigationDelegate> delegate = self.navigationDelegate;
   if ([delegate respondsToSelector:@selector(tab:didCommitNavigation:)]) {
     [delegate tab:self didCommitNavigation:_navigation];

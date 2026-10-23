@@ -5,6 +5,7 @@
 #include <atomic>
 
 #import "BowTab+Internal.h"
+#include "../Helper/BowPageSignalNames.h"
 #include "include/cef_image.h"
 
 namespace {
@@ -494,9 +495,44 @@ void BowTearDownBrowserView(CefRefPtr<CefBrowser> browser) {
   if ([delegate respondsToSelector:@selector(tab:didChangeState:)]) [delegate tab:self didChangeState:self.state];
 }
 
-- (void)audibleChanged:(BOOL)audible {
+#pragma mark Page signals
+
+- (void)pageSignal:(NSString*)kind on:(BOOL)on frame:(NSString*)frameID {
+  if (self.closed) return;
+  NSMutableSet<NSString*>* frames = nil;
+  if ([kind isEqualToString:@(kBowPageSignalAudible)]) {
+    frames = _audibleFrames ?: (_audibleFrames = [NSMutableSet set]);
+  } else if ([kind isEqualToString:@(kBowPageSignalFormEdited)]) {
+    frames = _editedFrames ?: (_editedFrames = [NSMutableSet set]);
+  }
+  if (!frames) return;
+  if (on) {
+    [frames addObject:frameID];
+  } else {
+    [frames removeObject:frameID];
+  }
+  [self pageSignalsChanged];
+}
+
+- (void)pageFrameDetached:(NSString*)frameID {
+  [_audibleFrames removeObject:frameID];
+  [_editedFrames removeObject:frameID];
+  [self pageSignalsChanged];
+}
+
+- (void)keepPageSignalsOfFrame:(nullable NSString*)frameID {
+  NSSet<NSString*>* kept = frameID ? [NSSet setWithObject:frameID] : [NSSet set];
+  [_audibleFrames intersectSet:kept];
+  [_editedFrames intersectSet:kept];
+  [self pageSignalsChanged];
+}
+
+// Pushes a new state when the frames' signals changed what the tab reports.
+- (void)pageSignalsChanged {
   BowTabState* old = self.state;
-  if (old.audible == audible || self.closed) return;
+  BOOL audible = _audibleFrames.count > 0;
+  BOOL edited = _editedFrames.count > 0;
+  if ((old.audible == audible && old.hasEditedForm == edited) || self.closed) return;
   self.state = [[BowTabState alloc] initWithTabID:_tabID
                                               url:old.url
                                             title:old.title
@@ -507,7 +543,7 @@ void BowTearDownBrowserView(CefRefPtr<CefBrowser> browser) {
                                           audible:audible
                                    capturingVideo:old.capturingVideo
                                    capturingAudio:old.capturingAudio
-                                    hasEditedForm:old.hasEditedForm];
+                                    hasEditedForm:edited];
   id<BowTabUIDelegate> delegate = self.uiDelegate;
   if ([delegate respondsToSelector:@selector(tab:didChangeState:)]) [delegate tab:self didChangeState:self.state];
 }

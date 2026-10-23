@@ -8,12 +8,13 @@ import BowCore
 /// again), a tab whose page dialog waits for the tab to be shown (`PageDialogsFeature`), a tab whose row left the
 /// sidebar,
 /// a tab still loading (a navigation under way), every tab of a profile with a download under way, since the
-/// engine cannot tell which page a download came from and destroying that page would cancel it, a tab the person
-/// typed into since its page last committed a navigation (form input with no beforeunload handler would be lost, as
-/// Chromium's own discarding also judges), and a pinned tab or Favorite showing another page than its saved address
-/// (loading it again returns to that address, so the page it was on would be lost). The policy itself
-/// spares tabs using the camera or microphone, tabs playing sound and tabs that stopped less than 30 seconds ago
-/// (CEF 156 reports no audible state, so those exemptions apply only once an engine reports sound).
+/// engine cannot tell which page a download came from and destroying that page would cancel it, and a pinned tab or
+/// Favorite showing another page than its saved address (loading it again returns to that address, so the page it
+/// was on would be lost). The policy itself spares tabs using the camera or microphone, tabs playing sound and tabs
+/// that stopped less than 30 seconds ago, and, at every pressure but critical, a tab with an edited form: one whose
+/// page reports a form edit (the page signals, which catch paste, drop, dictation and autofill too) or that the
+/// person typed into since its page last committed a navigation (form input with no beforeunload handler would be
+/// lost, as Chromium's own discarding also judges).
 ///
 /// A tab this feature unloaded shows `UnloadPlaceholderView` over the page area when it is shown again alone, until
 /// its page has loaded or failed to (`UnloadPlaceholder`).
@@ -196,7 +197,7 @@ final class TabUnloadFeature: NSResponder, BrowserWindowFeature {
         for entry in loaded.values {
             let tab = entry.tab
             guard !tab.isClosed, window.modelID(of: tab) != nil, let item = graph[entry.item], !tab.state.isLoading,
-                !typedInto.contains(tab.tabID), dialogs?.hasDialog(for: tab) != true
+                dialogs?.hasDialog(for: tab) != true
             else { continue }
             let returnsToSaved = graph.isPinned(entry.item) || graph.isInFavorites(entry.item)
             if returnsToSaved, item.tab?.hasNavigatedAway(from: tab.state.url) == true { continue }
@@ -212,7 +213,8 @@ final class TabUnloadFeature: NSResponder, BrowserWindowFeature {
                 isPinnedOrFavorite: returnsToSaved,
                 isAudible: state.isAudible, lastAudibleAt: lastAudible[tab.tabID],
                 isCapturing: state.isCapturingVideo || state.isCapturingAudio,
-                isVisible: shown.contains { $0 === tab })
+                isVisible: shown.contains { $0 === tab },
+                hasEditedForm: state.hasEditedForm || typedInto.contains(tab.tabID))
             result.append(Candidate(tab: tab, unloadTab: unloadTab))
         }
         return result

@@ -31,6 +31,7 @@ enum E2EAreas {
         PeekTests.all,
         CommandBarTests.all,
         UnloadTests.all,
+        UnloadSignalTests.all,
         DesignTests.all,
         ChromeTests.all,
         NewTabRowTests.all,

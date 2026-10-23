@@ -87,8 +87,9 @@ bool BowTabClient::OnCertificateError(CefRefPtr<CefBrowser> browser,
 @implementation BowTab (Requests)
 
 - (void)renderProcessTerminated:(BowProcessGoneReason)reason {
-  // Whatever was loading is gone with the process.
+  // Whatever was loading is gone with the process, and so is what its frames reported.
   [self failNavigation:ERR_ABORTED text:kBowAbortedText];
+  [self keepPageSignalsOfFrame:nil];
   [self askUIDelegateLater:@selector(tab:renderProcessDidTerminate:)
                        ask:^(BowTab* tab, id<BowTabUIDelegate> delegate) {
                          [delegate tab:tab renderProcessDidTerminate:reason];

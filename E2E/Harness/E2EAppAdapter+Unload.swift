@@ -55,7 +55,7 @@ extension E2ETestApp: E2EUnloadApp {
         else {
             return E2EUnloadTabState(
                 isListed: false, isLoaded: false, isShown: false, url: "", title: "", isCapturing: false,
-                isReleased: true, hasFavicon: false, isAudible: false)
+                isReleased: true, hasFavicon: false, isAudible: false, hasEditedForm: false)
         }
         let tab = controller.engineTab(for: row.id).flatMap { $0.isClosed ? nil : $0 }
         let state = tab?.state
@@ -69,7 +69,7 @@ extension E2ETestApp: E2EUnloadApp {
             url: (state?.url ?? row.url)?.absoluteString ?? "", title: title,
             isCapturing: state.map { $0.isCapturingVideo || $0.isCapturingAudio } ?? false,
             isReleased: controller.engineTab(for: row.id) == nil, hasFavicon: hasFavicon,
-            isAudible: state?.isAudible ?? false)
+            isAudible: state?.isAudible ?? false, hasEditedForm: state?.hasEditedForm ?? false)
     }
 
     func setTabAudible(_ audible: Bool, _ page: any E2EPage) throws {
@@ -77,6 +77,30 @@ extension E2ETestApp: E2EUnloadApp {
         guard BowUnloadProbe.setAudible(audible, forTab: try E2EAppAdapter.tabPage(page).tab.tabID.rawValue) else {
             throw E2EError("the page has no open tab")
         }
+    }
+
+    func pasteThroughEditMenu(
+        _ text: String, in page: any E2EPage, until pasted: @MainActor () async throws -> Bool
+    ) async throws -> Bool {
+        try adapter.requireActive(token, "paste")
+        let pasteboard = NSPasteboard.general
+        // What the pasteboard held, read now and put back once the page has pasted, so the run leaves it as it was.
+        let saved = (pasteboard.pasteboardItems ?? []).map { item in
+            item.types.compactMap { type in item.data(forType: type).map { (type, $0) } }
+        }
+        defer {
+            pasteboard.clearContents()
+            let items = saved.map { entries in
+                let item = NSPasteboardItem()
+                for (type, data) in entries { item.setData(data, forType: type) }
+                return item
+            }
+            if !items.isEmpty { pasteboard.writeObjects(items) }
+        }
+        pasteboard.clearContents()
+        pasteboard.setString(text, forType: .string)
+        try chooseMenuItem(key: "v", modifiers: .command, in: page)
+        return try await pasted()
     }
 
     func unloadPlaceholder(besides page: any E2EPage) throws -> E2EUnloadPlaceholder {
