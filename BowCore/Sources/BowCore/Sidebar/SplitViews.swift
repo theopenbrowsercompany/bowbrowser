@@ -22,6 +22,27 @@ extension SidebarSplit {
         guard total.isFinite, total > 0 else { return nil }
         return factors.map { $0 / total }
     }
+
+    /// Fractions summing to 1 where none is under `minimumPaneFraction`: panes below it are raised to it and the
+    /// others give up the difference in proportion to what they hold above it.
+    static func keepingMinimum(_ fractions: [Double]) -> [Double] {
+        let minimum = minimumPaneFraction
+        guard Double(fractions.count) * minimum <= 1 else { return fractions }
+        var result = fractions
+        var raised: Set<Int> = []
+        while true {
+            let low = result.indices.filter { !raised.contains($0) && result[$0] < minimum - 1e-12 }
+            if low.isEmpty { break }
+            raised.formUnion(low)
+            for index in low { result[index] = minimum }
+            let free = result.indices.filter { !raised.contains($0) }
+            guard !free.isEmpty else { break }
+            let budget = 1 - minimum * Double(raised.count)
+            let held = free.reduce(0) { $0 + result[$1] }
+            for index in free { result[index] = held > 0 ? result[index] * budget / held : budget / Double(free.count) }
+        }
+        return result
+    }
 }
 
 // MARK: Reading splits
@@ -62,6 +83,12 @@ extension SidebarGraph {
         let panes = splitPaneIDs(id)
         if let saved = split(id)?.focusedItemID, panes.contains(saved) { return saved }
         return panes.first
+    }
+
+    /// The saved focus when it is still a pane, otherwise nil (so a stale focus never blocks a layout change).
+    fileprivate func savedPaneFocus(_ id: SidebarItemID) -> SidebarItemID? {
+        guard let saved = split(id)?.focusedItemID, splitPaneIDs(id).contains(saved) else { return nil }
+        return saved
     }
 
     /// The factors to write back when only something else about the layout changes: the saved ones when they fit,
@@ -245,7 +272,8 @@ extension SidebarStore {
         let share = 1 / Double(count + 1)
         var factors = graph.splitWidthFractions(splitID).map { $0 * (1 - share) }
         factors.insert(share, at: position)
-        let focused = graph.split(splitID)?.focusedItemID
+        factors = SidebarSplit.keepingMinimum(factors)
+        let focused = graph.savedPaneFocus(splitID)
         try transaction {
             try mutate(.move(tab, parent: splitID, index: position))
             try mutate(.setSplitLayout(splitID, widthFactors: factors, focusedItemID: focused))
@@ -271,7 +299,7 @@ extension SidebarStore {
         remaining.remove(at: paneIndex)
         var factors = graph.splitWidthFractions(splitID)
         factors.remove(at: paneIndex)
-        let savedFocus = graph.split(splitID)?.focusedItemID
+        let savedFocus = graph.savedPaneFocus(splitID)
         let focused: SidebarItemID? =
             savedFocus == tab ? (remaining.isEmpty ? nil : remaining[max(paneIndex - 1, 0)]) : savedFocus
 
@@ -331,7 +359,7 @@ extension SidebarStore {
                 "width factors need one positive number per pane, none under \(SidebarSplit.minimumPaneFraction) of the total"
             )
         }
-        let focused = graph.split(splitID)?.focusedItemID
+        let focused = graph.savedPaneFocus(splitID)
         try transaction { try mutate(.setSplitLayout(splitID, widthFactors: normalized, focusedItemID: focused)) }
     }
 
@@ -354,7 +382,7 @@ extension SidebarStore {
         var factors = fractions
         factors[dividerIndex] = divider - before
         factors[dividerIndex + 1] = end - divider
-        let focused = graph.split(splitID)?.focusedItemID
+        let focused = graph.savedPaneFocus(splitID)
         try transaction { try mutate(.setSplitLayout(splitID, widthFactors: factors, focusedItemID: focused)) }
     }
 
@@ -368,7 +396,7 @@ extension SidebarStore {
         guard (0..<count).contains(index) else { throw SidebarStoreError.invalidIndex(index) }
         var factors = graph.splitWidthFractions(splitID)
         factors.insert(factors.remove(at: from), at: index)
-        let focused = graph.split(splitID)?.focusedItemID
+        let focused = graph.savedPaneFocus(splitID)
         try transaction {
             try mutate(.move(tab, parent: splitID, index: index))
             try mutate(.setSplitLayout(splitID, widthFactors: factors, focusedItemID: focused))
