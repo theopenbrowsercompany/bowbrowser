@@ -118,6 +118,7 @@ final class E2ERunner {
     func start(delegate: AppDelegate) {
         watchdog.disarm()
         BowFixtureServer.serveDirectory(fixtureDirectory.path)
+        BowPopupParking.start()
         let app = E2EAppAdapter(delegate: delegate)
         Task {
             for test in tests {

@@ -1,14 +1,19 @@
-// How a tab asks the app for UI: popups, JavaScript dialogs, permission prompts, fullscreen, context menus and
-// render process exits. Swift visible: plain Objective-C only, never C++ or CEF.
+// How a tab reports what its UI shows (state, close) and asks the app for UI: popups, JavaScript dialogs,
+// permission prompts, fullscreen, context menus and render process exits. Swift visible: plain Objective-C only,
+// never C++ or CEF.
 #import <Foundation/Foundation.h>
 
 #import "BowTabUIRequests.h"
 
 @class BowTab;
+@class BowTabState;
 
 NS_ASSUME_NONNULL_BEGIN
 
-/// Receives one tab's requests for UI, always on the main thread. A tab holds its UI delegate weakly.
+/// Receives one tab's requests for UI, always on the main thread. State and fullscreen changes come inside the
+/// engine callback that produced them; close, popups, dialogs, permissions, context menus and render process exits
+/// come on a later main thread task, so the app may show modal UI from them. A tab holds its UI
+/// delegate weakly.
 ///
 /// Every method is optional: when the delegate is nil or lacks a method, the engine does what it does by default
 /// (for example it opens a popup in a window of its own, shows its own dialog, or shows its own context menu).
@@ -20,12 +25,27 @@ NS_SWIFT_UI_ACTOR
 @protocol BowTabUIDelegate <NSObject>
 @optional
 
-/// The page asked to open a new tab or window (mirrors `TabEvent.popupRequested`). When the delegate has this
-/// method the engine does not open anything itself: the app decides where `request.targetURL` opens.
+/// The tab pushed a new snapshot: its URL, title, favicon, loading or back and forward state changed (mirrors
+/// `TabEvent.stateChanged`). The same value is now `tab.state`.
+- (void)tab:(BowTab *)tab didChangeState:(BowTabState *)state NS_SWIFT_NAME(tab(_:didChangeState:));
+
+/// The page was destroyed, whoever closed it (the app, quitting, or the page itself). Called once, on a later main
+/// thread task than the engine callback that closed it.
+- (void)tabDidClose:(BowTab *)tab;
+
+/// The page asked to open a new tab or window (mirrors `TabEvent.popupRequested`). This only informs the app: the
+/// engine opens the page itself, in a popup window of its own, so the new page keeps its `window.opener` (sign in
+/// popups report back through it). The engine cannot tell a plain link to a new tab from a page's
+/// `window.open(url)`, so it never turns one into a tab, and the app must not open `request.targetURL` again.
+/// Called as the engine starts opening it; if the engine then fails to create it, nothing more is reported.
+/// Saving a link to disk, ignored actions and popups opened by popups are not reported.
 - (void)tab:(BowTab *)tab didRequestPopup:(BowPopupRequest *)request NS_SWIFT_NAME(tab(_:didRequestPopup:));
 
 /// The page asked for an alert, confirm, prompt or beforeunload dialog. Answer with whether the person accepted
-/// (OK or "Leave"), and for a prompt the text they entered (nil otherwise).
+/// (OK or "Leave"), and for a prompt the text they entered (nil otherwise). Answering a beforeunload dialog
+/// with NO keeps the page, and cancels the close or quit that asked. Without this method the tab asks
+/// "leave this site?" itself (a sheet on its window, or a free-floating alert while it is detached), and other
+/// dialogs are the engine's own.
 - (void)tab:(BowTab *)tab
     runJavaScriptDialog:(BowJSDialogRequest *)request
       completionHandler:(void (^)(BOOL accepted, NSString *_Nullable userInput))completionHandler

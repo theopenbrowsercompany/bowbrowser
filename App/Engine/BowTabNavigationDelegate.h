@@ -11,8 +11,14 @@
 NS_ASSUME_NONNULL_BEGIN
 
 /// Receives one tab's main frame navigations, always on the main thread and in the order the engine produced
-/// them: start, then any redirects, then commit, then finish or fail. A navigation the policy cancels gets no
-/// further calls. A tab holds its navigation delegate weakly. Every method is optional.
+/// them: start, then any redirects, then commit, then finish or fail. Each call comes inside the engine callback
+/// that produced it. Every started navigation ends with finish or fail. One that is stopped, replaced by a newer
+/// navigation, cancelled by the policy at a redirect, cut short by the tab closing or its render process exiting,
+/// or that ends without a new page (a 204 response or a download) fails with code -3 (`ERR_ABORTED`), before the
+/// next start. A new navigation the policy cancels gets no calls at all. A committed page that gets no load end (one
+/// restored from the back/forward cache) finishes with status 0 once loading stops, on a later main thread task.
+/// Same document navigations (fragments, history.pushState) report no calls, and neither does the error page the
+/// engine shows after a failure. A tab holds its navigation delegate weakly. Every method is optional.
 NS_SWIFT_UI_ACTOR
 @protocol BowTabNavigationDelegate <NSObject>
 @optional
