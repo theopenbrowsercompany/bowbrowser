@@ -797,8 +797,13 @@ merge_shards() {
       # say) would count it twice: never silently.
       my %mine = map { $_ => 1 } @{$planned{$k}{tests} || []};
       my @extra = grep { !$mine{$_} } map { /^(?:RESULT|NOT RUN) ([^ ]+)/ ? $1 : () } @lines;
+      # A shard that ran to its total ran every test of its plan (one that timed out or crashed says so itself).
+      my %result = map { /^RESULT ([^ ]+)/ ? ($1 => 1) : () } @lines;
+      my @missing = $status =~ /^(pass|fail)\z/ ? grep { !$result{$_} } @{$planned{$k}{tests} || []} : ();
       if (@extra) {
         ($status, $summary) = ("error", "E2E: ERROR it ran tests outside its plan: " . join(", ", @extra));
+      } elsif (@missing) {
+        ($status, $summary) = ("error", "E2E: ERROR it did not run tests of its plan: " . join(", ", @missing));
       }
       if ($total) {
         my ($rn, $rp) = (0, 0);
