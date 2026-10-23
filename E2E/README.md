@@ -31,7 +31,7 @@ Once a test ends, its app and pages refuse every action with an error, so work a
 A step that runs past its limit fails its test with `TIMEOUT` in the reason, and the run goes on; waits (`E2EWaits`) give up shortly before the step's limit with what they saw last, and also work in hidden tabs.
 Each test gets a fresh in-memory profile (`openWindow(at:)`; `profile: .appDefault` asks for the shared default profile), and afterwards the runner closes its windows and the `e2e.isolation` check fails if any browser, popups included, is left open.
 It also fails, naming the test and each window's class and title, when an AppKit window the test created (sheets and panels included) was visible and overlapped a screen, or the window server reported it visible: the runner notes the windows alive before each test, then checks every window move, resize, screen change and occlusion change during the test and its teardown, and every window once more after the teardown (`E2EWindowWatch`, whose explicit exemption list is empty).
-The e2e windows refuse any frame that overlaps a screen, since AppKit slides a window onto the screen to show a sheet on it.
+The e2e windows and the app's popup panels in an e2e run refuse a move that would take them or their child windows onto a screen, since AppKit slides a window onto the screen to show a sheet on it.
 `app.quit` (the test with `quitsApp`) always runs last and keeps its window, so quitting is timed with only that window open.
 A failing test leaves `build/e2e/<run>/<test>/log.txt` (each step's duration and limit) and `fail.png`; the last test leaves `build/e2e/<run>/final.png`: its window, AppKit chrome and web content together, as evidence to look at, not to compare pixels.
 
