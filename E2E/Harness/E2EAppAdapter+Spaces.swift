@@ -82,11 +82,6 @@ extension E2EAppAdapter {
         handler.sidebarSwipe(SidebarSwipe(phase: .changed, translation: total / 2), context: context)
         handler.sidebarSwipe(SidebarSwipe(phase: .ended, translation: total), context: context)
     }
-
-    /// Every view of type `type` inside `root`, depth first, `root` included.
-    static func views<View: NSView>(in root: NSView, _ type: View.Type) -> [View] {
-        ([root as? View].compactMap { $0 }) + root.subviews.flatMap { views(in: $0, type) }
-    }
 }
 
 extension E2ETestApp: E2ESpacesApp {
