@@ -33,7 +33,7 @@ Each Space has its own pinned tabs and tabs, and one window shows one Space at a
   View > Spaces lists them under each Space's name, with a check by the one on screen, and a number with no Space is greyed out.
 - Cmd+Option+Right and Cmd+Option+Left (View > Spaces > Next Space and Previous Space) show the next and previous Space.
   They stop at the last and first Space; they do not wrap around.
-- A two finger swipe sideways in the sidebar shows the previous or next Space: moving the fingers left shows the next Space, and moving them right the previous one.
+- A two finger swipe sideways in the sidebar shows the previous or next Space, moving the Spaces the way the scroll direction setting moves content sideways: with natural scrolling (the default), moving the fingers left shows the next Space, and moving them right the previous one.
   A short swipe does nothing.
   The swipe stops at the first and last Space; it does not wrap around.
 - Whenever another Space comes on screen, by the switcher, a shortcut, a swipe, creating or deleting, the sidebar's tabs slide out towards the side the old Space sits on while the new Space's tabs slide in.
@@ -63,7 +63,8 @@ Each Space has its own pinned tabs and tabs, and one window shows one Space at a
 
 - The last Space cannot be deleted: a window always has at least one.
   Delete Space is greyed out in the menus while only one Space is left.
-- Only one Space question is asked at a time: asking to rename or delete while a sheet is up does nothing.
+- Only one question is asked at a time: Rename Space and Delete Space are greyed out in the menu bar while the window shows a sheet.
+- A new Space whose number is already a Space's name takes the next free number, so deleting "Space 2" of "Space 2" and "Space 3" and creating one gives "Space 4".
 - Switching to the Space already on screen changes nothing.
 - A Space with no tabs shows an empty sidebar section and no selected tab.
 - The list of Spaces, their order, the Space on screen and the tab each Space remembers are saved with the rest of the sidebar, so quitting and relaunching shows the same Space with the same tabs.

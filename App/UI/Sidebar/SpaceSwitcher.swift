@@ -34,14 +34,10 @@ enum SpaceActions {
         show(id, context: context)
     }
 
-    /// The name a new Space gets until the person renames it: "Space 2" when it will be the second, as Arc names them.
-    static func newSpaceTitle(in graph: SidebarGraph) -> String {
-        "Space \(graph.spaces.count + 1)"
-    }
-
-    /// Adds an empty Space at the end of the list and shows it, sliding in from the right.
+    /// Adds an empty Space at the end of the list, named "Space N" (`SidebarGraph.newSpaceTitle`), and shows it,
+    /// sliding in from the right.
     static func create(context: any SidebarActionContext) {
-        let title = newSpaceTitle(in: context.graph)
+        let title = context.graph.newSpaceTitle
         context.slideOutline(.left) {
             context.changeSidebar { try $0.createSpace(title: title) }
         }
@@ -67,9 +63,11 @@ enum SpaceActions {
         alert.addButton(withTitle: "Cancel")
         alert.window.initialFirstResponder = field
         present(alert, on: window) { [weak context] response in
-            guard response == .alertFirstButtonReturn, let context else { return }
+            guard response == .alertFirstButtonReturn, let context, let current = context.graph.space(id) else {
+                return
+            }
             let title = field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !title.isEmpty, title != context.graph.space(id)?.title else { return }
+            guard !title.isEmpty, title != current.title else { return }
             context.changeSidebar { try $0.renameSpace(id, to: title) }
         }
     }
@@ -142,6 +140,15 @@ enum SpaceActions {
         deleteItem.isEnabled = canDelete(id, in: context.graph)
         return [renameItem, deleteItem]
     }
+
+    /// A context menu of `items` as given (each item keeps its own enabled state), nil for none.
+    static func contextMenu(_ items: [NSMenuItem]) -> NSMenu? {
+        guard !items.isEmpty else { return nil }
+        let menu = NSMenu()
+        menu.autoenablesItems = false
+        items.forEach(menu.addItem)
+        return menu
+    }
 }
 
 /// The name of the Space on screen, at the top of the sidebar above its tabs. Double-clicking it renames the Space,
@@ -179,7 +186,7 @@ final class SpaceNameHeader: SidebarAccessory {
         let space = content.graph.activeSpace
         spaceID = space?.id
         label.stringValue = space.map(Self.title(of:)) ?? ""
-        view.setAccessibilityLabel(space.map { "Space \($0.title)" })
+        label.setAccessibilityLabel(space.map { "Space \($0.title)" })
     }
 
     static func title(of space: SidebarSpace) -> String {
@@ -209,12 +216,7 @@ private final class SpaceHeaderView: NSView {
     }
 
     override func menu(for event: NSEvent) -> NSMenu? {
-        let items = makeMenu?() ?? []
-        guard !items.isEmpty else { return nil }
-        let menu = NSMenu()
-        menu.autoenablesItems = false
-        items.forEach(menu.addItem)
-        return menu
+        SpaceActions.contextMenu(makeMenu?() ?? [])
     }
 }
 
@@ -248,6 +250,9 @@ final class SpaceSwitcher: SidebarAccessory {
         view = stack
         icons.orientation = .horizontal
         icons.spacing = 2
+        // Many Spaces narrow their icons, then clip at the footer's edge, rather than widening the sidebar.
+        icons.setClippingResistancePriority(.defaultLow, for: .horizontal)
+        icons.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         newSpaceButton = NSButton(
             image: NSImage(systemSymbolName: "plus", accessibilityDescription: "New Space") ?? NSImage(),
             target: nil, action: nil)
@@ -315,7 +320,8 @@ final class SpaceSwitcher: SidebarAccessory {
             return SpaceActions.menuItems(for: space.id, context: context) { [weak self] in self?.view.window }
         }
         NSLayoutConstraint.activate([
-            button.widthAnchor.constraint(equalToConstant: 22),
+            button.widthAnchor.constraint(equalToConstant: 22).withPriority(.defaultLow),
+            button.widthAnchor.constraint(greaterThanOrEqualToConstant: 10),
             button.heightAnchor.constraint(equalToConstant: 24),
         ])
         return button
@@ -339,25 +345,28 @@ private final class SpaceIconButton: NSButton {
     var makeMenu: (() -> [NSMenuItem])?
 
     override func menu(for event: NSEvent) -> NSMenu? {
-        let items = makeMenu?() ?? []
-        guard !items.isEmpty else { return nil }
-        let menu = NSMenu()
-        menu.autoenablesItems = false
-        items.forEach(menu.addItem)
-        return menu
+        SpaceActions.contextMenu(makeMenu?() ?? [])
     }
 }
 
-/// Moves to the next or previous Space when a sideways two-finger swipe on the sidebar ends far enough: fingers
-/// moving left show the next Space and fingers moving right the previous one, as pages turn. It stops at the first
-/// and last Space. It keeps no reference to the sidebar or its window: it acts on the context each swipe brings.
+/// Moves to the next or previous Space when a sideways two-finger swipe on the sidebar ends far enough. The swipe
+/// moves the Spaces the way the person's scroll direction setting moves content sideways: with natural scrolling
+/// (the default), fingers moving left bring in the next Space from the right and fingers moving right the previous
+/// one, as pages turn. It stops at the first and last Space. It keeps no reference to the sidebar or its window: it acts on the context each swipe brings.
 @MainActor
 final class SpaceSwipeHandler: SidebarSwipeHandler {
-    /// How far, in points, the fingers must move sideways before lifting for the swipe to switch Spaces.
+    /// How far, in points, the swipe must move sideways before the fingers lift for it to switch Spaces.
     static let distance: CGFloat = 40
 
     func sidebarSwipe(_ swipe: SidebarSwipe, context: any SidebarActionContext) {
         guard swipe.phase == .ended, abs(swipe.translation) >= Self.distance else { return }
         SpaceActions.showAdjacent(swipe.translation < 0 ? .next : .previous, context: context)
+    }
+}
+
+extension NSLayoutConstraint {
+    fileprivate func withPriority(_ priority: NSLayoutConstraint.Priority) -> NSLayoutConstraint {
+        self.priority = priority
+        return self
     }
 }
