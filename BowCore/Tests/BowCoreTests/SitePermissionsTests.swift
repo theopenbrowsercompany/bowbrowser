@@ -12,9 +12,11 @@ import Testing
     }
 
     @Test func siteIsTheOriginWithoutDefaultPortOrPath() throws {
-        #expect(PermissionSite(url: URL(string: "HTTPS://Meet.Example.com:443/x?y")!)?.origin == "https://meet.example.com")
+        #expect(
+            PermissionSite(url: URL(string: "HTTPS://Meet.Example.com:443/x?y")!)?.origin == "https://meet.example.com")
         #expect(PermissionSite(url: URL(string: "http://a.test:8080/")!)?.origin == "http://a.test:8080")
-        #expect(PermissionSite(url: URL(string: "http://a.test")!) != PermissionSite(url: URL(string: "https://a.test")!))
+        #expect(
+            PermissionSite(url: URL(string: "http://a.test")!) != PermissionSite(url: URL(string: "https://a.test")!))
         #expect(PermissionSite(url: URL(string: "about:blank")!) == nil)
         #expect(PermissionSite(url: URL(string: "file:///tmp/a.html")!) == nil)
         #expect(PermissionSite(url: URL(string: "data:text/html,hi")!) == nil)
@@ -55,11 +57,12 @@ import Testing
         #expect(store.decision(for: PermissionRequest(origin: nil, kinds: [.camera])) == nil)
     }
 
-    @Test func screenCaptureAndUnknownKindsAlwaysAsk() throws {
+    @Test func screenCaptureStorageAccessAndUnknownKindsAlwaysAsk() throws {
         let store = SitePermissionStore(fileURL: nil)
-        let stored = try store.record(.allow, for: request([.screenCapture, .other, .microphone]))
+        let stored = try store.record(.allow, for: request([.screenCapture, .storageAccess, .other, .microphone]))
         #expect(stored == [.microphone: .allow])
         #expect(store.decision(for: request([.screenCapture])) == nil)
+        #expect(store.decision(for: request([.storageAccess])) == nil)
         #expect(store.decision(for: request([.screenCapture, .microphone])) == nil)
     }
 

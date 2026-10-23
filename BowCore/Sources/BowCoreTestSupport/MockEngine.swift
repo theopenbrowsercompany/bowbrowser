@@ -69,8 +69,9 @@ import Foundation
     }
 
     /// Every permission answer stored in this profile's engine settings, in order.
-    public private(set) var storedPermissions: [(setting: SitePermissionSetting, kind: PermissionKind, site: PermissionSite)] =
-        []
+    public private(set) var storedPermissions:
+        [(setting: SitePermissionSetting, kind: PermissionKind, site: PermissionSite)] =
+            []
 
     public func createTab(url: URL) -> any EngineTab {
         let tab = MockTab(id: engine.nextTabID(), profileID: profileID, initialURL: url)

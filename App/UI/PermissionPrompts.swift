@@ -26,6 +26,11 @@ final class PermissionPrompts {
     private(set) var visiblePrompt: PermissionPromptPanel?
     private weak var shownTab: (any EngineTab)?
     private var frameObserver: NSObjectProtocol?
+    private var storeObserver: NSObjectProtocol?
+
+    /// Posted with a store as its object after an answer is recorded in it, so every window on the profile settles
+    /// the requests the answer covers.
+    private static let storeChanged = Notification.Name("BowSitePermissionStoreChanged")
 
     init(store: SitePermissionStore, profile: any EngineProfile, hostView: NSView) {
         self.store = store
@@ -37,10 +42,16 @@ final class PermissionPrompts {
         ) { [weak self] _ in
             MainActor.assumeIsolated { self?.placePrompt() }
         }
+        storeObserver = NotificationCenter.default.addObserver(
+            forName: Self.storeChanged, object: store, queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.settle() }
+        }
     }
 
     isolated deinit {
         if let frameObserver { NotificationCenter.default.removeObserver(frameObserver) }
+        if let storeObserver { NotificationCenter.default.removeObserver(storeObserver) }
         visiblePrompt?.close()
     }
 
@@ -69,43 +80,52 @@ final class PermissionPrompts {
         update()
     }
 
-    /// The person answered the prompt for the first request of the shown tab.
-    private func answer(_ decision: PermissionDecision) {
-        guard let index = pending.firstIndex(where: { $0.tab === shownTab }) else { return }
+    /// The person answered the prompt built for the waiting request `entryID`. A prompt that was replaced in the
+    /// meantime answers nothing.
+    private func answer(_ decision: PermissionDecision, entryID: Int) {
+        guard let index = pending.firstIndex(where: { $0.id == entryID }) else { return }
         let answered = pending.remove(at: index)
         remember(decision, for: answered.request)
         answered.answer.resume(returning: decision)
-        // The answer may settle other waiting requests from the same site.
+        update()
+        // The answer may settle other waiting requests from the same site, in this window and others.
+        NotificationCenter.default.post(name: Self.storeChanged, object: store)
+    }
+
+    /// Answers every waiting request the store now has an answer for.
+    private func settle() {
         let settled = pending.compactMap { entry in store.decision(for: entry.request).map { (entry, $0) } }
+        guard !settled.isEmpty else { return }
         pending.removeAll { entry in settled.contains { $0.0.id == entry.id } }
         for (entry, decision) in settled { entry.answer.resume(returning: decision) }
         update()
     }
 
     private func remember(_ decision: PermissionDecision, for request: PermissionRequest) {
-        let stored: [PermissionKind: SitePermissionSetting]
         do {
-            stored = try store.record(decision, for: request)
+            try store.record(decision, for: request)
         } catch {
-            // The answer still holds while the app runs; it is asked again after a restart.
+            // The store still holds the answer while the app runs; it is asked again after a restart.
             NSLog("Bow: could not save a permission answer: %@", String(describing: error))
-            return
         }
+        // Read back what the store holds, so the engine agrees with it even when the file could not be written.
         guard let site = request.site else { return }
-        for (kind, setting) in stored { profile.setPermission(setting, for: kind, on: site) }
+        for kind in request.kinds {
+            if let setting = store.setting(for: kind, on: site) { profile.setPermission(setting, for: kind, on: site) }
+        }
     }
 
     private func update() {
-        let request = pending.first { $0.tab === shownTab }?.request
-        let entryID = pending.first { $0.tab === shownTab }?.id
-        if let prompt = visiblePrompt, prompt.entryID != entryID {
+        let entry = pending.first { $0.tab === shownTab }
+        if let prompt = visiblePrompt, prompt.entryID != entry?.id {
             prompt.parent?.removeChildWindow(prompt)
             prompt.close()
             visiblePrompt = nil
         }
-        guard let request, let entryID, visiblePrompt == nil, let window = hostView.window else { return }
-        let prompt = PermissionPromptPanel(request: request, entryID: entryID) { [weak self] decision in
-            self?.answer(decision)
+        guard let entry, visiblePrompt == nil, let window = hostView.window else { return }
+        let entryID = entry.id
+        let prompt = PermissionPromptPanel(request: entry.request, entryID: entryID) { [weak self] decision in
+            self?.answer(decision, entryID: entryID)
         }
         visiblePrompt = prompt
         placePrompt()
@@ -116,7 +136,8 @@ final class PermissionPrompts {
     private func placePrompt() {
         guard let prompt = visiblePrompt, let window = hostView.window else { return }
         let inset: CGFloat = 12
-        let topLeft = window.convertPoint(toScreen: hostView.convert(NSPoint(x: hostView.bounds.minX, y: hostView.bounds.maxY), to: nil))
+        let topLeft = window.convertPoint(
+            toScreen: hostView.convert(NSPoint(x: hostView.bounds.minX, y: hostView.bounds.maxY), to: nil))
         let size = prompt.frame.size
         let origin = NSPoint(x: topLeft.x + inset, y: topLeft.y - inset - size.height)
         prompt.setFrame(NSRect(origin: origin, size: size), display: false)
@@ -124,7 +145,7 @@ final class PermissionPrompts {
 }
 
 /// The prompt itself: a small borderless panel attached to the browser window, naming the site and what it asks
-/// for, with Block and Allow. It never activates the app or takes the keyboard from the page.
+/// for, with Block and Allow, and a close button that answers neither. It never activates the app or takes the keyboard from the page.
 @MainActor
 final class PermissionPromptPanel: NSPanel {
     let request: PermissionRequest
@@ -133,6 +154,8 @@ final class PermissionPromptPanel: NSPanel {
     let message: String
     let allowButton: NSButton
     let blockButton: NSButton
+    /// Closes the prompt without an answer, so nothing is granted or remembered.
+    let closeButton: NSButton
     private let onAnswer: (PermissionDecision) -> Void
     private var answered = false
 
@@ -143,6 +166,8 @@ final class PermissionPromptPanel: NSPanel {
         message = Self.message(for: request)
         allowButton = NSButton(title: "Allow", target: nil, action: nil)
         blockButton = NSButton(title: "Block", target: nil, action: nil)
+        closeButton = NSButton(
+            image: NSImage(systemSymbolName: "xmark", accessibilityDescription: "Close")!, target: nil, action: nil)
         super.init(
             contentRect: NSRect(x: 0, y: 0, width: 320, height: 96),
             styleMask: [.borderless, .nonactivatingPanel],
@@ -165,20 +190,30 @@ final class PermissionPromptPanel: NSPanel {
 
         let label = NSTextField(wrappingLabelWithString: message)
         label.font = .systemFont(ofSize: NSFont.systemFontSize)
-        label.preferredMaxLayoutWidth = 288
+        label.preferredMaxLayoutWidth = 264
+        label.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        // Neither answer is a default button: a Return meant for the page must never grant anything.
         allowButton.target = self
         allowButton.action = #selector(allow)
-        allowButton.keyEquivalent = "\r"
         blockButton.target = self
         blockButton.action = #selector(block)
+        closeButton.target = self
+        closeButton.action = #selector(dismiss)
+        closeButton.isBordered = false
+        closeButton.contentTintColor = .secondaryLabelColor
+        closeButton.setContentHuggingPriority(.required, for: .horizontal)
+        let header = NSStackView(views: [label, closeButton])
+        header.alignment = .top
+        header.spacing = 8
         let buttons = NSStackView(views: [NSView(), blockButton, allowButton])
         buttons.spacing = 8
-        let stack = NSStackView(views: [label, buttons])
+        let stack = NSStackView(views: [header, buttons])
         stack.orientation = .vertical
         stack.alignment = .leading
         stack.spacing = 12
         stack.edgeInsets = NSEdgeInsets(top: 14, left: 16, bottom: 14, right: 16)
         buttons.translatesAutoresizingMaskIntoConstraints = false
+        header.translatesAutoresizingMaskIntoConstraints = false
         stack.translatesAutoresizingMaskIntoConstraints = false
         background.addSubview(stack)
         NSLayoutConstraint.activate([
@@ -187,6 +222,7 @@ final class PermissionPromptPanel: NSPanel {
             stack.topAnchor.constraint(equalTo: background.topAnchor),
             stack.bottomAnchor.constraint(equalTo: background.bottomAnchor),
             buttons.widthAnchor.constraint(equalTo: stack.widthAnchor, constant: -32),
+            header.widthAnchor.constraint(equalTo: stack.widthAnchor, constant: -32),
             background.widthAnchor.constraint(equalToConstant: 320),
         ])
         contentView = background
@@ -196,6 +232,7 @@ final class PermissionPromptPanel: NSPanel {
 
     @objc private func allow() { finish(.allow) }
     @objc private func block() { finish(.deny) }
+    @objc private func dismiss() { finish(.dismiss) }
 
     private func finish(_ decision: PermissionDecision) {
         guard !answered else { return }
