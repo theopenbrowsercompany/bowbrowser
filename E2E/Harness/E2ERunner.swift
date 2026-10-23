@@ -185,6 +185,7 @@ final class E2ERunner {
             }
             stopHeartbeat()
             watchdog.arm(quitCheck?.name ?? "app.quit", timeout: Self.quitHangTimeout)
+            chromiumLog.mark("quitting")
             app.quit()
         }
     }
@@ -196,6 +197,7 @@ final class E2ERunner {
         activeRun = run
         beat()
         defer { activeRun = nil }
+        chromiumLog.mark("start \(test.name)")
         let baseline = app.openBrowserCount
         let started = Date()
 
@@ -258,6 +260,7 @@ final class E2ERunner {
         }
 
         // The quit test keeps its window, so quitting is timed with it open.
+        if !test.quitsApp { chromiumLog.mark("closing windows of \(test.name)") }
         let leftover =
             test.quitsApp ? nil : await app.closeTestWindows(timeout: Self.cleanupTimeout, baseline: baseline)
         let seconds = Date().timeIntervalSince(started)
@@ -275,9 +278,11 @@ final class E2ERunner {
         // The quit check is reported after the engine stops, so the quit test's RESULT line says it is pending.
         let pendingQuit = quitCheck != nil && test.quitsApp ? " quit=pending" : ""
         let error = failure.map { " error=\"\($0.step): \($0.error)\"" } ?? ""
-        output.line(
+        let resultLine =
             "RESULT \(test.name) \(status) seconds=\(String(format: "%.2f", seconds)) "
-                + "checks=\(passed)/\(testChecks.count)\(pendingQuit)\(error)")
+            + "checks=\(passed)/\(testChecks.count)\(pendingQuit)\(error)"
+        chromiumLog.mark(resultLine)
+        output.line(resultLine)
         return leftover
     }
 
@@ -320,7 +325,8 @@ final class E2ERunner {
         } else {
             let count = log.unexpected.count
             let detail =
-                "\(count) unexpected ERROR or FATAL lines in \(E2EChromiumLog.fileName), first: \(log.unexpected[0])"
+                "\(count) unexpected ERROR or FATAL lines in \(E2EChromiumLog.fileName) (context in "
+                + "\(E2EChromiumErrorContext.fileName)), first: \(log.unexpected[0])"
             record(Self.chromiumErrorsCheck, passed: false, detail: detail)
         }
 
