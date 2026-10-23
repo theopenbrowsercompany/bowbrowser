@@ -202,6 +202,34 @@ check "check: an empty selection on docs only runs no e2e" $'e2e: none)\nno e2e'
   "$(check_run $'README.md\nspec/tabs.md' "" 0)"
 check "check: a selection runs it" $'e2e: tabs,smoke)\ne2e-run E2E=tabs,smoke' "$(check_run "$two" "tabs,smoke" 0)"
 
+# 4. check formats exactly the changed Swift files before linting them, with a fake swift that rewrites BAD to GOOD
+# on `format --in-place` and logs every call.
+mkdir -p "$crepo/App/UI"
+echo BAD > "$crepo/App/UI/A.swift"
+echo GOOD > "$crepo/App/UI/B.swift"
+echo BAD > "$crepo/App/UI/C.swift"
+cat > "$tmp/bin/swift" << 'EOF'
+#!/bin/bash
+[ "$1" = format ] || exit 0
+echo "$*" >> "$FAKE_SWIFT_LOG"
+if [ "$2" = --in-place ]; then
+  shift 2
+  for f in "$@"; do echo GOOD > "$f"; done
+fi
+EOF
+chmod +x "$tmp/bin/swift"
+: > "$tmp/swift.log"
+fmt_out=$(FAKE_CHANGED=$'App/UI/A.swift\nApp/UI/B.swift' FAKE_SELECTION="" FAKE_STATUS=0 FAKE_MAKE_LOG=$tmp/make.log \
+  FAKE_SWIFT_LOG=$tmp/swift.log PATH="$tmp/bin:$PATH" "$crepo/scripts/check.sh" 2> /dev/null | grep '^check: format')
+check "check: says which changed files it formatted" "check: format: formatted App/UI/A.swift (commit the change)" "$fmt_out"
+check "check: formats then lints exactly the changed files" \
+  $'format --in-place App/UI/A.swift App/UI/B.swift\nformat lint --strict App/UI/A.swift App/UI/B.swift' \
+  "$(cat "$tmp/swift.log")"
+check "check: leaves an unchanged file alone" "BAD" "$(cat "$crepo/App/UI/C.swift")"
+fmt_out=$(FAKE_CHANGED=$'App/UI/B.swift' FAKE_SELECTION="" FAKE_STATUS=0 FAKE_MAKE_LOG=$tmp/make.log \
+  FAKE_SWIFT_LOG=$tmp/swift.log PATH="$tmp/bin:$PATH" "$crepo/scripts/check.sh" 2> /dev/null | grep '^check: format')
+check "check: says when nothing needed formatting" "check: format: 1 changed Swift files, none needed formatting" "$fmt_out"
+
 if [ "$failed" = 0 ]; then echo "e2e-affected self test: ok"; else
   echo "e2e-affected self test: FAIL"
   exit 1

@@ -4,8 +4,9 @@
 #
 # The changed files are those scripts/e2e-affected.sh lists (against the merge base with origin/main, committed or
 # not; CHECK_BASE=<ref> compares with another ref). The parts run one after another:
-#   lint    swift format lint --strict on the changed Swift files under App/UI, E2E and BowCore (skip when none;
-#           every file when the changes cannot be listed);
+#   lint    swift format --in-place on exactly the changed Swift files under App/UI, E2E and BowCore (a line says
+#           which it rewrote), then swift format lint --strict on them (skip when none; lint only, on every file,
+#           when the changes cannot be listed: nothing is formatted then);
 #   guards  make guards, always;
 #   test    the BowCore unit tests, when BowCore/ changed (or the changes cannot be listed);
 #   build   make build, when the e2e selection is not empty (the selection is all when scripts/e2e-affected.sh
@@ -81,6 +82,21 @@ else
   if [ ${#swift_files[@]} -eq 0 ]; then
     skip lint "no changed Swift files"
   else
+    # Format exactly the changed files first (never an unchanged one), so lint does not fail on layout the formatter
+    # fixes in a second, and say which files it rewrote.
+    before=$(cksum "${swift_files[@]}")
+    swift format --in-place "${swift_files[@]}" < /dev/null
+    after=$(cksum "${swift_files[@]}")
+    formatted=()
+    for i in "${!swift_files[@]}"; do
+      [ "$(echo "$before" | sed -n "$((i + 1))p")" = "$(echo "$after" | sed -n "$((i + 1))p")" ] ||
+        formatted+=("${swift_files[$i]}")
+    done
+    if [ ${#formatted[@]} -eq 0 ]; then
+      echo "check: format: ${#swift_files[@]} changed Swift files, none needed formatting"
+    else
+      echo "check: format: formatted ${formatted[*]} (commit the change)"
+    fi
     part lint swift format lint --strict "${swift_files[@]}"
   fi
 fi
