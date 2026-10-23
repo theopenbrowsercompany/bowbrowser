@@ -122,6 +122,7 @@ private final class TintAnimation: NSAnimation {
     }
 
     override var currentProgress: NSAnimation.Progress {
-        didSet { step(Double(currentValue)) }
+        // A nonblocking animation sets its progress from the main run loop.
+        didSet { MainActor.assumeIsolated { step(Double(currentValue)) } }
     }
 }
