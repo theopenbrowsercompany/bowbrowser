@@ -55,9 +55,17 @@ The file picker and the wizard screens are separate pieces of work.
   Imported Spaces go after the Spaces already there, and the active Space and tab stay as they were.
   The sidebar after applying shows exactly the tree the preview showed.
 - Folder icons, Space icons and themes, split pane widths and the focused pane are shown or read but not stored yet, because the sidebar has nowhere to keep them.
-- Applying returns a record that takes the import out again in one transaction: the Favorites it added and the Spaces it created, with what is still inside them.
-  Items the person moved out of an imported Space since stay put, and anything already gone is skipped.
-  A new empty Favorites section made for a new profile stays behind, as it does when any Space of that profile is deleted.
+- Applying returns a record that takes the import out again in one transaction, and the record knows exactly which items the import inserted.
+  Undo deletes only those, so it never removes anything the person added or moved since:
+  - Anything else found inside an imported Space (an existing tab or folder moved in, a tab opened there) moves, with what is inside it, to the end of the same section (pinned or unpinned) of the first Space that is not an imported one, in the order it had.
+    Then the imported Space is deleted.
+  - Items the person moved out of an imported Space stay where they are now, and anything already gone is skipped.
+  - The Favorites the import added are deleted, except one the person moved out of the Favorites section it was added to.
+  - If only imported Spaces are left, there is no Space to take what the person added, so undo is refused with a clear reason and changes nothing.
+  - If writing the file fails, the undo still happened in the sidebar and the result carries the failure, the same way applying does.
+  - A new empty Favorites section made for a new profile stays behind, because the sidebar has no change that removes a section.
+- An Arc profile folder name becomes a Bow profile ID the engine accepts: `arc-`, a lowercase slug of the name, and a short stable hash of the exact name, such as `arc-profile-1-ef0ccd1ac1`.
+  The engine allows only letters, digits, dot, underscore and hyphen in an ID and treats folder names without regard to case, so names that differ only in case or punctuation get different IDs, and the same name gets the same ID on every import.
 
 ## Edge cases
 
@@ -99,6 +107,16 @@ The file picker and the wizard screens are separate pieces of work.
     Every imported Space has a different profile ID.
 11. Apply an import, then undo it.
     The sidebar is as it was before.
+12. Apply an import, then move one of your own folders into an imported Space and open a tab in it, then undo.
+    Both are still there, in the same section of your first Space, and everything the import added is gone.
+13. Apply an import, move one imported Favorite into one of your Spaces, then undo.
+    That Favorite stays where you put it and the other imported Favorites are gone.
+14. Apply an import and delete your own Spaces, then undo.
+    Undo is refused with a reason and nothing changes.
+15. Make the sidebar file unwritable, apply and undo.
+    Each reports the failure and the sidebar still shows the change.
+16. Import a file with Arc profiles named `Profile 1` and `profile 1`.
+    Their Bow profile IDs differ, even when compared without regard to case, and use only letters, digits, dot, underscore and hyphen.
 
 ## Out of scope
 
