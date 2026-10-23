@@ -18,7 +18,7 @@ Each Space has its own pinned tabs and tabs, and one window shows one Space at a
 - The sidebar shows the name of the Space on screen and a switcher listing every Space.
   Choosing one in the switcher shows that Space.
 - Switching shows only the tabs of the Space you switch to, pinned tabs first, then the others.
-  Favorites stay visible in every Space.
+  Favorites stay visible in every Space of the same profile (see `sidebar-store.md`).
 - Ctrl+1 through Ctrl+9 show the first through ninth Space.
   A number with no Space behind it does nothing.
 - A two finger swipe sideways shows the previous or next Space.

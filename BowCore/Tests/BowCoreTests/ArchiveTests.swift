@@ -186,7 +186,9 @@ import Testing
             let sidebar = try SidebarStore(fileURL: SidebarStore.fileURL(inApplicationSupportFolder: folder))
             let archived = try ArchiveStore(fileURL: ArchiveStore.fileURL(inApplicationSupportFolder: folder))
             try sidebar.apply([
-                .insert(.tab(id: "fav", url: "https://f.example.com"), parent: sidebar.graph.favoritesContainerID),
+                .insert(
+                    .tab(id: "fav", url: "https://f.example.com"),
+                    parent: try #require(sidebar.graph.favoritesContainerID(for: .default))),
                 .insert(.tab(id: "pin", url: "https://p.example.com"), parent: sidebar.graph.pinnedID),
                 .insert(.tab(id: "today", url: "https://t.example.com"), parent: sidebar.graph.unpinnedID),
             ])
