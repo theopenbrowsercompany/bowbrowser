@@ -11,7 +11,7 @@ E2E ?= all
 # scripts/e2e.sh alone, quoted for the shell.
 unexport E2E
 
-.PHONY: bootstrap hooks project build test test-lock test-e2e-wrapper test-prune test-affected test-scripts run smoke e2e e2e-run format lint guards release verify check done test-done test-refcount clean
+.PHONY: bootstrap hooks project build test test-lock test-e2e-wrapper test-prune test-affected test-scripts run smoke e2e e2e-run format lint guards release verify check done test-done test-refcount test-private-paths clean
 
 bootstrap: hooks
 	./scripts/bootstrap-cef.sh
@@ -52,7 +52,7 @@ test-affected:
 	./scripts/test-e2e-affected.sh
 
 # The script self tests verify runs when scripts/ or the Makefile differ from origin/main.
-test-scripts: test-e2e-wrapper test-prune test-affected test-done test-refcount
+test-scripts: test-e2e-wrapper test-prune test-affected test-done test-refcount test-private-paths
 
 run: build
 	open $(APP)
@@ -83,6 +83,7 @@ guards:
 	./scripts/check-swift-headers.sh
 	./scripts/check-lists.sh
 	./scripts/check-cef-refcount.sh
+	./scripts/check-private-paths.sh
 
 # Release builds must leave out the e2e harness and its fixtures.
 release: project
@@ -112,6 +113,10 @@ test-done:
 # Tests scripts/check-cef-refcount.sh, the guard against Release, AddRef and HasOneRef declarations (under a second).
 test-refcount:
 	./scripts/test-check-cef-refcount.sh
+
+# Tests scripts/check-private-paths.sh, the guard against private paths on the branch, on fake changes (about a second).
+test-private-paths:
+	./scripts/test-check-private-paths.sh
 
 clean:
 	rm -rf $(BUILD_DIR) Bow.xcodeproj Generated
