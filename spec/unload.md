@@ -79,8 +79,8 @@ The page cannot call the channel itself: it is handed to the script, never set o
   The tab is audible while any of its frames is, and its sound stopping starts the 30 second recently audible window.
 - Form edit: the first input or change event the browser fires in a frame's document (on a text field, text area, list, check box, file input or editable text, by any means), once per document.
   Events a page fires from its own script do not count, so a page cannot keep itself loaded that way.
-- A frame's signals go when the frame leaves the page (removed, gone to another document, or into the back and forward cache), when the main frame commits a new document, and when the page's render process ends.
-  A page restored from the back and forward cache reports both again.
+- A frame's signals go when its document goes (the frame navigates, even when the engine keeps the same frame for the next document), when the frame leaves the page (removed, or into the back and forward cache), when the main frame commits a new document, and when the page's render process ends.
+  A page restored from the back and forward cache reports its edited form again and looks at its sound afresh.
 
 ## Edge cases
 

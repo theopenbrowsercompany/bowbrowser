@@ -499,6 +499,10 @@ void BowTearDownBrowserView(CefRefPtr<CefBrowser> browser) {
 
 - (void)pageSignal:(NSString*)kind on:(BOOL)on frame:(NSString*)frameID {
   if (self.closed) return;
+  if ([kind isEqualToString:@(kBowPageSignalReleased)]) {
+    [self pageFrameDetached:frameID];
+    return;
+  }
   NSMutableSet<NSString*>* frames = nil;
   if ([kind isEqualToString:@(kBowPageSignalAudible)]) {
     frames = _audibleFrames ?: (_audibleFrames = [NSMutableSet set]);

@@ -37,7 +37,9 @@ constexpr const char* kScript = R"JS(
   const DestinationNode = window.AudioDestinationNode;
   const media = new Set();
   const followed = new WeakSet();
+  // Contexts connected to their output, held weakly: a context the page dropped is not kept for its sound.
   const contexts = new Set();
+  const followedContexts = new WeakSet();
   let audible = false;
   let quietTimer = 0;
   let edited = false;
@@ -45,22 +47,26 @@ constexpr const char* kScript = R"JS(
   const send = (kind, on) => {
     try { signal(kind, on); } catch (error) {}
   };
+  // Whether anything plays now. Visits every entry, letting go of elements that stopped and contexts that closed or
+  // that the page let go of, so the script keeps nothing alive the page no longer uses.
   const playingNow = () => {
+    let playing = false;
     for (const element of media) {
       if (element.paused || element.ended) {
         media.delete(element);
       } else if (!element.muted && element.volume > 0) {
-        return true;
+        playing = true;
       }
     }
-    for (const context of contexts) {
-      if (context.state === "closed") {
-        contexts.delete(context);
+    for (const reference of contexts) {
+      const context = reference.deref();
+      if (!context || context.state === "closed") {
+        contexts.delete(reference);
       } else if (context.state === "running") {
-        return true;
+        playing = true;
       }
     }
-    return false;
+    return playing;
   };
   const update = () => {
     if (playingNow()) {
@@ -101,8 +107,9 @@ constexpr const char* kScript = R"JS(
     AudioNode.prototype.connect = function (target) {
       const result = connect.apply(this, arguments);
       const context = target instanceof DestinationNode ? target.context : null;
-      if (context instanceof AudioContextType && !contexts.has(context)) {
-        contexts.add(context);
+      if (context instanceof AudioContextType && !followedContexts.has(context)) {
+        followedContexts.add(context);
+        contexts.add(new WeakRef(context));
         listen.call(context, "statechange", update);
       }
       update();
@@ -118,13 +125,26 @@ constexpr const char* kScript = R"JS(
   listen.call(window, "input", edit, true);
   listen.call(window, "change", edit, true);
 
+  // Back from the cache, sound is looked at afresh rather than resent as it was when the page left.
   listen.call(window, "pageshow", (event) => {
     if (!event.persisted) return;
     if (edited) send("form-edited", true);
-    if (audible) send("audible", true);
+    if (quietTimer) { cancel(quietTimer); quietTimer = 0; }
+    audible = false;
+    update();
   }, true);
 })
 )JS";
+
+// Sends one signal to the browser from `frame`.
+void Send(CefRefPtr<CefFrame> frame, const CefString& kind, bool on) {
+  if (!frame || !frame->IsValid()) return;
+  CefRefPtr<CefProcessMessage> message = CefProcessMessage::Create(kBowPageSignalMessage);
+  CefRefPtr<CefListValue> values = message->GetArgumentList();
+  values->SetString(0, kind);
+  values->SetBool(1, on);
+  frame->SendProcessMessage(PID_BROWSER, message);
+}
 
 // The native function the script calls as signal(kind, on): sends the change to the browser from the frame whose
 // context is running the script.
@@ -137,13 +157,7 @@ class SignalHandler : public CefV8Handler {
                CefString& exception) override {
     if (arguments.size() != 2 || !arguments[0]->IsString() || !arguments[1]->IsBool()) return true;
     CefRefPtr<CefV8Context> context = CefV8Context::GetCurrentContext();
-    CefRefPtr<CefFrame> frame = context ? context->GetFrame() : nullptr;
-    if (!frame || !frame->IsValid()) return true;
-    CefRefPtr<CefProcessMessage> message = CefProcessMessage::Create(kBowPageSignalMessage);
-    CefRefPtr<CefListValue> values = message->GetArgumentList();
-    values->SetString(0, arguments[0]->GetStringValue());
-    values->SetBool(1, arguments[1]->GetBoolValue());
-    frame->SendProcessMessage(PID_BROWSER, message);
+    Send(context ? context->GetFrame() : nullptr, arguments[0]->GetStringValue(), arguments[1]->GetBoolValue());
     return true;
   }
 
@@ -163,6 +177,15 @@ class HelperApp : public CefApp, public CefRenderProcessHandler {
     if (!context->Eval(kScript, CefString(), 0, install, exception) || !install || !install->IsFunction()) return;
     CefV8ValueList arguments{CefV8Value::CreateFunction("signal", new SignalHandler())};
     install->ExecuteFunctionWithContext(context, nullptr, arguments);
+  }
+
+  // The document is going: whatever it reported ends with it, even when its frame keeps its identifier for the next
+  // document, and even mid sound (its quiet timer goes with it). Messages from one frame arrive in order, so this
+  // reaches the browser before anything the next document reports.
+  void OnContextReleased(CefRefPtr<CefBrowser> browser,
+                         CefRefPtr<CefFrame> frame,
+                         CefRefPtr<CefV8Context> context) override {
+    Send(frame, kBowPageSignalReleased, false);
   }
 
  private:
