@@ -31,6 +31,10 @@ public final class ArchiveStore {
 
     private let writer: AtomicFileWriter
 
+    /// Opens the archive stored at `fileURL`. A missing file starts an empty archive. A file written by a newer Bow is
+    /// left where it is and this throws `fileFromNewerBuild`. A file that cannot be read at all is left where it is and
+    /// this throws `unreadableFileNotSetAside`. A file that was read but cannot be decoded or migrated is moved aside
+    /// under a new name and never overwritten; if it cannot be moved, this also throws `unreadableFileNotSetAside`.
     public convenience init(fileURL: URL) throws {
         try self.init(fileURL: fileURL, migrations: ArchiveFileFormat.migrations, writer: AtomicFileWriter())
     }
