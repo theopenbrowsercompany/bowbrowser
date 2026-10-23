@@ -177,8 +177,11 @@ struct ChromeURLFieldTest: E2ETest {
             try app.select(page)
             let back = try await ChromeTests.until { try app.urlField(of: page).text == "bow.test/chrome/page.html" }
             // A navigation the page makes itself, by script.
+            let beforeScript = page.finishedLoads
             _ = try await page.evaluate("location.href = 'about:blank'; true")
             let navigated = try await ChromeTests.until { try app.urlField(of: page).isPlaceholder }
+            // The script's navigation must finish before the next one starts, or the new load aborts it (-3).
+            _ = try await page.waitForLoad(after: beforeScript)
             let loads = page.finishedLoads
             try page.load(ChromeTests.url("page"))
             _ = try await page.waitForLoad(after: loads)
