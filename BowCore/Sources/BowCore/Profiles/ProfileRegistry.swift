@@ -11,6 +11,10 @@ public enum ProfileRegistryError: Error, Equatable, CustomStringConvertible {
     /// The registry is kept in memory and marked unsaved, but writing the file failed.
     case saveFailed(String)
     case unreadableFileNotSetAside(String)
+    /// The ID is empty, too long, or has characters other than `A-Z a-z 0-9 . _ -`.
+    case invalidID(String)
+    /// A different profile already has this ID, ignoring case.
+    case idClash(String)
 
     public var description: String {
         switch self {
@@ -21,6 +25,8 @@ public enum ProfileRegistryError: Error, Equatable, CustomStringConvertible {
         case .saveFailed(let reason): return "saving the profiles failed: \(reason)"
         case .unreadableFileNotSetAside(let reason):
             return "the unreadable profiles file could not be set aside: \(reason)"
+        case .invalidID(let id): return "\"\(id)\" cannot be a profile ID"
+        case .idClash(let id): return "another profile already has the ID \(id), ignoring case"
         }
     }
 }
@@ -63,6 +69,9 @@ public final class ProfileRegistry {
             case removed
             /// The folder was already gone; the entry is cleared.
             case alreadyGone
+            /// A Space shows this profile again (for example a redone import): the folder stays and the entry stays
+            /// until the profile is adopted again (which clears it) or no Space shows it any more.
+            case keptInUse
             /// Removing failed; the entry stays and the next launch tries again.
             case failed(String)
         }
@@ -74,32 +83,40 @@ public final class ProfileRegistry {
     /// Every profile in the order they were created, the default first.
     public private(set) var profiles: [ProfileRecord]
     /// Folder names (`Profile-<id>`) of deleted persistent profiles whose data is still on disk. They are removed
-    /// by `applyPendingDeletions` at the next launch, and their IDs are not reused until then.
-    public private(set) var pendingDeletions: [String]
+    /// by `applyPendingDeletions` at the next launch.
+    public internal(set) var pendingDeletions: [String]
+    /// Lower case IDs of every deleted profile. History, site permissions and Favorites are keyed by profile ID
+    /// outside this registry, so a retired ID is never given to a new profile (only `adopt` can bring one back).
+    public private(set) var retiredIDs: [String]
     public private(set) var hasUnsavedChanges: Bool
     public let openReport: OpenReport
 
+    /// The folder that holds every profile folder (`Default`, `Profile-<id>`). Folders already in it count as taken
+    /// when choosing an ID, so a lost or unreadable file cannot hand a deleted login to a new profile.
+    public let dataRoot: URL
     private let writer: AtomicFileWriter
-    /// IDs of temporary profiles deleted this session: the engine may still hold their memory, so they are not reused.
-    private var retiredEphemeralIDs = Set<String>()
 
     /// Opens the registry stored at `fileURL`, creating nothing on disk until the first save. A missing file starts
     /// with the default profile. A file that cannot be read is moved aside under a new name and never overwritten.
-    public convenience init(fileURL: URL) throws {
-        try self.init(fileURL: fileURL, migrations: ProfileFileFormat.migrations, writer: AtomicFileWriter())
+    public convenience init(fileURL: URL, dataRoot: URL) throws {
+        try self.init(
+            fileURL: fileURL, dataRoot: dataRoot, migrations: ProfileFileFormat.migrations, writer: AtomicFileWriter())
     }
 
     public static func fileURL(inApplicationSupportFolder folder: URL) -> URL {
         folder.appendingPathComponent(fileName, isDirectory: false)
     }
 
-    init(fileURL: URL, migrations: [ProfileFileFormat.Migration], writer: AtomicFileWriter) throws {
+    init(
+        fileURL: URL, dataRoot: URL, migrations: [ProfileFileFormat.Migration], writer: AtomicFileWriter
+    ) throws {
         self.fileURL = fileURL
+        self.dataRoot = dataRoot
         self.writer = writer
         AtomicFileWriter.removeLeftovers(for: fileURL)
 
         var origin = Origin.loaded
-        var state = ProfileFileFormat.State(profiles: [], pendingDeletions: [])
+        var state = ProfileFileFormat.State(profiles: [], pendingDeletions: [], retiredIDs: [])
         if !FileManager.default.fileExists(atPath: fileURL.path) {
             origin = .freshBecauseMissing
         } else {
@@ -116,6 +133,7 @@ public final class ProfileRegistry {
         let cleaned = Self.cleaned(state)
         profiles = cleaned.profiles
         pendingDeletions = cleaned.pendingDeletions
+        retiredIDs = cleaned.retiredIDs
         hasUnsavedChanges = origin != .loaded || state.migratedFrom != nil || cleaned.changed
         openReport = OpenReport(
             origin: origin, migratedFrom: state.migratedFrom, droppedEntryCount: state.skippedCount + cleaned.dropped)
@@ -125,7 +143,11 @@ public final class ProfileRegistry {
 
     /// The profile with this ID, or nil. A Space whose profile is unknown (for example after the file was set
     /// aside) has no storage to show; the app picks a profile for it instead of guessing one.
-    public func profile(for id: SidebarProfileID) -> ProfileRecord? { profiles.first { $0.id == id } }
+    /// IDs match ignoring case, as the engine matches folders.
+    public func profile(for id: SidebarProfileID) -> ProfileRecord? {
+        let key = id.rawValue.lowercased()
+        return profiles.first { $0.id.rawValue.lowercased() == key }
+    }
 
     /// How to create the engine profile for `id`, or nil when the registry does not know it.
     public func ref(for id: SidebarProfileID) -> ProfileRef? { profile(for: id)?.ref }
@@ -135,8 +157,8 @@ public final class ProfileRegistry {
 
     /// The profile IDs in `ids` that the registry does not know, each once, in first-seen order.
     public func unknownProfileIDs(in ids: some Sequence<SidebarProfileID>) -> [SidebarProfileID] {
-        var seen = Set<SidebarProfileID>()
-        return ids.filter { profile(for: $0) == nil && seen.insert($0).inserted }
+        var seen = Set<String>()
+        return ids.filter { profile(for: $0) == nil && seen.insert($0.rawValue.lowercased()).inserted }
     }
 
     /// The folder name of a persistent profile with this engine ID: `Default` or `Profile-<id>`.
@@ -163,11 +185,37 @@ public final class ProfileRegistry {
         return record
     }
 
+    /// Registers a profile under an ID that was already chosen elsewhere, such as the Arc import's, keeping it
+    /// exactly. Idempotent: when a profile with exactly this ID exists it is returned unchanged. An ID that differs
+    /// from an existing profile only in case is refused. A retired ID is allowed, because a Space shows it again
+    /// (a redone import): it leaves the retired list and its folder is no longer waiting for deletion.
+    @discardableResult
+    public func adopt(
+        id: SidebarProfileID, name: String, isPersistent: Bool = true
+    ) throws(ProfileRegistryError) -> ProfileRecord {
+        guard Self.isValidID(id.rawValue) else { throw .invalidID(id.rawValue) }
+        if let existing = profile(for: id) {
+            guard existing.id == id else { throw .idClash(existing.id.rawValue) }
+            return existing
+        }
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { throw .emptyName }
+        let key = id.rawValue.lowercased()
+        retiredIDs.removeAll { $0 == key }
+        pendingDeletions.removeAll { Self.id(ofFolder: $0) == key }
+        let record = ProfileRecord(id: id, name: trimmed, isPersistent: isPersistent)
+        profiles.append(record)
+        try commit()
+        return record
+    }
+
     /// Changes the name the person sees; the ID and folder stay.
     public func rename(_ id: SidebarProfileID, to name: String) throws(ProfileRegistryError) {
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { throw .emptyName }
-        guard let index = profiles.firstIndex(where: { $0.id == id }) else { throw .profileNotFound(id) }
+        guard let found = profile(for: id), let index = profiles.firstIndex(where: { $0.id == found.id }) else {
+            throw .profileNotFound(id)
+        }
         guard profiles[index].name != trimmed else { return }
         profiles[index].name = trimmed
         try commit()
@@ -179,33 +227,44 @@ public final class ProfileRegistry {
     public func markForDeletion(
         _ id: SidebarProfileID, spaceProfiles: some Sequence<SidebarProfileID>
     ) throws(ProfileRegistryError) {
-        guard let index = profiles.firstIndex(where: { $0.id == id }) else { throw .profileNotFound(id) }
-        guard id != .default else { throw .cannotDeleteDefault }
-        guard !spaceProfiles.contains(id) else { throw .profileInUse(id) }
-        let removed = profiles.remove(at: index)
-        if let folder = removed.folderName {
-            pendingDeletions.append(folder)
-        } else {
-            retiredEphemeralIDs.insert(removed.id.rawValue.lowercased())
+        guard let found = profile(for: id), let index = profiles.firstIndex(where: { $0.id == found.id }) else {
+            throw .profileNotFound(id)
         }
+        guard found.id != .default else { throw .cannotDeleteDefault }
+        let key = found.id.rawValue.lowercased()
+        guard !spaceProfiles.contains(where: { $0.rawValue.lowercased() == key }) else { throw .profileInUse(id) }
+        let removed = profiles.remove(at: index)
+        if let folder = removed.folderName { pendingDeletions.append(folder) }
+        if !retiredIDs.contains(key) { retiredIDs.append(key) }
         try commit()
     }
 
-    /// Deletes the folders of profiles marked for deletion under `root`, the folder that holds every profile
-    /// folder. Call it at launch before the engine starts, when no browser can hold them open. A folder that cannot
-    /// be removed stays on the list for the next launch. Saves when the list changed.
+    /// Deletes the folders of profiles marked for deletion under `dataRoot`. Call it at launch before the engine
+    /// starts, when no browser can hold them open. A folder that cannot be removed stays on the list for the next
+    /// launch. A folder whose profile a Space shows again (`spaceProfiles`, ignoring case) is kept, with its entry,
+    /// until `adopt` registers the profile again. Saves when the list changed.
     @discardableResult
     public func applyPendingDeletions(
-        inRoot root: URL,
+        spaceProfiles: some Sequence<SidebarProfileID>,
         remove: (URL) throws -> Void = { try FileManager.default.removeItem(at: $0) }
     ) throws(ProfileRegistryError) -> [DeletionResult] {
         var results: [DeletionResult] = []
         var remaining: [String] = []
+        let shown = Set(spaceProfiles.map { $0.rawValue.lowercased() })
         for folder in pendingDeletions {
-            let url = root.appendingPathComponent(folder, isDirectory: true)
             // Only names this registry could have written reach the file system, so a hand edited file cannot
             // point a deletion at anything else.
-            guard Self.isPendingFolderName(folder), FileManager.default.fileExists(atPath: url.path) else {
+            guard Self.isPendingFolderName(folder) else {
+                results.append(DeletionResult(folderName: folder, outcome: .alreadyGone))
+                continue
+            }
+            if shown.contains(Self.id(ofFolder: folder)) {
+                results.append(DeletionResult(folderName: folder, outcome: .keptInUse))
+                remaining.append(folder)
+                continue
+            }
+            let url = dataRoot.appendingPathComponent(folder, isDirectory: true)
+            guard FileManager.default.fileExists(atPath: url.path) else {
                 results.append(DeletionResult(folderName: folder, outcome: .alreadyGone))
                 continue
             }
@@ -229,7 +288,9 @@ public final class ProfileRegistry {
         guard hasUnsavedChanges else { return }
         do {
             try writer.write(
-                try ProfileFileFormat.encode(profiles: profiles, pendingDeletions: pendingDeletions), to: fileURL)
+                try ProfileFileFormat.encode(
+                    profiles: profiles, pendingDeletions: pendingDeletions, retiredIDs: retiredIDs),
+                to: fileURL)
         } catch {
             throw .saveFailed(String(describing: error))
         }
@@ -243,12 +304,19 @@ public final class ProfileRegistry {
 
     // MARK: IDs
 
-    /// Whether `text` can be a profile ID and folder name: not empty, not `.` or `..`, only ASCII letters, digits,
-    /// `.`, `_` and `-`. The same rule as `ProfileID.isValid`.
-    public static func isValidID(_ text: String) -> Bool { ProfileID(text).isValid }
+    /// The longest ID the registry holds: room for the Arc import's `arc-<32 characters>-<10 hex>` (47) plus one.
+    public static let maxIDLength = 48
+
+    /// Whether `text` can be a profile ID and folder name: not empty, at most `maxIDLength` characters, not `.` or
+    /// `..`, only ASCII letters, digits, `.`, `_` and `-`. The engine's rule (`ProfileID.isValid`) plus the length.
+    public static func isValidID(_ text: String) -> Bool { text.count <= maxIDLength && ProfileID(text).isValid }
+
+    private static func id(ofFolder folder: String) -> String {
+        String(folder.dropFirst(folderPrefix.count)).lowercased()
+    }
 
     /// The ID `text` becomes: invalid characters turn into `-`, runs of `-` collapse, `-`, `.` and `_` are trimmed
-    /// from both ends (a leading dot would hide the folder), letters go lower case, and at most 40 characters stay.
+    /// from both ends (a leading dot would hide the folder), letters go lower case, and at most `maxIDLength` (48) characters stay.
     /// `Profile 1` becomes `profile-1`. Text with nothing usable becomes `profile`.
     public static func sanitizedID(from text: String) -> String {
         var result = ""
@@ -261,7 +329,7 @@ public final class ProfileRegistry {
         }
         let trimSet = CharacterSet(charactersIn: "-._")
         var trimmed = result.trimmingCharacters(in: trimSet)
-        if trimmed.count > 40 { trimmed = String(trimmed.prefix(40)).trimmingCharacters(in: trimSet) }
+        if trimmed.count > maxIDLength { trimmed = String(trimmed.prefix(maxIDLength)).trimmingCharacters(in: trimSet) }
         return trimmed.isEmpty ? "profile" : trimmed
     }
 
@@ -269,15 +337,20 @@ public final class ProfileRegistry {
         let base = Self.sanitizedID(from: text)
         var taken = Set(profiles.map { $0.id.rawValue.lowercased() })
         taken.insert(SidebarProfileID.default.rawValue.lowercased())
-        for folder in pendingDeletions {
-            taken.insert(String(folder.dropFirst(Self.folderPrefix.count)).lowercased())
+        for folder in pendingDeletions { taken.insert(Self.id(ofFolder: folder)) }
+        taken.formUnion(retiredIDs)
+        // Whatever profile folders exist count as taken, even when this file lost track of them.
+        let onDisk = (try? FileManager.default.contentsOfDirectory(atPath: dataRoot.path)) ?? []
+        for name in onDisk where name.lowercased().hasPrefix(Self.folderPrefix.lowercased()) {
+            taken.insert(Self.id(ofFolder: name))
         }
-        taken.formUnion(retiredEphemeralIDs)
         var candidate = base
         var number = 2
         while taken.contains(candidate) {
             let suffix = "-\(number)"
-            candidate = String(base.prefix(40 - suffix.count)) + suffix
+            let room = Self.maxIDLength - suffix.count
+            let cut = String(base.prefix(room)).trimmingCharacters(in: CharacterSet(charactersIn: "-._"))
+            candidate = cut + suffix
             number += 1
         }
         return candidate
@@ -293,7 +366,7 @@ public final class ProfileRegistry {
     /// ignoring case, and pending deletions are well formed, not used by a live profile, and listed once.
     private static func cleaned(
         _ state: ProfileFileFormat.State
-    ) -> (profiles: [ProfileRecord], pendingDeletions: [String], dropped: Int, changed: Bool) {
+    ) -> (profiles: [ProfileRecord], pendingDeletions: [String], retiredIDs: [String], dropped: Int, changed: Bool) {
         var dropped = 0
         var seen = Set<String>()
         var profiles: [ProfileRecord] = []
@@ -329,8 +402,23 @@ public final class ProfileRegistry {
                 dropped += 1
             }
         }
-        let changed = profiles != state.profiles || pending != state.pendingDeletions
-        return (profiles, pending, dropped, changed)
+        var retiredSeen = Set<String>()
+        var retired: [String] = []
+        for id in state.retiredIDs {
+            if isValidID(id), retiredSeen.insert(id.lowercased()).inserted {
+                retired.append(id.lowercased())
+            } else {
+                dropped += 1
+            }
+        }
+        // A deleted profile's folder is retired too, whatever the retired list says.
+        for folder in pending {
+            let id = Self.id(ofFolder: folder)
+            if retiredSeen.insert(id).inserted { retired.append(id) }
+        }
+        let changed =
+            profiles != state.profiles || pending != state.pendingDeletions || retired != state.retiredIDs
+        return (profiles, pending, retired, dropped, changed)
     }
 
     // MARK: File handling

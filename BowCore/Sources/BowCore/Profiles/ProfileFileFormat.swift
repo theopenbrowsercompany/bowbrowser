@@ -3,7 +3,8 @@ import Foundation
 /// The profiles file: versioned JSON holding the profile list and the folders waiting to be deleted.
 ///
 /// The top level object has `version`, `profiles` (in order; each has `id`, `name`, `isPersistent`) and
-/// `pendingDeletions` (folder names under the root data folder, such as `Profile-work`).
+/// `pendingDeletions` (folder names under the root data folder, such as `Profile-work`) and `retiredIDs` (lower case
+/// IDs of every deleted profile, which are never given to a new one; absent in older files).
 public enum ProfileFileFormat {
     /// The version this build writes. Raise it whenever the format changes, and add a migration from the old version.
     public static let currentVersion = 1
@@ -45,6 +46,7 @@ public enum ProfileFileFormat {
     struct State: Equatable {
         var profiles: [ProfileRecord]
         var pendingDeletions: [String]
+        var retiredIDs: [String] = []
         /// How many profile or deletion entries could not be read and were left out.
         var skippedCount = 0
         var migratedFrom: Int?
@@ -60,19 +62,22 @@ public enum ProfileFileFormat {
         var version: Int
         var profiles: [StoredProfile]
         var pendingDeletions: [String]
+        var retiredIDs: [String]
     }
 
     /// Reads entries one by one so a bad entry costs only itself.
     private struct ForgivingContents: Decodable {
         var profiles: [Forgiving<StoredProfile>]
         var pendingDeletions: [Forgiving<String>]
+        var retiredIDs: [Forgiving<String>]
 
-        private enum CodingKeys: String, CodingKey { case profiles, pendingDeletions }
+        private enum CodingKeys: String, CodingKey { case profiles, pendingDeletions, retiredIDs }
 
         init(from decoder: any Decoder) throws {
             let values = try decoder.container(keyedBy: CodingKeys.self)
             profiles = try values.decode([Forgiving<StoredProfile>].self, forKey: .profiles)
             pendingDeletions = (try? values.decode([Forgiving<String>].self, forKey: .pendingDeletions)) ?? []
+            retiredIDs = (try? values.decode([Forgiving<String>].self, forKey: .retiredIDs)) ?? []
         }
     }
 
@@ -81,11 +86,11 @@ public enum ProfileFileFormat {
         init(from decoder: any Decoder) throws { value = try? decoder.singleValueContainer().decode(Value.self) }
     }
 
-    static func encode(profiles: [ProfileRecord], pendingDeletions: [String]) throws -> Data {
+    static func encode(profiles: [ProfileRecord], pendingDeletions: [String], retiredIDs: [String]) throws -> Data {
         let stored = Stored(
             version: currentVersion,
             profiles: profiles.map { StoredProfile(id: $0.id.rawValue, name: $0.name, isPersistent: $0.isPersistent) },
-            pendingDeletions: pendingDeletions)
+            pendingDeletions: pendingDeletions, retiredIDs: retiredIDs)
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
         return try encoder.encode(stored)
@@ -134,10 +139,13 @@ public enum ProfileFileFormat {
             ProfileRecord(id: SidebarProfileID($0.id), name: $0.name, isPersistent: $0.isPersistent)
         }
         let pending = contents.pendingDeletions.compactMap(\.value)
+        let retired = contents.retiredIDs.compactMap(\.value)
         return State(
             profiles: profiles,
             pendingDeletions: pending,
-            skippedCount: contents.profiles.count - profiles.count + contents.pendingDeletions.count - pending.count,
+            retiredIDs: retired,
+            skippedCount: contents.profiles.count - profiles.count + contents.pendingDeletions.count - pending.count
+                + contents.retiredIDs.count - retired.count,
             migratedFrom: version < currentVersion ? version : nil)
     }
 }

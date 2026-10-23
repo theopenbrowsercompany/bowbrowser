@@ -17,9 +17,11 @@ Every Space shows exactly one profile, and several Spaces may show the same one,
 - Each persistent profile keeps its data in its own folder, directly inside Bow's browser data folder: `Default` for the default profile and `Profile-<id>` for every other.
   A profile is set up once, the first time one of its Spaces is shown, and every Space on that profile uses the same one.
 - A profile's ID is chosen when it is created, from the name or from a suggested name (for example an imported Arc profile's folder name), and never changes, even when the profile is renamed.
-  It contains only ASCII letters, digits, `.`, `_` and `-`: other characters become `-`, letters become lower case, and it is shortened to 40 characters.
+  It contains only ASCII letters, digits, `.`, `_` and `-`: other characters become `-`, letters become lower case, and it is shortened to 48 characters.
   `Profile 1` becomes `profile-1`.
   Two IDs never differ only in letter case, and `default` is taken, so a clash gets a number added: `work`, `work-2`.
+  The number never pushes an ID past 48 characters.
+  An ID chosen elsewhere, such as an imported Arc profile's (`arc-<name>-<hash>`, up to 47 characters), is kept exactly as given when it is valid; if a different profile already has it in another letter case it is refused, and asking for the same ID again returns the profile that has it.
 - Two Spaces on the same profile share cookies and logins.
   Two Spaces on different profiles share nothing.
 - Moving a tab to another Space of the same profile keeps its live page: it does not reload, and the page keeps its state and logins.
@@ -28,10 +30,13 @@ Every Space shows exactly one profile, and several Spaces may show the same one,
   If they decline, nothing moves.
 - A profile that a Space still shows cannot be deleted.
 - Deleting a profile takes it out of the list at once but removes its folder only the next time Bow starts, before any browser opens, because browsers may still be using it until then.
-  Its ID is not given to a new profile before then.
+  A deleted profile's ID is never given to a new profile, not after its folder is gone and not after a relaunch, because history, site permissions and Favorites are saved under the ID and a new profile would inherit them.
+  Any `Profile-<id>` folder already on disk also counts as taken when choosing an ID.
+  The one way an old ID comes back is an import that puts a Space on that profile again: the profile is registered again under the same ID and its folder, if still there, is kept.
+  At the next launch a folder whose profile a Space shows again is not deleted, and stays on the list until that profile is registered again.
   A folder that cannot be removed is tried again at the following launch.
   A temporary profile has no folder, so deleting it is immediate.
-- The list of profiles and the folders waiting for deletion are saved together in `Profiles.json` in Bow's Application Support folder, apart from the sidebar file.
+- The list of profiles, the folders waiting for deletion and the retired IDs are saved together in `Profiles.json` in Bow's Application Support folder, apart from the sidebar file.
   Every change is written at once.
 
 ## Edge cases
@@ -40,6 +45,8 @@ Every Space shows exactly one profile, and several Spaces may show the same one,
 - A Space pointing at a profile that is not in the list (for example after an unreadable profiles file was set aside) has no storage to show.
   Bow picks a profile for it instead of guessing one, and never opens that Space's tabs in another profile silently.
 - A profiles file that cannot be read, or was written by a newer Bow, is moved aside under a new name, never overwritten, and Bow starts with only the default profile.
+  The list of folders waiting for deletion is lost with it, so those folders stay on disk until the person removes them.
+  Their IDs are still not reused while their folders are on disk; the IDs of profiles whose folders were already gone (and of temporary profiles) are forgotten with the file.
 - A hand edited file is cleaned when read: entries with an invalid ID, an empty name or an ID matching another in letter case are dropped, the default profile is restored, and folders to delete must look like `Profile-<id>`, so no other path is ever removed.
 - A folder to delete that is already gone is simply forgotten.
 - Moving a tab within one Space never reloads it.
