@@ -5,7 +5,7 @@ import Foundation
 /// Fixtures are the chrome area's pages (E2E/Fixtures/chrome/).
 @MainActor
 enum TopTabsTests {
-    static let all: [any E2ETest] = [TopTabsLayoutTest()]
+    static let all: [any E2ETest] = [TopTabsLayoutTest(), TopTabStripTest()]
 
     static func app(_ run: E2ERun) throws -> any E2ETopTabsApp {
         guard let app = run.app as? any E2ETopTabsApp else { throw E2EError("the app has no top tabs hooks") }
