@@ -22,10 +22,13 @@ final class AirTrafficControlMenuFeature: NSResponder, BrowserWindowFeature {
     static func addMenuItems(to menus: MainMenu.Menus) {
         let item = NSMenuItem(title: title, action: #selector(showEditor(_:)), keyEquivalent: "")
         item.target = AirTrafficControlMenuFeature.self
-        // After About Bow and its separator, where an app's settings go.
-        let index = min(2, menus.app.items.count)
-        menus.app.insertItem(item, at: index)
-        menus.app.insertItem(.separator(), at: index + 1)
+        // In its own group after the first one (About Bow and the default browser item), where an app's settings go.
+        guard let separator = menus.app.items.firstIndex(where: \.isSeparatorItem) else {
+            menus.app.addItem(item)
+            return
+        }
+        menus.app.insertItem(item, at: separator + 1)
+        menus.app.insertItem(.separator(), at: separator + 2)
     }
 
     @objc static func showEditor(_ sender: Any?) {
