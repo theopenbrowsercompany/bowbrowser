@@ -10,8 +10,9 @@ NS_ASSUME_NONNULL_BEGIN
 @interface BowRendererTerminations : NSObject
 
 /// From now on, calls `handler` on the main thread each time a renderer serving a browser ends, with the ID of the
-/// tab whose own browser it served (0 for any other browser, such as a popup), the termination status's name
-/// (`crashed`, `killed`, `abnormal`, `oom`, `launch-failed`, `integrity-failure`) and Chromium's error code, as
+/// tab whose own browser it served (0 for a popup, or a tab's browser whose tab had gone), the termination status's
+/// name (`crashed`, `killed`, `abnormal`, `oom`, `launch-failed`, `integrity-failure`, `unknown`) and Chromium's
+/// error code, as
 /// BowEngineObserveRenderProcessTerminations says. Call once, on the main thread.
 + (void)observeWithHandler:(void (^)(uint64_t tabID, NSString *status, NSInteger errorCode))handler
     NS_SWIFT_NAME(observe(with:));

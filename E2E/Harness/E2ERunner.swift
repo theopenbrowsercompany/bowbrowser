@@ -235,7 +235,7 @@ final class E2ERunner {
         let crashes = crashWatch.take()
         if !test.expectsRendererCrash, !crashes.isEmpty {
             let crash = E2ERendererCrashWatch.error(crashes, in: test.name, when: "while running")
-            failure = failure.map { ($0.step, E2EError("\($0.error); \(crash)")) } ?? (Self.rendererStep, crash)
+            failure = Self.adding(crash, to: failure)
         }
         let checksBefore = run.firstCheck
         run.finish()
@@ -299,12 +299,13 @@ final class E2ERunner {
         let left = [browsersLeft, windowWatch.finish()].compactMap { $0 }
         let leftover = left.isEmpty ? nil : left.joined(separator: "; ")
         // A renderer that ended while the test's windows closed fails the test whose teardown it was, on its last
-        // check, as an error after every check was recorded does.
+        // check, as an error after every check was recorded does (a check that failed already stays as it was, and
+        // the RESULT line's error names the crash). Too late for a fail.png: the windows are gone.
         let teardownCrashes = crashWatch.take()
         if !test.expectsRendererCrash, !teardownCrashes.isEmpty {
             let crash = E2ERendererCrashWatch.error(
                 teardownCrashes, in: test.name, when: "while closing the windows of")
-            failure = failure.map { ($0.step, E2EError("\($0.error); \(crash)")) } ?? (Self.rendererStep, crash)
+            failure = Self.adding(crash, to: failure)
             let recorded = checks[checksBefore...].map(\.name)
             if let last = test.checks.last(where: recorded.contains) {
                 fail(last, after: checksBefore, detail: "\(Self.rendererStep): \(crash)")
@@ -334,6 +335,15 @@ final class E2ERunner {
         chromiumLog.mark(resultLine)
         output.line(resultLine)
         return leftover
+    }
+
+    /// `failure` with a renderer crash's error added, keeping its step and reason (a timeout stays one), or the crash
+    /// as a failure of its own when the test had none.
+    private static func adding(_ crash: E2EError, to failure: (step: String, error: Error)?) -> (
+        step: String, error: Error
+    ) {
+        guard let failure else { return (rendererStep, crash) }
+        return (failure.step, E2EError("\(failure.error); \(crash)", reason: (failure.error as? E2EError)?.reason))
     }
 
     /// Called after the engine has shut down: reports the quit check and the summary, then cleans up.

@@ -7,14 +7,16 @@ import Foundation
 @MainActor
 final class E2ERendererCrashWatch {
     struct Termination {
-        /// The tab whose own browser the renderer served, or 0 for another browser (a popup).
+        /// The tab whose own browser the renderer served, or 0 for a popup or a tab's browser whose tab had gone.
         let tabID: UInt64
-        /// The termination status's name (`crashed`, `killed`, `abnormal`, `oom`, `launch-failed`).
+        /// The termination status's name (`crashed`, `killed`, `abnormal`, `oom`, `launch-failed`,
+        /// `integrity-failure`, `unknown`).
         let status: String
         let errorCode: Int
 
         var description: String {
-            "\(tabID == 0 ? "a popup's renderer" : "the renderer of tab \(tabID)") ended: status=\(status) "
+            "\(tabID == 0 ? "the renderer of a popup or a closed tab" : "the renderer of tab \(tabID)") ended: "
+                + "status=\(status) "
                 + "error-code=\(errorCode)"
         }
     }

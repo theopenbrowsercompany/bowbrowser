@@ -29,8 +29,9 @@ protocol E2ETest {
     /// `selectedByNameOnly` test (a long measurement) should need more.
     var timeLimit: TimeInterval { get }
     /// True for a test that ends a renderer on purpose (the crashed tab page tests). Any other test fails when a
-    /// renderer ends while it runs or while its windows close, with a FAIL line naming the termination status, as
-    /// Chromium's own browser tests fail on a renderer crash nobody allowed. Defaults to false.
+    /// renderer ends while it runs or while its windows close: its last recorded check fails (or its first missing
+    /// one) and its RESULT line's error names the termination status, as Chromium's own browser tests fail on a
+    /// renderer crash nobody allowed. Defaults to false.
     var expectsRendererCrash: Bool { get }
     func run(_ run: E2ERun) async throws
 }
