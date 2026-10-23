@@ -66,6 +66,7 @@ final class CEFTab: NSObject, EngineTab {
 
     var zoomLevel: Double { tab.zoomLevel }
     func setZoomLevel(_ level: Double) { tab.zoomLevel = level }
+    func exitFullscreen() { tab.exitFullscreen() }
 
     func send(_ event: TabEvent) {
         delegate?.tab(self, didReceive: event)
