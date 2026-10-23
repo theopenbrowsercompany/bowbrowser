@@ -791,13 +791,11 @@ class BowTabClient : public CefClient,
   NSView* browserView = (__bridge NSView*)browser->GetHost()->GetWindowHandle();
   browserView.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
   // A host view may have attached the tab while the browser was being created. A tab opened in the background
-  // stays parked, hidden from the start.
+  // stays parked, hidden from the start, and so does one whose host view is in no window yet until that window
+  // shows it. A tab about to close skips this.
   NSView* hostView = self.hostView;
-  if (hostView) {
-    [hostView addSubview:browserView];
-  } else {
-    BowEngineParkNewBrowserView(browserView);
-  }
+  if (!hostView.window && !_closeWhenCreated) BowEngineParkNewBrowserView(browserView);
+  if (hostView) [hostView addSubview:browserView];
   browserView.frame = browserView.superview.bounds;
 
   if (_closeWhenCreated) {

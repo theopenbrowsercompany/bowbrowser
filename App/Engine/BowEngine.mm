@@ -123,7 +123,7 @@ void BowEngineParkNewBrowserView(NSView* browserView) {
     return window;
   }();
   NSView* parkingView = BowEngineParkingView();
-  [firstVisibleWindow.contentView setFrameSize:parkingView.bounds.size];
+  [firstVisibleWindow setContentSize:parkingView.bounds.size];
   [firstVisibleWindow.contentView addSubview:browserView];
   [parkingView addSubview:browserView];
 }
