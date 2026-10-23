@@ -2,7 +2,7 @@ import Foundation
 
 /// Spaces: switching with the menu shortcuts and the switcher, swiping, and creating, renaming and deleting them.
 @MainActor
-enum SpacesTests {
+enum SpacesAreaTests {
     static let all: [any E2ETest] = [SpacesSwitchTest(), SpacesSwipeTest(), SpacesManageTest()]
 
     static func url(_ name: String) -> URL { E2EFixture.url("sidebar/page.html?name=\(name)") }
@@ -78,12 +78,12 @@ struct SpacesSwitchTest: E2ETest {
     let checks = ["spaces.switch", "spaces.shortcuts", "spaces.arrows", "spaces.switcher"]
 
     func run(_ run: E2ERun) async throws {
-        let app = try SpacesTests.app(of: run)
-        let page = try await SpacesTests.openWorkAndPersonal(run, app: app)
+        let app = try SpacesAreaTests.app(of: run)
+        let page = try await SpacesAreaTests.openWorkAndPersonal(run, app: app)
 
         let personal = try await run.step("Ctrl+2", timeout: E2ETimeouts.step) {
             try app.chooseMenuItem(key: "2", modifiers: .control, in: page)
-            return try await SpacesTests.settle(app, page) { $0.active == "personal" && $0.tabs == ["C"] }
+            return try await SpacesAreaTests.settle(app, page) { $0.active == "personal" && $0.tabs == ["C"] }
         }
         run.check(
             "spaces.switch", passed: personal.windows == 1 && personal.active == "personal" && personal.tabs == ["C"],
@@ -91,10 +91,10 @@ struct SpacesSwitchTest: E2ETest {
 
         let shortcuts = try await run.step("Ctrl+1 then Ctrl+5", timeout: E2ETimeouts.step) {
             try app.chooseMenuItem(key: "1", modifiers: .control, in: page)
-            let work = try await SpacesTests.settle(app, page) { $0.active == "work" && $0.tabs == ["A", "B"] }
+            let work = try await SpacesAreaTests.settle(app, page) { $0.active == "work" && $0.tabs == ["A", "B"] }
             let title = app.menuItemTitle(key: "1", modifiers: .control) ?? "none"
-            let five = try SpacesTests.outcome { try app.chooseMenuItem(key: "5", modifiers: .control, in: page) }
-            let after = try await SpacesTests.unchanged(app, page)
+            let five = try SpacesAreaTests.outcome { try app.chooseMenuItem(key: "5", modifiers: .control, in: page) }
+            let after = try await SpacesAreaTests.unchanged(app, page)
             return (work, title, five, after)
         }
         run.check(
@@ -108,17 +108,17 @@ struct SpacesSwitchTest: E2ETest {
         let arrows = try await run.step("Cmd+Option+Right and Left", timeout: E2ETimeouts.step) {
             var seen: [String] = []
             try app.chooseMenuItem(key: E2EMenuKey.rightArrow, modifiers: [.command, .option], in: page)
-            seen.append(try await SpacesTests.settle(app, page) { $0.active == "personal" }.active)
-            let pastLast = try SpacesTests.outcome {
+            seen.append(try await SpacesAreaTests.settle(app, page) { $0.active == "personal" }.active)
+            let pastLast = try SpacesAreaTests.outcome {
                 try app.chooseMenuItem(key: E2EMenuKey.rightArrow, modifiers: [.command, .option], in: page)
             }
-            seen.append(try await SpacesTests.unchanged(app, page).active)
+            seen.append(try await SpacesAreaTests.unchanged(app, page).active)
             try app.chooseMenuItem(key: E2EMenuKey.leftArrow, modifiers: [.command, .option], in: page)
-            seen.append(try await SpacesTests.settle(app, page) { $0.active == "work" }.active)
-            let pastFirst = try SpacesTests.outcome {
+            seen.append(try await SpacesAreaTests.settle(app, page) { $0.active == "work" }.active)
+            let pastFirst = try SpacesAreaTests.outcome {
                 try app.chooseMenuItem(key: E2EMenuKey.leftArrow, modifiers: [.command, .option], in: page)
             }
-            let last = try await SpacesTests.unchanged(app, page)
+            let last = try await SpacesAreaTests.unchanged(app, page)
             seen.append(last.active)
             return (seen, pastLast.contains("disabled"), pastFirst.contains("disabled"), last.windows)
         }
@@ -129,7 +129,7 @@ struct SpacesSwitchTest: E2ETest {
                 + "past-first=\(arrows.2 ? "disabled" : "enabled") windows=\(arrows.3)")
 
         let switcher = try await run.step("the switcher shows the Space on screen", timeout: E2ETimeouts.step) {
-            try await SpacesTests.settle(app, page) { $0.header == "work" && $0.footer == ["work*", "personal"] }
+            try await SpacesAreaTests.settle(app, page) { $0.header == "work" && $0.footer == ["work*", "personal"] }
         }
         run.check(
             "spaces.switcher", passed: switcher.header == "work" && switcher.footer == ["work*", "personal"],
@@ -144,18 +144,18 @@ struct SpacesSwipeTest: E2ETest {
     let name = "spaces.swipe"
 
     func run(_ run: E2ERun) async throws {
-        let app = try SpacesTests.app(of: run)
-        let page = try await SpacesTests.openWorkAndPersonal(run, app: app)
+        let app = try SpacesAreaTests.app(of: run)
+        let page = try await SpacesAreaTests.openWorkAndPersonal(run, app: app)
         let seen = try await run.step("swipe between Spaces", timeout: E2ETimeouts.step) {
             var seen: [String] = []
             try app.swipeSidebar(.towardsNext, distance: 120, in: page)
-            seen.append(try await SpacesTests.settle(app, page) { $0.active == "personal" }.active)
+            seen.append(try await SpacesAreaTests.settle(app, page) { $0.active == "personal" }.active)
             try app.swipeSidebar(.towardsNext, distance: 120, in: page)
-            seen.append(try await SpacesTests.unchanged(app, page).active)
+            seen.append(try await SpacesAreaTests.unchanged(app, page).active)
             try app.swipeSidebar(.towardsPrevious, distance: 10, in: page)
-            seen.append(try await SpacesTests.unchanged(app, page).active)
+            seen.append(try await SpacesAreaTests.unchanged(app, page).active)
             try app.swipeSidebar(.towardsPrevious, distance: 120, in: page)
-            let back = try await SpacesTests.settle(app, page) { $0.active == "work" && $0.tabs == ["A", "B"] }
+            let back = try await SpacesAreaTests.settle(app, page) { $0.active == "work" && $0.tabs == ["A", "B"] }
             seen.append(back.active)
             return (seen, back)
         }
@@ -179,8 +179,8 @@ struct SpacesManageTest: E2ETest {
     ]
 
     func run(_ run: E2ERun) async throws {
-        let app = try SpacesTests.app(of: run)
-        let seed = E2ESeed(spaces: [E2ESeedSpace("work", today: [.tab("A", url: SpacesTests.url("A"))])])
+        let app = try SpacesAreaTests.app(of: run)
+        let seed = E2ESeed(spaces: [E2ESeedSpace("work", today: [.tab("A", url: SpacesAreaTests.url("A"))])])
         let page = try await run.step("open the seeded window", timeout: E2ETimeouts.firstLoad) {
             let window = try await app.openWindow(seeded: seed)
             _ = try await window.page.waitForLoad(after: 0)
@@ -189,7 +189,7 @@ struct SpacesManageTest: E2ETest {
 
         let created = try await run.step("the + button", timeout: E2ETimeouts.step) {
             try app.clickNewSpaceButton(in: page)
-            return try await SpacesTests.settle(app, page) { $0.spaces.count == 2 && $0.header == "Space 2" }
+            return try await SpacesAreaTests.settle(app, page) { $0.spaces.count == 2 && $0.header == "Space 2" }
         }
         run.check(
             "spaces.create",
@@ -199,7 +199,7 @@ struct SpacesManageTest: E2ETest {
 
         let fromMenu = try await run.step("View > Spaces > New Space", timeout: E2ETimeouts.step) {
             try app.chooseSpacesMenuItem("New Space", in: page)
-            return try await SpacesTests.settle(app, page) { $0.spaces.count == 3 }
+            return try await SpacesAreaTests.settle(app, page) { $0.spaces.count == 3 }
         }
         run.check(
             "spaces.create-menu",
@@ -211,7 +211,9 @@ struct SpacesManageTest: E2ETest {
             try app.chooseSpacesMenuItem("Rename Space…", in: page)
             let message = try app.sheetMessage(in: page) ?? "no sheet"
             try app.answerSheet("Rename", text: "  personal ", in: page)
-            let state = try await SpacesTests.settle(app, page) { $0.active == "personal" && $0.header == "personal" }
+            let state = try await SpacesAreaTests.settle(app, page) {
+                $0.active == "personal" && $0.header == "personal"
+            }
             return (message, state, try app.sheetMessage(in: page))
         }
         run.check(
@@ -223,10 +225,10 @@ struct SpacesManageTest: E2ETest {
 
         let deletedEmpty = try await run.step("delete the empty Space 2", timeout: E2ETimeouts.step) {
             try app.chooseMenuItem(key: "2", modifiers: .control, in: page)
-            _ = try await SpacesTests.settle(app, page) { $0.active == "Space 2" }
+            _ = try await SpacesAreaTests.settle(app, page) { $0.active == "Space 2" }
             try app.chooseSpacesMenuItem("Delete Space…", in: page)
             let sheet = try app.sheetMessage(in: page)
-            let state = try await SpacesTests.settle(app, page) { $0.spaces.count == 2 }
+            let state = try await SpacesAreaTests.settle(app, page) { $0.spaces.count == 2 }
             return (sheet, state)
         }
         run.check(
@@ -238,14 +240,14 @@ struct SpacesManageTest: E2ETest {
 
         let confirmed = try await run.step("delete work after confirming", timeout: E2ETimeouts.step) {
             try app.chooseMenuItem(key: "1", modifiers: .control, in: page)
-            _ = try await SpacesTests.settle(app, page) { $0.active == "work" }
+            _ = try await SpacesAreaTests.settle(app, page) { $0.active == "work" }
             try app.chooseSpacesMenuItem("Delete Space…", in: page)
             let message = try app.sheetMessage(in: page) ?? "no sheet"
             try app.answerSheet("Cancel", text: nil, in: page)
-            let kept = try await SpacesTests.unchanged(app, page)
+            let kept = try await SpacesAreaTests.unchanged(app, page)
             try app.chooseSpacesMenuItem("Delete Space…", in: page)
             try app.answerSheet("Delete", text: nil, in: page)
-            let state = try await SpacesTests.settle(app, page) { $0.spaces == ["personal"] }
+            let state = try await SpacesAreaTests.settle(app, page) { $0.spaces == ["personal"] }
             return (message, kept, state)
         }
         let asked = confirmed.0.contains("Delete “work”?") && confirmed.0.contains("tab closes")
@@ -257,11 +259,12 @@ struct SpacesManageTest: E2ETest {
                 + "after=[\(confirmed.2.spaces.joined(separator: ","))] active=\(confirmed.2.active)")
 
         let last = try await run.step("the last Space cannot be deleted", timeout: E2ETimeouts.step) {
-            let refused = try SpacesTests.outcome { try app.chooseSpacesMenuItem("Delete Space…", in: page) }
-            return (refused, try await SpacesTests.unchanged(app, page))
+            let refused = try SpacesAreaTests.outcome { try app.chooseSpacesMenuItem("Delete Space…", in: page) }
+            return (refused, try await SpacesAreaTests.unchanged(app, page))
         }
         run.check(
             "spaces.last", passed: last.0.contains("disabled") && last.1.spaces == ["personal"],
-            "delete=\(last.0.contains("disabled") ? "disabled" : last.0) spaces=[\(last.1.spaces.joined(separator: ","))]")
+            "delete=\(last.0.contains("disabled") ? "disabled" : last.0) spaces=[\(last.1.spaces.joined(separator: ","))]"
+        )
     }
 }

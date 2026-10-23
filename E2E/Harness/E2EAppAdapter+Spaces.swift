@@ -63,7 +63,9 @@ extension E2EAppAdapter {
 
     func swipeSidebar(_ swipe: E2ESwipe, distance: Double, in page: any E2EPage) throws {
         let controller = try Self.tabPage(page).controller
-        guard let handler = controller.e2eSidebar.swipeHandler else { throw E2EError("the sidebar has no swipe handler") }
+        guard let handler = controller.e2eSidebar.swipeHandler else {
+            throw E2EError("the sidebar has no swipe handler")
+        }
         let context = controller.e2eSidebarFeature
         let sign: CGFloat = swipe == .towardsNext ? -1 : 1
         let total = sign * CGFloat(distance)
