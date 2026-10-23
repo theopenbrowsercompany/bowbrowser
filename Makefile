@@ -11,7 +11,7 @@ E2E ?= all
 # scripts/e2e.sh alone, quoted for the shell.
 unexport E2E
 
-.PHONY: bootstrap hooks project build test test-lock test-e2e-wrapper test-prune test-affected test-scripts run smoke e2e e2e-run format lint guards release verify check done test-done test-refcount test-private-paths test-bootstrap-cef test-check-lists clean
+.PHONY: bootstrap hooks project build test test-lock test-e2e-wrapper test-prune test-affected test-scripts run smoke e2e e2e-run format lint guards release verify check done test-done test-refcount test-private-paths test-bootstrap-cef test-check-lists test-e2e-bisect clean
 
 bootstrap: hooks
 	./scripts/bootstrap-cef.sh
@@ -52,7 +52,7 @@ test-affected:
 	./scripts/test-e2e-affected.sh
 
 # The script self tests verify runs when scripts/ or the Makefile differ from origin/main.
-test-scripts: test-e2e-wrapper test-prune test-affected test-done test-refcount test-private-paths test-bootstrap-cef test-check-lists
+test-scripts: test-e2e-wrapper test-prune test-affected test-done test-refcount test-private-paths test-bootstrap-cef test-check-lists test-e2e-bisect
 
 run: build
 	open $(APP)
@@ -127,6 +127,11 @@ test-bootstrap-cef:
 # Tests scripts/check-lists.sh, the list checks (format, duplicates, entries no file declares), on fixture trees (under a second).
 test-check-lists:
 	./scripts/test-check-lists.sh
+
+# Tests scripts/e2e-bisect.sh, which finds the commit that broke an e2e test, on a throwaway repository with a planted
+# culprit (a few seconds; no build, no app).
+test-e2e-bisect:
+	./scripts/test-e2e-bisect.sh
 
 clean:
 	rm -rf $(BUILD_DIR) Bow.xcodeproj Generated
