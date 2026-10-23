@@ -75,8 +75,14 @@ struct S3RunTest: E2ETest {
     var selectedByNameOnly: Bool { true }
     var checks: [String] { ["switches", "sites", "visibility", "collected", "written"].map { "\(name).\($0)" } }
     var switchOverride: E2ESwitchOverride? { config.switches }
-    /// Every pass twice (a repeat for load) plus time to open and close 30 windows.
-    var timeLimit: TimeInterval { config.passes.map { config.seconds(of: $0) + 30 }.reduce(0, +) * 2 + 300 }
+    /// Every pass's step limit twice (a repeat for load) plus every setup step's limit, so a slow step fails as
+    /// itself before the test's own limit runs out.
+    var timeLimit: TimeInterval {
+        let tabs = Double(config.tabs)
+        let passes = config.passes.map { S3Session.passLimit(config, $0, tabs: config.tabs) }.reduce(0, +) * 2
+        let setup = (60 + tabs * 3) + (30 + tabs) + (60 + tabs * 2) + E2ETimeouts.firstLoad + 4 * E2ETimeouts.step
+        return passes + setup + 60
+    }
 
     var config: S3Config {
         switch run {
@@ -127,7 +133,6 @@ struct S3Config {
     var measure: TimeInterval
     /// The long pass's measuring, in parts with the page counters read between them (5 minutes, then 1.5).
     var longSegments: [TimeInterval]
-    var topSamples: Int
     var topInterval: Int
     var repeatsOnLoad: Bool
     var switches: E2ESwitchOverride?
@@ -143,13 +148,13 @@ struct S3Config {
 
     static let realistic = S3Config(
         tabs: 30, audioTabs: 5, passes: S3Pass.allCases, settle: 30, measure: 120, longSegments: [300, 90],
-        topSamples: 3, topInterval: 10, repeatsOnLoad: true, switches: realisticSwitches)
+        topInterval: 10, repeatsOnLoad: true, switches: realisticSwitches)
     static let control = S3Config(
         tabs: 30, audioTabs: 0, passes: [.V, .D, .DF], settle: 30, measure: 120, longSegments: [],
-        topSamples: 3, topInterval: 10, repeatsOnLoad: true, switches: nil)
+        topInterval: 10, repeatsOnLoad: true, switches: nil)
     static let smoke = S3Config(
         tabs: 3, audioTabs: 1, passes: S3Pass.allCases, settle: 2, measure: 6, longSegments: [4, 2],
-        topSamples: 2, topInterval: 2, repeatsOnLoad: false, switches: realisticSwitches)
+        topInterval: 2, repeatsOnLoad: false, switches: realisticSwitches)
 }
 
 /// One tab of the run: its site, its load and its page.
@@ -254,9 +259,15 @@ final class S3Session {
     private var parked: [S3Tab] { Array(tabs.dropFirst()) }
     private var audible: [S3Tab] { Array(parked.prefix(config.audioTabs)) }
 
-    /// Runs one pass, and once more when the machine was busy (load average above 2) and the run repeats.
+    /// The step limit of one attempt at `pass` with `tabs` tabs: its settle and measuring plus time to read every tab.
+    static func passLimit(_ config: S3Config, _ pass: S3Pass, tabs: Int) -> TimeInterval {
+        config.seconds(of: pass) + 60 + Double(tabs)
+    }
+
+    /// Runs one pass, and once more when the machine was busy (load average above 2) and the run repeats. U closes
+    /// the parked tabs, so it cannot run twice.
     private func pass(_ pass: S3Pass) async throws {
-        let limit = config.seconds(of: pass) + 60 + Double(tabs.count)
+        let limit = Self.passLimit(config, pass, tabs: tabs.count)
         var attempt = 1
         while true {
             let result = try await run.step("pass \(pass.rawValue) attempt \(attempt)", timeout: limit) {
@@ -264,7 +275,7 @@ final class S3Session {
             }
             passes.append(result)
             let busy = result["flagged"] as? Bool ?? false
-            guard busy, config.repeatsOnLoad, attempt == 1 else { return }
+            guard busy, config.repeatsOnLoad, attempt == 1, pass != .U else { return }
             attempt += 1
         }
     }
@@ -281,6 +292,8 @@ final class S3Session {
         case .DF:
             for tab in parked { _ = try await tab.page.devTools("Page.setWebLifecycleState", ["state": "frozen"]) }
             extra["frozen"] = parked.count
+            // A frozen page answers no reads, so its counters run from before the settle to after the measuring.
+            extra["pageCountersCover"] = "settle and measuring"
         case .DL:
             // Fresh hidden pages, so the long pass sees intensive throttling begin 5 minutes after hiding.
             try await reload(parked, load: "busy")
@@ -291,6 +304,12 @@ final class S3Session {
             try await takeAll()
             extra["audioTabs"] = audible.map(\.site)
         case .DAM:
+            // Audible again when a repeat follows an attempt that put them back to busy.
+            let silent = audible.filter { $0.load != "audio" }
+            if !silent.isEmpty {
+                try await reload(silent, load: "audio")
+                try await takeAll()
+            }
             extra["mutedCalled"] = try audible.map { try app.s3SetAudioMuted(true, $0.page) }.allSatisfy { $0 }
             extra["mutedReported"] = try audible.map { try app.s3IsAudioMuted($0.page) }.allSatisfy { $0 }
         case .FR:
@@ -305,11 +324,14 @@ final class S3Session {
 
         try await pause(config.settle)
         if !frozen { try await takeAll() }
-        let renderers = E2ES3Processes.rendererCount()
         let measureStart = Date()
         let startUsage = E2ES3Processes.snapshot()
+        let renderers = startUsage.values.filter { $0.kind == "renderer" }.count
+        // top samples the whole measuring (its first sample only sets the baseline).
+        let measuring = config.segments(of: pass).reduce(0, +)
         let top = E2ES3Top(
-            pids: Array(startUsage.keys).sorted(), samples: config.topSamples, interval: config.topInterval)
+            pids: Array(startUsage.keys).sorted(), samples: Int(measuring) / config.topInterval + 1,
+            interval: config.topInterval)
         self.top = top
         var samples = [[E2ES3TaskSample]](repeating: [], count: tabs.count)
         var segmentPages: [[String: Any]] = []
@@ -335,7 +357,6 @@ final class S3Session {
         case .FR: for tab in tabs { _ = try app.s3SetWindowlessFrameRate(30, tab.page) }
         default: break
         }
-        if pass == .DAM { try await reload(audible, load: "busy") }
         let loadAfter = e2eS3LoadAverage()
         let flagged = (loadBefore.first ?? 0) > 2 || (loadAfter.first ?? 0) > 2
 
@@ -362,6 +383,8 @@ final class S3Session {
             "top": topResult, "extra": extra,
         ]
         if !segmentPages.isEmpty { result["segments"] = segmentPages }
+        // Back to busy once the rows name the load they measured.
+        if pass == .DAM { try await reload(audible, load: "busy") }
         return result
     }
 
@@ -504,7 +527,7 @@ final class S3Session {
             "config": [
                 "tabs": config.tabs, "audioTabs": config.audioTabs, "passes": config.passes.map(\.rawValue),
                 "settleSeconds": config.settle, "measureSeconds": config.measure,
-                "longSegments": config.longSegments, "topSamples": config.topSamples,
+                "longSegments": config.longSegments,
                 "topInterval": config.topInterval,
             ],
             "notAvailable": [

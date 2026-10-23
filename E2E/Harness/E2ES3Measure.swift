@@ -29,11 +29,6 @@ enum E2ES3Processes {
         return readings
     }
 
-    /// How many renderer processes run now.
-    static func rendererCount() -> Int {
-        BowChildProcess.childrenOfCurrentProcess().filter { kind(of: $0.arguments) == "renderer" }.count
-    }
-
     static func kind(of arguments: [String]) -> String {
         let type = arguments.first { $0.hasPrefix("--type=") }.map { String($0.dropFirst("--type=".count)) }
         switch type {
@@ -135,10 +130,17 @@ final class E2ES3Top {
         }
     }
 
-    /// Waits for top to end and returns its last sample's rows (pid, command, cpu, idleWakeups, power), or an
-    /// error naming why there are none.
+    /// Waits for top to end and returns its rows (pid, command, cpu, idleWakeups, power, each the mean over every
+    /// sample but the first, which only sets top's baseline), or an error naming why there are none. A cancelled
+    /// wait (the test ran out of time) stops top.
     func rows() async -> [String: Any] {
-        if result == nil { await withCheckedContinuation { waiters.append($0) } }
+        if result == nil {
+            await withTaskCancellationHandler {
+                await withCheckedContinuation { waiters.append($0) }
+            } onCancel: {
+                Task { @MainActor in self.stop() }
+            }
+        }
         switch result {
         case .success(let text): return ["rows": Self.parse(text)]
         case .failure(let error): return ["error": error.description]
@@ -159,11 +161,38 @@ final class E2ES3Top {
         for waiter in ready { waiter.resume() }
     }
 
-    /// The rows after the last `PID COMMAND` header. COMMAND may hold spaces, so the numbers are read from the end.
+    /// Each process's figures averaged over every sample after the first (each sample's rows follow a
+    /// `PID COMMAND` header), with how many samples it appeared in, highest power first.
     static func parse(_ text: String) -> [[String: Any]] {
         let lines = text.components(separatedBy: "\n")
-        guard let header = lines.lastIndex(where: { $0.hasPrefix("PID") && $0.contains("POWER") }) else { return [] }
-        return lines[(header + 1)...].compactMap { line in
+        let headers = lines.indices.filter { lines[$0].hasPrefix("PID") && lines[$0].contains("POWER") }
+        var sums: [Int: (command: String, cpu: Double, idle: Double, power: Double, samples: Int)] = [:]
+        for (number, header) in headers.enumerated() where number > 0 || headers.count == 1 {
+            let end = number + 1 < headers.count ? headers[number + 1] : lines.count
+            for row in rows(lines[(header + 1)..<end]) {
+                var sum = sums[row.pid] ?? (row.command, 0, 0, 0, 0)
+                sum.cpu += row.cpu
+                sum.idle += row.idle
+                sum.power += row.power
+                sum.samples += 1
+                sums[row.pid] = sum
+            }
+        }
+        return sums.map { pid, sum in
+            let count = Double(sum.samples)
+            return [
+                "pid": pid, "command": sum.command, "samples": sum.samples,
+                "cpuPercent": round2(sum.cpu / count), "idleWakeups": round2(sum.idle / count),
+                "power": round2(sum.power / count),
+            ]
+        }.sorted { ($0["power"] as? Double ?? 0) > ($1["power"] as? Double ?? 0) }
+    }
+
+    /// One sample's rows. COMMAND may hold spaces, so the numbers are read from the end.
+    private static func rows(_ lines: ArraySlice<String>) -> [(
+        pid: Int, command: String, cpu: Double, idle: Double, power: Double
+    )] {
+        lines.compactMap { line in
             // top marks a figure that changed since its last sample with a trailing + or - (`202999+`).
             let fields = line.split(separator: " ", omittingEmptySubsequences: true).map {
                 String($0).trimmingCharacters(in: CharacterSet(charactersIn: "+-*"))
@@ -172,7 +201,7 @@ final class E2ES3Top {
                 let idle = Double(fields[fields.count - 2]), let cpu = Double(fields[fields.count - 3])
             else { return nil }
             let command = fields[1..<(fields.count - 3)].joined(separator: " ")
-            return ["pid": pid, "command": command, "cpuPercent": cpu, "idleWakeups": idle, "power": power]
+            return (pid, command, cpu, idle, power)
         }
     }
 }
