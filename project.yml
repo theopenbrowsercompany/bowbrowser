@@ -57,9 +57,9 @@ targets:
       - path: E2E
         excludes: [Fixtures]
       # The brand's variable fonts (Nunito Sans, Fredoka), copied as one folder into Resources/Fonts and registered
-      # at launch by ATSApplicationFontsPath below. Their license texts ship through scripts/bundle-licenses.sh.
+      # at launch by ATSApplicationFontsPath below. The folder's OFL texts also ship at the top of Resources through
+      # scripts/bundle-licenses.sh, where the About panel links them.
       - path: App/Fonts
-        excludes: ["*.txt"]
         type: folder
         buildPhase: resources
       # Fixture pages for `make e2e`, copied as one folder into the app's Resources.
