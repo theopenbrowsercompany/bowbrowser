@@ -29,7 +29,11 @@ It uses Bow's brand colors as light and dark tokens, soft radii and one soft sha
 - The active tab's row is lifted: Active fill, 9 point corners, the soft shadow and a bold title; a hovered row is tinted Pin; other rows have no background.
 - Folder rows show a chevron and a semibold name.
 - The line between pinned and today tabs is a Line colored rule inset 10 points within the sidebar's padding.
-- The Space switcher shows one 14 point dot per Space, the one on screen in Jam with an Apricot ring (a 2 point gap in the frame color, then a 2 point ring), the others in Soft, and a "+" for a new Space.
+- The footer holds the downloads and archive buttons on the left, the Space dots centred in the space between them and the "+" for a new Space on the right.
+  Each Space shows one 14 point dot, the one on screen with an Apricot ring (a 2 point gap in the frame color, then a 2 point ring).
+  A Space with a theme shows its theme color; the default theme keeps today's colors: Jam on screen, Soft otherwise.
+  A dot's context menu offers Rename and Delete Space, then Theme (Default and the presets, the Space's own checked), Change Icon and Remove Icon, the same items as the Space name's menu.
+- The start screen's hint reads "<Space> · press ⌘T to search", with no tab count, since the screen only shows in an empty Space; the card stays White in dark appearance.
 - The command bar is a White panel with 14 point corners, which clip its field and results, and the soft shadow, centered over the card.
 - An empty Space shows the start screen (`start-screen.md`): the Bow mark at 64 points, the greeting, the search pill, the quick links and the hint, 26 points apart.
 - The unloaded tab state shows the Bow mark at 64 points above its line in Soft and a Jam Deep pill button with white text.
@@ -63,7 +67,8 @@ It uses Bow's brand colors as light and dark tokens, soft radii and one soft sha
 10. Open a window on a page: the URL field below the top row reads the page's site, is 238 by 36 points and clears the window buttons; open a blank tab and it reads "Search or type a URL"; go back to the page, let the page send itself to a blank page and load it again, and the field follows each change; click the field and the command bar opens on the full address, selected (`make e2e E2E=chrome` prints `PASS chrome.url-field`, `chrome.url-field.follows` and `chrome.url-field.click`).
 11. Choose View > Hide Toolbar: the top row and the URL field hide, the item reads Show Toolbar, the setting is saved, a new window opens without them, and Cmd+L still opens the command bar on the address; Show Toolbar brings both back at full width (`PASS chrome.toolbar-hidden`, `chrome.toolbar-hidden.cmd-l` and `chrome.toolbar-hidden.show`).
 12. `design.fonts` prints PASS for `design.fonts_registered`, `design.fonts_sidebar`, `design.fonts_command_bar` and `design.fonts_empty`.
-13. `make e2e E2E=design` runs these checks and writes screenshots to `build/e2e/<run>/design/`.
+13. `make e2e E2E=design` runs these checks and writes screenshots to `build/e2e/<run>/design/`, among them `mockup-1.png` (start screen, light), `mockup-2.png` (browsing, light), `mockup-3.png` (browsing, dark) and `mockup-4.png` (top tabs), as evidence for the maintainer to look at, never compared by pixels.
+14. `design.footer` prints PASS for `design.footer_centred` (the dots' middle is within 1 point of the middle between the archive button and the "+"), `design.footer_dot_colors` and `design.footer_dot_menu`; `design.fonts` also reads the folder rows (semibold) and the command bar's result rows.
 
 ## Out of scope
 
