@@ -16,7 +16,7 @@ The app ships the licenses its parts require, and the person can read them from 
 
 ## Acceptance checks
 
-1. Run `make e2e E2E=app.licenses`: it prints `PASS app.licenses: cef=yes chromium=yes bow=yes menu=yes`.
+1. Run `make e2e E2E=app.licenses`: it prints `PASS app.licenses: cef=yes chromium=yes bow=yes`, then PASS for `app.licenses.menu` (About Bow has its action and target and is enabled), `app.licenses.about` (choosing Bow > About Bow through the app menu asks for the About panel) and `app.licenses.links` (each link points at a non-empty file in the built app's Resources).
 2. Run `make release`: it succeeds; remove one file from the built Release app and the check script fails naming it.
 
 ## Out of scope
