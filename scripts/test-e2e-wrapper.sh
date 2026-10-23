@@ -165,7 +165,7 @@ case $FAKE_MODE in
     mkdir -p "$out/profile/Crashpad/pending" "$out/profile/Crashpad/completed" "$out/crash-reports"
     echo dump1 > "$out/profile/Crashpad/pending/aaa.dmp"; echo dump1 > "$out/profile/Crashpad/completed/aaa.dmp"
     echo dump2 > "$out/profile/Crashpad/completed/bbb.dmp"; echo dump3 > "$out/crash-reports/ccc.dmp"
-    echo "not a report" > "$out/profile/Crashpad/pending/note.txt"
+    echo "not a report" > "$out/profile/Crashpad/pending/note.txt"; echo meta1 > "$out/profile/Crashpad/pending/aaa.meta"
     case $out in
       */retry) { echo "PASS a.one: ok"; echo "E2E: PASS 1/1"; } > "$r"; exit 0 ;;
       *) { echo "FAIL a.one: slow"; echo "E2E: FAIL 0/1"; } > "$r"; exit 1 ;;
@@ -1186,6 +1186,7 @@ check "crash reports: the run's outcome stays FLAKY" is "$code" 3
 check "crash reports: the summary stays the last line" is "$last" "E2E: FLAKY 1/1 after retrying a.one"
 check "crash reports: Crashpad's reports are copied into crash-reports" is "$(ls "$runf/crash-reports" | tr '\n' ' ')" "aaa.dmp bbb.dmp ccc.dmp "
 check "crash reports: the copy has the report's content" is "$(cat "$runf/crash-reports/bbb.dmp")" dump2
+check "crash reports: the .meta file comes with its report" is "$(cat "$runf/crash-reports/aaa.meta")" meta1
 check "crash reports: a non report file is left" not test -e "$runf/crash-reports/note.txt"
 check "crash reports: one line per report, the same name once" is "$(grep -c '^CRASH REPORT ' "$runf/report.txt")" 6
 check "crash reports: the line names the path" has "$runf/report.txt" "^CRASH REPORT $(field "$res" run)/crash-reports/aaa.dmp\$"
