@@ -9,7 +9,7 @@ enum FullscreenTests {
     static let all: [any E2ETest] = [
         FullscreenEnterTest(), FullscreenEscapeTest(), FullscreenExitTest(), FullscreenTabSwitchTest(),
         FullscreenAlreadyTest(), FullscreenNavigateTest(), FullscreenWindowExitTest(), FullscreenTopTabsTest(),
-        FullscreenTransitionTest(), FullscreenTransitionCancelTest(),
+        FullscreenTransitionTest(), FullscreenTransitionCancelTest(), FullscreenTransitionFailedTest(),
     ]
 
     typealias App = any E2EFullscreenApp & E2ETopTabsApp & E2EDesignApp
@@ -251,11 +251,11 @@ struct FullscreenTransitionTest: E2ETest {
         let exited = try await FullscreenTests.finishTransition(run, app, page)
         run.check(
             name,
-            passed: entering.fillsWindow && entering.toggles == 1 && entering.windowTransition == "entering"
-                && left.restoredSidebarLayout && left.toggles == 1 && left.windowTransition == "entering"
-                && entered.toggles == 2 && entered.windowTransition == "exiting"
+            passed: entering.fillsWindow && entering.toggles == 1 && entering.windowTransition == .entering
+                && left.restoredSidebarLayout && left.toggles == 1 && left.windowTransition == .entering
+                && entered.toggles == 2 && entered.windowTransition == .exiting
                 && exited.restoredSidebarLayout && exited.toggles == 2 && !exited.windowFullScreen
-                && exited.windowTransition == "none",
+                && exited.windowTransition == .none,
             "entering: \(entering) escape: \(left) entered: \(entered) exited: \(exited)")
     }
 }
@@ -284,9 +284,42 @@ struct FullscreenTransitionCancelTest: E2ETest {
             name,
             passed: left.toggles == 1 && again.fillsWindow && again.toggles == 1
                 && entered.fillsWindow && entered.toggles == 1 && entered.windowFullScreen
-                && entered.windowTransition == "none"
-                && escaped.restoredSidebarLayout && escaped.toggles == 2 && escaped.windowTransition == "exiting"
+                && entered.windowTransition == .none
+                && escaped.restoredSidebarLayout && escaped.toggles == 2 && escaped.windowTransition == .exiting
                 && exited.toggles == 2 && !exited.windowFullScreen,
             "escape: \(left) again: \(again) entered: \(entered) escaped: \(escaped) exited: \(exited)")
+    }
+}
+
+/// The window fails to enter macOS full screen (AppKit tells only its delegate): the page keeps filling the window,
+/// Escape brings the chrome back without a toggle, and the next Fullscreen starts a new transition at once.
+struct FullscreenTransitionFailedTest: E2ETest {
+    let name = "fullscreen.transition_failed"
+
+    func run(_ run: E2ERun) async throws {
+        let app = try FullscreenTests.app(run)
+        let page = try await FullscreenTests.open(run, app)
+        try app.holdWindowFullScreenTransitions(of: page)
+        _ = try await FullscreenTests.enter(run, app, page)
+        let failed = try await run.step("fail the full screen transition", timeout: E2ETimeouts.step) {
+            try app.failWindowFullScreenTransition(of: page)
+            return try app.fullscreenState(of: page)
+        }
+        let left = try await FullscreenTests.escape(run, app, page)
+        let again = try await run.step("click Fullscreen again", timeout: E2ETimeouts.step) {
+            try await page.click("#go")
+            try await E2EWaits.until(
+                page, "window.fullscreenEvents.filter((event) => event === 'enter').length === 2")
+            return try await E2EWaits.value({ try app.fullscreenState(of: page) }, until: \.pageFills)
+        }
+        let entered = try await FullscreenTests.finishTransition(run, app, page)
+        run.check(
+            name,
+            passed: failed.fillsWindow && failed.toggles == 1 && !failed.windowFullScreen
+                && failed.windowTransition == .none
+                && left.restoredSidebarLayout && left.toggles == 1 && !left.windowFullScreen
+                && again.fillsWindow && again.toggles == 2 && again.windowTransition == .entering
+                && entered.fillsWindow && entered.windowFullScreen && entered.toggles == 2,
+            "failed: \(failed) escape: \(left) again: \(again) entered: \(entered)")
     }
 }
