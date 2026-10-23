@@ -53,9 +53,20 @@ Each Space has its own pinned tabs and tabs, and one window shows one Space at a
   A color must be `#RRGGBB`, or the short form `#RGB`, with or without the `#`, in either case.
   It is saved as capitals, `#RRGGBB`.
   Anything else is refused with a message and the Space keeps what it had.
+- The context menu of the Space name above its tabs is the Space menu.
+  Its Theme submenu offers Default and the colors Blue `#3B5BDB`, Jam `#E8743B`, Apricot `#FFC08A`, Cocoa `#7A5A48`, Green `#2F7D4F` and Brick `#B84E1B`, each with a small swatch, with a check by the Space's own; Default removes the theme.
+  Change Icon… asks for one emoji in a sheet with the current emoji filled in (Edit > Emoji & Symbols lists them); an empty field changes nothing, and anything but one emoji is refused with a message.
+  Remove Icon removes the icon, and is greyed out while the Space has none.
 - The theme of the Space on screen decides the tint of the sidebar and window background.
   Switching Spaces switches the tint, and a Space with no theme tints with the default one.
   Setting an icon or theme changes nothing else about the Space.
+- The sidebar and the frame around the page are one surface, the window's Frame color, and a theme lays a light wash of its color over it: 12 percent of the theme color over the Frame color, in light and dark appearance alike.
+  The default theme lays none, so an unthemed Space shows exactly the Frame color.
+  Switching between light and dark keeps the theme and redraws its wash over that appearance's Frame color.
+- When the tint changes (another Space comes on screen, or the Space on screen gets another theme) it fades to the new one in a fifth of a second.
+  A change during a fade fades on from the color shown then, so quick switches end on the right tint.
+  With Reduce Motion on, it changes at once.
+- Every window showing the Space follows a change to its theme.
 - Every Space belongs to a profile, which decides its logins and cookies.
   For now every Space uses the default profile; choosing another profile is a separate feature.
 
@@ -92,11 +103,14 @@ Each Space has its own pinned tabs and tabs, and one window shows one Space at a
 15. With "work" on screen, press Cmd+Option+Right twice and Cmd+Option+Left twice: personal, personal (the second press is greyed out), work, work.
 16. Swipe towards the next Space, again on the last Space, a short swipe back, then a full swipe back: personal, personal, personal, work, in one window.
    `make e2e` drives the sidebar's swipe handler directly for this, since a real trackpad gesture cannot be synthesized.
+17. With "work" on screen, choose Theme > Blue and Change Icon… with "💼" from its Space menu: the name reads "💼 work", the Space menu checks Blue, and the window background and sidebar fade to `#E7E1E5` (light) or `#2C1F28` (dark). Change Icon… with "ab" is refused with a message.
+   Switching to the unthemed "personal" fades back to the Frame color, and Theme > Default on "work" removes its wash.
+   `make e2e` prints `PASS spaces.theme_tint: work=#3B5BDB tint_matches=true`.
 
 ## Out of scope
 
-- Reordering Spaces, and choosing a Space's icon or theme from the switcher.
+- Reordering Spaces, choosing a Space's icon or theme from the switcher, and choosing a symbol icon from a menu.
 - Choosing a profile for a Space, and confirming a move between Spaces of different profiles.
-- How the app draws the tint, the icon and the Space menu, and gradients, light or dark overrides and other richer themes (a theme can later carry more than one color).
+- Gradients, light or dark overrides and other richer themes (a theme can later carry more than one color).
 - Restoring or archiving the tabs of a deleted Space (see `sidebar-store.md` for archiving).
 - Saving the sidebar itself (see `sidebar-store.md`).
