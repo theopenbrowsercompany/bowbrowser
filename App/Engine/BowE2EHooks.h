@@ -27,9 +27,6 @@ size_t BowEngineOpenBrowserCount();
 /// context as it is created, before any of its tabs. The fixture server uses it to serve every profile.
 void BowEngineObserveProfileContexts(std::function<void(CefRefPtr<CefRequestContext>)> observer);
 
-/// Called by main when the message loop has ended, before CefShutdown: records how long quitting took up to here.
-void BowEngineMessageLoopDidEnd();
-
 /// Seconds from the start of the quit clock until every page had closed and the message loop ended, before
 /// Chromium's own shutdown, or 0 before then: the app's part of `BowEngine.quitDuration`.
 NSTimeInterval BowEngineQuitCloseDuration();

@@ -171,6 +171,12 @@ void BowEngineBrowserClosed(CefRefPtr<CefBrowser> browser) {
   QuitMessageLoopIfDone();
 }
 
+void BowEngineMessageLoopDidEnd() {
+#if BOW_E2E  // E2E seam: the e2e run times the app's part of quitting apart from Chromium's shutdown.
+  if (gQuitStart > 0) gQuitCloseDuration = CFAbsoluteTimeGetCurrent() - gQuitStart;
+#endif
+}
+
 void BowEngineDidShutDown() {
   StopQuitWatchdog();
   if (gQuitStart > 0) gQuitDuration = CFAbsoluteTimeGetCurrent() - gQuitStart;
@@ -292,10 +298,6 @@ void BowEngineDidShutDown() {
 CefRefPtr<CefBrowser> BowEngineBrowserForTabID(uint64_t tabID) {
   BowTab* tab = BowEngineTabWithID(tabID);
   return tab ? tab.browser : nullptr;
-}
-
-void BowEngineMessageLoopDidEnd() {
-  if (gQuitStart > 0) gQuitCloseDuration = CFAbsoluteTimeGetCurrent() - gQuitStart;
 }
 
 NSTimeInterval BowEngineQuitCloseDuration() {
