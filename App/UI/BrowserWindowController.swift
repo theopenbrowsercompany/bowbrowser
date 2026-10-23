@@ -85,7 +85,9 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
     /// their saved address and title.
     var tabList: TabList {
         let tabs = listedTabIDs.compactMap { runtimeTabs[$0] }
-        let active = activeItemID.flatMap { runtimeTabs[$0]?.id } ?? tabs.first?.id
+        // With none active, the Space's first own tab stands in, never a Favorite, so an empty Space stays empty.
+        let active =
+            activeItemID.flatMap { runtimeTabs[$0]?.id } ?? activeSpaceTabIDs.first.flatMap { runtimeTabs[$0]?.id }
         return TabList(tabs: tabs, activeID: active) ?? TabList()
     }
 

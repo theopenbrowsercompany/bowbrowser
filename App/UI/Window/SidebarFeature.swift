@@ -16,7 +16,8 @@ final class SidebarFeature: NSResponder, BrowserWindowFeature, SidebarViewDelega
     private var favicons: [BrowserTabID: (url: URL, image: NSImage)] = [:]
     /// The icon address each tab's page reported last, nil while it reports none.
     private var faviconReported: [BrowserTabID: URL] = [:]
-    /// The runtime ID of each tab of the Space on screen, as last shown.
+    /// The runtime ID of each tab the window lists (the Favorites shown and the tabs of the Space on screen), as last
+    /// shown.
     private var runtimeIDs: [SidebarItemID: BrowserTabID] = [:]
     /// The folders being deleted with their tabs, while their pages are asked to close.
     private var deletingFolders: Set<SidebarItemID> = []
@@ -141,8 +142,10 @@ final class SidebarFeature: NSResponder, BrowserWindowFeature, SidebarViewDelega
     @discardableResult
     func open(favorite item: SidebarItemID) -> Bool {
         // Only the Favorites the Space on screen shows, so the page loads in the profile it belongs to.
-        guard let space = window.store.graph.activeSpaceID, window.store.graph.isInFavorites(item, shownBy: space),
-            let id = runtimeIDs[item]
+        let graph = window.store.graph
+        guard let space = graph.activeSpaceID, graph.isInFavorites(item, shownBy: space), let id = runtimeIDs[item],
+            // A Favorite with no saved address and no page has nothing to show.
+            graph[item]?.tab?.savedPageURL != nil || window.engineTab(for: id) != nil
         else { return false }
         window.select(id)
         return window.tabList.activeID == id
