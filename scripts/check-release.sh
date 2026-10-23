@@ -1,6 +1,6 @@
 #!/bin/sh
 # Builds Release and fails if the app lacks a license file or carries any of the e2e harness: a symbol E2E/ declares
-# (scripts/e2e-names.sh --symbols) or the Fixtures folder. A successful build also proves the Release side of
+# (scripts/e2e-names.sh --symbols), the Fixtures folder or crash_reporter.cfg. A successful build also proves the Release side of
 # every "E2E seam" (such as the AppDelegate #else branch) compiles.
 set -eu
 
@@ -25,6 +25,12 @@ symbols=$(for file in "$app"/Contents/MacOS/*; do nm "$file"; done)
 failed=no
 if [ -e "$app/Contents/Resources/Fixtures" ]; then
   echo "Release app contains e2e fixtures: $app/Contents/Resources/Fixtures" >&2
+  failed=yes
+fi
+# Chromium's crash reporter settings are for Debug builds only (E2E/crash_reporter.cfg): Crashpad reads them from
+# Resources wherever they come from, and whether and where users' crash reports go is not decided.
+if [ -e "$app/Contents/Resources/crash_reporter.cfg" ]; then
+  echo "Release app contains the Debug crash reporter settings: $app/Contents/Resources/crash_reporter.cfg" >&2
   failed=yes
 fi
 

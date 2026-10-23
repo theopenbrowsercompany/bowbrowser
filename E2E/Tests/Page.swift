@@ -4,7 +4,7 @@ import Foundation
 /// button, and Copy Image from the context menu. Fixtures in E2E/Fixtures/page/.
 @MainActor
 enum PageTests {
-    static let all: [any E2ETest] = [PageZoomTest(), PageCrashTest(), PageCopyImageTest()]
+    static let all: [any E2ETest] = [PageZoomTest(), PageCrashTest(), PageCrashReportTest(), PageCopyImageTest()]
 
     typealias App = any E2EPageBehaviorApp & E2EMenuApp & E2EContextMenuApp
 
@@ -146,6 +146,79 @@ struct PageCrashTest: E2ETest {
         run.check(
             "page.crash.reload", passed: reloaded.0 && !reloaded.1.isEmpty && reloaded.1 != before,
             "overlay-hidden=\(reloaded.0) page-reloaded=\(reloaded.1 != before)")
+    }
+}
+
+/// Loading chrome://crash in a tab crashes its renderer (Chromium handles the debug URL when the app loads it), and
+/// Chromium's crash reporter, which Debug builds turn on with E2E/crash_reporter.cfg and no upload server, writes a
+/// minidump into its database, which CEF puts in the root data folder itself (`<run>/profile`). Crashpad writes a
+/// report in `new/` and moves it to `pending/` (or `completed/`) once whole, so only those count. A run that passes
+/// removes its profile, so the test copies the report to `<run>/crash-reports/`, where it outlives the run.
+struct PageCrashReportTest: E2ETest {
+    let name = "page.crash-report"
+    var expectsRendererCrash: Bool { true }
+
+    func run(_ run: E2ERun) async throws {
+        let app = try PageTests.app(run)
+        let database = run.dataDirectory
+        let page = try await run.step("open the page", timeout: E2ETimeouts.firstLoad) {
+            let page = try await app.openWindow(at: PageTests.url("page.html"))
+            _ = try await page.waitForLoad(after: 0)
+            return page
+        }
+        // By file name (the report's ID), which stays the same when Crashpad moves a report between its folders.
+        let before = Set(Self.reports(in: database).map(\.lastPathComponent))
+        let kept = try await run.step("load chrome://crash", timeout: E2ETimeouts.firstLoad) { () -> URL in
+            guard let crashURL = URL(string: "chrome://crash") else { throw E2EError("no chrome://crash URL") }
+            try page.load(crashURL)
+            guard try await PageTests.until({ try app.crashedPage(of: page).isShown }) else {
+                throw E2EError("the crashed tab page never showed")
+            }
+            let folder = run.outputDirectory.appendingPathComponent("crash-reports", isDirectory: true)
+            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+            // A copy can fail when Crashpad moves the report between its folders meanwhile; the next try finds it.
+            var copyURL: URL?
+            let copied = try await E2EWaits.until {
+                guard let report = Self.reports(in: database).first(where: { !before.contains($0.lastPathComponent) })
+                else { return false }
+                let copy = folder.appendingPathComponent(report.lastPathComponent)
+                try? FileManager.default.removeItem(at: copy)
+                guard (try? FileManager.default.copyItem(at: report, to: copy)) != nil else { return false }
+                copyURL = copy
+                return true
+            }
+            guard copied, let copyURL else {
+                throw E2EError("no new crash report in \(database.path) (before: \(before.sorted()))")
+            }
+            return copyURL
+        }
+        // A minidump starts with the signature "MDMP".
+        let data = (try? Data(contentsOf: kept)) ?? Data()
+        let minidump = data.prefix(4) == Data("MDMP".utf8)
+        run.check(
+            name, passed: minidump && data.count > 4,
+            "report=\(kept.path) bytes=\(data.count) minidump=\(minidump) from=\(database.path)")
+
+        // Reload brings the page back, as a person would, so the test ends on a live page (and its screenshot).
+        let loads = page.finishedLoads
+        try await run.step("press Reload", timeout: E2ETimeouts.firstLoad) {
+            try app.clickCrashedReload(of: page)
+            _ = try await page.waitForLoad(after: loads)
+            guard try await PageTests.until({ try !app.crashedPage(of: page).isShown }) else {
+                throw E2EError("the crashed tab page stayed after Reload")
+            }
+        }
+    }
+
+    /// The whole minidumps in Crashpad's database at `database`.
+    private static func reports(in database: URL) -> [URL] {
+        var found: [URL] = []
+        for state in ["pending", "completed"] {
+            let folder = database.appendingPathComponent(state, isDirectory: true)
+            let files = try? FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil)
+            found += (files ?? []).filter { $0.pathExtension == "dmp" }
+        }
+        return found
     }
 }
 
