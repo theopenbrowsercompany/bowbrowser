@@ -26,6 +26,17 @@ protocol BrowserWindowFeature: NSResponder {
     /// `tab` closed and is about to leave the window's tab list, so its entry can still be looked up.
     func tabDidClose(_ tab: any EngineTab)
 
+    /// The window created `tab`, the engine tab of sidebar item `item`, in the profile of the Space that holds it.
+    /// Called for every engine tab the window creates: a new tab, and a saved tab loading when it is first selected.
+    func tabOpened(_ tab: any EngineTab, item: SidebarItemID)
+
+    /// `space` came on screen in the window (also once when the window opens). Its tabs are now the window's tabs.
+    func activeSpaceChanged(_ space: SidebarSpace)
+
+    /// The window's sidebar store committed a change; `graph` is the committed sidebar. Called after the window has
+    /// updated its own tabs from it.
+    func storeChanged(_ graph: SidebarGraph)
+
     /// The answer to a permission request from `tab`, or nil to leave it to another feature. The first feature that
     /// answers decides; with none, the request is dismissed.
     func decidePermission(_ request: PermissionRequest, for tab: any EngineTab) async -> PermissionDecision?
@@ -36,5 +47,8 @@ extension BrowserWindowFeature {
     func selectedTabChanged(_ tab: (any EngineTab)?) {}
     func tab(_ tab: any EngineTab, didReceive event: TabEvent) {}
     func tabDidClose(_ tab: any EngineTab) {}
+    func tabOpened(_ tab: any EngineTab, item: SidebarItemID) {}
+    func activeSpaceChanged(_ space: SidebarSpace) {}
+    func storeChanged(_ graph: SidebarGraph) {}
     func decidePermission(_ request: PermissionRequest, for tab: any EngineTab) async -> PermissionDecision? { nil }
 }
