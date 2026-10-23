@@ -13,7 +13,7 @@ derived=build/release
 app="$derived/Build/Products/Release/Bow.app"
 binary="$app/Contents/MacOS/Bow"
 
-xcodebuild -project Bow.xcodeproj -scheme Bow -configuration Release -derivedDataPath "$derived" -quiet build
+./scripts/xcodebuild.sh -project Bow.xcodeproj -scheme Bow -configuration Release -derivedDataPath "$derived" -quiet build
 
 if [ ! -f "$binary" ]; then
   echo "Release build produced no $binary" >&2
