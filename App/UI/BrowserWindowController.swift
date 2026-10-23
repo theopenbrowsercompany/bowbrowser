@@ -346,7 +346,8 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
 
     /// The tabs the page area shows, in pane order, read back from the views.
     var shownTabs: [any EngineTab] {
-        paneViews.compactMap { view in tabs.first { view.isShowing($0) } }
+        let tabs = self.tabs
+        return paneViews.compactMap { view in tabs.first { view.isShowing($0) } }
     }
 
     /// Each pane's share of the page area's width, in pane order, summing to 1.
@@ -357,10 +358,15 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
     /// not fit). A saved tab that has not loaded loads first. The panes stay until the person selects a tab that is
     /// not one of them (the page area then shows that tab alone) or until only one is left; a pane whose tab closes or
     /// unloads leaves and the others share its width. Returns whether the page area now shows exactly those panes:
-    /// false, changing nothing, for a list that does not fit or a tab the window does not list.
+    /// false, changing nothing, for a list that does not fit, a tab the window does not list, a closing window or a
+    /// store that refuses to select `focused`.
     @discardableResult
     func showPanes(_ ids: [BrowserTabID], focused: BrowserTabID, fractions: [Double]? = nil) -> Bool {
-        guard !isClosing, let layout = PaneLayout(tabs: ids, focused: focused, fractions: fractions) else {
+        guard !isClosing else {
+            Self.report("the window is closing, so the panes were not shown")
+            return false
+        }
+        guard let layout = PaneLayout(tabs: ids, focused: focused, fractions: fractions) else {
             Self.report("the panes do not fit: \(ids.count) tabs, focus on one of them, each once")
             return false
         }
@@ -370,10 +376,11 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
             Self.report("a pane's tab is not listed in the window, so the panes were not shown")
             return false
         }
+        // Selected first, so a refusal leaves the panes on screen and loads nothing.
+        guard change({ try $0.selectTab(focusedItem) }) else { return false }
+        if keptUnloaded == focusedItem { keptUnloaded = nil }
         for item in items where !isLoaded(item) && item != focusedItem { loadSaved(item) }
         paneLayout = layout
-        if keptUnloaded == focusedItem { keptUnloaded = nil }
-        change { try $0.selectTab(focusedItem) }
         storeDidChange()
         return paneLayout?.tabs == ids && paneLayout?.focused == focused
     }
@@ -439,8 +446,11 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
         for view in extraPaneViews { view.detach() }
         primaryView.frame = pageArea.bounds
         primaryView.autoresizingMask = [.width, .height]
+        // Moved straight from the container, so the page never leaves the window; it already left the container's
+        // panes, so its outline is cleared here.
         pageArea.addSubview(primaryView, positioned: .below, relativeTo: nil)
         primaryView.layer?.borderWidth = 0
+        container.show([], fractions: [], focusedIndex: 0)
         container.removeFromSuperview()
     }
 
@@ -457,20 +467,11 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
             pageArea.addSubview(container, positioned: .below, relativeTo: nil)
         }
         for view in extraPaneViews.dropFirst(views.count - 1) { view.detach() }
-        if !container.subviews.elementsEqual(views, by: ===) {
-            for view in container.subviews where !views.contains(where: { $0 === view }) { view.removeFromSuperview() }
-            for view in views { container.addSubview(view) }
-        }
+        container.show(views, fractions: layout.fractions, focusedIndex: layout.focusedIndex)
         for (view, id) in zip(views, layout.tabs) {
             if let tab = engineTabs[id] { view.show(tab) }
         }
-        if !container.shows(layout.fractions) { container.apply(layout.fractions) }
         let focused = views[layout.focusedIndex]
-        for view in views {
-            view.wantsLayer = true
-            view.layer?.borderColor = NSColor.controlAccentColor.cgColor
-            view.layer?.borderWidth = view === focused ? 2 : 0
-        }
         if let responder = window?.firstResponder as? NSView, !responder.isDescendant(of: focused),
             views.contains(where: { responder.isDescendant(of: $0) })
         {
@@ -1118,75 +1119,4 @@ class BrowserWindow: NSWindow {
         }
         super.sendEvent(event)
     }
-}
-
-/// The panes side by side while the page area shows more than one: a split view with thin dividers the person can
-/// drag, each pane keeping at least `SidebarSplit.minimumPaneFraction` of the width.
-final class PaneContainer: NSSplitView, NSSplitViewDelegate {
-    /// Called with each pane's share of the width after the person dragged a divider.
-    var onDividerDrag: (([Double]) -> Void)?
-    /// True while `apply` moves the dividers, which is not a drag.
-    private var applying = false
-
-    override init(frame: NSRect) {
-        super.init(frame: frame)
-        isVertical = true
-        dividerStyle = .thin
-        delegate = self
-    }
-
-    @available(*, unavailable)
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) is not supported")
-    }
-
-    /// The width the panes share, without the dividers.
-    private var paneWidth: CGFloat {
-        max(bounds.width - dividerThickness * CGFloat(max(subviews.count - 1, 0)), 1)
-    }
-
-    /// Each pane's share of the width now, in pane order.
-    var shownFractions: [Double] {
-        subviews.map { Double($0.frame.width / paneWidth) }
-    }
-
-    /// Whether the panes show `fractions`, to within a point.
-    func shows(_ fractions: [Double]) -> Bool {
-        let shown = shownFractions
-        return shown.count == fractions.count
-            && zip(shown, fractions).allSatisfy { abs($0 - $1) * Double(paneWidth) < 1 }
-    }
-
-    /// Places the dividers so each pane takes its share of `fractions`, in pane order.
-    func apply(_ fractions: [Double]) {
-        applying = true
-        defer { applying = false }
-        adjustSubviews()
-        var position: CGFloat = 0
-        for (index, fraction) in fractions.dropLast().enumerated() {
-            position += paneWidth * CGFloat(fraction)
-            setPosition(position, ofDividerAt: index)
-            position += dividerThickness
-        }
-    }
-
-    func splitViewDidResizeSubviews(_ notification: Notification) {
-        // AppKit names the divider only when the person dragged it, not when the split view resized with the window.
-        guard !applying, notification.userInfo?["NSSplitViewDividerIndex"] != nil else { return }
-        onDividerDrag?(shownFractions)
-    }
-
-    func splitView(
-        _ splitView: NSSplitView, constrainMinCoordinate proposedMinimumPosition: CGFloat, ofSubviewAt dividerIndex: Int
-    ) -> CGFloat {
-        max(proposedMinimumPosition, subviews[dividerIndex].frame.minX + minimumPane)
-    }
-
-    func splitView(
-        _ splitView: NSSplitView, constrainMaxCoordinate proposedMaximumPosition: CGFloat, ofSubviewAt dividerIndex: Int
-    ) -> CGFloat {
-        min(proposedMaximumPosition, subviews[dividerIndex + 1].frame.maxX - minimumPane - dividerThickness)
-    }
-
-    private var minimumPane: CGFloat { paneWidth * CGFloat(SidebarSplit.minimumPaneFraction) }
 }

@@ -10,13 +10,16 @@ enum PanesTests {
 }
 
 /// Tabs A to D in one window. Four panes show the four tabs side by side at equal widths with C focused; then two
-/// panes show A and C with A focused and outlined. Focusing pane 1 makes C the selected and active tab with the
+/// panes show A and C with A focused and outlined. Shown at 3 to 1, they keep that share when the window narrows.
+/// Focusing pane 1 makes C the selected and active tab with the
 /// keyboard in its page; a click in pane 0 focuses A again. A view placed over the page area stays in front of the
 /// panes as they change. Closing A, the focused pane's tab, leaves C alone (the other pane, not B, A's sidebar
 /// neighbour), filling the page area, focused and active.
 struct PanesContractTest: E2ETest {
     let name = "panes.contract"
-    let checks = ["panes.four", "panes.two", "panes.focus", "panes.click", "panes.overlay", "panes.close"]
+    let checks = [
+        "panes.four", "panes.two", "panes.resize", "panes.focus", "panes.click", "panes.overlay", "panes.close",
+    ]
 
     func run(_ run: E2ERun) async throws {
         guard let app = run.app as? any E2EPanesApp else { throw E2EError("the app has no panes") }
@@ -35,7 +38,7 @@ struct PanesContractTest: E2ETest {
         // Placed while one pane shows, so the panes the steps below lay out must go behind it.
         let overlay = try app.addPageOverlay(besides: a)
         let four = try await run.step("show four panes", timeout: E2ETimeouts.step) {
-            let shown = try app.showPanes(pages, focused: pages[2])
+            let shown = try app.showPanes(pages, focused: pages[2], fractions: nil)
             return (shown, try app.panes(besides: a))
         }
         run.check(
@@ -46,7 +49,7 @@ struct PanesContractTest: E2ETest {
             "shown=\(four.0) \(four.1)")
 
         let two = try await run.step("show two panes", timeout: E2ETimeouts.step) {
-            let shown = try app.showPanes([a, c], focused: a)
+            let shown = try app.showPanes([a, c], focused: a, fractions: nil)
             return (shown, try app.panes(besides: a))
         }
         run.check(
@@ -54,6 +57,23 @@ struct PanesContractTest: E2ETest {
             passed: two.0 && two.1.titles == ["A", "C"] && two.1.focusedIndex == 0 && two.1.selectedTitle == "A"
                 && two.1.activeTitle == "A" && two.1.fillsEqually() && two.1.outlined == [0],
             "shown=\(two.0) \(two.1)")
+
+        let resized = try await run.step("resize the window with uneven panes", timeout: E2ETimeouts.step) {
+            guard let design = run.app as? any E2EDesignApp else { throw E2EError("the app cannot resize windows") }
+            let shown = try app.showPanes([a, c], focused: a, fractions: [3, 1])
+            let before = try app.panes(besides: a)
+            try design.resizeWindow(of: a, width: 900, height: 700)
+            return (shown, before, try app.panes(besides: a))
+        }
+        let shareOfA = { (state: E2EPaneState) -> Double in
+            let widths = state.frames.map { Double($0.width) }
+            return widths.count == 2 ? widths[0] / (widths[0] + widths[1]) : 0
+        }
+        run.check(
+            "panes.resize",
+            passed: resized.0 && abs(shareOfA(resized.1) - 0.75) < 0.01 && abs(shareOfA(resized.2) - 0.75) < 0.01
+                && resized.2.pageSize.width < resized.1.pageSize.width && resized.2.fillsWidth(),
+            "shown=\(resized.0) before=\(resized.1) after=\(resized.2)")
 
         let focus = try await run.step("focus pane 1", timeout: E2ETimeouts.step) {
             let focused = try app.focusPane(at: 1, besides: a)

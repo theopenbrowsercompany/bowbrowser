@@ -7,7 +7,8 @@ import Foundation
 protocol E2EPanesApp: E2EApp {
     /// Shows the tabs of `pages` (all in one window) side by side in that order, with `focused`'s tab in focus.
     /// Returns what `showPanes` returned.
-    func showPanes(_ pages: [any E2EPage], focused: any E2EPage) throws -> Bool
+    /// `fractions` gives each pane's share of the width (nil for equal panes).
+    func showPanes(_ pages: [any E2EPage], focused: any E2EPage, fractions: [Double]?) throws -> Bool
     /// Focuses the pane at `index` in `page`'s window the way a focus shortcut does. Returns what `focusPane` returned.
     func focusPane(at index: Int, besides page: any E2EPage) throws -> Bool
     /// Presses and releases the mouse at the middle of the pane at `index` in `page`'s window, through the window's
@@ -41,17 +42,18 @@ struct E2EPaneState: CustomStringConvertible {
     var frontmostTag: Int
 
     /// Whether the panes sit side by side in order, top to bottom of the page area, and fill its width with only the
-    /// dividers between them, each within `tolerance` points of an equal share.
-    func fillsEqually(tolerance: CGFloat = 2) -> Bool {
+    /// dividers between them.
+    func fillsWidth() -> Bool {
         guard let first = frames.first, let last = frames.last else { return false }
         let ordered = zip(frames, frames.dropFirst()).allSatisfy { $0.maxX <= $1.minX + 0.5 && $1.minX - $0.maxX < 3 }
         let fullHeight = frames.allSatisfy { abs($0.height - pageSize.height) < 1 }
-        let width = frames.map(\.width).reduce(0, +)
-        let gaps = pageSize.width - width
-        let share = width / CGFloat(frames.count)
         return ordered && fullHeight && first.minX < 1 && abs(last.maxX - pageSize.width) < 1
-            && gaps < 3 * CGFloat(frames.count)
-            && frames.allSatisfy { abs($0.width - share) <= tolerance }
+    }
+
+    /// Whether the panes fill the width (`fillsWidth`), each within `tolerance` points of an equal share.
+    func fillsEqually(tolerance: CGFloat = 2) -> Bool {
+        let share = frames.map(\.width).reduce(0, +) / CGFloat(max(frames.count, 1))
+        return fillsWidth() && frames.allSatisfy { abs($0.width - share) <= tolerance }
     }
 
     var description: String {
