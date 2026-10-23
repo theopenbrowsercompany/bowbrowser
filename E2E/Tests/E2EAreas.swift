@@ -54,5 +54,6 @@ enum E2EAreas {
         SpaceDropTests.all,
         RoutingAreaTests.all,
         S3Tests.all,
+        CertsTests.all,
     ]
 }
