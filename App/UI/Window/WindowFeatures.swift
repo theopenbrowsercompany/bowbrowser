@@ -14,5 +14,6 @@ enum WindowFeatures {
         HistoryFeature.self,
         SpacesFeature.self,
         PopupsFeature.self,
+        CommandBarFeature.self,
     ]
 }

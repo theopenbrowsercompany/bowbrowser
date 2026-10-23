@@ -48,7 +48,9 @@ public struct KeyChord: Hashable, Sendable, CustomStringConvertible {
         if modifiers.contains(.command) { text += "Cmd+" }
         switch key {
         case .character(let character): text += character.uppercased()
-        case .keyCode(let code): text += code == KeyChord.tabKeyCode ? "Tab" : "key \(code)"
+        case .keyCode(KeyChord.tabKeyCode): text += "Tab"
+        case .keyCode(KeyChord.escapeKeyCode): text += "Esc"
+        case .keyCode(let code): text += "key \(code)"
         }
         return text
     }
@@ -56,14 +58,18 @@ public struct KeyChord: Hashable, Sendable, CustomStringConvertible {
     static let matchedModifiers: KeyModifiers = [.shift, .control, .option, .command]
     /// The macOS virtual key code of Tab.
     public static let tabKeyCode = 48
+    /// The macOS virtual key code of Escape.
+    public static let escapeKeyCode = 53
 }
 
 /// A named app shortcut and its keys.
 public enum KeyShortcut: String, CaseIterable, Hashable, Sendable {
-    /// Cmd+T: a new tab, or the command bar once it exists.
+    /// Cmd+T: the command bar, to open a page in a new tab.
     case newTab
-    /// Cmd+L: change the shown page's address.
+    /// Cmd+L: the command bar filled with the shown page's address, to load a page in the current tab.
     case changeURL
+    /// Escape while the command bar is open: close it.
+    case closeCommandBar
     /// Cmd+Shift+C: copy the shown page's address.
     case copyURL
     /// Cmd+plus (Cmd+= on a US keyboard): zoom in.
@@ -80,6 +86,7 @@ public enum KeyShortcut: String, CaseIterable, Hashable, Sendable {
         switch self {
         case .newTab: [.character("t", .command)]
         case .changeURL: [.character("l", .command)]
+        case .closeCommandBar: [KeyChord(.keyCode(KeyChord.escapeKeyCode), [])]
         case .copyURL: [.character("c", [.command, .shift])]
         case .zoomIn: [.character("=", .command), .character("+", .command), .character("+", [.command, .shift])]
         case .zoomOut: [.character("-", .command)]
@@ -96,7 +103,7 @@ public enum KeyShortcut: String, CaseIterable, Hashable, Sendable {
 
 /// The window features that claim shortcuts. Add a case when a feature starts claiming keys.
 public enum KeyShortcutOwner: String, Hashable, Sendable {
-    /// The command bar: new tab and change URL.
+    /// The command bar: new tab, change URL, and Escape while it is open.
     case commandBar
     /// The page's toolbar actions: copy URL.
     case toolbar
@@ -134,6 +141,7 @@ public enum KeyShortcuts {
     public static let claims: [KeyShortcutClaim] = [
         KeyShortcutClaim(.newTab, .commandBar),
         KeyShortcutClaim(.changeURL, .commandBar),
+        KeyShortcutClaim(.closeCommandBar, .commandBar),
         KeyShortcutClaim(.copyURL, .toolbar),
         KeyShortcutClaim(.zoomIn, .zoom),
         KeyShortcutClaim(.zoomOut, .zoom),

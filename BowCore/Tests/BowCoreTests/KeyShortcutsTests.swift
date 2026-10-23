@@ -39,12 +39,15 @@ import Testing
         #expect(KeyShortcut.zoomOut.matches(key("-", .command)))
         #expect(KeyShortcut.actualSize.matches(key("0", .command)))
         #expect(KeyShortcut.recentTabs.matches(key("\t", .control, keyCode: KeyChord.tabKeyCode)))
+        #expect(KeyShortcut.closeCommandBar.matches(key("\u{1b}", [], keyCode: KeyChord.escapeKeyCode)))
+        #expect(KeyShortcut.closeCommandBar.chords.first?.description == "Esc")
     }
 
     @Test func modifiersMustMatchExactly() {
         #expect(!KeyShortcut.changeURL.matches(key("l", [])))
         #expect(!KeyShortcut.changeURL.matches(key("l", [.command, .option])))
         #expect(!KeyShortcut.copyURL.matches(key("c", .command)))
+        #expect(!KeyShortcut.closeCommandBar.matches(key("\u{1b}", .shift, keyCode: KeyChord.escapeKeyCode)))
         #expect(!KeyShortcut.recentTabs.matches(key("\t", [.control, .shift], keyCode: KeyChord.tabKeyCode)))
     }
 
