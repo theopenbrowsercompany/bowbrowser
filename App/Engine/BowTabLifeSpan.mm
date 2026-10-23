@@ -30,7 +30,7 @@ BowPopupDisposition ToPopupDisposition(cef_window_open_disposition_t disposition
 // keys still held as the request arrives (a few milliseconds after the click) tell them apart, counted only when a
 // mouse button was released within the last second, so a key press that opens a page is not taken for a click. A
 // modified click on a link (Cmd-click, also on a target="_blank" link) does not come here at all: CEF 156 sends it
-// to the request handler's OnOpenURLFromTab, which the bridge does not handle yet.
+// to the request handler's OnOpenURLFromTab, below, whose disposition alone tells the modifiers apart.
 BowPopupClickModifiers ClickModifiers(cef_window_open_disposition_t disposition, bool userGesture) {
   if (!userGesture) return 0;
   switch (disposition) {
@@ -52,7 +52,72 @@ BowPopupClickModifiers ClickModifiers(cef_window_open_disposition_t disposition,
   }
 }
 
+// The modifiers of a link click that reached OnOpenURLFromTab. Only a modified click opens a link in a new tab there,
+// so the disposition says which: a background tab is Command or a middle click, a foreground tab Command-Shift, and
+// a new window Shift.
+BowPopupClickModifiers LinkClickModifiers(cef_window_open_disposition_t disposition, bool userGesture) {
+  if (!userGesture) return 0;
+  switch (disposition) {
+    case CEF_WOD_NEW_BACKGROUND_TAB:
+      return BowPopupClickModifierCommand;
+    case CEF_WOD_NEW_FOREGROUND_TAB:
+      return BowPopupClickModifierCommand | BowPopupClickModifierShift;
+    case CEF_WOD_NEW_WINDOW:
+      return BowPopupClickModifierShift;
+    default:
+      return 0;
+  }
+}
+
 }  // namespace
+
+// A link the page asks to open somewhere else than its own tab without opening a popup: in Alloy style a Cmd-click,
+// Cmd-Shift-click, Shift-click or middle click on a link arrives here, not in OnBeforePopup. It goes through the same
+// popup decision. A tab decision opens the link in a new tab of the tab's profile, handed over like a popup tab
+// (with no window.opener, as a modified click never keeps one); a block cancels it; the engine's default (a window
+// decision, or nobody deciding) lets the link load in this tab, as before. Returning true cancels the navigation here.
+bool BowTabClient::OnOpenURLFromTab(CefRefPtr<CefBrowser> browser,
+                                    CefRefPtr<CefFrame> frame,
+                                    const CefString& targetURL,
+                                    WindowOpenDisposition targetDisposition,
+                                    bool userGesture) {
+  if (targetDisposition != CEF_WOD_NEW_BACKGROUND_TAB && targetDisposition != CEF_WOD_NEW_FOREGROUND_TAB &&
+      targetDisposition != CEF_WOD_NEW_WINDOW) {
+    return false;
+  }
+  // A closed tab's page kept for its downloads opens nothing.
+  if (RefusesUIRequest(browser, "popup")) return true;
+  BowTab* tab = tab_;
+  NSURL* url = BowToNSURL(targetURL);
+  if (!IsOwn(browser) || !tab || tab.closed || !url || ![tab takesUIRequest:@selector(tab:decidePopup:)]) return false;
+  BowPopupWindowFeatures* features = [[BowPopupWindowFeatures alloc] initWithX:nil
+                                                                             y:nil
+                                                                         width:nil
+                                                                        height:nil
+                                                                       isPopup:NO];
+  BowPopupRequest* request =
+      [[BowPopupRequest alloc] initWithTargetURL:url
+                                     disposition:ToPopupDisposition(targetDisposition)
+                                   isUserGesture:userGesture
+                                   requestedSize:nil
+                                  windowFeatures:features
+                                  clickModifiers:LinkClickModifiers(targetDisposition, userGesture)];
+  switch ([tab decidePopup:request]) {
+    case BowPopupDecisionBlock:
+      return true;
+    case BowPopupDecisionWindow:
+      return false;
+    case BowPopupDecisionForegroundTab:
+    case BowPopupDecisionBackgroundTab: {
+      BowTab* newTab = [[BowTab alloc] initWithProfileID:tab.profileID
+                                         downloadHandler:downloadHandler_
+                                          requestContext:browser->GetHost()->GetRequestContext()
+                                                     url:url];
+      if (!newTab.closed) [tab openPopupTab:newTab request:request];
+      return true;
+    }
+  }
+}
 
 bool BowTabClient::OnBeforePopup(CefRefPtr<CefBrowser> browser,
                                  CefRefPtr<CefFrame> frame,

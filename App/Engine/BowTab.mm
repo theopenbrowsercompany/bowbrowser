@@ -186,7 +186,17 @@ void BowTearDownBrowserView(CefRefPtr<CefBrowser> browser) {
 @implementation BowTab
 
 - (instancetype)initWithProfile:(BowProfile*)profile url:(NSURL*)url {
-  self = [self initWithProfileID:profile.profileID downloadHandler:profile.downloads.handler];
+  return [self initWithProfileID:profile.profileID
+                 downloadHandler:profile.downloads.handler
+                  requestContext:profile.requestContext
+                             url:url];
+}
+
+- (instancetype)initWithProfileID:(NSString*)profileID
+                  downloadHandler:(CefRefPtr<CefDownloadHandler>)downloadHandler
+                   requestContext:(CefRefPtr<CefRequestContext>)requestContext
+                              url:(NSURL*)url {
+  self = [self initWithProfileID:profileID downloadHandler:downloadHandler];
   if (self) {
     // The browser starts out detached, in the engine's parking view, until a host view attaches the tab.
     NSView* parkingView = BowEngineParkingView();
@@ -199,7 +209,7 @@ void BowTearDownBrowserView(CefRefPtr<CefBrowser> browser) {
     // The browser arrives in OnAfterCreated and navigates only after that, so delegates set right after creating
     // the tab see its first navigation.
     if (!CefBrowserHost::CreateBrowser(windowInfo, _client, url.absoluteString.UTF8String, settings, nullptr,
-                                       profile.requestContext)) {
+                                       requestContext)) {
       BowEngineBrowserCreationFailed(self);
       _closeReason = BowTabCloseReasonPage;
       _closed = YES;

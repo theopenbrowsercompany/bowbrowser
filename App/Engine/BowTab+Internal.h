@@ -95,6 +95,12 @@ class BowTabClient;
 /// takes as a tab, in the opener's profile. The engine keeps it alive from now on; its browser arrives in
 /// OnAfterCreated.
 - (instancetype)initWithProfileID:(NSString*)profileID downloadHandler:(CefRefPtr<CefDownloadHandler>)downloadHandler;
+/// A tab that creates its own browser on `url` in `requestContext` (a profile's), parked until a host view attaches
+/// it: a new tab, or a link a page opened in a new tab (OnOpenURLFromTab) in the opener's profile.
+- (instancetype)initWithProfileID:(NSString*)profileID
+                  downloadHandler:(CefRefPtr<CefDownloadHandler>)downloadHandler
+                   requestContext:(CefRefPtr<CefRequestContext>)requestContext
+                              url:(NSURL*)url;
 /// CEF did not create the popup browser this tab was made for. Does nothing once it has a browser.
 - (void)popupCreationFailed;
 - (void)mediaCaptureChangedVideo:(BOOL)video audio:(BOOL)audio;
@@ -214,12 +220,17 @@ class BowTabClient : public CefClient,
   bool DoClose(CefRefPtr<CefBrowser> browser) override;
   void OnBeforeClose(CefRefPtr<CefBrowser> browser) override;
 
-  // CefRequestHandler (BowTabRequests.mm)
+  // CefRequestHandler (BowTabRequests.mm; OnOpenURLFromTab, a popup path, in BowTabLifeSpan.mm)
   bool OnBeforeBrowse(CefRefPtr<CefBrowser> browser,
                       CefRefPtr<CefFrame> frame,
                       CefRefPtr<CefRequest> request,
                       bool userGesture,
                       bool isRedirect) override;
+  bool OnOpenURLFromTab(CefRefPtr<CefBrowser> browser,
+                        CefRefPtr<CefFrame> frame,
+                        const CefString& targetURL,
+                        WindowOpenDisposition targetDisposition,
+                        bool userGesture) override;
   void OnRenderProcessTerminated(CefRefPtr<CefBrowser> browser,
                                  TerminationStatus status,
                                  int errorCode,

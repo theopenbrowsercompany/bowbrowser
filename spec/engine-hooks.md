@@ -12,6 +12,8 @@ This spec covers what those hooks promise; the features that use them have their
 - New pages: when a page opens another, the app decides where the new page goes (see `popups.md`).
   With no answer it opens in the engine's own popup window.
   The request says whether Command and Shift were held at the click, as far as the engine can tell: a background tab means Command, a new window means Shift, and a foreground tab (a plain `target="_blank"` link and Cmd-Shift-click arrive alike) reads the keys still held as the request arrives.
+- Modified link clicks: a Cmd-click, Cmd-Shift-click, Shift-click or middle click on a link asks the same question, with the modifiers its disposition names (a background tab is Command or a middle click, a foreground tab Command and Shift, a new window Shift).
+  A tab answer opens the link in a new tab of the same profile, with no `window.opener`, handed to the window like any new page as a tab; a block opens nothing; with no answer the link opens in its own tab, as before.
 - New page as a tab: a new page the app asked for as a tab arrives already created and still connected to its opener (`window.opener`), and the window can take it as a sidebar tab in its opener's Space, right after its opener when that is a today tab, or at the top of today; a new tab from a Space not on screen stays in that Space without changing what is shown.
   While a window is closing its pages' new pages open in the engine's own popup window.
   A new tab nobody takes is closed, so no page runs unseen.
@@ -47,5 +49,5 @@ This spec covers what those hooks promise; the features that use them have their
 ## Out of scope
 
 - Sign in, certificate errors and camera or microphone state have no `make e2e` check yet: the test server serves neither a password protected page nor a bad certificate, and no fixture captures media.
-- Click modifiers have no `make e2e` check: test clicks come through DevTools, which holds no real keys, and modified link clicks do not reach the popup hook yet.
+- The keys still held when a script opens a page from a click (`window.open` in a click handler) have no `make e2e` check: test clicks come through DevTools, which holds no real keys; modified link clicks are checked in `popups.md`.
 - Quitting while an unload is pending has no `make e2e` check: quitting ends the run, and the window in which an unload's answer can race the quit is a fraction of a second that a test cannot hold open.
