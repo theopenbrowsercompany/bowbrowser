@@ -26,7 +26,8 @@ protocol E2EUnloadApp: E2EApp {
     /// Whether a page's dialog is up: the engine's own alert panel (app modal) or a sheet on `page`'s window (a
     /// leave prompt).
     func unloadDialogShown(besides page: any E2EPage) throws -> Bool
-    /// Answers that dialog with Cancel, as a person pressing Escape does. Returns whether there was one.
+    /// Answers that dialog with Cancel (an alert, which has only OK, with OK), as a person pressing that button does.
+    /// Returns whether there was one.
     func cancelUnloadDialog(besides page: any E2EPage) throws -> Bool
     /// Turns the setting off and puts the real clock back. Never refused, so a test can always clean up.
     func resetUnloader()
