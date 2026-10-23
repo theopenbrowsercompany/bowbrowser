@@ -34,5 +34,6 @@ enum E2EAreas {
         NewTabRowTests.all,
         CollapseTests.all,
         PinnedTests.all,
+        TopTabsTests.all,
     ]
 }
