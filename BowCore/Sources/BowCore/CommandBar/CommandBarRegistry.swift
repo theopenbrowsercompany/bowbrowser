@@ -10,9 +10,16 @@ public actor CommandBarRegistry {
     private let ranker: CommandBarRanker
     private let timeout: Duration
 
-    public init(ranker: CommandBarRanker = CommandBarRanker(), timeout: Duration = .milliseconds(500)) {
+    private let sleep: @Sendable (Duration) async throws -> Void
+
+    /// `sleep` waits out `timeout`; tests replace it to fire the deadline without a clock.
+    public init(
+        ranker: CommandBarRanker = CommandBarRanker(), timeout: Duration = .milliseconds(500),
+        sleep: @escaping @Sendable (Duration) async throws -> Void = { try await Task.sleep(for: $0) }
+    ) {
         self.ranker = ranker
         self.timeout = timeout
+        self.sleep = sleep
     }
 
     /// Adds a provider. Registration order breaks ties between equally ranked results.
@@ -27,6 +34,7 @@ public actor CommandBarRegistry {
         let providers = providers
         let ranker = ranker
         let timeout = timeout
+        let sleep = sleep
         let (stream, continuation) = AsyncStream.makeStream(of: [CommandBarResult].self)
 
         let task = Task.detached {
@@ -34,7 +42,7 @@ public actor CommandBarRegistry {
             await withTaskGroup(of: (Int, [CommandBarCandidate])?.self) { group in
                 for (index, provider) in providers.enumerated() {
                     group.addTask {
-                        await Self.answer(from: provider, index: index, query: query, timeout: timeout)
+                        await Self.answer(from: provider, index: index, query: query, timeout: timeout, sleep: sleep)
                     }
                 }
                 if providers.isEmpty {
@@ -62,12 +70,13 @@ public actor CommandBarRegistry {
     /// Races the provider against the timer with unstructured tasks, so a provider that ignores
     /// cancellation is abandoned instead of awaited.
     private static func answer(
-        from provider: any CommandBarProvider, index: Int, query: String, timeout: Duration
+        from provider: any CommandBarProvider, index: Int, query: String, timeout: Duration,
+        sleep: @escaping @Sendable (Duration) async throws -> Void
     ) async -> (Int, [CommandBarCandidate])? {
         let (race, finish) = AsyncStream.makeStream(of: [CommandBarCandidate]?.self)
         let work = Task { finish.yield(await provider.candidates(for: query)) }
         let timer = Task {
-            try? await Task.sleep(for: timeout)
+            try? await sleep(timeout)
             finish.yield(nil)
         }
         defer {

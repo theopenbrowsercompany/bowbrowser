@@ -9,7 +9,7 @@ import Testing
         id: UUID(), title: "A", url: URL(string: "https://a.test/")!,
         lastActive: Date(timeIntervalSince1970: 1_800_000_000))
 
-    func registry(history: [HistoryEntryInfo] = [], timeout: Duration = .milliseconds(100)) async
+    func registry(history: [HistoryEntryInfo] = [], timeout: Duration = .seconds(3600)) async
         -> CommandBarRegistry
     {
         let registry = CommandBarRegistry(timeout: timeout)
@@ -37,22 +37,30 @@ import Testing
         #expect(results.first?.url.absoluteString == AddressInput.searchURL + "unmatched%20words")
     }
 
-    /// The provider is stuck behind a gate and ignores cancellation, so only the registry's own deadline can
-    /// end the wait. A regression hangs the test until the time limit instead of racing a clock.
+    /// The registry's deadline is a gate the test opens after the fast providers have answered, and
+    /// the slow provider ignores cancellation, so the result never depends on how fast the machine is.
+    /// A regression hangs the test until the time limit.
     @Test(.timeLimit(.minutes(1))) func aSlowProviderDoesNotHoldUpTheOthers() async {
-        let registry = await registry(timeout: .milliseconds(50))
-        let gate = Gate()
-        await registry.register(GatedProvider([], gate: gate))
+        let deadline = Gate()
+        let registry = CommandBarRegistry(sleep: { _ in await deadline.wait() })
+        await registry.register(AddressInputProvider())
+        await registry.register(OpenTabsProvider(source: StubOpenTabSource([tabA])))
+        await registry.register(HistoryProvider(source: StubHistorySource([])))
+        let stuck = Gate()
+        await registry.register(GatedProvider([], gate: stuck))
         var snapshots: [[String]] = []
-        for await update in await registry.updates(for: "a") { snapshots.append(update.map(\.title)) }
+        for await update in await registry.updates(for: "a") {
+            snapshots.append(update.map(\.title))
+            if snapshots.count == 3 { await deadline.open() }
+        }
         // Three fast providers and the timed out one each count as an answer.
         #expect(snapshots.count == 4)
         #expect(snapshots.last?.first == "A")
-        await gate.open()  // lets the abandoned provider finish, so nothing leaks
+        await stuck.open()  // lets the abandoned provider finish, so nothing leaks
     }
 
     @Test(.timeLimit(.minutes(1))) func updatesArriveAsProvidersAnswer() async {
-        let registry = await registry(timeout: .seconds(60))
+        let registry = await registry(timeout: .seconds(3600))
         let late = CommandBarCandidate(kind: .history, title: "Late page", url: URL(string: "https://late.test/")!)
         let gate = Gate()
         await registry.register(GatedProvider([late], gate: gate))
