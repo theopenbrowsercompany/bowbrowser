@@ -57,6 +57,19 @@ import Testing
         #expect(outcome == PopupOutcome(decision: .foregroundTab, placement: .topOfToday))
     }
 
+    @Test func otherSizeSignalsKeepAWindowAndNoGestureStillWins() {
+        let heightOnly = request(features: .init(height: 300))
+        let popupFlag = request(features: .init(isPopup: true))
+        let sizeAsked = PopupRequest(
+            targetURL: url, disposition: .foregroundTab, isUserGesture: true,
+            requestedSize: PopupSize(width: 400, height: 300))
+        for sized in [heightOnly, popupFlag, sizeAsked] {
+            #expect(PopupPolicy.outcome(for: sized, openerZone: .today).decision == .window)
+        }
+        let noGestureSized = request(gesture: false, features: .init(width: 500))
+        #expect(PopupPolicy.outcome(for: noGestureSized, openerZone: .today).decision == .block)
+    }
+
     @Test func fromTodayGoesAfterTheOpener() {
         #expect(PopupPolicy.outcome(for: request(), openerZone: .today).placement == .afterOpener)
     }

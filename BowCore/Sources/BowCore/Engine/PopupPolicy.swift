@@ -76,7 +76,11 @@ public enum PopupPolicy {
         case (false, true): decision = shiftDecision
         default: decision = plainLinkDecision
         }
-        let placement = openerZone == .today ? todayPlacement : pinnedOrFavoritePlacement
+        let placement: PopupPlacement
+        switch openerZone {
+        case .today: placement = todayPlacement
+        case .pinned, .favorite: placement = pinnedOrFavoritePlacement
+        }
         return PopupOutcome(decision: decision, placement: placement)
     }
 
@@ -84,6 +88,7 @@ public enum PopupPolicy {
         request.requestedSize != nil
             || request.windowFeatures.width != nil
             || request.windowFeatures.height != nil
+            || request.windowFeatures.isPopup
             || request.disposition == .popup
     }
 }
