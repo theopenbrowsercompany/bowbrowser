@@ -16,7 +16,8 @@ public struct SidebarRow: Equatable, Sendable {
 
 extension SidebarGraph {
     /// The rows a Space shows in sidebar order: its pinned section, then its tabs section, each depth first. The
-    /// children of a collapsed folder are left out, at any depth. A split view's tabs are always shown. Favorites are
+    /// children of a collapsed folder are left out, at any depth. A split view has no open or closed state: its tabs are shown
+    /// whenever the split itself is. Favorites are
     /// not rows of a Space and are left out.
     public func visibleRows(in spaceID: SidebarSpaceID) -> [SidebarRow] {
         guard let space = space(spaceID) else { return [] }
