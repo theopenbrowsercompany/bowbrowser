@@ -112,7 +112,8 @@ final class TabUnloader: AppFeature {
             }
             RunLoop.main.add(timer, forMode: .common)
             self.timer = timer
-            let source = DispatchSource.makeMemoryPressureSource(eventMask: [.normal, .warning, .critical], queue: .main)
+            let source = DispatchSource.makeMemoryPressureSource(
+                eventMask: [.normal, .warning, .critical], queue: .main)
             source.setEventHandler { [weak self, weak source] in
                 guard let event = source?.data else { return }
                 MainActor.assumeIsolated { self?.memoryPressureChanged(Self.pressure(of: event)) }

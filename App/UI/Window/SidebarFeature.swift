@@ -16,6 +16,8 @@ final class SidebarFeature: NSResponder, BrowserWindowFeature, SidebarViewDelega
     private var favicons: [BrowserTabID: (url: URL, image: NSImage)] = [:]
     /// The icon address each tab's page reported last, nil while it reports none.
     private var faviconReported: [BrowserTabID: URL] = [:]
+    /// Tabs whose page the engine unloaded, between that event and the window letting go of the page.
+    private var unloadedIDs: Set<BrowserTabID> = []
     /// The runtime ID of each tab the window lists (the Favorites shown and the tabs of the Space on screen), as last
     /// shown.
     private var runtimeIDs: [SidebarItemID: BrowserTabID] = [:]
@@ -41,14 +43,17 @@ final class SidebarFeature: NSResponder, BrowserWindowFeature, SidebarViewDelega
     }
 
     func tab(_ tab: any EngineTab, didReceive event: TabEvent) {
+        if event == .unloaded, let id = window.modelID(of: tab) { unloadedIDs.insert(id) }
         guard case .stateChanged(let state) = event, let id = window.modelID(of: tab) else { return }
         updateFavicon(of: id, tab: tab, url: state.faviconURL)
         refresh()
     }
 
+    /// An unloaded tab keeps its row, so it keeps its icon too; the icon goes with a tab that closed.
     func tabDidClose(_ tab: any EngineTab) {
         guard let id = window.modelID(of: tab) else { return }
-        favicons[id] = nil
+        if unloadedIDs.remove(id) == nil { favicons[id] = nil }
+        // The page that loads again reports its icon address anew; the same address keeps the icon without a reload.
         faviconReported[id] = nil
     }
 

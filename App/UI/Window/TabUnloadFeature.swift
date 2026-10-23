@@ -3,7 +3,9 @@ import BowCore
 
 /// Lists a window's loaded tabs, in every Space, for the app's `TabUnloader`, and unloads the ones it picks.
 ///
-/// Never offered: the tab the window shows, every tab while the window closes, a tab whose row left the sidebar,
+/// Never offered: the tab the window shows, every tab while the window closes, shows a sheet (a leave prompt) or the
+/// app shows a modal panel (a page's alert, even from a background tab), which an unload would take away unanswered
+/// (the next pass tries again), a tab whose row left the sidebar,
 /// a tab still loading (a navigation under way), and every tab of a profile with a download under way, since the
 /// engine cannot tell which page a download came from and destroying that page would cancel it. The policy itself
 /// spares tabs using the camera or microphone and tabs playing sound (CEF 156 reports no audible state, so that
@@ -56,7 +58,7 @@ final class TabUnloadFeature: NSResponder, BrowserWindowFeature {
 
     /// The window's loaded tabs the unloader may consider now (see the type's notes for those never offered).
     func unloadCandidates() -> [Candidate] {
-        guard let window, !window.isClosing else { return [] }
+        guard let window, Self.isIdle(window) else { return [] }
         let graph = window.store.graph
         let shown = window.selectedTab
         var busyProfiles: [ProfileID: Bool] = [:]
@@ -85,9 +87,15 @@ final class TabUnloadFeature: NSResponder, BrowserWindowFeature {
     /// Unloads `tab` through the engine, which runs its beforeunload handler without a prompt and keeps a page that
     /// would ask to stay. Returns whether it was unloaded.
     func unload(_ tab: any EngineTab) async -> Bool {
-        guard let window, !window.isClosing, window.modelID(of: tab) != nil, window.selectedTab !== tab else {
+        guard let window, Self.isIdle(window), window.modelID(of: tab) != nil, window.selectedTab !== tab else {
             return false
         }
         return await tab.unload()
+    }
+
+    /// The window is neither closing nor showing a sheet, and the app shows no modal panel (the engine shows a page's
+    /// alert as one, even from a background tab), so the window's tabs may be unloaded.
+    private static func isIdle(_ window: BrowserWindowController) -> Bool {
+        !window.isClosing && window.window?.attachedSheet == nil && NSApp.modalWindow == nil
     }
 }

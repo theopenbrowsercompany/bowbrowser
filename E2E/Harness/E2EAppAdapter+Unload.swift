@@ -18,7 +18,9 @@ extension E2ETestApp: E2EUnloadApp {
 
     func advanceUnloadClock(by interval: TimeInterval) throws {
         try adapter.requireActive(token, "move the unload clock")
-        guard let clock = adapter.unloader.clock as? ManualTimeSource else { throw E2EError("the unloader has no manual clock") }
+        guard let clock = adapter.unloader.clock as? ManualTimeSource else {
+            throw E2EError("the unloader has no manual clock")
+        }
         clock.advance(by: interval)
     }
 
@@ -52,14 +54,48 @@ extension E2ETestApp: E2EUnloadApp {
         guard let row = controller.tabList.tabs.first(where: { controller.sidebarItemID(for: $0.id)?.rawValue == item })
         else {
             return E2EUnloadTabState(
-                isListed: false, isLoaded: false, isShown: false, url: "", title: "", isCapturing: false)
+                isListed: false, isLoaded: false, isShown: false, url: "", title: "", isCapturing: false,
+                isReleased: true, hasFavicon: false)
         }
         let tab = controller.engineTab(for: row.id).flatMap { $0.isClosed ? nil : $0 }
         let state = tab?.state
+        var hasFavicon = false
+        if let sidebarItem = controller.sidebarItemID(for: row.id),
+            let index = controller.e2eSidebar.row(for: sidebarItem),
+            let view = controller.e2eSidebar.outlineView.view(atColumn: 0, row: index, makeIfNecessary: true)
+                as? TabSidebarRow
+        {
+            hasFavicon = view.hasFavicon
+        }
         return E2EUnloadTabState(
             isListed: true, isLoaded: tab != nil, isShown: tab.map { controller.selectedTab === $0 } ?? false,
             url: (state?.url ?? row.url)?.absoluteString ?? "", title: row.title,
-            isCapturing: state.map { $0.isCapturingVideo || $0.isCapturingAudio } ?? false)
+            isCapturing: state.map { $0.isCapturingVideo || $0.isCapturingAudio } ?? false,
+            isReleased: controller.engineTab(for: row.id) == nil, hasFavicon: hasFavicon)
+    }
+
+    func unloadDialogShown(besides page: any E2EPage) throws -> Bool {
+        let window = try E2EAppAdapter.tabPage(page).controller.window
+        return NSApp.modalWindow != nil || window?.attachedSheet != nil
+    }
+
+    func cancelUnloadDialog(besides page: any E2EPage) throws -> Bool {
+        try adapter.requireActive(token, "answer a dialog")
+        if NSApp.modalWindow != nil {
+            NSApp.stopModal(withCode: .cancel)
+            // The modal loop sees the stop once it handles an event, so wake it with one that does nothing.
+            if let wake = NSEvent.otherEvent(
+                with: .applicationDefined, location: .zero, modifierFlags: [], timestamp: 0, windowNumber: 0,
+                context: nil, subtype: 0, data1: 0, data2: 0)
+            {
+                NSApp.postEvent(wake, atStart: false)
+            }
+            return true
+        }
+        guard let window = try E2EAppAdapter.tabPage(page).controller.window, let sheet = window.attachedSheet
+        else { return false }
+        window.endSheet(sheet, returnCode: .cancel)
+        return true
     }
 
     func resetUnloader() {
