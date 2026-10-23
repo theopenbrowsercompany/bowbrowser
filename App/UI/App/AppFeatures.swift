@@ -8,5 +8,6 @@
 enum AppFeatures {
     static let all: [any AppFeature.Type] = [
         SitePermissionStores.self,
+        DownloadsCenter.self,
     ]
 }

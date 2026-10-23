@@ -26,12 +26,13 @@ enum DownloadSettings {
 }
 
 /// The app's downloads: the delegate of every profile's downloads, the list the downloads window shows, and the
-/// controls behind its buttons. Destinations are chosen here, so two downloads never write to one file.
+/// controls behind its buttons. Destinations are chosen here, so two downloads never write to one file. Each
+/// browser window's `DownloadsFeature` hands it the window's profile.
 @MainActor
-final class DownloadsCenter: EngineDownloadsDelegate {
+final class DownloadsCenter: AppFeature, EngineDownloadsDelegate {
     private(set) var list = DownloadList()
-    /// Called after every change to `list`.
-    var onChange: (() -> Void)?
+    /// The downloads window, created on first use.
+    private var windowController: DownloadsWindowController?
 
     /// Each profile's downloads, by profile, held so controls reach them.
     private var profiles: [ProfileID: any EngineDownloads] = [:]
@@ -39,6 +40,19 @@ final class DownloadsCenter: EngineDownloadsDelegate {
     private var reserved: [DownloadEntry.Key: URL] = [:]
     /// The window save panels attach to, when one is open.
     var panelWindow: () -> NSWindow? = { NSApp.keyWindow ?? NSApp.mainWindow }
+
+    /// The list lives as long as the engine, so it keeps no files of its own.
+    init(dataDirectory: URL) {}
+
+    /// The downloads window, created on first use in `window` when given (e2e runs pass an off-screen one).
+    @discardableResult
+    func openWindow(in window: NSWindow? = nil) -> DownloadsWindowController {
+        if let windowController { return windowController }
+        let controller = DownloadsWindowController(center: self, window: window)
+        windowController = controller
+        controller.reload()
+        return controller
+    }
 
     /// Starts handling `profile`'s downloads. Safe to call again for the same profile.
     func observe(_ profile: any EngineProfile) {
@@ -66,7 +80,7 @@ final class DownloadsCenter: EngineDownloadsDelegate {
         case .removed(let id):
             reserved[DownloadEntry.Key(profileID: profileID, downloadID: id)] = nil
         }
-        onChange?()
+        windowController?.reload()
     }
 
     func downloads(

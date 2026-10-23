@@ -10,6 +10,7 @@ enum DownloadsTests {
 /// Clicks a download link twice and a link to a download that never finishes, then drives the downloads window.
 struct DownloadsTest: E2ETest {
     let name = "downloads"
+    let checks = ["downloads", "downloads.collision", "downloads.controls", "downloads.list"]
 
     func run(_ run: E2ERun) async throws {
         let page = try await run.step("open window", timeout: E2ETimeouts.step) {
@@ -22,9 +23,14 @@ struct DownloadsTest: E2ETest {
         }
 
         let folder = run.downloadsDirectory.standardizedFileURL
+        // Earlier tests in a full run may have left downloads of their own in the list (a page answering 204 or
+        // failing to load is a download too), so each step looks only at rows its own click added.
         let first = try await run.step("download a.pdf", timeout: E2ETimeouts.step) {
+            let earlier = Set(try await run.app.downloads().map(\.id))
             try await page.click("#pdf")
-            return try await waitFor(run) { $0.first { $0.fileName == "a.pdf" && $0.state == "complete" } }
+            return try await waitFor(run) {
+                $0.first { !earlier.contains($0.id) && $0.fileName == "a.pdf" && $0.state == "complete" }
+            }
         }
         let expected = try Data(contentsOf: try fixtureFile("downloads/a.pdf"))
         let saved = first.path.flatMap { try? Data(contentsOf: $0) }
@@ -38,8 +44,9 @@ struct DownloadsTest: E2ETest {
         )
 
         let second = try await run.step("download a.pdf again", timeout: E2ETimeouts.step) {
+            let earlier = Set(try await run.app.downloads().map(\.id))
             try await page.click("#pdf")
-            return try await waitFor(run) { $0.first { $0.id != first.id && $0.state == "complete" } }
+            return try await waitFor(run) { $0.first { !earlier.contains($0.id) && $0.state == "complete" } }
         }
         run.check(
             "downloads.collision",
@@ -50,9 +57,13 @@ struct DownloadsTest: E2ETest {
         )
 
         try await run.step("pause, resume and cancel", timeout: E2ETimeouts.step * 3) {
+            let earlier = Set(try await run.app.downloads().map(\.id))
             try await page.click("#slow")
             var slow = try await waitFor(run) {
-                $0.first { $0.fileName == "slow.bin" && $0.state == "inProgress" && $0.receivedBytes > 0 }
+                $0.first {
+                    !earlier.contains($0.id) && $0.fileName == "slow.bin" && $0.state == "inProgress"
+                        && $0.receivedBytes > 0
+                }
             }
             var states = ["inProgress"]
             try await run.app.press(.pauseOrResume, of: slow)
@@ -77,7 +88,6 @@ struct DownloadsTest: E2ETest {
         }
 
         try await run.step("clear a finished download", timeout: E2ETimeouts.step) {
-            // Earlier tests in a full run may have left downloads of their own in the list.
             let before = try await run.app.downloads().map(\.id)
             try await run.app.press(.cancelOrClear, of: first)
             let rows = try await waitFor(run) { rows in rows.contains { $0.id == first.id } ? nil : rows }
