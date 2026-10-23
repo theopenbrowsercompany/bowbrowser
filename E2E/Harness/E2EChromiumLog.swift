@@ -36,9 +36,9 @@ enum E2EKnownChromiumLines {
             // checks that the load then fails with that error. Any other TLS error code still fails the check.
             #/\[[^\]]*:ERROR:net/socket/ssl_client_socket_impl\.cc:\d+\] handshake failed; returned -1, SSL error code 1, net_error -202$/#,
             // A renderer logs this as it crashes itself on purpose for a browser-initiated load of chrome://crash, a
-            // debug URL no page can reach (Chromium handles it only for loads the browser starts). page.crash-report
-            // loads it to make Chromium's crash reporter write a report, and declares that renderer crash; an
-            // unexpected renderer crash is still caught by the renderer crash rule, whatever it logs.
+            // debug URL no page can reach (Chromium handles it only for loads the browser starts). page.crash loads
+            // it to crash its page and make Chromium's crash reporter write a report, and declares that renderer
+            // crash; an undeclared renderer crash still fails its test by the renderer crash rule, whatever it logs.
             #/\[[^\]]*:ERROR:third_party/blink/common/chrome_debug_urls\.cc:\d+\] Intentionally crashing \(with null pointer dereference\) because user navigated to chrome://crash/$/#,
         ]
     }
