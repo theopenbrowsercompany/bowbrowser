@@ -50,13 +50,15 @@ extension E2ETestApp: E2EArchiveApp {
     }
 
     func archiveShownItem(besides page: any E2EPage) throws -> String? {
+        try adapter.requireActive(token, "read the shown tab")
         let controller = try E2EAppAdapter.tabPage(page).controller
         guard let tab = controller.selectedTab, let id = controller.modelID(of: tab) else { return nil }
         return controller.sidebarItemID(for: id)?.rawValue
     }
 
     func archiveFile(besides page: any E2EPage) throws -> URL {
-        ArchiveCenter.archiveURL(besideSidebarFile: try E2EAppAdapter.tabPage(page).controller.store.fileURL)
+        try adapter.requireActive(token, "find the archive file")
+        return ArchiveCenter.archiveURL(besideSidebarFile: try E2EAppAdapter.tabPage(page).controller.store.fileURL)
     }
 
     func archiveSkippedRecords(besides page: any E2EPage) throws -> Int? {

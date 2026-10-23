@@ -29,9 +29,13 @@ final class ArchiveCenter: AppFeature {
     /// Windows that have closed. AppKit can keep a closed window in `NSApp.windows` while something still holds it,
     /// and a closed window's controller must never be changed (it would load its tabs again).
     private let closedWindows = NSHashTable<NSWindow>.weakObjects()
+    /// When auto-archive last saw each Today tab in use, by its own clock: first seen, kept by a pass (shown, playing
+    /// sound, capturing) or reopened. A tab's idle time counts from the later of this and `TabActivityLog`'s record.
+    private var touched: [SidebarItemID: Date] = [:]
 
     private final class StoreArchive {
-        weak var store: SidebarStore?
+        /// Held only while a window shows the store: passes drop the archives of sidebars no window shows.
+        let store: SidebarStore
         /// Nil when the archive file could not be opened (written by a newer Bow, or unreadable and not set aside):
         /// that store never archives this run, and the file is left alone.
         let service: ArchiveService?
@@ -76,7 +80,8 @@ final class ArchiveCenter: AppFeature {
         let timer = Timer(timeInterval: Self.passInterval, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated { _ = self?.runPass() }
         }
-        RunLoop.main.add(timer, forMode: .common)
+        // Default mode only: no pass runs while a menu or a drag tracks events, so none removes the row they act on.
+        RunLoop.main.add(timer, forMode: .default)
         self.timer = timer
     }
 
@@ -115,7 +120,9 @@ final class ArchiveCenter: AppFeature {
         }
         // Forget the archives of sidebars no window shows any more (a closed window's own sidebar).
         let live = Set(groups.compactMap { $0.first.map { ObjectIdentifier($0.store) } })
-        archives = archives.filter { live.contains($0.key) && $0.value.store != nil }
+        archives = archives.filter { live.contains($0.key) }
+        let liveItems = Set(groups.flatMap { $0.first.map { Array($0.store.graph.items.keys) } ?? [] })
+        touched = touched.filter { liveItems.contains($0.key) }
         return archived
     }
 
@@ -123,7 +130,7 @@ final class ArchiveCenter: AppFeature {
     /// be opened.
     func archiveService(for store: SidebarStore) -> ArchiveService? {
         let key = ObjectIdentifier(store)
-        if let known = archives[key], known.store === store { return known.service }
+        if let known = archives[key] { return known.service }
         let url = Self.archiveURL(besideSidebarFile: store.fileURL)
         var service: ArchiveService?
         do {
@@ -160,6 +167,9 @@ final class ArchiveCenter: AppFeature {
             }
         }
         refreshOthers(sharing: store, besides: window)
+        // Reopened counts as used, so the next pass does not archive it again at once.
+        let now = clock.now
+        for tab in Self.tabs(under: id, in: store.graph) { touched[tab] = now }
         return store.graph[id] != nil
     }
 
@@ -173,13 +183,7 @@ final class ArchiveCenter: AppFeature {
         else { return [] }
         let graph = first.store.graph
         let activity = first.appFeatures.require(TabActivityLog.self)
-        var lastActive: [SidebarItemID: Date] = [:]
-        for space in graph.spaces {
-            for tab in Self.tabs(under: space.unpinnedContainerID, in: graph) {
-                if activity.lastActive(tab) == nil { activity.record(tab) }
-                lastActive[tab] = activity.lastActive(tab)
-            }
-        }
+        let now = clock.now
         var keeping: Set<SidebarItemID> = []
         for window in windows {
             if let shown = window.selectedTab, let id = window.modelID(of: shown),
@@ -193,6 +197,20 @@ final class ArchiveCenter: AppFeature {
                     let item = window.sidebarItemID(for: row.id)
                 else { continue }
                 keeping.insert(item)
+            }
+        }
+        // A kept tab is in use: its idle time starts again once it is no longer kept.
+        for item in keeping { touched[item] = now }
+        var lastActive: [SidebarItemID: Date] = [:]
+        for space in graph.spaces {
+            for tab in Self.tabs(under: space.unpinnedContainerID, in: graph) {
+                // First seen with no record (restored and never selected): timed from now, and recorded for later runs.
+                if activity.lastActive(tab) == nil, touched[tab] == nil {
+                    activity.record(tab)
+                    touched[tab] = now
+                }
+                let times = [activity.lastActive(tab), touched[tab]].compactMap { $0 }
+                lastActive[tab] = times.max()
             }
         }
         let settings = settings
@@ -271,6 +289,7 @@ final class ArchiveCenter: AppFeature {
             let manual = ManualTimeSource(Date())
             clock = manual
             archives = [:]
+            touched = [:]
             return manual
         }
 
@@ -278,6 +297,7 @@ final class ArchiveCenter: AppFeature {
         func e2eReset() {
             clock = SystemTimeSource()
             archives = [:]
+            touched = [:]
         }
     #endif
 }
