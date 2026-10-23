@@ -84,7 +84,7 @@ targets:
         NSLocationUsageDescription: Websites you allow can use your location, for example for maps.
         NSLocationWhenInUseUsageDescription: Websites you allow can use your location, for example for maps.
         # Bow can open web links from other apps (GetURL Apple Events). Declaring the schemes lets the person choose
-        # Bow as their browser; Bow never makes itself the default.
+        # Bow as their browser; Bow only asks to become the default when the person chooses Set as Default Browser.
         CFBundleURLTypes:
           - CFBundleURLName: Web site URL
             CFBundleTypeRole: Viewer

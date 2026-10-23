@@ -8,7 +8,7 @@ The Bow menu offers to make Bow the system's default browser, so links from othe
 
 - The Bow menu has an item right after About Bow: "Set as Default Browser…" (the wording of Chrome's item; the research has no Arc wording).
 - Choosing it asks macOS to make Bow the handler of http links, then https links. macOS shows its own confirmation, so the request waits for the person's answer and the app stays usable meanwhile.
-- When macOS already opens http links with Bow, the item reads "Bow Is Your Default Browser" and is disabled.
+- When macOS already opens http and https links with Bow, the item reads "Bow Is Your Default Browser" and is disabled.
 - While a request waits for macOS, the item is disabled, so a second choice cannot start a second request.
 - If the person declines macOS's confirmation, nothing more is asked (https is skipped) and no alert shows.
 - Any other failure shows an alert sheet on the window: "Bow could not be set as your default browser", naming the scheme and macOS's reason, with an OK button.
@@ -18,7 +18,8 @@ The Bow menu offers to make Bow the system's default browser, so links from othe
 
 - The item's state is read each time the menu opens, so it follows changes made in System Settings.
 - With no window open, the alert is an app modal alert.
-- Debug builds with the e2e harness contain no real registrar: the NSWorkspace calls live in a type that is not compiled into them, and a blocked registrar that refuses and counts its calls takes its place until a test installs a recorder.
+- Builds with the e2e harness (all Debug builds) contain no real registrar: the NSWorkspace calls live in a type that is not compiled into them, and a blocked registrar that refuses and counts its calls takes its place until a test installs a recorder. Only a Release build can really register.
+- Bow counts as the default only when both http and https open in it, so a half done registration (http accepted, https declined) leaves the item available to finish.
 
 ## Acceptance checks
 

@@ -4,12 +4,9 @@ import Foundation
 /// Bow already is the default, what the item says, and what a failed registration is shown as. The calls to the
 /// system are the app's.
 public enum DefaultBrowser {
-    /// The schemes a default browser handles, in the order they are registered. http decides whether Bow is already
-    /// the default, since macOS keeps one default browser for both.
+    /// The schemes a default browser handles, in the order they are registered. Bow is already the default only when
+    /// every one of them opens in Bow.
     public static let schemes = ["http", "https"]
-
-    /// The scheme whose handler says whether Bow is the default browser.
-    public static let probeScheme = "http"
 
     /// The item's title while Bow is not the default; the ellipsis says macOS asks for a confirmation.
     public static let setTitle = "Set as Default Browser…"
@@ -22,7 +19,14 @@ public enum DefaultBrowser {
     /// name the same app.
     public static func isDefault(handler: URL?, bundleURL: URL) -> Bool {
         guard let handler, handler.isFileURL, bundleURL.isFileURL else { return false }
-        return canonical(handler) == canonical(bundleURL)
+        // The usual macOS volume ignores case, so Launch Services may answer with a differently cased path.
+        return canonical(handler).caseInsensitiveCompare(canonical(bundleURL)) == .orderedSame
+    }
+
+    /// Whether Bow is the default for every scheme in `schemes`, given each one's handler in that order. A half done
+    /// registration (http accepted, https declined) is not default, so the item stays available to finish it.
+    public static func isDefault(handlers: [URL?], bundleURL: URL) -> Bool {
+        handlers.count == schemes.count && handlers.allSatisfy { isDefault(handler: $0, bundleURL: bundleURL) }
     }
 
     /// The item's title when Bow `isDefault` or not.
