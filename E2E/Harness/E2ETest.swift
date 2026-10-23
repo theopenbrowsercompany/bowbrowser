@@ -28,13 +28,9 @@ extension E2ETest {
 
 @MainActor
 enum E2ETests {
-    /// Every test, in the order `--e2e=all` runs them. Add each area's tests here.
-    /// The test that checks quitting (it calls `E2ERun.expectQuit`) always runs last, whatever its place here.
-    static let all: [any E2ETest] =
-        AppTests.all + SandboxTests.all + InputTests.all + TabsTests.all + ProfilesTests.all + NavigationTests.all
-        + FindTests.all
-        + PermissionsTests.all
-        + SidebarViewTests.all
+    /// Every test, in the order `--e2e=all` runs them: each area's tests, as `E2EAreas.all` lists the areas.
+    /// The test that checks quitting (it calls `E2ERun.expectQuit`) always runs last, whatever its place there.
+    static let all: [any E2ETest] = E2EAreas.all.flatMap { $0 }
 
     /// The tests `selection` names, in the order of `all`. A selection is `all`, or a comma separated list of test
     /// names, areas (`tabs`), globs (`tabs.*`, `nav.?ack`) and tags (`smoke`). Throws for a part that matches
