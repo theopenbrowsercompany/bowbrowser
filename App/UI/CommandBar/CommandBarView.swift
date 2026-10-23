@@ -243,13 +243,14 @@ final class CommandBarRowView: NSView {
     private static func title(of result: CommandBarResult) -> String {
         switch result.kind {
         case .search: "Search for \u{201C}\(result.title)\u{201D}"
+        case .command: result.title
         case .openTab, .history, .navigation: result.title.isEmpty ? result.url.absoluteString : result.title
         }
     }
 
     private static func detail(of result: CommandBarResult) -> String {
         switch result.kind {
-        case .search: ""
+        case .search, .command: ""
         case .openTab, .history, .navigation: result.url.absoluteString
         }
     }

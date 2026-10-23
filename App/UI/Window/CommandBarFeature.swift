@@ -19,6 +19,10 @@ final class CommandBarFeature: NSResponder, BrowserWindowFeature, NSMenuItemVali
         case currentTab(any EngineTab)
     }
 
+    /// The app commands the bar offers by name, each sent down the responder chain as its menu item's action when
+    /// chosen. A command's feature adds one line here with its menu item.
+    static let commands: [(command: CommandBarCommand, action: Selector)] = []
+
     private unowned let window: BrowserWindowController
     private let historyStores: HistoryStores
     private let activity: TabActivityLog
@@ -242,6 +246,7 @@ final class CommandBarFeature: NSResponder, BrowserWindowFeature, NSMenuItemVali
             let registry = CommandBarRegistry()
             await registry.register(AddressInputProvider())
             await registry.register(OpenTabsProvider(source: OpenTabSnapshot(tabs: tabs)))
+            await registry.register(CommandsProvider(commands: Self.commands.map(\.command)))
             if let history { await registry.register(HistoryProvider(source: history)) }
             for await update in await registry.updates(for: text) {
                 guard let self, self.generation == current else { return }
@@ -338,6 +343,10 @@ final class CommandBarFeature: NSResponder, BrowserWindowFeature, NSMenuItemVali
         switch result.action {
         case .switchToTab(let id):
             switchToTab(id)
+        case .runCommand(let id):
+            if let action = Self.commands.first(where: { $0.command.id == id })?.action {
+                NSApp.sendAction(action, to: window, from: self)
+            }
         case .navigate(let url):
             switch mode {
             case .newTab:

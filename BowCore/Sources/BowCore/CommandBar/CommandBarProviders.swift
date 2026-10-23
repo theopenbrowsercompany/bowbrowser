@@ -56,3 +56,20 @@ public struct HistoryProvider: CommandBarProvider {
         }
     }
 }
+
+/// App commands, such as collapsing every folder. They show only for typed text that matches their name.
+public struct CommandsProvider: CommandBarProvider {
+    private let commands: [CommandBarCommand]
+
+    public init(commands: [CommandBarCommand]) {
+        self.commands = commands
+    }
+
+    public func candidates(for query: String) async -> [CommandBarCandidate] {
+        commands.map {
+            // The address is a placeholder: commands match by title only and never share a page with a tab.
+            CommandBarCandidate(
+                kind: .command($0.id), title: $0.title, url: URL(string: "bow-command://\($0.id)")!)
+        }
+    }
+}
