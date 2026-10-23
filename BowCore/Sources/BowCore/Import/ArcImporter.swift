@@ -252,49 +252,57 @@ private struct ArcImportBuilder {
                 skip(.duplicateReference, itemID: id, label: item.title)
                 continue
             }
-            if let node = map(item, depth: depth) { nodes.append(node) }
+            nodes += map(item, depth: depth)
         }
         return nodes
     }
 
-    mutating func map(_ item: RawItem, depth: Int) -> ArcImportNode? {
+    mutating func map(_ item: RawItem, depth: Int) -> [ArcImportNode] {
         switch item.kind {
         case "tab":
-            if let tab = makeTab(item) { return .tab(tab) }
+            if let tab = makeTab(item) { return [.tab(tab)] }
             skip(.tabWithoutURL, itemID: item.id, label: item.title)
-            return nil
+            return []
         case "list":
             if let live = item.payload["automaticLiveFolderData"], live != .null {
                 skip(.liveFolder, itemID: item.id, label: item.title)
                 markSubtreeVisited(item.id)
-                return nil
+                return []
             }
             guard depth < Self.maxFolderDepth else {
                 skip(.nestedTooDeep, itemID: item.id, label: item.title)
                 markSubtreeVisited(item.id)
-                return nil
+                return []
             }
             let children = walkChildren(of: item.id, depth: depth + 1)
-            return .folder(
-                ArcImportFolder(
-                    id: item.id,
-                    name: Self.nonEmpty(item.title) ?? "Untitled folder",
-                    icon: Self.icon(from: item.payload["customInfo"]),
-                    children: children))
+            return [
+                .folder(
+                    ArcImportFolder(
+                        id: item.id,
+                        name: Self.nonEmpty(item.title) ?? "Untitled folder",
+                        icon: Self.icon(from: item.payload["customInfo"]),
+                        children: children))
+            ]
         case "splitView":
             return mapSplitView(item, depth: depth)
         case "easel":
-            return skipSubtree(.easel, item)
+            skipSubtree(.easel, item)
+            return []
         case "arcDocument":
-            return skipSubtree(.note, item)
+            skipSubtree(.note, item)
+            return []
         case "sharedObject":
-            return skipSubtree(.sharedObject, item)
+            skipSubtree(.sharedObject, item)
+            return []
         default:
-            return skipSubtree(.unsupportedItem, item)
+            skipSubtree(.unsupportedItem, item)
+            return []
         }
     }
 
-    mutating func mapSplitView(_ item: RawItem, depth: Int) -> ArcImportNode? {
+    /// A split view of two to four tabs. One tab flattens into that plain tab, and tabs past the fourth follow the split
+    /// as plain tabs in order, so what the preview shows is what the sidebar store accepts.
+    mutating func mapSplitView(_ item: RawItem, depth: Int) -> [ArcImportNode] {
         var panes: [ArcImportTab] = []
         for child in walkChildren(of: item.id, depth: depth) {
             if case .tab(let tab) = child {
@@ -306,16 +314,27 @@ private struct ArcImportBuilder {
         }
         guard !panes.isEmpty else {
             skip(.emptySplitView, itemID: item.id, label: item.title)
-            return nil
+            return []
+        }
+        guard panes.count > 1 else {
+            skip(.singleTabSplitView, itemID: item.id, label: item.title)
+            return [.tab(panes[0])]
+        }
+        var extras: [ArcImportTab] = []
+        if panes.count > SidebarSplit.maximumPanes {
+            extras = Array(panes[SidebarSplit.maximumPanes...])
+            panes.removeSubrange(SidebarSplit.maximumPanes...)
+            skip(.extraSplitViewPanes, itemID: item.id, label: item.title)
         }
         let focusID = item.payload["focusItemID"]?.string
-        return .splitView(
-            ArcImportSplitView(
-                id: item.id,
-                panes: panes,
-                orientation: item.payload["layoutOrientation"]?.caseName.flatMap(ArcImportSplitView.Orientation.init),
-                widthFactors: (item.payload["itemWidthFactors"]?.array ?? []).compactMap(\.number),
-                focusedPane: focusID.flatMap { id in panes.firstIndex { $0.id == id } }))
+        let factors = (item.payload["itemWidthFactors"]?.array ?? []).compactMap(\.number)
+        let split = ArcImportSplitView(
+            id: item.id,
+            panes: panes,
+            orientation: item.payload["layoutOrientation"]?.caseName.flatMap(ArcImportSplitView.Orientation.init),
+            widthFactors: extras.isEmpty ? factors : Array(factors.prefix(panes.count)),
+            focusedPane: focusID.flatMap { id in panes.firstIndex { $0.id == id } })
+        return [.splitView(split)] + extras.map { .tab($0) }
     }
 
     func makeTab(_ item: RawItem) -> ArcImportTab? {
@@ -332,10 +351,9 @@ private struct ArcImportBuilder {
             customName: name == savedTitle ? nil : name)
     }
 
-    mutating func skipSubtree(_ reason: ArcImportSkipped.Reason, _ item: RawItem) -> ArcImportNode? {
+    mutating func skipSubtree(_ reason: ArcImportSkipped.Reason, _ item: RawItem) {
         skip(reason, itemID: item.id, label: item.title)
         markSubtreeVisited(item.id)
-        return nil
     }
 
     mutating func markSubtreeVisited(_ id: String) {
@@ -360,7 +378,7 @@ private struct ArcImportBuilder {
             visited.insert(id)
             switch options.orphans {
             case .collect:
-                if let node = map(item, depth: 0) { recovered.append(node) }
+                recovered += map(item, depth: 0)
             case .drop:
                 skip(.orphan, itemID: id, label: item.title)
                 markSubtreeVisited(id)

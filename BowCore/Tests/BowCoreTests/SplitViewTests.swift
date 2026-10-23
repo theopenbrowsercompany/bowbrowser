@@ -448,6 +448,68 @@ import Testing
         #expect(log.contains(.dissolvedSingleTabSplit("s", tab: "x")))
     }
 
+    @Test func aSplitWithTwoToFourSoundTabsSurvivesRepairUntouched() throws {
+        for count in 2...4 {
+            let panes = (1...count).map { SidebarItemID("p\($0)") }
+            let graph = try splitGraph(panes: panes)
+            let (after, log) = repaired(graph)
+            #expect(log.isEmpty && after == graph && after.splitPaneIDs("s") == panes)
+        }
+    }
+
+    @Test func aNonTabChildLeavesTheSplitAndTheTabsAreWhatCount() throws {
+        // The commit-time rule runs on its own, so it must agree with the integrity rule about what a pane is.
+        // Two tabs and a folder: the split stays with its tabs, and the folder sits after it.
+        var graph = try splitGraph(panes: ["x", "y"])
+        graph.items["f"] = SidebarItem.folder(id: "f", title: "F")
+        graph.items["f"]?.parentID = "s"
+        graph.items["s"]?.childrenIDs.insert("f", at: 1)
+        var log: [SidebarRepair] = []
+        graph.repairSplits(&log)
+        #expect(graph["s"]?.childrenIDs == ["x", "y"])
+        #expect(graph["unpinned"]?.childrenIDs == ["before", "s", "f", "after"])
+        #expect(graph["f"]?.parentID == "unpinned")
+        #expect(log == [.movedExtraSplitPane("f", from: "s")])
+        #expect(graph.integrityProblems().isEmpty)
+
+        // One tab and a folder: the split turns back into the tab, the folder follows it.
+        var single = try splitGraph(panes: ["x"])
+        single.items["f"] = SidebarItem.folder(id: "f", title: "F")
+        single.items["f"]?.parentID = "s"
+        single.items["s"]?.childrenIDs.append("f")
+        log = []
+        single.repairSplits(&log)
+        #expect(single["unpinned"]?.childrenIDs == ["before", "x", "f", "after"])
+        #expect(log.contains(.dissolvedSingleTabSplit("s", tab: "x")))
+        #expect(single.integrityProblems().isEmpty)
+    }
+
+    @Test func aPaneLeavingThroughAPlainChangeKeepsTheOthersProportions() throws {
+        try withTemporaryFolder { folder in
+            let store = try makeStore(in: folder)
+            try store.createSplit(from: ["b", "c", "d"], id: "s")
+            try store.setSplitWidthFactors("s", [2, 1, 1])
+            try store.apply([.delete("c")])
+            #expect(store.graph.splitPaneIDs("s") == ["b", "d"])
+            #expect(approximately(store.graph.splitWidthFractions("s"), [2.0 / 3, 1.0 / 3]))
+            try store.apply([.delete("b")])
+            #expect(store.graph["s"] == nil)
+        }
+    }
+
+    @Test func theCommitReportsTheSplitsItRemovedOrDissolved() throws {
+        try withTemporaryFolder { folder in
+            let store = try makeStore(in: folder)
+            #expect(store.lastCommitRepairs.isEmpty)
+            try store.createSplit(from: ["b", "c"], id: "s")
+            #expect(store.lastCommitRepairs.isEmpty)
+            try store.apply([.delete("c")])
+            #expect(store.lastCommitRepairs == [.dissolvedSingleTabSplit("s", tab: "b")])
+            try store.apply([.setActiveTab("a")])
+            #expect(store.lastCommitRepairs.isEmpty)
+        }
+    }
+
     @Test func theStoreDissolvesASplitLeftWithOneTabWhenAPlainDeleteCommits() throws {
         try withTemporaryFolder { folder in
             let store = try makeStore(in: folder)

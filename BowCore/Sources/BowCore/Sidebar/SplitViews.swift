@@ -147,12 +147,31 @@ extension SidebarGraph {
     /// Applies the split rules to a graph whose links are already sound: a split with no tabs is removed, a split with
     /// one tab turns back into that tab in the split's place, tabs beyond the fourth move out to sit after the split,
     /// and width factors or a focused pane that do not fit the tabs are reset.
-    mutating func repairSplits(_ log: inout [SidebarRepair]) {
+    ///
+    /// A child that is not a tab (a damaged file's folder inside a split) leaves the split the same way an extra pane
+    /// does, so the pane count is the count of tabs, as `integrityProblems()` counts them. With `previous`, the
+    /// committed graph, a split that lost panes since then keeps the widths of the panes that stayed.
+    mutating func repairSplits(_ log: inout [SidebarRepair], previous: SidebarGraph? = nil) {
         for id in items.keys.sorted() {
             guard case .split(var split)? = items[id]?.data, let item = items[id],
                 let parentID = item.parentID, let position = items[parentID]?.childrenIDs.firstIndex(of: id)
             else { continue }
-            var panes = item.childrenIDs
+            var panes = item.childrenIDs.filter { items[$0]?.data.isTab == true }
+            var extras = item.childrenIDs.filter { items[$0] != nil && items[$0]?.data.isTab != true }
+            if panes.count > SidebarSplit.maximumPanes {
+                extras += panes[SidebarSplit.maximumPanes...]
+                panes.removeSubrange(SidebarSplit.maximumPanes...)
+            }
+            let widthsBefore = split.widthFactors
+
+            if !extras.isEmpty {
+                items[parentID]?.childrenIDs.insert(contentsOf: extras, at: position + 1)
+                for extra in extras {
+                    items[extra]?.parentID = parentID
+                    log.append(.movedExtraSplitPane(extra, from: id))
+                }
+                items[id]?.childrenIDs = panes
+            }
 
             switch panes.count {
             case 0:
@@ -170,15 +189,13 @@ extension SidebarGraph {
                 break
             }
 
-            if panes.count > SidebarSplit.maximumPanes {
-                let extras = Array(panes[SidebarSplit.maximumPanes...])
-                panes.removeSubrange(SidebarSplit.maximumPanes...)
-                items[parentID]?.childrenIDs.insert(contentsOf: extras, at: position + 1)
-                for extra in extras {
-                    items[extra]?.parentID = parentID
-                    log.append(.movedExtraSplitPane(extra, from: id))
+            // Panes that left since the last commit take their share with them; the rest keep their proportions.
+            if let before = previous?.splitPaneIDs(id), widthsBefore.count == before.count, before.count > panes.count {
+                let kept = panes.compactMap { before.firstIndex(of: $0) }
+                if kept.count == panes.count, let normalized = SidebarSplit.normalized(kept.map { widthsBefore[$0] }) {
+                    split.widthFactors = normalized
+                    items[id]?.data = .split(split)
                 }
-                items[id]?.childrenIDs = panes
             }
 
             var fixed = false

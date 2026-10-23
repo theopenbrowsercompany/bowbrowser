@@ -84,6 +84,8 @@ public struct ArcImportSkipped: Equatable, Sendable {
         case unsupportedItem
         case tabWithoutURL
         case emptySplitView
+        case singleTabSplitView
+        case extraSplitViewPanes
         case orphan
         case unreachable
         case missingItem
@@ -103,6 +105,8 @@ public struct ArcImportSkipped: Equatable, Sendable {
             case .unsupportedItem: "Unsupported kind of item"
             case .tabWithoutURL: "Tab has no saved address"
             case .emptySplitView: "Split view has no tabs"
+            case .singleTabSplitView: "Split view has one tab and imports as a plain tab"
+            case .extraSplitViewPanes: "Split view has more than four tabs; the extra tabs import as plain tabs"
             case .orphan: "Item belongs to no folder or Space"
             case .unreachable: "Item is not reachable from any Space or Favorites"
             case .missingItem: "Referenced item is missing from the file"

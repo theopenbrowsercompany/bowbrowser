@@ -20,6 +20,7 @@ The file picker and the wizard screens are separate pieces of work.
   When the person had renamed the tab in Arc, the new name is kept as a custom name.
   A tab that only shows its page title has no custom name.
 - A split view is imported as one item that holds its tabs, with its direction, pane widths and focused pane when Arc recorded them.
+  A split view takes two to four tabs, like the ones Bow makes: one that is left with a single tab (its other contents were folders or tabs with no saved address) imports as that plain tab, and tabs past the fourth import as plain tabs right after the split, in order. Both are listed in the report and shown that way in the preview, so what the person approves is what arrives.
 - Each Space's unpinned tabs are read too, so a later step can offer them.
 - Favorites stay grouped by the profile they belong to, because Arc keeps a separate Favorites list per profile.
 - A dry run reads the file and produces a report without importing anything.

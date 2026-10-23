@@ -124,10 +124,23 @@ import Testing
                 .insert(.folder(id: "F", title: "Folder"), parent: work.pinnedContainerID),
                 .insert(.split(id: "S"), parent: work.pinnedContainerID),
                 .insert(.tab(id: "in-split", url: "https://s.example"), parent: "S"),
+                .insert(.tab(id: "in-split-2", url: "https://s2.example"), parent: "S"),
             ])
+            #expect(store.graph["S"] != nil, "the split has two tabs, so it survives the commit")
             let before = store.graph
-            #expect(throws: SidebarStoreError.self) { try store.moveToFavorites("F") }
-            #expect(throws: SidebarStoreError.self) { try store.moveToFavorites("S") }
+            func refused(_ id: SidebarItemID) {
+                do {
+                    try store.moveToFavorites(id)
+                    Issue.record("\(id) went into Favorites")
+                } catch {
+                    guard case .invalidHierarchy = error as? SidebarStoreError else {
+                        Issue.record("expected invalidHierarchy, got \(error)")
+                        return
+                    }
+                }
+            }
+            refused("F")
+            refused("S")
             #expect(store.graph == before)
             let container = try #require(store.graph.favoritesContainerID(for: .default))
             #expect(throws: SidebarStoreError.self) {

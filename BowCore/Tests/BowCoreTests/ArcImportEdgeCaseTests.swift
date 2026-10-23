@@ -125,13 +125,61 @@ private enum Sidebar {
     }
 
     @Test func foldersInsideSplitViewsAreReportedNotDropped() throws {
+        // A split whose other child was a folder is left with one tab, which imports as that plain tab.
         let pin = Sidebar.container("pin", children: ["sv"])
         let split = Sidebar.item("sv", parent: "pin", title: nil, data: "{\"splitView\": {}}", children: ["a", "f"])
         let a = Sidebar.tab("a", parent: "sv", url: "https://a.example.com")
         let f = Sidebar.folder("f", parent: "sv")
         let result = try ArcImporter.parse(Sidebar.file(items: [pin, split, a, f]))
+        #expect(result.report.splitViews == 0)
+        #expect(result.report.pinnedTabs == 1)
+        #expect(result.report.skipped.map(\.reason) == [.unsupportedItem, .singleTabSplitView])
+        guard case .tab(let tab) = try #require(result.spaces[0].pinned.first) else {
+            Issue.record("expected a plain tab")
+            return
+        }
+        #expect(tab.id == "a")
+        #expect(result.spaces[0].pinned.count == 1)
+    }
+
+    @Test func aSplitViewWithTwoTabsAndAFolderKeepsItsTwoPanes() throws {
+        let pin = Sidebar.container("pin", children: ["sv"])
+        let split = Sidebar.item(
+            "sv", parent: "pin", title: nil, data: "{\"splitView\": {}}", children: ["a", "b", "f"])
+        let a = Sidebar.tab("a", parent: "sv", url: "https://a.example.com")
+        let b = Sidebar.tab("b", parent: "sv", url: "https://b.example.com")
+        let f = Sidebar.folder("f", parent: "sv")
+        let result = try ArcImporter.parse(Sidebar.file(items: [pin, split, a, b, f]))
         #expect(result.report.splitViews == 1)
         #expect(result.report.skipped.map(\.reason) == [.unsupportedItem])
+    }
+
+    @Test func aSplitViewWithMoreThanFourTabsKeepsFourPanesAndTheRestFollowAsTabs() throws {
+        let ids = ["a", "b", "c", "d", "e", "f"]
+        let pin = Sidebar.container("pin", children: ["sv", "z"])
+        let split = Sidebar.item(
+            "sv", parent: "pin", title: nil,
+            data: "{\"splitView\": {\"itemWidthFactors\": [1, 2, 3, 4, 5, 6], \"focusItemID\": \"e\"}}",
+            children: ids)
+        let tabs = ids.map { Sidebar.tab($0, parent: "sv", url: "https://\($0).example.com") }
+        let after = Sidebar.tab("z", parent: "pin", url: "https://z.example.com")
+        let result = try ArcImporter.parse(Sidebar.file(items: [pin, split] + tabs + [after]))
+        let pinned = result.spaces[0].pinned
+        guard case .splitView(let view) = pinned[0] else {
+            Issue.record("expected a split first")
+            return
+        }
+        #expect(view.panes.map(\.id) == ["a", "b", "c", "d"])
+        #expect(view.widthFactors == [1, 2, 3, 4])
+        #expect(view.focusedPane == nil)
+        let rest = pinned.dropFirst().compactMap { node -> String? in
+            if case .tab(let tab) = node { return tab.id }
+            return nil
+        }
+        #expect(rest == ["e", "f", "z"])
+        #expect(result.report.splitViews == 1)
+        #expect(result.report.pinnedTabs == 7)
+        #expect(result.report.skipped.map(\.reason) == [.extraSplitViewPanes])
     }
 }
 
