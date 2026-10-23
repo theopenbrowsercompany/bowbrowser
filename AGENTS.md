@@ -17,7 +17,7 @@ Start every session in `~/code/GitHub/bowbrowser`: the maintainer's `.claude/set
   - `E2E/Harness/`: the runner, waits, PASS and FAIL report, watchdog, off-screen window, the page protocol (`E2EApp`, `E2EPage`) and `E2EAppAdapter.swift`, the one file that knows the bridge.
     Page input (`E2EInput.swift`: click, type, keys) goes through the DevTools Input domain with focus emulation on; app shortcuts go through the app's menu, never DevTools.
   - `E2E/Engine/`: Objective-C++ helpers, the DevTools session and the `https://bow.test/` fixture server.
-  - `E2E/Tests/`: one Swift file per area holding its tests (`App.swift` holds `app.quit`); list each area in `E2ETests.all`.
+  - `E2E/Tests/`: one Swift file per area holding its tests (`App.swift` holds `app.quit`); list each area in `E2ETests.all`, and give each test with more than one check its `checks`.
   - `E2E/Fixtures/`: one folder per area (`Fixtures/app/`), served at `https://bow.test/<area>/`.
 - `App/Engine/BowE2EHooks.h`: the single engine seam header, declaring what the harness needs from the engine and nothing the app uses, behind `BOW_E2E`.
   Harness code never holds app logic, and app code never depends on the harness: `App/` and `BowCore/` reach `E2E/` only through `BowE2EHooks.h` and lines marked `E2E seam` inside an `#if BOW_E2E` block, which `make guards` checks; `make release` checks that Release builds leave the harness out.
@@ -35,10 +35,17 @@ Start every session in `~/code/GitHub/bowbrowser`: the maintainer's `.claude/set
 - `make test`: BowCore unit tests.
 - `make build`: build the app into `build/`.
 - `make e2e`: build Debug and run the e2e tests in the real app (`make e2e E2E=app.quit` runs one).
+  `E2E` takes `all`, or a comma separated list of test names, areas (`tabs`, the part of a name before the first dot), globs (`'tabs.*'`) and tags (`smoke`); `E2E=list` prints one `TEST <name> area=<area> tags=<tags> checks=<checks>` line per test and runs nothing.
   Agents use it, not `make smoke`, for "Done when" checks: the window stays off screen, the app never takes focus or shows in the Dock, the profile and settings are throwaway, the network is blocked, and it runs from any worktree, beside a normal Bow and while other worktrees build.
-  It prints one `PASS <check>` or `FAIL <check>: <reason>` line per check and a final `E2E: PASS n/n` (or `E2E: FAIL passed/n`) line, also saved in `build/e2e/<run>/report.txt`.
-  Before quitting, pass or fail (but not after a timeout), it writes `build/e2e/<run>/final.png`: the last opened window, AppKit chrome and web content together, as evidence to look at, not to compare pixels.
-  Exit code 0 means every check passed, 1 a check failed, 2 a step timed out (`E2E: TIMEOUT <step>`); a failed run keeps its profile in the run folder.
+  It prints one `PASS <check>` or `FAIL <check>: <reason>` line per check, one `RESULT <test> pass|fail|timeout seconds=<s> checks=<passed>/<n>` line per test, and a final `E2E: PASS n/n` (or `E2E: FAIL passed/n`) line, also saved in `build/e2e/<run>/report.txt`.
+  Each test declares its checks (`checks` in `E2ETest`, default its name), and a test that stops early still prints `FAIL <check>: not run` for the rest, so the total never depends on how far tests got; a check a test does not declare fails.
+  A FAIL line names the step that failed.
+  A step that runs past its limit fails its test with `TIMEOUT` in the reason, and the run goes on; waits (`E2EWaits`) give up shortly before the step's limit with what they saw last, and also work in hidden tabs.
+  Each test gets a fresh in-memory profile (`openWindow(at:)`; `profile: .appDefault` asks for the shared default profile), and afterwards the runner closes its windows and the `e2e.isolation` check fails if any browser, popups included, is left open.
+  `app.quit` (the test with `quitsApp`) always runs last and keeps its window, so quitting is timed with only that window open.
+  A failing test leaves `build/e2e/<run>/<test>/log.txt` (each step's duration and limit) and `fail.png`; the last test leaves `build/e2e/<run>/final.png`: its window, AppKit chrome and web content together, as evidence to look at, not to compare pixels.
+  Exit code 0 means every check passed, 1 a check failed, 2 the main thread stopped answering for 10 seconds (or engine start or quit hung): the run prints `E2E: TIMEOUT <test>: <step> (...)` and `NOT RUN <test>` for each test left, writes a stack sample to `build/e2e/<run>/hang.txt`, and exits.
+  A failed run keeps its profile in the run folder.
   Everything the app and Chromium write to stderr goes to `build/e2e/<run>/chromium.log`, also after a timeout.
   After quitting (or timing out), the run echoes the lines that are not Chromium log lines (such as `quit: seconds=`) and every Chromium ERROR or FATAL line, except the known harmless ones listed with their reasons in `E2E/Harness/E2EChromiumLog.swift`; the `chromium.errors` check fails when any other ERROR or FATAL line is left.
   When the app ends without an `E2E:` line instead (a crash or a failed engine start), `make e2e` prints the end of `chromium.log`.
