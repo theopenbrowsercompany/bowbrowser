@@ -59,6 +59,25 @@ import Testing
         }
     }
 
+    @Test func aDropOnASpaceIconTakesWhatMoveToSpaceOffers() throws {
+        try withTemporaryFolder { folder in
+            let f = try makeFixture(in: folder)
+            let box = SidebarItem.folder(title: "Box")
+            try f.store.apply([.insert(box, parent: f.store.graph.space(f.workA)!.unpinnedContainerID)])
+            let graph = f.store.graph
+            // A today tab, a pinned tab and the selected tab go to another Space, of either profile.
+            #expect(graph.acceptsDrop(of: f.a2.id, onSpace: f.workB))
+            #expect(graph.acceptsDrop(of: f.pinned.id, onSpace: f.home))
+            #expect(graph.acceptsDrop(of: f.a1.id, onSpace: f.home))
+            // Its own Space (the one on screen), an unknown Space, a folder and a Favorite are refused.
+            #expect(!graph.acceptsDrop(of: f.a2.id, onSpace: f.workA))
+            #expect(!graph.acceptsDrop(of: f.a2.id, onSpace: "nowhere"))
+            #expect(!graph.acceptsDrop(of: box.id, onSpace: f.workB))
+            #expect(!graph.acceptsDrop(of: f.favorite, onSpace: f.workB))
+            #expect(!graph.acceptsDrop(of: "missing", onSpace: f.workB))
+        }
+    }
+
     @Test func profileIDsMatchIgnoringCaseForAMove() throws {
         try withTemporaryFolder { folder in
             let f = try makeFixture(in: folder)

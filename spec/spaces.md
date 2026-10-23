@@ -107,6 +107,10 @@ Each Space has its own pinned tabs and tabs, and one window shows one Space at a
    Switching to the unthemed "personal" fades back to the Frame color, and Theme > Default on "work" removes its wash.
    `make e2e` prints `PASS spaces.theme_tint: work=#3B5BDB tint_matches=true`.
 
+18. Drag tab A from the sidebar over the icon of another Space: the icon shows its ring. Drop it: the tab moves there, as in 5 (and as Move to Space does in `profiles.md`).
+   Dropping a folder or a Favorite on an icon, or a tab on the icon of the Space it is in, is refused; moving the drag off an icon without a drop changes nothing.
+   `make e2e` prints `PASS spaces.drop_move`, `PASS spaces.drop_other_profile` and `PASS spaces.drop_refuse`.
+
 ## Out of scope
 
 - Reordering Spaces, choosing a Space's icon or theme from the switcher, and choosing a symbol icon from a menu.
