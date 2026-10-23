@@ -489,6 +489,23 @@ void BowTearDownBrowserView(CefRefPtr<CefBrowser> browser) {
   if ([delegate respondsToSelector:@selector(tab:didChangeState:)]) [delegate tab:self didChangeState:self.state];
 }
 
+- (void)audibleChanged:(BOOL)audible {
+  BowTabState* old = self.state;
+  if (old.audible == audible || self.closed) return;
+  self.state = [[BowTabState alloc] initWithTabID:_tabID
+                                              url:old.url
+                                            title:old.title
+                                       faviconURL:old.faviconURL
+                                          loading:old.loading
+                                        canGoBack:old.canGoBack
+                                     canGoForward:old.canGoForward
+                                          audible:audible
+                                   capturingVideo:old.capturingVideo
+                                   capturingAudio:old.capturingAudio];
+  id<BowTabUIDelegate> delegate = self.uiDelegate;
+  if ([delegate respondsToSelector:@selector(tab:didChangeState:)]) [delegate tab:self didChangeState:self.state];
+}
+
 - (double)zoomLevel {
   return _browser && !self.willClose ? _browser->GetHost()->GetZoomLevel() : 0;
 }

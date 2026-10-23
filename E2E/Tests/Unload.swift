@@ -7,7 +7,8 @@ import Foundation
 enum UnloadTests {
     static let all: [any E2ETest] = [
         UnloadEngineReloadTest(), UnloadOffTest(), UnloadPolicyTest(), UnloadExemptTest(), UnloadPressureTest(),
-        UnloadDialogTest(), UnloadOffscreenSpaceTest(), UnloadPinnedAwayTest(), UnloadTypedTest(),
+        UnloadDialogTest(), UnloadOffscreenSpaceTest(), UnloadPinnedAwayTest(), UnloadTypedTest(), UnloadManyTest(),
+        UnloadAudibleTest(), UnloadPlaceholderTest(),
     ]
 
     /// Longer than every idle limit at normal pressure, pinned tabs included.
@@ -113,8 +114,8 @@ struct UnloadEngineReloadTest: E2ETest {
     }
 }
 
-/// With the setting off (the default), nothing runs and nothing unloads: not after a day idle, not under critical
-/// memory pressure.
+/// With the setting turned off (it is on by default), nothing runs and nothing unloads: not after a day idle, not under
+/// critical memory pressure.
 struct UnloadOffTest: E2ETest {
     let name = "unload.off"
 
@@ -126,6 +127,7 @@ struct UnloadOffTest: E2ETest {
         let items = try ([page] + others).map { try app.unloadItem(of: $0) }
         let (running, idle, pressure, live) = try await run.step("pass with the setting off", timeout: E2ETimeouts.step)
         {
+            try app.setUnloadEnabled(false)
             try app.useManualUnloadClock()
             try app.advanceUnloadClock(by: UnloadTests.longIdle)
             let idle = try await app.runUnloadPass()
@@ -470,5 +472,154 @@ struct UnloadTypedTest: E2ETest {
         run.check(
             "unload.typed_navigated", passed: after == 1 && !afterState.isLoaded && afterState.isListed,
             "unloaded=\(after) tab=\(UnloadTests.describe(afterState))")
+    }
+}
+
+/// Thirty tabs in one window, one shown, at normal memory pressure with the default numbers: a pass 59 minutes on
+/// unloads nothing (no count limit at normal pressure, and the idle limit is an hour), and a pass 61 minutes on
+/// unloads every background tab, leaving the shown one.
+struct UnloadManyTest: E2ETest {
+    let name = "unload.many"
+    let checks = ["unload"]
+
+    func run(_ run: E2ERun) async throws {
+        let (app, _) = try UnloadTests.apps(run)
+        defer { app.resetUnloader() }
+        let page = try await UnloadTests.openWindow(run, "home")
+        let others = try await run.step("open 29 background tabs", timeout: 60) {
+            // Opened together, then each waited for, so the run stays short.
+            let pages = try (1...29).map {
+                try run.app.openTab(at: UnloadTests.url("t\($0)"), besides: page, select: false)
+            }
+            for other in pages { _ = try await other.waitForLoad(after: 0) }
+            return pages
+        }
+        let items = try ([page] + others).map { try app.unloadItem(of: $0) }
+        let (early, unloaded, live, shown) = try await run.step("passes at 59 and 61 minutes", timeout: 30) {
+            try app.setUnloadEnabled(true)
+            try app.useManualUnloadClock()
+            try app.advanceUnloadClock(by: 59 * 60)
+            let early = try await app.runUnloadPass()
+            try app.advanceUnloadClock(by: 2 * 60)
+            let unloaded = try await app.runUnloadPass()
+            return (
+                early, unloaded, try UnloadTests.liveCount(app, items, besides: page),
+                try app.unloadTabState(items[0], besides: page).isShown
+            )
+        }
+        run.check(
+            "unload", passed: early == 0 && unloaded == 29 && live == 1 && shown,
+            "live=\(live) unloaded=\(unloaded)" + (early == 0 && shown ? "" : " at59=\(early) shown=\(shown)"))
+    }
+}
+
+/// A background tab that played sound within the last 30 seconds stays loaded under critical memory pressure while
+/// a quiet one unloads; 31 seconds after its sound stopped, the next pass unloads it. The engine reports no sound in
+/// CEF 156, so the test reports it through the tab, as an engine audio event would.
+struct UnloadAudibleTest: E2ETest {
+    let name = "unload.audible"
+
+    func run(_ run: E2ERun) async throws {
+        let (app, _) = try UnloadTests.apps(run)
+        defer { app.resetUnloader() }
+        let page = try await UnloadTests.openWindow(run, "home")
+        let pages = try await UnloadTests.openBackground(run, ["sound", "quiet"], besides: page)
+        let items = try pages.map { try app.unloadItem(of: $0) }
+        try await run.step("play and stop sound", timeout: E2ETimeouts.step) {
+            try app.setUnloadEnabled(true)
+            try app.useManualUnloadClock()
+            try app.setTabAudible(true, pages[0])
+            guard try await TabEdgesTests.until({ try app.unloadTabState(items[0], besides: page).isAudible }) else {
+                throw E2EError("the tab never reported sound")
+            }
+            try app.setTabAudible(false, pages[0])
+            guard try await TabEdgesTests.until({ try !app.unloadTabState(items[0], besides: page).isAudible }) else {
+                throw E2EError("the tab never reported its sound stopped")
+            }
+        }
+        let (within, quiet) = try await run.step("critical pressure 20 seconds on", timeout: E2ETimeouts.step) {
+            try app.advanceUnloadClock(by: 20)
+            _ = try await app.simulateMemoryPressure("critical")
+            return try (
+                app.unloadTabState(items[0], besides: page), app.unloadTabState(items[1], besides: page)
+            )
+        }
+        let after = try await run.step("critical pressure 31 seconds on", timeout: E2ETimeouts.step) {
+            try app.advanceUnloadClock(by: 11)
+            _ = try await app.simulateMemoryPressure("critical")
+            return try app.unloadTabState(items[0], besides: page)
+        }
+        run.check(
+            name, passed: within.isLoaded && !quiet.isLoaded && quiet.isListed && !after.isLoaded && after.isListed,
+            "within=\(UnloadTests.describe(within)) quiet=\(UnloadTests.describe(quiet))"
+                + " after=\(UnloadTests.describe(after))")
+    }
+}
+
+/// Showing a tab the unloader unloaded shows the placeholder card (its title, over the page area) while its page
+/// loads again, and the page once it has loaded. The page holds its load on an image the test releases, so the card
+/// is seen for as long as the test needs.
+struct UnloadPlaceholderTest: E2ETest {
+    let name = "unload.placeholder"
+
+    func run(_ run: E2ERun) async throws {
+        let (app, edges) = try UnloadTests.apps(run)
+        defer { app.resetUnloader() }
+        let page = try await UnloadTests.openWindow(run, "home")
+        let (held, key) = try await run.step("open the held page", timeout: E2ETimeouts.firstLoad) {
+            let held = try run.app.openTab(at: E2EFixture.url("unload/held.html"), besides: page, select: false)
+            _ = try await E2EWaits.until(held, "typeof window.heldKey === 'string'")
+            let key = try await held.string("window.heldKey")
+            E2EFixture.releaseHeld(key)
+            _ = try await held.waitForLoad(after: 0)
+            return (held, key)
+        }
+        let item = try app.unloadItem(of: held)
+        try await run.step("wait for the tab's icon", timeout: E2ETimeouts.step) {
+            guard try await TabEdgesTests.until({ try app.unloadTabState(item, besides: page).hasFavicon }) else {
+                throw E2EError("the tab's row never showed its icon")
+            }
+        }
+        let unloaded = try await run.step("unload it", timeout: E2ETimeouts.step) {
+            try app.setUnloadEnabled(true)
+            try app.useManualUnloadClock()
+            try app.advanceUnloadClock(by: UnloadTests.longIdle)
+            return try await app.runUnloadPass()
+        }
+        // The next load of the page holds on the next key.
+        let number = Int(key.split(separator: "-").last ?? "") ?? 0
+        let nextKey = "unload-held-\(number + 1)"
+        let card = try await run.step("show the unloaded tab", timeout: E2ETimeouts.firstLoad) {
+            try edges.selectSavedTab(item, besides: page)
+            guard
+                try await TabEdgesTests.until({
+                    let card = try app.unloadPlaceholder(besides: page)
+                    return card.item == item && card.inWindow
+                })
+            else { throw E2EError("no placeholder came up") }
+            let card = try app.unloadPlaceholder(besides: page)
+            let state = try app.unloadTabState(item, besides: page)
+            let folder = run.outputDirectory.appendingPathComponent("unload")
+            try app.writeWindowScreenshot(besides: page, to: folder.appendingPathComponent("placeholder.png"))
+            return (card, state)
+        }
+        let (after, afterState) = try await run.step("let the page load", timeout: E2ETimeouts.firstLoad) {
+            E2EFixture.releaseHeld(nextKey)
+            guard
+                try await TabEdgesTests.until({
+                    let card = try app.unloadPlaceholder(besides: page)
+                    return card.item == nil && card.log.contains("hidden \(item) finish")
+                })
+            else { throw E2EError("the placeholder never went") }
+            return (try app.unloadPlaceholder(besides: page), try app.unloadTabState(item, besides: page))
+        }
+        let shownAt = after.log.firstIndex(of: "shown \(item)") ?? -1
+        let hiddenAt = after.log.firstIndex(of: "hidden \(item) finish") ?? -1
+        run.check(
+            name,
+            passed: unloaded == 1 && card.0.title == "Unload held" && card.1.isShown && shownAt >= 0
+                && hiddenAt > shownAt && afterState.isShown && afterState.isLoaded,
+            "unloaded=\(unloaded) card=\"\(card.0.title)\" page=\(afterState.isShown ? "shown" : "hidden")"
+                + " order=\(shownAt >= 0 && hiddenAt > shownAt ? "card,page" : after.log.joined(separator: ","))")
     }
 }

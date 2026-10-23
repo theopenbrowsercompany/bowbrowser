@@ -20,7 +20,7 @@ NS_SWIFT_SENDABLE
 @property(nonatomic, readonly, getter=isLoading) BOOL loading;
 @property(nonatomic, readonly) BOOL canGoBack;
 @property(nonatomic, readonly) BOOL canGoForward;
-/// Always NO for now: CEF 156 reports no audible state.
+/// YES while the page plays sound. Always NO for now outside e2e runs: CEF 156 reports no audible state.
 @property(nonatomic, readonly, getter=isAudible) BOOL audible;
 /// YES while the page uses a camera (or captures the screen's video).
 @property(nonatomic, readonly, getter=isCapturingVideo) BOOL capturingVideo;

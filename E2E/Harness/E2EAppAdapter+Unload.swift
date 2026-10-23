@@ -55,7 +55,7 @@ extension E2ETestApp: E2EUnloadApp {
         else {
             return E2EUnloadTabState(
                 isListed: false, isLoaded: false, isShown: false, url: "", title: "", isCapturing: false,
-                isReleased: true, hasFavicon: false)
+                isReleased: true, hasFavicon: false, isAudible: false)
         }
         let tab = controller.engineTab(for: row.id).flatMap { $0.isClosed ? nil : $0 }
         let state = tab?.state
@@ -68,7 +68,36 @@ extension E2ETestApp: E2EUnloadApp {
             isListed: true, isLoaded: tab != nil, isShown: tab.map { controller.selectedTab === $0 } ?? false,
             url: (state?.url ?? row.url)?.absoluteString ?? "", title: title,
             isCapturing: state.map { $0.isCapturingVideo || $0.isCapturingAudio } ?? false,
-            isReleased: controller.engineTab(for: row.id) == nil, hasFavicon: hasFavicon)
+            isReleased: controller.engineTab(for: row.id) == nil, hasFavicon: hasFavicon,
+            isAudible: state?.isAudible ?? false)
+    }
+
+    func setTabAudible(_ audible: Bool, _ page: any E2EPage) throws {
+        try adapter.requireActive(token, "report sound")
+        guard BowUnloadProbe.setAudible(audible, forTab: try E2EAppAdapter.tabPage(page).tab.tabID.rawValue) else {
+            throw E2EError("the page has no open tab")
+        }
+    }
+
+    func unloadPlaceholder(besides page: any E2EPage) throws -> E2EUnloadPlaceholder {
+        let controller = try E2EAppAdapter.tabPage(page).controller
+        guard let feature = controller.feature(TabUnloadFeature.self) else {
+            throw E2EError("the window has no unload feature")
+        }
+        let shown = feature.e2ePlaceholder
+        return E2EUnloadPlaceholder(
+            item: shown?.item, title: shown?.title ?? "", inWindow: shown?.inWindow ?? false,
+            log: feature.e2ePlaceholderLog)
+    }
+
+    func writeWindowScreenshot(besides page: any E2EPage, to url: URL) throws {
+        try adapter.requireActive(token, "take a screenshot")
+        guard let window = try E2EAppAdapter.tabPage(page).controller.window else {
+            throw E2EError("the page has no window")
+        }
+        let png = try E2EScreenshot.png(window: window)
+        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try png.write(to: url)
     }
 
     func resetUnloader() {

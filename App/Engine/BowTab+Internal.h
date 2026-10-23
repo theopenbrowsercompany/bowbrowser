@@ -104,6 +104,9 @@ class BowTabClient;
 /// CEF did not create the popup browser this tab was made for. Does nothing once it has a browser.
 - (void)popupCreationFailed;
 - (void)mediaCaptureChangedVideo:(BOOL)video audio:(BOOL)audio;
+/// The page started or stopped playing sound. CEF 156 has no event for it (its audio handler captures the sound
+/// instead of reporting it), so only the e2e seam calls it today; a later engine reports here.
+- (void)audibleChanged:(BOOL)audible;
 @property(nonatomic, readwrite) BowTabState* state;
 @property(nonatomic, readwrite, getter=isClosed) BOOL closed;
 - (void)browserCreated:(CefRefPtr<CefBrowser>)browser;

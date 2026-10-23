@@ -23,8 +23,25 @@ protocol E2EUnloadApp: E2EApp {
     func unloadItem(of page: any E2EPage) throws -> String
     /// Sidebar tab `item` of `page`'s window as the checks read it.
     func unloadTabState(_ item: String, besides page: any E2EPage) throws -> E2EUnloadTabState
+    /// Reports that `page` started or stopped playing sound, as an engine audio event would (CEF 156 has none).
+    func setTabAudible(_ audible: Bool, _ page: any E2EPage) throws
+    /// The unload placeholder of `page`'s window: the one up now, and when each came and went.
+    func unloadPlaceholder(besides page: any E2EPage) throws -> E2EUnloadPlaceholder
+    /// Writes a PNG of `page`'s window as AppKit draws it (web content blank, the placeholder drawn) to `url`.
+    func writeWindowScreenshot(besides page: any E2EPage, to url: URL) throws
     /// Turns the setting off and puts the real clock back. Never refused, so a test can always clean up.
     func resetUnloader()
+}
+
+/// A window's unload placeholder as the checks read it.
+struct E2EUnloadPlaceholder: Equatable {
+    /// The sidebar item of the tab it stands in for, nil when none is up.
+    var item: String?
+    var title: String
+    /// It is in the window's view hierarchy.
+    var inWindow: Bool
+    /// "shown <item>" and "hidden <item> <why>" (finish, fail, switch, close...), oldest first.
+    var log: [String]
 }
 
 /// One sidebar tab as the unload checks read it.
@@ -44,4 +61,6 @@ struct E2EUnloadTabState: Equatable {
     var isReleased: Bool
     /// Its row shows a site icon.
     var hasFavicon: Bool
+    /// Its page reports playing sound.
+    var isAudible: Bool
 }
