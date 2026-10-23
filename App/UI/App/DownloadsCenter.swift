@@ -38,6 +38,8 @@ final class DownloadsCenter: AppFeature, EngineDownloadsDelegate {
     private var profiles: [ProfileID: any EngineDownloads] = [:]
     /// Files chosen for downloads that are still running, which a new download must not take.
     private var reserved: [DownloadEntry.Key: URL] = [:]
+    /// The save panel open for each download still waiting for its destination.
+    private var panels: [DownloadEntry.Key: NSSavePanel] = [:]
     /// The window save panels attach to, when one is open.
     var panelWindow: () -> NSWindow? = { NSApp.keyWindow ?? NSApp.mainWindow }
 
@@ -77,7 +79,11 @@ final class DownloadsCenter: AppFeature, EngineDownloadsDelegate {
             let key = DownloadEntry.Key(profileID: profileID, downloadID: item.id)
             // An interrupted download keeps its file, since it can resume into it. One whose status is unknown lets
             // go of its name; its partial file on disk still keeps a new download from taking it.
-            if let state = list.entry(key)?.item.state, state.isFinal || state == .unknown { reserved[key] = nil }
+            if let state = list.entry(key)?.item.state, state.isFinal || state == .unknown {
+                reserved[key] = nil
+                // A download that ended while its save panel was open (its tab closed) has nothing left to save.
+                panels[key]?.cancel(nil)
+            }
         case .removed(let id):
             reserved[DownloadEntry.Key(profileID: profileID, downloadID: id)] = nil
         }
@@ -105,7 +111,7 @@ final class DownloadsCenter: AppFeature, EngineDownloadsDelegate {
         case .ask(let suggested):
             // Held while the panel is open, so a second download does not suggest the same name.
             reserved[key] = suggested
-            guard let picked = await askForDestination(suggested: suggested),
+            guard let picked = await askForDestination(suggested: suggested, for: key),
                 let state = list.entry(key)?.item.state, !state.isFinal, state != .unknown
             else {
                 reserved[key] = nil
@@ -138,8 +144,10 @@ final class DownloadsCenter: AppFeature, EngineDownloadsDelegate {
     }
 
     /// Opens a save panel on `suggested`, as a sheet when a window is available. Nil when the person cancels.
-    private func askForDestination(suggested: URL) async -> URL? {
+    private func askForDestination(suggested: URL, for key: DownloadEntry.Key) async -> URL? {
         let panel = NSSavePanel()
+        panels[key] = panel
+        defer { panels[key] = nil }
         panel.directoryURL = suggested.deletingLastPathComponent()
         panel.nameFieldStringValue = suggested.lastPathComponent
         panel.canCreateDirectories = true

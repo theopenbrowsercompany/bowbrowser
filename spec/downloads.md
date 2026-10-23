@@ -28,7 +28,10 @@ Each profile keeps its own downloads, and the window shows every profile's downl
 - Closing the tab or popup that started a download currently cancels the download (the engine stops every request of a closed tab), and its partial file is deleted.
   Its row still updates: within a moment it reads Cancelled, it can be cleared, and its name is free for the next download of the file.
   Keeping such downloads running after their tab closes is planned.
-- After that tab closes, the list follows the download's file on disk instead of the engine: the bytes received follow the file's size, a file that reaches its known size is Complete, and a file that disappears, or never appears within 2 seconds, is Cancelled.
+- After that tab closes, the list follows the download's file on disk instead of the engine: the bytes received follow the file's size, a file the download wrote that reaches its known size and stays there for two reads is Complete, and a file that disappears, or a running download's file that never appears within 2 seconds, is Cancelled.
+  A file that was already there (one the person chose to replace in the save panel) counts only once the download changes it.
+  A download that was failed or paused before its first byte stays as it was, since it can still resume.
+  When a download ends while its save panel is still open, the panel closes.
   Pause and Cancel show at once; Resume shows the download running again, and if its file does not grow it later reads "Status unknown".
   A file that stops changing for 15 seconds without finishing reads "Status unknown" (it may be stalled, failed, or finished at an unknown size); such a row can be cleared, which cancels the download, and its name is no longer held for it.
 
@@ -39,7 +42,7 @@ Each profile keeps its own downloads, and the window shows every profile's downl
 3. Start a large download, open the downloads window and click Pause: the status reads Paused and the byte count stops; click Resume and it grows again; click Cancel and it reads Cancelled with no partial file left.
 4. Click Clear on a finished download: the row goes away and the file stays in the Downloads folder.
 5. Turn on "Ask where to save each file" and click a download link: a save panel opens on the Downloads folder with the suggested name; Cancel there cancels the download.
-6. Start a slow download in a second tab and close that tab mid download: the row reads Cancelled with no file left, Clear removes it, and downloading the same file again keeps its name.
+6. Start a slow download in a second tab and close that tab mid download: the row reads Cancelled with no file left, downloading the same file again while that row is still listed keeps its name, and Clear removes the row.
    `make e2e E2E=downloads.tab-closed` prints `PASS downloads.tab-closed: state=cancelled row=updated`.
 7. `make e2e E2E=downloads` prints `PASS downloads: file=a.pdf state=complete`, saving into the run's own folder rather than the real Downloads folder.
 

@@ -7,6 +7,7 @@
 #include <map>
 #include <vector>
 
+#include "BowDownloads+Internal.h"
 #include "BowEngine+Internal.h"
 #if BOW_E2E
 #include "BowE2EHooks.h"  // E2E seam
@@ -194,6 +195,7 @@ void BowEngineBrowserClosed(CefRefPtr<CefBrowser> browser) {
 }
 
 void BowEngineMessageLoopDidEnd() {
+  BowDownloadsEngineDidStop();
 #if BOW_E2E  // E2E seam: the e2e run times the app's part of quitting apart from Chromium's shutdown.
   if (gQuitStart > 0) gQuitCloseDuration = CFAbsoluteTimeGetCurrent() - gQuitStart;
 #endif
