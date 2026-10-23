@@ -42,47 +42,21 @@ public struct ArcImportApplied: Equatable, Sendable {
     ///
     /// A Favorites section the import created for a new profile goes with it when it is empty and no Space uses the
     /// profile; one the person has since put a Favorite in, or a Space of theirs now uses, stays.
+    ///
+    /// `bookmarks`, the bookmarks folder a history import of the same wizard added, is taken out in the same
+    /// transaction, first (see `ChromiumBookmarksApplied.undo(on:)`), so a refusal leaves both in place.
     @discardableResult
-    public func undo(on store: SidebarStore) throws -> ArcImportUndone {
+    public func undo(on store: SidebarStore, alongWith bookmarks: ChromiumBookmarksApplied? = nil) throws
+        -> ArcImportUndone
+    {
         var undone = ArcImportUndone()
-        guard !isEmpty else { return undone }
-        let imported = Set(spaceItemIDs)
-        let importedSpaces = Set(spaceIDs)
+        let bookmarks = bookmarks?.isEmpty == false ? bookmarks : nil
+        guard !isEmpty || bookmarks != nil else { return undone }
         do {
             try store.transaction {
                 guard let before = store.transactionGraph else { throw SidebarStoreError.noOpenTransaction }
-                for id in favoriteItemIDs {
-                    guard let item = before.items[id], item.parentID == favoriteContainerIDs[id] else { continue }
-                    try store.mutate(.delete(id))
-                }
-                let present = spaceIDs.compactMap { before.space($0) }
-                if !present.isEmpty {
-                    guard let destination = before.spaces.first(where: { !importedSpaces.contains($0.id) }) else {
-                        throw ArcImportUndoError.noOtherSpaceRemains
-                    }
-                    undone.destinationSpaceID = destination.id
-                    for space in present {
-                        let sections = [
-                            (space.pinnedContainerID, destination.pinnedContainerID),
-                            (space.unpinnedContainerID, destination.unpinnedContainerID),
-                        ]
-                        for (source, target) in sections {
-                            for id in Self.foreignRoots(under: source, importedItems: imported, in: before) {
-                                try store.mutate(.move(id, parent: target))
-                                undone.keptItemIDs.append(id)
-                            }
-                        }
-                    }
-                    // Deleting the Space on screen would otherwise pick a neighbour, which may be another imported
-                    // Space. The person lands in the Space that took over their items instead, with a tab they
-                    // had selected in the imported Space still selected.
-                    if let active = before.activeSpaceID, importedSpaces.contains(active) {
-                        try store.mutate(.setActiveSpace(destination.id))
-                    }
-                    for space in present { try store.mutate(.deleteSpace(space.id)) }
-                    try store.mutate(.reconcileSelectedTab)
-                }
-                for profile in createdFavoritesProfiles { try store.mutate(.deleteEmptyFavorites(profile)) }
+                try bookmarks?.undoSteps(in: store)
+                try undoSteps(in: store, into: &undone)
                 if let after = store.transactionGraph {
                     undone.removedItemIDs = before.orderedIDs().filter {
                         before.items[$0]?.data.isContainer == false && after.items[$0] == nil
@@ -94,6 +68,46 @@ public struct ArcImportApplied: Equatable, Sendable {
             undone.saveFailure = reason
         }
         return undone
+    }
+
+    /// The sidebar part of `undo`, inside the store's open transaction.
+    private func undoSteps(in store: SidebarStore, into undone: inout ArcImportUndone) throws {
+        guard !isEmpty else { return }
+        let imported = Set(spaceItemIDs)
+        let importedSpaces = Set(spaceIDs)
+        guard let before = store.transactionGraph else { throw SidebarStoreError.noOpenTransaction }
+        for id in favoriteItemIDs {
+            guard let item = before.items[id], item.parentID == favoriteContainerIDs[id] else { continue }
+            try store.mutate(.delete(id))
+        }
+        let present = spaceIDs.compactMap { before.space($0) }
+        if !present.isEmpty {
+            guard let destination = before.spaces.first(where: { !importedSpaces.contains($0.id) }) else {
+                throw ArcImportUndoError.noOtherSpaceRemains
+            }
+            undone.destinationSpaceID = destination.id
+            for space in present {
+                let sections = [
+                    (space.pinnedContainerID, destination.pinnedContainerID),
+                    (space.unpinnedContainerID, destination.unpinnedContainerID),
+                ]
+                for (source, target) in sections {
+                    for id in Self.foreignRoots(under: source, importedItems: imported, in: before) {
+                        try store.mutate(.move(id, parent: target))
+                        undone.keptItemIDs.append(id)
+                    }
+                }
+            }
+            // Deleting the Space on screen would otherwise pick a neighbour, which may be another imported
+            // Space. The person lands in the Space that took over their items instead, with a tab they
+            // had selected in the imported Space still selected.
+            if let active = before.activeSpaceID, importedSpaces.contains(active) {
+                try store.mutate(.setActiveSpace(destination.id))
+            }
+            for space in present { try store.mutate(.deleteSpace(space.id)) }
+            try store.mutate(.reconcileSelectedTab)
+        }
+        for profile in createdFavoritesProfiles { try store.mutate(.deleteEmptyFavorites(profile)) }
     }
 
     /// The topmost items under `container` that the import did not insert, in sidebar order. Items the import

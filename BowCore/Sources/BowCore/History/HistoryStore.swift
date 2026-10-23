@@ -121,6 +121,102 @@ public final class HistoryStore: @unchecked Sendable {
         }
     }
 
+    /// Adds visits brought in from another browser in one transaction, and returns what it added so
+    /// `removeImported(_:)` can take exactly that out again.
+    ///
+    /// A visit is left out when its URL is not recordable, or when the page already has a visit at the very same time
+    /// (the same visit imported before), so importing the same history twice adds nothing the second time. An
+    /// imported title names a page only when it has no title yet, so a title seen live is never replaced.
+    public func importVisits(_ visits: [HistoryImportVisit]) throws -> HistoryImportRecord {
+        var record = HistoryImportRecord()
+        try locked {
+            try transaction {
+                for visit in visits {
+                    guard Self.isRecordable(visit.url) else {
+                        record.skippedCount += 1
+                        continue
+                    }
+                    let key = Self.key(visit.url)
+                    let time = visit.time.timeIntervalSince1970
+                    let known = try rows(
+                        """
+                        SELECT 1 FROM visits JOIN places ON places.id = visits.place_id
+                        WHERE places.url = ?1 AND visits.time = ?2 LIMIT 1
+                        """, [.text(key), .double(time)]
+                    ) { _ in true }
+                    if !known.isEmpty {
+                        record.skippedCount += 1
+                        continue
+                    }
+                    let typed = visit.transition == .typed ? 1 : 0
+                    try run(
+                        """
+                        INSERT INTO places (url, title, visit_count, typed_count, last_visit, search_text)
+                        VALUES (?1, ?2, 1, ?3, ?4, ?5)
+                        ON CONFLICT(url) DO UPDATE SET visit_count = visit_count + 1, typed_count = typed_count + ?3,
+                            last_visit = MAX(last_visit, ?4),
+                            title = CASE WHEN title = '' THEN ?2 ELSE title END,
+                            search_text = CASE WHEN title = '' AND ?2 <> '' THEN ?5 ELSE search_text END
+                        """,
+                        [
+                            .text(key), .text(visit.title), .int(typed), .double(time),
+                            .text(Self.searchText(key, visit.title)),
+                        ])
+                    try run(
+                        "INSERT INTO visits (place_id, time, transition) VALUES ((SELECT id FROM places WHERE url = ?1), ?2, ?3)",
+                        [.text(key), .double(time), .text(Self.name(of: visit.transition))])
+                    record.visits.append(.init(id: sqlite3_last_insert_rowid(db), time: time))
+                }
+            }
+        }
+        return record
+    }
+
+    /// Takes out the visits `importVisits(_:)` added, and nothing else: a visit counts as the import's only while
+    /// both its row ID and its time match, so a visit recorded since (even one that reused a deleted row's ID) stays.
+    /// Pages keep their other visits, with counts and last visit recomputed; a page left with none disappears.
+    /// Visits already deleted are skipped. Returns how many visits were taken out.
+    @discardableResult
+    public func removeImported(_ record: HistoryImportRecord) throws -> Int {
+        guard !record.visits.isEmpty else { return 0 }
+        return try locked {
+            var removed = 0
+            try transaction {
+                try execute("CREATE TEMP TABLE IF NOT EXISTS imported_visits (id INTEGER NOT NULL, time REAL NOT NULL)")
+                try execute("DELETE FROM imported_visits")
+                for visit in record.visits {
+                    try run(
+                        "INSERT INTO imported_visits (id, time) VALUES (?1, ?2)",
+                        [.int(Int(visit.id)), .double(visit.time)])
+                }
+                let matching =
+                    "SELECT visits.id FROM visits JOIN imported_visits ON imported_visits.id = visits.id "
+                    + "AND imported_visits.time = visits.time"
+                try run(
+                    "UPDATE places SET last_visit = -1 WHERE id IN (SELECT place_id FROM visits WHERE id IN (\(matching)))",
+                    [])
+                try run("DELETE FROM visits WHERE id IN (\(matching))", [])
+                removed = Int(sqlite3_changes(db))
+                try run("DELETE FROM places WHERE last_visit = -1 AND id NOT IN (SELECT place_id FROM visits)", [])
+                try run(
+                    """
+                    UPDATE places SET
+                        visit_count = (SELECT COUNT(*) FROM visits WHERE place_id = places.id),
+                        typed_count = (SELECT COUNT(*) FROM visits WHERE place_id = places.id AND transition = 'typed'),
+                        last_visit = (SELECT MAX(time) FROM visits WHERE place_id = places.id)
+                    WHERE last_visit = -1
+                    """, [])
+                try execute("DROP TABLE imported_visits")
+            }
+            return removed
+        }
+    }
+
+    /// The number of visits, to every page.
+    public func visitCount() throws -> Int {
+        try locked { try rows("SELECT COUNT(*) FROM visits", []) { Int(sqlite3_column_int64($0, 0)) }.first ?? 0 }
+    }
+
     /// Updates the title of a page that is already in history; unknown pages are ignored.
     public func setTitle(_ title: String, for url: URL) throws {
         guard Self.isRecordable(url), !title.isEmpty else { return }

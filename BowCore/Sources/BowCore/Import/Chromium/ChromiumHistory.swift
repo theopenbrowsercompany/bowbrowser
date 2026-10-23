@@ -31,74 +31,84 @@ public struct ChromiumHistoryReport: Equatable, Sendable {
 public enum ChromiumHistory {
     public static let fileName = "History"
 
-    /// Reads a consistent snapshot of the profile's History. See `loadReport`.
+    /// The side files SQLite may keep beside a database, copied with it so committed changes they hold come along.
+    /// The `-shm` index is not copied: SQLite rebuilds it from the `-wal` file.
+    static let sideFileSuffixes = ["-wal", "-journal"]
+
+    /// Reads the profile's History from a copy. See `loadReport`.
     public static func load(profileFolder: URL, webOnly: Bool = true) throws -> [ChromiumVisit] {
         try loadReport(profileFolder: profileFolder, webOnly: webOnly).visits
     }
 
-    /// Opens the original read only, copies it with SQLite's online backup API into a temporary database, and reads
-    /// that copy. The backup sees one consistent state even while a browser is writing (WAL frames included), and
-    /// the copy is disposable, so SQLite may recover a hot journal in it. The original is never written to.
-    /// - Parameter webOnly: drop visits whose URL is not http or https (`chrome://`, `file:`, `about:`).
-    public static func loadReport(profileFolder: URL, webOnly: Bool = true) throws -> ChromiumHistoryReport {
+    /// Copies `History` (and its `-wal` and `-journal` files when they are there) byte for byte into a new folder
+    /// inside `temporaryFolder`, lets SQLite settle the copy (a committed `-wal` is folded in, a hot journal rolled
+    /// back, both in the copy), then reads the copy read only. The original is only ever copied: SQLite never opens
+    /// it, so nothing in the person's folder can change, not even a lock or index file. The copy is deleted before
+    /// this returns or throws.
+    /// - Parameters:
+    ///   - webOnly: drop visits whose URL is not http or https (`chrome://`, `file:`, `about:`).
+    ///   - temporaryFolder: where the copy's folder is made; the system's temporary folder when nil.
+    ///   - log: records the files copied, opened and removed.
+    public static func loadReport(
+        profileFolder: URL, webOnly: Bool = true, temporaryFolder: URL? = nil, log: ChromiumFileLog? = nil
+    ) throws -> ChromiumHistoryReport {
         let source = profileFolder.appendingPathComponent(fileName)
         let fm = FileManager.default
         guard fm.fileExists(atPath: source.path) else {
             throw ChromiumImportError.missingFile(fileName)
         }
-        let temp = fm.temporaryDirectory.appendingPathComponent("bow-history-\(UUID().uuidString)", isDirectory: true)
+        let parent = temporaryFolder ?? fm.temporaryDirectory
+        let temp = parent.appendingPathComponent("bow-history-\(UUID().uuidString)", isDirectory: true)
         do {
             try fm.createDirectory(at: temp, withIntermediateDirectories: true)
         } catch {
             throw ChromiumImportError.database(
                 file: fileName, reason: "could not make a temporary folder: \(error.localizedDescription)")
         }
-        defer { try? fm.removeItem(at: temp) }
-        let snapshot = temp.appendingPathComponent(fileName)
-        try backup(from: source, to: snapshot)
-        return try read(database: snapshot, webOnly: webOnly)
+        defer {
+            try? fm.removeItem(at: temp)
+            log?.record(.removed(temp))
+        }
+        let copy = temp.appendingPathComponent(fileName)
+        for suffix in [""] + sideFileSuffixes {
+            let from = profileFolder.appendingPathComponent(fileName + suffix)
+            guard suffix.isEmpty || fm.fileExists(atPath: from.path) else { continue }
+            let to = temp.appendingPathComponent(fileName + suffix)
+            log?.record(.copied(from: from, to: to))
+            do {
+                try fm.copyItem(at: from, to: to)
+            } catch {
+                throw ChromiumImportError.database(
+                    file: fileName + suffix, reason: "it could not be copied (\(error.localizedDescription))")
+            }
+        }
+        try settle(copy, log: log)
+        return try read(database: copy, webOnly: webOnly, log: log)
     }
 
-    private static func backup(from source: URL, to destination: URL) throws {
-        func fail(_ db: OpaquePointer?, _ fallback: String) -> ChromiumImportError {
-            .database(file: fileName, reason: db.map { String(cString: sqlite3_errmsg($0)) } ?? fallback)
+    /// Opens the copy read and write once, so SQLite folds a copied `-wal` into it or rolls back a copied hot journal,
+    /// and switches it to a plain journal, so the read only open that follows needs no side files.
+    private static func settle(_ copy: URL, log: ChromiumFileLog?) throws {
+        log?.record(.opened(copy))
+        var handle: OpaquePointer?
+        guard sqlite3_open_v2(copy.path, &handle, SQLITE_OPEN_READWRITE, nil) == SQLITE_OK, let db = handle else {
+            let reason = handle.map { String(cString: sqlite3_errmsg($0)) } ?? "unknown error"
+            sqlite3_close(handle)
+            throw ChromiumImportError.database(file: fileName, reason: reason)
         }
-        var sourceHandle: OpaquePointer?
-        guard sqlite3_open_v2(source.path, &sourceHandle, SQLITE_OPEN_READONLY, nil) == SQLITE_OK else {
-            let error = fail(sourceHandle, "unknown error")
-            sqlite3_close(sourceHandle)
-            throw error
-        }
-        defer { sqlite3_close(sourceHandle) }
-        var destinationHandle: OpaquePointer?
-        guard
-            sqlite3_open_v2(
-                destination.path, &destinationHandle, SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE, nil) == SQLITE_OK
-        else {
-            let error = fail(destinationHandle, "unknown error")
-            sqlite3_close(destinationHandle)
-            throw error
-        }
-        defer { sqlite3_close(destinationHandle) }
-        // Retry while a writer holds the database busy, for up to a few seconds.
-        sqlite3_busy_timeout(sourceHandle, 3000)
-        guard let backup = sqlite3_backup_init(destinationHandle, "main", sourceHandle, "main") else {
-            throw fail(destinationHandle, "could not start the copy")
-        }
-        let result = sqlite3_backup_step(backup, -1)
-        sqlite3_backup_finish(backup)
-        guard result == SQLITE_DONE else {
-            // A file that is not a database fails here, with "file is not a database".
-            throw ChromiumImportError.database(file: fileName, reason: String(cString: sqlite3_errstr(result)))
-        }
-        // The backup keeps the source's WAL flag; the snapshot is read later without side files, so turn it off.
-        guard sqlite3_exec(destinationHandle, "PRAGMA journal_mode=DELETE", nil, nil, nil) == SQLITE_OK else {
-            throw fail(destinationHandle, "could not finish the copy")
+        defer { sqlite3_close(db) }
+        // A file that is not a database fails here, with "file is not a database".
+        guard sqlite3_exec(db, "PRAGMA journal_mode=DELETE", nil, nil, nil) == SQLITE_OK else {
+            throw ChromiumImportError.database(file: fileName, reason: String(cString: sqlite3_errmsg(db)))
         }
     }
 
-    /// Reads a database file in place, read only. Use `load` for a live profile; this is for a file already copied.
-    public static func read(database: URL, webOnly: Bool = true) throws -> ChromiumHistoryReport {
+    /// Reads a database file in place, read only. Use `loadReport` for a live profile; this is for a file already
+    /// copied.
+    public static func read(database: URL, webOnly: Bool = true, log: ChromiumFileLog? = nil) throws
+        -> ChromiumHistoryReport
+    {
+        log?.record(.opened(database))
         var handle: OpaquePointer?
         guard sqlite3_open_v2(database.path, &handle, SQLITE_OPEN_READONLY, nil) == SQLITE_OK, let db = handle else {
             let reason = handle.map { String(cString: sqlite3_errmsg($0)) } ?? "unknown error"

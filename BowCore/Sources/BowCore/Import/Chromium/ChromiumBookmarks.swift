@@ -74,9 +74,10 @@ public struct ChromiumBookmarks: Equatable, Sendable {
         return ChromiumBookmarks(roots: sorted)
     }
 
-    public static func load(profileFolder: URL) throws -> ChromiumBookmarks {
+    public static func load(profileFolder: URL, log: ChromiumFileLog? = nil) throws -> ChromiumBookmarks {
         let url = profileFolder.appendingPathComponent(fileName)
         guard FileManager.default.fileExists(atPath: url.path) else { throw ChromiumImportError.missingFile(fileName) }
+        log?.record(.read(url))
         guard let data = try? Data(contentsOf: url) else {
             throw ChromiumImportError.malformed(file: fileName, reason: "the file is not readable")
         }
