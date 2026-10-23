@@ -9,6 +9,7 @@ enum E2EKey {
     case enter
     case tab
     case backspace
+    case escape
 
     /// The Input.dispatchKeyEvent fields for this key: the Windows key code Chromium uses everywhere, and the
     /// macOS one (kVK_*) it reads as the native code.
@@ -17,6 +18,7 @@ enum E2EKey {
         case .enter: ("Enter", "Enter", 13, 36, "\r")
         case .tab: ("Tab", "Tab", 9, 48, nil)
         case .backspace: ("Backspace", "Backspace", 8, 51, nil)
+        case .escape: ("Escape", "Escape", 27, 53, nil)
         }
     }
 }
@@ -159,6 +161,34 @@ extension E2EPage {
             down["text"] = text
         } else {
             down["type"] = "rawKeyDown"
+        }
+        _ = try await devTools("Input.dispatchKeyEvent", down)
+        _ = try await devTools("Input.dispatchKeyEvent", up)
+    }
+
+    /// Presses and releases the letter key `letter` with `modifiers` held, as a keyboard shortcut arrives at the
+    /// page. The app claims its own shortcuts before the page sees them; this sends one to check that it does.
+    /// `macKeyCode` is the letter's macOS virtual key code (kVK_ANSI_*).
+    func press(letter: Character, macKeyCode: Int, modifiers: E2EKeyModifiers) async throws {
+        try await emulateFocus()
+        let key = String(letter).lowercased()
+        var flags = 0
+        if modifiers.contains(.option) { flags |= 1 }
+        if modifiers.contains(.control) { flags |= 2 }
+        if modifiers.contains(.command) { flags |= 4 }
+        if modifiers.contains(.shift) { flags |= 8 }
+        var down: [String: Any] = [
+            "type": "rawKeyDown", "key": key, "code": "Key\(key.uppercased())",
+            "windowsVirtualKeyCode": Int(key.uppercased().unicodeScalars.first?.value ?? 0),
+            "nativeVirtualKeyCode": macKeyCode, "modifiers": flags,
+            // What a real key press carries as its characters without modifiers, which shortcuts match on.
+            "unmodifiedText": key,
+        ]
+        var up = down
+        up["type"] = "keyUp"
+        if modifiers.isEmpty || modifiers == .shift {
+            down["type"] = "keyDown"
+            down["text"] = modifiers == .shift ? key.uppercased() : key
         }
         _ = try await devTools("Input.dispatchKeyEvent", down)
         _ = try await devTools("Input.dispatchKeyEvent", up)

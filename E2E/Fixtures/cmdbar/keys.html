@@ -1,0 +1,13 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Keys</title>
+<script>
+  // Every key the page sees, so a test can tell which ones the app claimed first. The page also tries to act on
+  // Cmd+T and Cmd+L itself, as some web apps do.
+  window.keyDowns = [];
+  addEventListener('keydown', (event) => {
+    keyDowns.push((event.metaKey ? 'Meta+' : '') + event.key);
+    if (event.metaKey && (event.key === 't' || event.key === 'l')) event.preventDefault();
+  }, true);
+</script>
+<input id="field" style="width: 300px; height: 40px" placeholder="Type here">
