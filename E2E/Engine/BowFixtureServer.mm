@@ -6,6 +6,7 @@
 #include <sys/stat.h>
 
 #include <algorithm>
+#include <cstdio>
 #include <cstring>
 #include <functional>
 #include <memory>
@@ -24,6 +25,8 @@ namespace {
 const char kFixtureHost[] = "bow.test";
 // The same files at a second host, another site than bow.test, for tests of links that leave a site (Peek).
 const char kOtherSiteHost[] = "other.bow.test";
+// How many numbered sites (t00.test, t01.test, ...) serve the same files.
+const int kSiteHostCount = 30;
 
 const char kNotFoundBody[] = "Not found";
 
@@ -420,6 +423,13 @@ void BowServeFixtures(CefRefPtr<CefRequestContext> context, NSString* directory)
   std::string root = directory.stringByStandardizingPath.UTF8String;
   context->RegisterSchemeHandlerFactory("https", kFixtureHost, new FixtureHandlerFactory(root));
   context->RegisterSchemeHandlerFactory("https", kOtherSiteHost, new FixtureHandlerFactory(root));
+  // t00.test to t29.test: the same files from 30 sites of their own, so site isolation gives each tab its own
+  // renderer process (the S3 hidden tab measurement, E2E/Tests/S3.swift).
+  for (int site = 0; site < kSiteHostCount; ++site) {
+    char host[16];
+    snprintf(host, sizeof(host), "t%02d.test", site);
+    context->RegisterSchemeHandlerFactory("https", host, new FixtureHandlerFactory(root));
+  }
 }
 
 @implementation BowFixtureServer

@@ -52,5 +52,6 @@ enum E2EAreas {
         AuthTests.all,
         SpaceDropTests.all,
         RoutingAreaTests.all,
+        S3Tests.all,
     ]
 }
