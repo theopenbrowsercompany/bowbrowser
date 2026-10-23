@@ -7,6 +7,7 @@ import Foundation
 enum ArchiveAreaTests {
     static let all: [any E2ETest] = [
         ArchiveExpiryTest(), ArchiveDamagedFileTest(), ArchiveBackgroundSpaceTest(),
+        ArchivePopoverTest(), ArchiveThresholdMenuTest(),
     ]
 
     static func app(_ run: E2ERun) throws -> any E2EArchiveApp {
@@ -164,5 +165,107 @@ struct ArchiveBackgroundSpaceTest: E2ETest {
             name, passed: archived == [idle],
             "clock+13h in Home: archived=\(ArchiveAreaTests.names(archived, in: window)) "
                 + "camera tab \(archived.contains(liveItem) ? "archived" : "kept")")
+    }
+}
+
+/// The footer's archive button opens a popover: empty at first with the seven value threshold menu on the default,
+/// then listing the archived tab with its Space and how long ago, and a click on that row puts the tab back in Today,
+/// shows it and closes the popover.
+struct ArchivePopoverTest: E2ETest {
+    let name = "archive.popover"
+
+    func run(_ run: E2ERun) async throws {
+        let app = try ArchiveAreaTests.app(run)
+        guard let popoverApp = run.app as? any E2EArchivePopoverApp else {
+            throw E2EError("the app has no archive popover")
+        }
+        let window = try await ArchiveAreaTests.openWindow(run)
+        let page = window.page
+        defer {
+            popoverApp.closeArchivePopover(in: page)
+            app.resetArchive()
+        }
+        guard let b = window.itemIDs["B"] else { throw E2EError("the seed has no tab B") }
+        let (emptyShown, emptyText, titles, selected) = try await run.step(
+            "open the popover with nothing archived", timeout: E2ETimeouts.step
+        ) {
+            try popoverApp.clickArchiveButton(in: page)
+            let menu = try popoverApp.archiveThresholdMenu(in: page)
+            return (
+                try popoverApp.archivePopoverIsShown(in: page), try popoverApp.archivePopoverShowsEmptyState(in: page),
+                menu.titles, menu.selected
+            )
+        }
+        let (closedAgain, rows) = try await run.step("archive B and open the popover again", timeout: E2ETimeouts.step)
+        {
+            try popoverApp.clickArchiveButton(in: page)
+            let closedAgain = try !popoverApp.archivePopoverIsShown(in: page)
+            try app.useManualArchiveClock()
+            _ = try app.runArchivePass()
+            try app.advanceArchiveClock(by: 13 * 3_600)
+            _ = try app.runArchivePass()
+            try app.advanceArchiveClock(by: 2 * 3_600)
+            try popoverApp.clickArchiveButton(in: page)
+            return (closedAgain, try popoverApp.archivePopoverRows(in: page))
+        }
+        let (today, shown, archived, stillShown) = try await run.step("click the row", timeout: E2ETimeouts.step) {
+            if rows.contains(where: { $0.item == b }) { try popoverApp.clickArchivePopoverRow(b, in: page) }
+            return (
+                try app.archiveTodayTabs(besides: page), try app.archiveShownItem(besides: page),
+                try app.archivedItems(besides: page), try popoverApp.archivePopoverIsShown(in: page)
+            )
+        }
+        let expectedTitles = ["Never", "1 hour", "6 hours", "12 hours", "24 hours", "7 days", "30 days"]
+        let listed =
+            rows.count == 1 && rows[0].item == b && !rows[0].title.isEmpty && rows[0].detail == "Home · 2 hours ago"
+        let passed =
+            emptyShown && emptyText && titles == expectedTitles && selected == "12 hours" && closedAgain && listed
+            && today == [b] && shown == b && archived.isEmpty && !stillShown
+        run.check(
+            name, passed: passed,
+            "empty=\(emptyText) menu=\(titles.joined(separator: "/")) selected=\(selected) "
+                + "secondClickCloses=\(closedAgain) rows=\(rows.map { "\($0.title) | \($0.detail)" }) "
+                + "reopen: today=\(ArchiveAreaTests.names(today, in: window)) shown=\(shown == b) "
+                + "archived=\(archived.count) popoverClosed=\(!stillShown)")
+    }
+}
+
+/// Choosing "1 hour" in the popover's menu is saved for the profile, and the next pass uses it: B, which the default
+/// 12 hours would keep at 2 hours, is archived.
+struct ArchiveThresholdMenuTest: E2ETest {
+    let name = "archive.threshold"
+
+    func run(_ run: E2ERun) async throws {
+        let app = try ArchiveAreaTests.app(run)
+        guard let popoverApp = run.app as? any E2EArchivePopoverApp else {
+            throw E2EError("the app has no archive popover")
+        }
+        let window = try await ArchiveAreaTests.openWindow(run)
+        let page = window.page
+        defer {
+            popoverApp.closeArchivePopover(in: page)
+            app.resetArchive()
+        }
+        guard let b = window.itemIDs["B"] else { throw E2EError("the seed has no tab B") }
+        let (before, after, selected) = try await run.step("choose 1 hour", timeout: E2ETimeouts.step) {
+            let before = try popoverApp.archiveSavedThreshold(besides: page)
+            try popoverApp.clickArchiveButton(in: page)
+            try popoverApp.chooseArchiveThreshold("1 hour", in: page)
+            return (
+                before, try popoverApp.archiveSavedThreshold(besides: page),
+                try popoverApp.archiveThresholdMenu(in: page).selected
+            )
+        }
+        let archived = try await run.step("pass at clock+2h", timeout: E2ETimeouts.step) {
+            try app.useManualArchiveClock()
+            _ = try app.runArchivePass()
+            try app.advanceArchiveClock(by: 2 * 3_600)
+            _ = try app.runArchivePass()
+            return try app.archivedItems(besides: page)
+        }
+        run.check(
+            name, passed: before == "12 hours" && after == "1 hour" && selected == "1 hour" && archived == [b],
+            "saved \(before) -> \(after), menu shows \(selected), "
+                + "clock+2h archived=\(ArchiveAreaTests.names(archived, in: window))")
     }
 }

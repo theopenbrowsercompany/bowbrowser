@@ -30,6 +30,12 @@ This spec covers the archive store, the rules that decide what archives, and the
 - The tab a window shows, and a tab playing sound or using the camera or microphone in any of its Spaces, on screen or not, stays, and counts as used for as long as it does, so its idle time starts once it no longer does.
 - Reopening an archived tab puts it back in its Space's Today (or the folder it was in), at its old position, counts it as used, and shows it when its Space is on screen.
 - No check runs while a menu or a drag is open, so the row they act on stays.
+- The sidebar footer has an archive button (an archive box, labelled "Archived Tabs") right of the downloads button.
+  It opens a popover with the profile of the Space on screen: its archived tabs newest first, each with a site icon, its title, its source Space and how long ago it was archived ("Home · 2 hours ago"), or "No archived tabs" when there are none.
+  Clicking a row reopens the tab as above and closes the popover; clicking the button again or anywhere else closes it.
+  Archived items whose Space is gone show for every profile.
+- The same popover ends with "Archive tabs after:", a menu of Never, 1 hour, 6 hours, 12 hours, 24 hours, 7 days and 30 days, set to the profile's threshold (12 hours until chosen).
+  Choosing a value saves it for the profile at once, and the next check uses it.
 - Each sidebar has its own archive file: `ArchivedItems.json` beside the app's `Sidebar.json`, and `<name>.ArchivedItems.json` beside any other sidebar file (a window's own sidebar).
 
 ## Edge cases
@@ -60,10 +66,11 @@ This spec covers the archive store, the rules that decide what archives, and the
    It has a `version` and the entry with its reason and source Space, and the sidebar file has no trace of the tab.
 5. `make e2e` prints `PASS archive: clock+13h today=[] archived=[B] reopen=B`: a window shows pinned tab A with Today tab B; B stays 11 hours after it was first seen, archives at 13 hours, and Reopen puts it back in Today and shows it.
 6. `make e2e` prints `PASS archive.damaged: skipped=1 archived=[B] copies=1`: an archive file with one damaged entry opens with that entry left out and counted, a copy of the file is kept, and archiving works.
+7. `make e2e` prints `PASS archive.popover: ...`: the footer button opens the popover (empty, then listing B as "Home · 2 hours ago"), a second click closes it, and a click on B's row puts it back in Today, shows it and closes the popover.
+8. `make e2e` prints `PASS archive.threshold: saved 12 hours -> 1 hour, ...`: choosing 1 hour in the popover's menu is saved, and a check 2 hours later archives B.
 
 ## Out of scope
 
-- The settings menu, the archive list and its Reopen control (the archive list opens in a popover from the sidebar footer).
-- Page thumbnails and favicons for archived items.
+- Page thumbnails and site icons for archived items (their rows show a generic icon).
 - Clearing the archive by age and syncing it.
 - Spaces and folders themselves: the sidebar store spec covers them.

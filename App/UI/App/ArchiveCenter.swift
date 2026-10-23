@@ -100,6 +100,32 @@ final class ArchiveCenter: AppFeature {
         }
     }
 
+    /// The threshold of the profile `profile` of a sidebar.
+    func threshold(for profile: SidebarProfileID) -> AutoArchiveThreshold {
+        settings.threshold(for: SidebarStores.engineProfileID(of: profile))
+    }
+
+    /// Saves `threshold` for `profile`; the next pass uses it.
+    func setThreshold(_ threshold: AutoArchiveThreshold, for profile: SidebarProfileID) {
+        var all = settings
+        all.setThreshold(threshold, for: SidebarStores.engineProfileID(of: profile))
+        settings = all
+    }
+
+    /// The archived entries of `store` that belong to `profile`, newest first: those whose source Space is of the
+    /// profile, and those whose Space is gone (nobody can tell, so they show for every profile). Empty when the
+    /// archive cannot be opened.
+    func entries(in store: SidebarStore, profile: SidebarProfileID?) -> [ArchivedEntry] {
+        guard let service = archiveService(for: store) else { return [] }
+        let graph = store.graph
+        return service.archived.entries.filter { entry in
+            guard let profile, let space = graph.space(SidebarSpaceID(rawValue: entry.source.spaceID)) else {
+                return true
+            }
+            return space.profileID == profile
+        }
+    }
+
     /// Stops for good once the app starts quitting: no timer, no further passes.
     func stopForQuit() {
         quitting = true
