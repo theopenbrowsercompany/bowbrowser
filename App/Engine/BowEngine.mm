@@ -12,6 +12,7 @@
 #include "BowEngine+Internal.h"
 #include "BowTab+Internal.h"
 #if BOW_E2E
+#include "../Helper/BowPageSignalNames.h"  // E2E seam
 #include "BowE2EHooks.h"  // E2E seam
 #endif
 #include "include/cef_app.h"
@@ -379,7 +380,8 @@ size_t BowEngineParkedRequestsRefused(const char* kind) {
 bool BowEngineSetTabAudible(uint64_t tabID, bool audible) {
   BowTab* tab = BowEngineTabWithID(tabID);
   if (!tab || tab.closed) return false;
-  [tab audibleChanged:audible];
+  // As a frame's sound signal arrives from the render process, from a frame no page has.
+  [tab pageSignal:@(kBowPageSignalAudible) on:audible frame:@"e2e"];
   return true;
 }
 

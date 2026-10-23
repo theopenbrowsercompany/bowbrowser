@@ -23,8 +23,15 @@ protocol E2EUnloadApp: E2EApp {
     func unloadItem(of page: any E2EPage) throws -> String
     /// Sidebar tab `item` of `page`'s window as the checks read it.
     func unloadTabState(_ item: String, besides page: any E2EPage) throws -> E2EUnloadTabState
-    /// Reports that `page` started or stopped playing sound, as an engine audio event would (CEF 156 has none).
+    /// Reports that `page` started or stopped playing sound, as a frame's sound signal from the page would.
     func setTabAudible(_ audible: Bool, _ page: any E2EPage) throws
+    /// Puts `text` on the general pasteboard and chooses Edit > Paste (its Command-V item, through the menu, so no
+    /// key event reaches the page) in `page`'s window, then waits for `pasted` before putting the pasteboard's earlier
+    /// contents back. The engine reads the pasteboard after the menu item returns, so `pasted` must wait for the page
+    /// to have the text. Returns `pasted`'s last answer.
+    func pasteThroughEditMenu(
+        _ text: String, in page: any E2EPage, until pasted: @MainActor () async throws -> Bool
+    ) async throws -> Bool
     /// The unload placeholder of `page`'s window: the one up now, and when each came and went.
     func unloadPlaceholder(besides page: any E2EPage) throws -> E2EUnloadPlaceholder
     /// Writes a PNG of `page`'s window as AppKit draws it (web content blank, the placeholder drawn) to `url`.
@@ -63,4 +70,6 @@ struct E2EUnloadTabState: Equatable {
     var hasFavicon: Bool
     /// Its page reports playing sound.
     var isAudible: Bool
+    /// Its page reports a form field the person edited.
+    var hasEditedForm: Bool
 }

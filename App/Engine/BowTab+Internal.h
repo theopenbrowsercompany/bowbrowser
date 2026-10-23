@@ -12,6 +12,7 @@
 #include "include/cef_client.h"
 #include "include/cef_dialog_handler.h"
 #include "include/cef_find_handler.h"
+#include "include/cef_frame_handler.h"
 #include "include/cef_keyboard_handler.h"
 
 NS_ASSUME_NONNULL_BEGIN
@@ -91,6 +92,9 @@ class BowTabClient;
   // YES while an unload is pending: the page's leave prompt answers stay without showing, and a close reports
   // tabDidUnload: instead of tabDidClose:.
   BOOL _unloading;
+  // The frames reporting sound now, and those whose form the person edited, by the engine's frame identifier.
+  NSMutableSet<NSString*>* _audibleFrames;
+  NSMutableSet<NSString*>* _editedFrames;
 }
 /// A tab whose browser is created next with its client: by `initWithProfile:url:`, or by CEF for a popup the app
 /// takes as a tab, in the opener's profile. The engine keeps it alive from now on; its browser arrives in
@@ -105,9 +109,15 @@ class BowTabClient;
 /// CEF did not create the popup browser this tab was made for. Does nothing once it has a browser.
 - (void)popupCreationFailed;
 - (void)mediaCaptureChangedVideo:(BOOL)video audio:(BOOL)audio;
-/// The page started or stopped playing sound. CEF 156 has no event for it (its audio handler captures the sound
-/// instead of reporting it), so only the e2e seam calls it today; a later engine reports here.
-- (void)audibleChanged:(BOOL)audible;
+/// A page signal from the frame `frameID` (BowTabPageSignals.mm): `kind` is one of the kinds in
+/// App/Helper/BowPageSignalNames.h, `on` whether it now holds. The tab is audible while any frame is, and has an
+/// edited form while any frame has one. Unknown kinds are ignored.
+- (void)pageSignal:(NSString*)kind on:(BOOL)on frame:(NSString*)frameID;
+/// The frame left the page (removed, navigated to a new document, or into the back/forward cache): its signals go.
+- (void)pageFrameDetached:(NSString*)frameID;
+/// The main frame `frameID` committed a new document: the signals of every other frame (the old document's) go,
+/// while those its new document may already have sent stay. Nil, when the render process ended, drops them all.
+- (void)keepPageSignalsOfFrame:(nullable NSString*)frameID;
 @property(nonatomic, readwrite) BowTabState* state;
 @property(nonatomic, readwrite, getter=isClosed) BOOL closed;
 - (void)browserCreated:(CefRefPtr<CefBrowser>)browser;
@@ -188,7 +198,8 @@ class BowTabClient : public CefClient,
                      public CefContextMenuHandler,
                      public CefDialogHandler,
                      public CefFindHandler,
-                     public CefKeyboardHandler {
+                     public CefKeyboardHandler,
+                     public CefFrameHandler {
  public:
   BowTabClient(BowTab* tab, CefRefPtr<CefDownloadHandler> downloadHandler)
       : tab_(tab), downloadHandler_(downloadHandler) {}
@@ -203,7 +214,15 @@ class BowTabClient : public CefClient,
   CefRefPtr<CefFindHandler> GetFindHandler() override { return this; }
   CefRefPtr<CefKeyboardHandler> GetKeyboardHandler() override { return this; }
   CefRefPtr<CefDialogHandler> GetDialogHandler() override { return this; }
+  CefRefPtr<CefFrameHandler> GetFrameHandler() override { return this; }
   CefRefPtr<CefDownloadHandler> GetDownloadHandler() override;
+
+  // Page signals from the render process, and frames leaving the page (BowTabPageSignals.mm)
+  bool OnProcessMessageReceived(CefRefPtr<CefBrowser> browser,
+                                CefRefPtr<CefFrame> frame,
+                                CefProcessId sourceProcess,
+                                CefRefPtr<CefProcessMessage> message) override;
+  void OnFrameDetached(CefRefPtr<CefBrowser> browser, CefRefPtr<CefFrame> frame) override;
 
   // CefLifeSpanHandler (BowTabLifeSpan.mm)
   bool OnBeforePopup(CefRefPtr<CefBrowser> browser,

@@ -241,4 +241,48 @@ import Testing
         let future = UnloadTab(lastActive: now.addingTimeInterval(100))
         #expect(policy().decide(tabs: [future], pressure: .critical).count == 1)
     }
+
+    @Test func anEditedFormKeepsAnIdleTabAtNormalAndWarningPressure() {
+        let edited = tab(idleMinutes: 24 * 60) { $0.hasEditedForm = true }
+        let pinned = tab(idleMinutes: 24 * 60) {
+            $0.hasEditedForm = true
+            $0.isPinnedOrFavorite = true
+        }
+        #expect(policy().decide(tabs: [edited, pinned], pressure: .normal).isEmpty)
+        #expect(policy().decide(tabs: [edited, pinned], pressure: .warning).isEmpty)
+    }
+
+    @Test func anEditedFormIsNotTrimmedToTheLoadedTabLimitAtWarningPressure() {
+        // Eight recently used tabs at warning pressure (limit 6): the two least recently used go, skipping the edited one.
+        let edited = tab(idleMinutes: 8) { $0.hasEditedForm = true }
+        let others = (1...7).map { tab(idleMinutes: Double($0)) }
+        let decisions = policy().decide(tabs: [edited] + others, pressure: .warning)
+        #expect(decisions.map(\.id) == [others[6].id, others[5].id])
+        #expect(decisions.allSatisfy { $0.reason == .overLimit })
+    }
+
+    @Test func anEditedFormStillCountsTowardTheLoadedTabLimit() {
+        let edited = (1...7).map { minutes in tab(idleMinutes: Double(minutes)) { $0.hasEditedForm = true } }
+        let plain = tab(idleMinutes: 0)
+        #expect(policy().decide(tabs: edited + [plain], pressure: .warning) == [UnloadDecision(id: plain.id, reason: .overLimit)])
+    }
+
+    @Test func criticalPressureUnloadsAnEditedForm() {
+        let edited = tab(idleMinutes: 0) { $0.hasEditedForm = true }
+        #expect(policy().decide(tabs: [edited], pressure: .critical) == [UnloadDecision(id: edited.id, reason: .idle)])
+    }
+
+    @Test func anEditedFormDoesNotOverrideOtherExemptions() {
+        let shown = tab(idleMinutes: 24 * 60) {
+            $0.hasEditedForm = true
+            $0.isVisible = true
+        }
+        #expect(policy().decide(tabs: [shown], pressure: .critical).isEmpty)
+    }
+
+    @Test func aTabWithoutAnEditedFormStillUnloadsWhenIdle() {
+        let plain = tab(idleMinutes: 61)
+        let edited = tab(idleMinutes: 61) { $0.hasEditedForm = true }
+        #expect(policy().decide(tabs: [plain, edited], pressure: .normal) == [UnloadDecision(id: plain.id, reason: .idle)])
+    }
 }

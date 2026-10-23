@@ -9,5 +9,10 @@
   <h1>Unload form fixture</h1>
   <p>A field with no beforeunload handler: typing into it must keep the tab loaded.</p>
   <input id="field" type="text" autocomplete="off">
+  <script>
+    // Key events that reached the page, so a test can show text arrived without any.
+    window.keys = 0;
+    addEventListener("keydown", () => { window.keys += 1; }, true);
+  </script>
 </body>
 </html>
