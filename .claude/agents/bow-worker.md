@@ -33,6 +33,25 @@ Your working directory is your own git worktree of this repository.
 - Time box: about 30 minutes unless the brief says otherwise.
   Past it, commit and report where you are.
 
+## Checks, once
+
+- While building, run only your area.
+- At the end, rebase onto `origin/main` once, then run `make verify` once and the full `make e2e` once, as separate commands.
+- If main moves afterwards with no conflict, report anyway: the landing reruns everything.
+- A failure or FLAKY outside your area is reported, not rerun.
+- Never squash or reset onto `origin/main`.
+- When the lead says the branch gets no independent review, `/code-review` in the foreground is still required.
+
+## Before you report
+
+Your report answers each of these:
+1. Fails without the change: revert the core change (or stub its key line), show that each Done when check prints FAIL, then restore it.
+2. Waits on events, not time: wait for the specific URL, ID, prompt or event, never a fixed sleep.
+3. Unhappy paths of anything that closes, deletes, moves or saves: a leave prompt answered Stay, the Space switching midway, two actions at once, the active tab being the one affected, quit during it.
+4. Nothing outlives close or quit: timers, references, parked pages, open files.
+5. It works the way the Done when items say and the way Arc does, walked through as a person would use it.
+6. Flows that work today still work.
+
 ## Never
 
 - Push, merge, or touch Plane (the lead does).
