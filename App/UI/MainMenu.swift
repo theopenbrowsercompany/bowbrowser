@@ -52,6 +52,11 @@ enum MainMenu {
         let about = NSMenuItem(title: "About Bow", action: #selector(Licenses.showAbout(_:)), keyEquivalent: "")
         about.target = Licenses.self
         menu.addItem(about)
+        let makeDefault = NSMenuItem(
+            title: DefaultBrowser.setTitle, action: #selector(DefaultBrowserCommand.setAsDefaultBrowser(_:)),
+            keyEquivalent: "")
+        makeDefault.target = DefaultBrowserCommand.shared
+        menu.addItem(makeDefault)
         menu.addItem(.separator())
         menu.addItem(withTitle: "Hide Bow", action: #selector(NSApplication.hide(_:)), keyEquivalent: "h")
         menu.addItem(.separator())
