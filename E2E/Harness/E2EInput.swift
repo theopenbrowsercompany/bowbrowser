@@ -32,6 +32,14 @@ enum E2EMouseButton: String {
     fileprivate var heldBit: Int { self == .left ? 1 : 4 }
 }
 
+/// Where a page press lands, in the page's viewport, and whether the page itself can confirm that it arrived.
+struct E2EPressTarget {
+    var selector: String
+    var x: Double
+    var y: Double
+    var confirms: Bool
+}
+
 /// Modifier keys held during a page click, as the Input domain's `modifiers` bit field.
 struct E2EInputModifiers: OptionSet {
     let rawValue: Int
@@ -63,6 +71,17 @@ extension E2EPage {
     /// are confirmed and resent alike: a click of another button than the left one reaches the page as `auxclick`,
     /// which counts as the click.
     func click(_ selector: String, button: E2EMouseButton = .left, modifiers: E2EInputModifiers = []) async throws {
+        let target = try await pressTarget(selector, verb: "click")
+        try await confirmedPress(
+            at: target, verb: "click", button: button.rawValue, heldBit: button.heldBit, modifiers: modifiers,
+            released: (name: "click", events: ["click", "auxclick"]))
+    }
+
+    /// Where a press on the first element matching `selector` lands, scrolling it into view first, and whether the
+    /// page itself can confirm it (not when it lands in a frame, whose own document receives it). Turns focus
+    /// emulation on first. Throws when no element matches, it has no size, or something else covers its center (so
+    /// the press would land elsewhere).
+    func pressTarget(_ selector: String, verb: String) async throws -> E2EPressTarget {
         try await emulateFocus()
         let center = try await evaluate(
             """
@@ -80,61 +99,73 @@ extension E2EPage {
             """
         )
         guard let point = center as? [Double], point.count == 3 else {
-            throw E2EError("cannot click \(selector): \(center as? String ?? "no position")")
+            throw E2EError("cannot \(verb) \(selector): \(center as? String ?? "no position")")
         }
-        let confirms = point[2] == 1
-        // `buttons` is the buttons held after the event: the clicked one while pressed, none once released.
+        return E2EPressTarget(selector: selector, x: point[0], y: point[1], confirms: point[2] == 1)
+    }
+
+    /// Presses and releases `button` at `target` with `modifiers` held, confirming that the press (`pointerdown`)
+    /// and then one of `released.events` reached the page, and sending again what the page missed, a short moment
+    /// later, until it lands or the step's wait budget runs out (see `click(_:button:modifiers:)` for why). Once the
+    /// page saw one of `released.events` nothing is sent again, so a press whose default action opens something (a
+    /// context menu) opens it once. Each resend is logged to stderr (chromium.log) as `E2E <verb> <selector>: ...`.
+    /// A target that cannot confirm is pressed once.
+    func confirmedPress(
+        at target: E2EPressTarget, verb: String, button: String, heldBit: Int, modifiers: E2EInputModifiers,
+        released: (name: String, events: [String])
+    ) async throws {
+        // `buttons` is the buttons held after the event: the pressed one while held, none once released.
         func send(_ type: String, buttons: Int) async throws {
             _ = try await devTools(
                 "Input.dispatchMouseEvent",
                 [
-                    "type": type, "x": point[0], "y": point[1], "button": button.rawValue, "buttons": buttons,
+                    "type": type, "x": target.x, "y": target.y, "button": button, "buttons": buttons,
                     "clickCount": 1, "modifiers": modifiers.rawValue,
                 ]
             )
         }
-        // Whether the page saw `event` since it was armed. The DevTools call returns once the renderer handled
+        // Whether the page saw `field` since it was armed. The DevTools call returns once the renderer handled
         // the event, so its listener has run by then. No record at all means a new document replaced the page,
         // which only input that landed can do, so that counts as seen.
-        func missed(_ event: String) async throws -> Bool {
-            try await evaluate("window.\(Self.clickRecord)?.\(event)") as? Bool == false
+        func missed(_ field: String) async throws -> Bool {
+            try await evaluate("window.\(Self.pressRecord)?.\(field)") as? Bool == false
         }
+        let arm = Self.armPressRecord(released: released.events)
         let deadline = Date().addingTimeInterval(E2EWaits.budget())
         var resends = 0
         while true {
-            if confirms { _ = try await evaluate(Self.armClickRecord) }
-            try await send("mousePressed", buttons: button.heldBit)
+            if target.confirms { _ = try await evaluate(arm) }
+            try await send("mousePressed", buttons: heldBit)
             var lost: String?
-            if confirms, try await missed("pressed") {
+            if target.confirms, try await missed("pressed") {
                 lost = "press"
             } else {
                 try await send("mouseReleased", buttons: 0)
-                if confirms, try await missed("clicked") { lost = "click" }
+                if target.confirms, try await missed("released") { lost = released.name }
             }
             guard let lost else { return }
             resends += 1
-            let note = "E2E click \(selector): the page missed the \(lost), resend \(resends)\n"
+            let note = "E2E \(verb) \(target.selector): the page missed the \(lost), resend \(resends)\n"
             FileHandle.standardError.write(Data(note.utf8))
             guard Date() < deadline else {
-                throw E2EError("cannot click \(selector): the page missed the \(lost) \(resends) times")
+                throw E2EError("cannot \(verb) \(target.selector): the page missed the \(lost) \(resends) times")
             }
             try await Task.sleep(nanoseconds: 50_000_000)
         }
     }
 
-    /// The page global in which `click(_:)` records the press and click that reached the page.
-    private static var clickRecord: String { "__bowE2EClick" }
+    /// The page global in which `confirmedPress` records the press and release events that reached the page.
+    private static var pressRecord: String { "__bowE2EPress" }
 
-    /// Starts a fresh record for one press and click. Listeners left from an earlier arming write to their own
-    /// old record, which nothing reads.
-    private static var armClickRecord: String {
+    /// Starts a fresh record for one press and the first of `released` to follow it. Listeners left from an earlier
+    /// arming write to their own old record, which nothing reads.
+    private static func armPressRecord(released: [String]) -> String {
         """
         (() => {
-          const record = window.\(clickRecord) = { pressed: false, clicked: false };
+          const record = window.\(pressRecord) = { pressed: false, released: false };
           addEventListener('pointerdown', () => { record.pressed = true; }, { capture: true, once: true });
-          // A click of another button than the left one arrives as `auxclick`, not `click`.
-          for (const type of ['click', 'auxclick']) {
-            addEventListener(type, () => { record.clicked = true; }, { capture: true, once: true });
+          for (const type of \(jsArray(released))) {
+            addEventListener(type, () => { record.released = true; }, { capture: true, once: true });
           }
         })()
         """
@@ -192,6 +223,11 @@ extension E2EPage {
         }
         _ = try await devTools("Input.dispatchKeyEvent", down)
         _ = try await devTools("Input.dispatchKeyEvent", up)
+    }
+
+    /// `values` as a JavaScript array of string literals.
+    static func jsArray(_ values: [String]) -> String {
+        "[" + values.map(jsString).joined(separator: ", ") + "]"
     }
 
     /// `value` as a JavaScript string literal.
