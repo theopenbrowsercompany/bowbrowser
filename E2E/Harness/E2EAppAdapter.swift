@@ -844,7 +844,7 @@ extension E2EAppAdapter {
         return track(tab, in: controller, token: token)
     }
 
-    func profileID(of page: any E2EPage) throws -> String {
+    func tabProfileID(of page: any E2EPage) throws -> String {
         try Self.tabPage(page).tab.profileID.rawValue
     }
 }
@@ -864,7 +864,7 @@ extension TestApp: E2EStoreApp {
         return try adapter.openExternalLink(url, token: token)
     }
 
-    func profileID(of page: any E2EPage) throws -> String {
-        try adapter.profileID(of: page)
+    func tabProfileID(of page: any E2EPage) throws -> String {
+        try adapter.tabProfileID(of: page)
     }
 }

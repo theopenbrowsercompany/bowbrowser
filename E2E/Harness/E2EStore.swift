@@ -25,5 +25,5 @@ protocol E2EStoreApp: E2EApp {
     /// Opens `url` the way a link clicked in another app arrives, and returns the page of the tab it opened.
     func openExternalLink(_ url: URL) throws -> any E2EPage
     /// The ID of the engine profile `page`'s tab was created in.
-    func profileID(of page: any E2EPage) throws -> String
+    func tabProfileID(of page: any E2EPage) throws -> String
 }
