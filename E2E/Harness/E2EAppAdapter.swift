@@ -280,6 +280,11 @@ final class E2EAppAdapter {
         return page
     }
 
+    /// Every view of type `type` inside `root`, depth first, `root` included.
+    static func views<View: NSView>(in root: NSView, _ type: View.Type) -> [View] {
+        ([root as? View].compactMap { $0 }) + root.subviews.flatMap { views(in: $0, type) }
+    }
+
     private static func checkInvisible(_ window: NSWindow) async throws {
         try await checkAccessory()
         if window.canBecomeKey || window.canBecomeMain || window.isKeyWindow {
