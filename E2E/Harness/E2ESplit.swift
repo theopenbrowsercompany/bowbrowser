@@ -7,6 +7,9 @@ import Foundation
 protocol E2ESplitApp: E2EApp {
     /// The splits of `page`'s window and what its panes show.
     func splitState(of page: any E2EPage) throws -> E2ESplitState
+    /// Points what new tabs of `page`'s window open (the window's `newTabURL`) at `url`, so a test opens no outside
+    /// page.
+    func setNewTabURL(_ url: URL, of page: any E2EPage) throws
     /// Clicks outline row `row` (a tab or split row) of `page`'s window, as the outline's click action does.
     func clickSplitSidebarRow(_ row: Int, in page: any E2EPage) throws
     /// Presses the close button of the pane at `index` in `page`'s window. Throws when that pane has none.
