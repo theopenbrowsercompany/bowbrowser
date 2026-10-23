@@ -55,12 +55,19 @@ BowContextMenuMediaType ToMediaType(cef_context_menu_media_type_t type) {
   }
 }
 
-static_assert(BowContextMenuCommandUndo == MENU_ID_UNDO && BowContextMenuCommandRedo == MENU_ID_REDO &&
-                  BowContextMenuCommandCut == MENU_ID_CUT && BowContextMenuCommandCopy == MENU_ID_COPY &&
-                  BowContextMenuCommandPaste == MENU_ID_PASTE && BowContextMenuCommandSelectAll == MENU_ID_SELECT_ALL,
+constexpr bool Same(long bow, long cef) { return bow == cef; }
+static_assert(Same(BowContextMenuCommandUndo, MENU_ID_UNDO) && Same(BowContextMenuCommandRedo, MENU_ID_REDO) &&
+                  Same(BowContextMenuCommandCut, MENU_ID_CUT) && Same(BowContextMenuCommandCopy, MENU_ID_COPY) &&
+                  Same(BowContextMenuCommandPaste, MENU_ID_PASTE) &&
+                  Same(BowContextMenuCommandSelectAll, MENU_ID_SELECT_ALL),
               "BowContextMenuCommand must match CEF's menu IDs");
-static_assert(BowContextMenuEditFlagsCanUndo == CM_EDITFLAG_CAN_UNDO &&
-                  BowContextMenuEditFlagsCanSelectAll == CM_EDITFLAG_CAN_SELECT_ALL,
+static_assert(Same(BowContextMenuEditFlagsCanUndo, CM_EDITFLAG_CAN_UNDO) &&
+                  Same(BowContextMenuEditFlagsCanRedo, CM_EDITFLAG_CAN_REDO) &&
+                  Same(BowContextMenuEditFlagsCanCut, CM_EDITFLAG_CAN_CUT) &&
+                  Same(BowContextMenuEditFlagsCanCopy, CM_EDITFLAG_CAN_COPY) &&
+                  Same(BowContextMenuEditFlagsCanPaste, CM_EDITFLAG_CAN_PASTE) &&
+                  Same(BowContextMenuEditFlagsCanDelete, CM_EDITFLAG_CAN_DELETE) &&
+                  Same(BowContextMenuEditFlagsCanSelectAll, CM_EDITFLAG_CAN_SELECT_ALL),
               "BowContextMenuEditFlags must match CEF's edit flags");
 
 BowContextMenuEditFlags ToEditFlags(int flags) {

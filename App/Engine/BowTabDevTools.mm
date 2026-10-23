@@ -1,12 +1,12 @@
 // DevTools for a tab's page, in a browser of its own.
 #import "BowTab+Internal.h"
 
+#if BOW_E2E  // E2E seam: the DevTools requests e2e runs record instead of opening a window on screen.
 #include <map>
 #include <utility>
 
 #include "BowE2EHooks.h"  // E2E seam
 
-#if BOW_E2E  // E2E seam: the DevTools requests e2e runs record instead of opening a window on screen.
 namespace {
 std::map<uint64_t, std::pair<size_t, CGPoint>> gDevToolsRequests;
 }
