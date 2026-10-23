@@ -35,7 +35,7 @@ import Testing
 
             let reopened = try SidebarStore(fileURL: url)
             #expect(
-                reopened.openReport == .init(origin: .loaded, migratedFrom: nil, migrationBackupURL: nil, repairs: []))
+                reopened.openReport == .init(origin: .loaded, migratedFrom: nil, backupURL: nil, repairs: []))
             #expect(reopened.graph == store.graph)
             #expect(!reopened.hasUnsavedChanges)
         }
@@ -97,13 +97,8 @@ import Testing
         ("no version", Data(#"{"items": []}"#.utf8)),
         ("boolean version", Data(#"{"version": true}"#.utf8)),
         ("newer version", Data(#"{"version": 99, "items": []}"#.utf8)),
-        ("bad shape", Data(#"{"version": 1, "items": "nope"}"#.utf8)),
-        (
-            "unknown kind",
-            Data(
-                #"{"version":1,"favoritesContainerID":"f","spaces":[],"items":[{"id":"a","childrenIDs":[],"data":{"kind":"easel"}}]}"#
-                    .utf8)
-        ),
+        ("bad shape", Data(#"{"version": 1, "items": "nope", "spaces": []}"#.utf8)),
+        ("no items", Data(#"{"version": 1, "spaces": []}"#.utf8)),
     ])
     func unreadableFileIsSetAsideUntouchedAndAFreshSidebarStarts(name: String, contents: Data) throws {
         try withTemporaryFolder { folder in
@@ -211,7 +206,7 @@ import Testing
             #expect(store.graph["old-tab"]?.tab == SidebarTab(savedURL: "https://old.example", savedTitle: "Old"))
             #expect(store.hasUnsavedChanges)
 
-            let backup = try #require(store.openReport.migrationBackupURL)
+            let backup = try #require(store.openReport.backupURL)
             #expect(backup.lastPathComponent == "Sidebar.version-0.json")
             #expect(try Data(contentsOf: backup) == Data(versionZero.utf8))
 
@@ -383,11 +378,56 @@ import Testing
             #expect(store.hasUnsavedChanges)
             #expect(try Data(contentsOf: url) == original)
 
-            // On quit the app saves again; once the folder is writable the change lands.
+            // Once the folder is writable again, the next commit retries the write even if it changes nothing.
+            try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: folder.path)
+            try store.transaction {}
+            #expect(!store.hasUnsavedChanges)
+            #expect(try SidebarStore(fileURL: url).graph["work"]?.title == "Job")
+        }
+    }
+
+    @Test func saveOnQuitWritesWhatAFailedCommitLeftUnsaved() throws {
+        try withTemporaryFolder { folder in
+            let url = file(in: folder)
+            try write(try .twelveItems(), to: url)
+            let store = try SidebarStore(fileURL: url)
+            try FileManager.default.setAttributes([.posixPermissions: 0o555], ofItemAtPath: folder.path)
+            #expect(throws: SidebarStoreError.self) { try store.apply([.delete("news")]) }
+            #expect(throws: SidebarStoreError.self) { try store.save() }
             try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: folder.path)
             try store.save()
             #expect(!store.hasUnsavedChanges)
-            #expect(try SidebarStore(fileURL: url).graph["work"]?.title == "Job")
+            #expect(try SidebarStore(fileURL: url).graph["news"] == nil)
+        }
+    }
+
+    @Test func oneUnreadableRecordIsSkippedAndTheRestRecovered() throws {
+        try withTemporaryFolder { folder in
+            let url = file(in: folder)
+            var object = try #require(
+                try JSONSerialization.jsonObject(with: SidebarFileFormat.encode(try .twelveItems())) as? [String: Any])
+            // The "work" folder becomes a kind this build does not know, and Favorites loses its ID.
+            var items = try #require(object["items"] as? [[String: Any]])
+            let index = try #require(items.firstIndex { $0["id"] as? String == "work" })
+            items[index]["data"] = ["kind": "easel"]
+            object["items"] = items
+            object["favoritesContainerID"] = nil
+            let original = try JSONSerialization.data(withJSONObject: object)
+            try original.write(to: url)
+
+            let store = try SidebarStore(fileURL: url)
+            #expect(store.openReport.origin == .loaded)
+            #expect(store.openReport.repairs.contains(.skippedUnreadableRecords(1)))
+            // Only the unreadable record is missing; what was inside it is recovered, and the old Favorites tabs too.
+            #expect(store.graph["work"] == nil)
+            #expect(store.graph.contentItemCount == 12)
+            let recovered = try #require(store.graph[.recentlyRecovered]?.childrenIDs)
+            #expect(Set(recovered) == ["docs", "deep", "fav-mail", "fav-cal"])
+            #expect(store.graph["deep"]?.childrenIDs == ["deep-tab"])
+
+            let backup = try #require(store.openReport.backupURL)
+            #expect(backup.lastPathComponent.hasPrefix("Sidebar.repaired-"))
+            #expect(try Data(contentsOf: backup) == original)
         }
     }
 
@@ -407,8 +447,14 @@ import Testing
             #expect(store.graph[.recentlyRecovered]?.childrenIDs == ["work"])
             #expect(store.graph.contentItemCount == 13)
             #expect(store.hasUnsavedChanges)
+            let backup = try #require(store.openReport.backupURL)
+            #expect(try SidebarStore(fileURL: url).openReport.backupURL != backup)
             try store.save()
-            #expect(try SidebarStore(fileURL: url).openReport.repairs.isEmpty)
+            let reopened = try SidebarStore(fileURL: url)
+            #expect(reopened.openReport.repairs.isEmpty)
+            #expect(reopened.openReport.backupURL == nil)
+            // The copy of the damaged file is still there, untouched.
+            #expect(try SidebarStore(fileURL: backup).openReport.repairs.contains(.recovered("work")))
         }
     }
 

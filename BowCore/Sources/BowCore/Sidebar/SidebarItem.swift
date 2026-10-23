@@ -1,7 +1,8 @@
 import Foundation
 
-/// The stable ID of a sidebar item. IDs are never reused, so a saved reference can always be checked.
-public struct SidebarItemID: RawRepresentable, Hashable, Comparable, Codable, Sendable, ExpressibleByStringLiteral,
+/// A stable ID for sidebar records, typed by what it names so item and Space IDs cannot be mixed up.
+/// IDs are never reused, so a saved reference can always be checked.
+public struct SidebarID<Kind>: RawRepresentable, Hashable, Comparable, Codable, Sendable, ExpressibleByStringLiteral,
     CustomStringConvertible
 {
     public let rawValue: String
@@ -12,40 +13,25 @@ public struct SidebarItemID: RawRepresentable, Hashable, Comparable, Codable, Se
     public init(from decoder: any Decoder) throws { rawValue = try decoder.singleValueContainer().decode(String.self) }
 
     /// A new random ID.
-    public static func make() -> SidebarItemID { SidebarItemID(UUID().uuidString.lowercased()) }
-
-    /// The folder that collects items the cleanup pass found without a valid place in the sidebar.
-    public static let recentlyRecovered: SidebarItemID = "bow.sidebar.recently-recovered"
+    public static func make() -> SidebarID { SidebarID(UUID().uuidString.lowercased()) }
 
     public func encode(to encoder: any Encoder) throws {
         var container = encoder.singleValueContainer()
         try container.encode(rawValue)
     }
 
-    public static func < (lhs: SidebarItemID, rhs: SidebarItemID) -> Bool { lhs.rawValue < rhs.rawValue }
+    public static func < (lhs: SidebarID, rhs: SidebarID) -> Bool { lhs.rawValue < rhs.rawValue }
     public var description: String { rawValue }
 }
 
-/// The stable ID of a Space.
-public struct SidebarSpaceID: RawRepresentable, Hashable, Comparable, Codable, Sendable, ExpressibleByStringLiteral,
-    CustomStringConvertible
-{
-    public let rawValue: String
+public enum SidebarItemIDKind {}
+public enum SidebarSpaceIDKind {}
+public typealias SidebarItemID = SidebarID<SidebarItemIDKind>
+public typealias SidebarSpaceID = SidebarID<SidebarSpaceIDKind>
 
-    public init(rawValue: String) { self.rawValue = rawValue }
-    public init(_ rawValue: String) { self.rawValue = rawValue }
-    public init(stringLiteral value: String) { self.rawValue = value }
-    public init(from decoder: any Decoder) throws { rawValue = try decoder.singleValueContainer().decode(String.self) }
-
-    public static func make() -> SidebarSpaceID { SidebarSpaceID(UUID().uuidString.lowercased()) }
-
-    public func encode(to encoder: any Encoder) throws {
-        var container = encoder.singleValueContainer()
-        try container.encode(rawValue)
-    }
-
-    public static func < (lhs: SidebarSpaceID, rhs: SidebarSpaceID) -> Bool { lhs.rawValue < rhs.rawValue }
-    public var description: String { rawValue }
+extension SidebarID where Kind == SidebarItemIDKind {
+    /// The folder that collects items the cleanup pass found without a valid place in the sidebar.
+    public static var recentlyRecovered: SidebarItemID { "bow.sidebar.recently-recovered" }
 }
 
 /// A saved tab. Its saved address and title are the durable truth: the page a tab shows while it is open lives in

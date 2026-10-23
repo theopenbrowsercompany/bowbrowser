@@ -179,14 +179,23 @@ import Testing
         #expect(log.contains { if case .createdSpace = $0 { return true } else { return false } })
     }
 
-    @Test func danglingActivePointersAreCleared() throws {
-        var graph = try SidebarGraph.twelveItems()
+    @Test func danglingActivePointersAreRepaired() throws {
+        var graph = try SidebarGraph.twelveItems().applying([.insertSpace("second", title: "Second")])
         graph.activeSpaceID = "gone"
         graph.activeTabID = "work"
         let (after, log) = repaired(graph)
-        #expect(after.activeSpaceID == nil)
+        #expect(after.activeSpaceID == "home")
         #expect(after.activeTabID == nil)
-        #expect(log.contains(.clearedActiveSpace) && log.contains(.clearedActiveTab))
+        #expect(log.contains(.resetActiveSpace("home")) && log.contains(.clearedActiveTab))
+
+        // A missing active Space is filled in too, and recovered items go to that Space.
+        graph = try SidebarGraph.twelveItems()
+        graph.activeSpaceID = nil
+        graph.items["news"]?.parentID = nil
+        graph.items["unpinned"]?.childrenIDs = ["search"]
+        let (filled, _) = repaired(graph)
+        #expect(filled.activeSpaceID == "home")
+        #expect(filled[.recentlyRecovered]?.parentID == "pinned")
     }
 
     @Test func itemsStoredUnderTheWrongKeyAreNormalized() throws {

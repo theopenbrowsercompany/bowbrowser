@@ -22,7 +22,7 @@ Bow keeps it in one file of its own, separate from the engine's session data.
 ## Edge cases
 
 - First launch, or the file is missing: Bow starts with one empty Space and empty Favorites, and writes the file once there is something to save.
-- The file cannot be read (damaged, cut short, not Bow's format, or written by a newer Bow): Bow starts with one empty Space and moves the old file aside as `Sidebar.unreadable-<date>-<time>.json` in the same folder, untouched.
+- The file cannot be read at all (cut short, not Bow's format, or written by a newer Bow): Bow starts with one empty Space and moves the old file aside as `Sidebar.unreadable-<date>-<time>.json` in the same folder, untouched.
   A later unreadable file gets its own name and never replaces an earlier one.
   If the file cannot be moved aside, Bow does not write over it.
 - The file was written by an older Bow: it is upgraded on launch, and a copy of the original is kept beside it as `Sidebar.version-<old version>.json`.
@@ -30,7 +30,10 @@ Bow keeps it in one file of its own, separate from the engine's session data.
   Leftover temporary files from an interrupted save are removed at the next launch.
 - Saving fails (for example the disk is full or the folder is read-only): the change stays visible, Bow tries again with the next change and on quit, and the file keeps its previous contents meanwhile.
 - The file's structure disagrees with itself (a tab whose folder no longer lists it, a folder listing a tab that is gone, items pointing at each other in a loop, a Space whose section is missing): Bow repairs it on launch.
-  Tabs, folders and splits that have no valid place are never deleted; they are collected in a folder named "Recently recovered" at the top of the current Space's pinned section, keeping their contents.
+  Tabs, folders and splits that have no valid place are never deleted; they are collected in a folder named "Recently recovered", keeping their contents.
+  That folder is created at the top of the current Space's pinned section, and if it already exists wherever the person put it, recovered items are added to its end.
+- A single entry in the file cannot be read (for example one tab saved in a form this Bow does not know): only that entry is left out, the rest of the sidebar opens, and anything that was inside it goes to "Recently recovered".
+- Whenever launch had to repair the file, a copy of it as it was is kept beside it as `Sidebar.repaired-<date>-<time>.json` before Bow saves over it.
 - A Space's pinned and unpinned sections are removed only together with the Space, and the last Space cannot be deleted: there is always at least one Space.
 - Hundreds of tabs: only the selected one loads at launch, so startup stays quick.
 

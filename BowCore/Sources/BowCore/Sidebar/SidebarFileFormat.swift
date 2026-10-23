@@ -53,9 +53,39 @@ public enum SidebarFileFormat {
         public var migratedFrom: Int?
         /// IDs that appeared more than once; the first item with each ID was kept.
         public var duplicateItemIDs: [SidebarItemID]
+        /// How many items or Spaces could not be read and were left out. The cleanup pass recovers what hung under them.
+        public var skippedRecordCount: Int
     }
 
-    private struct Contents: Codable {
+    /// Reads the file forgivingly: one bad item or Space is skipped rather than costing the whole sidebar, and a
+    /// missing Favorites section is left for the cleanup pass to recreate. Only `items` and `spaces` must be arrays.
+    private struct ForgivingContents: Decodable {
+        var favoritesContainerID: SidebarItemID?
+        var activeSpaceID: SidebarSpaceID?
+        var activeTabID: SidebarItemID?
+        var spaces: [Forgiving<SidebarSpace>]
+        var items: [Forgiving<SidebarItem>]
+
+        private enum CodingKeys: String, CodingKey {
+            case favoritesContainerID, activeSpaceID, activeTabID, spaces, items
+        }
+
+        init(from decoder: any Decoder) throws {
+            let values = try decoder.container(keyedBy: CodingKeys.self)
+            favoritesContainerID = try? values.decodeIfPresent(SidebarItemID.self, forKey: .favoritesContainerID)
+            activeSpaceID = try? values.decodeIfPresent(SidebarSpaceID.self, forKey: .activeSpaceID)
+            activeTabID = try? values.decodeIfPresent(SidebarItemID.self, forKey: .activeTabID)
+            spaces = try values.decode([Forgiving<SidebarSpace>].self, forKey: .spaces)
+            items = try values.decode([Forgiving<SidebarItem>].self, forKey: .items)
+        }
+    }
+
+    private struct Forgiving<Value: Decodable>: Decodable {
+        var value: Value?
+        init(from decoder: any Decoder) throws { value = try? decoder.singleValueContainer().decode(Value.self) }
+    }
+
+    private struct Contents: Encodable {
         var version: Int
         var favoritesContainerID: SidebarItemID
         var activeSpaceID: SidebarSpaceID?
@@ -110,24 +140,30 @@ public enum SidebarFileFormat {
             }
         }
 
-        let contents: Contents
+        let contents: ForgivingContents
         do {
-            contents = try JSONDecoder().decode(Contents.self, from: upgraded)
+            contents = try JSONDecoder().decode(ForgivingContents.self, from: upgraded)
         } catch {
             throw .invalidContents(String(describing: error))
         }
+        let readItems = contents.items.compactMap(\.value)
+        let spaces = contents.spaces.compactMap(\.value)
         var items: [SidebarItemID: SidebarItem] = [:]
         var duplicates: [SidebarItemID] = []
-        for item in contents.items {
+        for item in readItems {
             if items[item.id] == nil { items[item.id] = item } else { duplicates.append(item.id) }
         }
         let graph = SidebarGraph(
             items: items,
-            spaces: contents.spaces,
-            favoritesContainerID: contents.favoritesContainerID,
+            spaces: spaces,
+            // A new ID names no item, so the cleanup pass creates a new Favorites section.
+            favoritesContainerID: contents.favoritesContainerID ?? .make(),
             activeSpaceID: contents.activeSpaceID,
             activeTabID: contents.activeTabID)
         return Decoded(
-            graph: graph, migratedFrom: version < currentVersion ? version : nil, duplicateItemIDs: duplicates)
+            graph: graph,
+            migratedFrom: version < currentVersion ? version : nil,
+            duplicateItemIDs: duplicates,
+            skippedRecordCount: contents.items.count - readItems.count + contents.spaces.count - spaces.count)
     }
 }

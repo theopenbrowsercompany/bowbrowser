@@ -10,6 +10,7 @@ public struct SidebarGraph: Hashable, Sendable {
     /// Spaces in the order the person arranged them.
     public internal(set) var spaces: [SidebarSpace]
     public internal(set) var favoritesContainerID: SidebarItemID
+    /// The Space on screen. Always set in a sound graph; optional only so a damaged file can still be read.
     public internal(set) var activeSpaceID: SidebarSpaceID?
     /// The tab that was selected when the sidebar was last saved; the only one that loads right away on launch.
     public internal(set) var activeTabID: SidebarItemID?
@@ -141,8 +142,8 @@ public struct SidebarGraph: Hashable, Sendable {
             problems.append("\(id) cannot be reached from any section")
         }
 
-        if let activeSpaceID, space(activeSpaceID) == nil {
-            problems.append("active space \(activeSpaceID) does not exist")
+        if activeSpaceID.flatMap({ space($0) }) == nil {
+            problems.append("active space \(activeSpaceID?.rawValue ?? "none") does not exist")
         }
         if let activeTabID, items[activeTabID]?.data.isTab != true {
             problems.append("active tab \(activeTabID) is not a tab")
