@@ -25,9 +25,17 @@ public struct PageFullscreen: Equatable, Sendable {
     public private(set) var tab: TabID?
     /// Whether page fullscreen put the window in macOS full screen, so leaving it takes the window back out.
     public private(set) var enteredWindowFullScreen = false
-    /// The macOS full screen transition in progress: true while the window animates into full screen, false while it
-    /// animates out, nil when none is. macOS ignores a toggle sent during one, so page fullscreen waits for its end.
-    public private(set) var transition: Bool?
+    /// A macOS full screen transition: the window animating into full screen or out of it.
+    public enum Transition: Equatable, Sendable {
+        case entering, exiting
+
+        /// Whether the window is in full screen once the transition ends.
+        public var target: Bool { self == .entering }
+    }
+
+    /// The macOS full screen transition in progress, or nil. macOS ignores a toggle sent during one, so page
+    /// fullscreen waits for its end.
+    public private(set) var transition: Transition?
     /// The full screen state page fullscreen asked for during the transition, which the window is toggled into once
     /// the transition ends if it is not there; nil when nothing is waiting.
     public private(set) var queuedFullScreen: Bool?
@@ -49,7 +57,7 @@ public struct PageFullscreen: Equatable, Sendable {
             return [.exitPage(other)]
         }
         self.tab = tab
-        enteredWindowFullScreen = !(queuedFullScreen ?? transition ?? windowIsFullScreen)
+        enteredWindowFullScreen = !(queuedFullScreen ?? transition?.target ?? windowIsFullScreen)
         return enteredWindowFullScreen ? [.hideChrome] + setWindowFullScreen(true) : [.hideChrome]
     }
 
@@ -57,12 +65,12 @@ public struct PageFullscreen: Equatable, Sendable {
 
     /// The window began animating into macOS full screen (`NSWindow.willEnterFullScreenNotification`), whoever asked.
     public mutating func windowWillEnterFullScreen() {
-        transition = true
+        transition = .entering
     }
 
     /// The window began animating out of macOS full screen (`NSWindow.willExitFullScreenNotification`).
     public mutating func windowWillExitFullScreen() {
-        transition = false
+        transition = .exiting
     }
 
     /// The window is in macOS full screen (`NSWindow.didEnterFullScreenNotification`): a page that left while it
@@ -130,8 +138,8 @@ public struct PageFullscreen: Equatable, Sendable {
     /// Asks for the window in or out of macOS full screen: a toggle now, or, during a transition, a wish the
     /// transition's end carries out. A wish for where the transition is heading cancels an earlier one.
     private mutating func setWindowFullScreen(_ fullScreen: Bool) -> [Action] {
-        guard let heading = transition else { return [.toggleWindowFullScreen] }
-        queuedFullScreen = fullScreen == heading ? nil : fullScreen
+        guard let transition else { return [.toggleWindowFullScreen] }
+        queuedFullScreen = fullScreen == transition.target ? nil : fullScreen
         return []
     }
 
