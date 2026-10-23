@@ -1,0 +1,14 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Unload</title>
+  <script>
+    document.title = "Unload " + (new URLSearchParams(location.search).get("name") || "?");
+  </script>
+</head>
+<body>
+  <h1>Unload fixture</h1>
+  <p>A background tab for the unload checks.</p>
+</body>
+</html>
