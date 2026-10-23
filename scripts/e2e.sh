@@ -35,11 +35,12 @@
 #   E2E: ERROR ...              exit 64 the app could not start the run (an unknown selection, no build), or the
 #                                       build lock refused to run it (a bad BOW_E2E_SLOTS)
 #   E2E: ERROR interrupted      exit 130 Ctrl-C, TERM or HUP: the app and its helpers are ended at once, and
-#                                       results.json records only that the run was interrupted
+#                                       results.json records only that the run was interrupted. A script started
+#                                       in the background ignores INT (bash cannot trap it), so stop one with TERM.
 set -u
 
 app=${1:-}
-# The selection comes as the second argument or in E2E (make exports it, so no shell quoting gets in the way).
+# The selection comes as the second argument or in E2E (make sets it for this script alone, quoted for the shell).
 selection=${2:-${E2E:-all}}
 retry=${E2E_RETRY:-1}
 keep=${E2E_KEEP:-20}
@@ -90,9 +91,10 @@ sweep() {
   local pids pid i n=0
   # The folder followed by "/" (helpers) or by a space or the end of the line (the app's own --e2e-out=<folder>,
   # in case the app outlived its build lock), so a run never matches a sibling whose name starts with its own.
-  pids=$(ps -axo pid=,command= | D="$1" B="$bundle/Contents/" awk -v me=$$ '
+  # The build lock still running (child, during an interrupt) is left to end by itself and give back its slot.
+  pids=$(ps -axo pid=,command= | D="$1" B="$bundle/Contents/" awk -v me=$$ -v child="${child:-0}" '
     { line = $0 " " }
-    index(line, ENVIRON["B"]) && (index(line, ENVIRON["D"] "/") || index(line, "=" ENVIRON["D"] " ")) && $1 != me { print $1 }')
+    index(line, ENVIRON["B"]) && (index(line, ENVIRON["D"] "/") || index(line, "=" ENVIRON["D"] " ")) && $1 != me && $1 != child { print $1 }')
   [ -n "$pids" ] || return 0
   for pid in $pids; do kill -TERM "$pid" 2>/dev/null && n=$((n + 1)); done
   orphans_killed=$((orphans_killed + n))
@@ -120,17 +122,22 @@ commit_json() {
 # child is that background job, current the folder it runs in.
 current=""
 child=""
+# gone <pid> <tries>: waits up to <tries> times 0.2 seconds for the process to end; fails if it still runs.
+gone() {
+  local i
+  for i in $(seq "$2"); do
+    kill -0 "$1" 2>/dev/null || return 0
+    sleep 0.2
+  done
+  ! kill -0 "$1" 2>/dev/null
+}
 on_signal() {
   trap '' INT TERM HUP
-  local i
-  # The build lock passes TERM on to the app and gives back its slot. A background job ignores INT, so TERM;
-  # KILL after 5 seconds, and the sweep below ends whatever that left behind.
+  # The build lock passes TERM on to the app and gives back its slot (a background job ignores INT, so TERM). An
+  # app that ignores TERM for 5 seconds is swept (KILL after 2 more), which lets the build lock end and give back
+  # its slot; only a build lock still running 2 seconds after that is killed.
   if [ -n "$child" ] && kill -TERM "$child" 2>/dev/null; then
-    for i in $(seq 25); do
-      kill -0 "$child" 2>/dev/null || break
-      sleep 0.2
-    done
-    kill -KILL "$child" 2>/dev/null
+    gone "$child" 25 || { [ -z "$current" ] || sweep "$current"; gone "$child" 10; } || kill -KILL "$child" 2>/dev/null
     wait "$child" 2>/dev/null
   fi
   [ -z "$current" ] || sweep "$current"
@@ -143,13 +150,15 @@ trap 'on_signal INT' INT
 trap 'on_signal TERM' TERM
 trap 'on_signal HUP' HUP
 
-# Runs a command as the background child, keeping this script's stdin, and waits for it; sets child_code.
+# Runs a command as the background child, keeping this script's stdin, waits for it and returns its exit code.
 run_child() {
+  local code
   "$@" <&0 &
   child=$!
   wait "$child"
-  child_code=$?
+  code=$?
   child=""
+  return "$code"
 }
 
 now() { perl -MTime::HiRes=time -e 'printf "%.3f", time'; }
@@ -169,7 +178,7 @@ attempt() {
   # The stamp tells an exit 64 of the app (it refused the selection) from one of the build lock (it never ran the
   # app). exec keeps the app's pid, exit code and signal.
   run_child "$repo/scripts/build-lock.sh" --pool e2e /bin/sh -c ': > "$0/'"$started"'"; exec "$@"' "$dir" "$binary" "$@" --e2e-out="$dir"
-  app_code=$child_code
+  app_code=$?
   seconds=$(perl -e 'printf "%.2f", $ARGV[1] - $ARGV[0]' "$start" "$(now)")
   sweep "$dir"
   current=""
@@ -224,7 +233,7 @@ list_tests() {
 #   T test reason   a failed or timed out test, from its RESULT line, or the test a stuck main thread stopped in
 #                   (named by `E2E: TIMEOUT <test>: <step>`, trusted only when a RESULT, NOT RUN or TEST line names
 #                   that test); the FAIL lines printed after the TIMEOUT line are the stuck test's too (its step
-#                   may end and fail before the app exits)
+#                   may end and fail before the app exits), except chromium.errors and e2e.isolation (C lines)
 #   C check reason  a failure that is no test's: a FAIL line not followed by a failed test's RESULT line
 #                   (chromium.errors, e2e.isolation after a passing test, the quit check), or a TIMEOUT line naming
 #                   no known test (`E2E: TIMEOUT between tests (...)`) and the FAIL lines around it
@@ -240,8 +249,11 @@ analyze() {
     function flush_pending(  i) { for (i = 1; i <= np; i++) check(pn[i], pr[i]); np = 0 }
     /^FAIL / {
       n = $2; sub(/:$/, "", n); r = $0; sub(/^FAIL [^ ]*:? ?/, "", r)
-      # After the TIMEOUT line a FAIL line belongs to the stuck test, like those since the last RESULT line.
-      if (timed) { ntp++; tn[ntp] = n; tr[ntp] = r } else { np++; pn[np] = n; pr[np] = r }
+      # After the TIMEOUT line a FAIL line belongs to the stuck test, like those since the last RESULT line, except
+      # the checks the runner owns, which no test rerun covers.
+      if (timed && (n == "chromium.errors" || n == "e2e.isolation")) check(n, r)
+      else if (timed) { ntp++; tn[ntp] = n; tr[ntp] = r }
+      else { np++; pn[np] = n; pr[np] = r }
       next
     }
     /^RESULT [^ ]+ [^ ]+/ {

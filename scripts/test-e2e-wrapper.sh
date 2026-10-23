@@ -94,6 +94,19 @@ case $FAKE_MODE in
       *) { echo "RESULT a.one pass seconds=0.1 checks=1/1"; echo "E2E: TIMEOUT a.two: open window (main thread stuck)"
         echo "NOT RUN a.three"; echo "FAIL a.two: TIMEOUT: the step ran past 10 s"; } > "$r"; exit 2 ;;
     esac ;;
+  hangterm)
+    # Never ends and ignores TERM, like an app stuck in shutdown.
+    trap '' TERM
+    echo "PASS a.one: ok" > "$r"
+    while :; do sleep 0.1; done ;;
+  stuckchromium)
+    # A runner-owned check fails after the TIMEOUT line: no rerun of tests covers it.
+    case $out in
+      */retry) { echo "RESULT a.one pass seconds=0.1 checks=1/1"; echo "RESULT a.two pass seconds=0.2 checks=1/1"
+        echo "RESULT a.three pass seconds=0.2 checks=1/1"; echo "PASS chromium.errors: ok"; echo "E2E: PASS 4/4"; } > "$r"; exit 0 ;;
+      *) { echo "RESULT a.one pass seconds=0.1 checks=1/1"; echo "E2E: TIMEOUT a.two: open window (main thread stuck)"
+        echo "NOT RUN a.three"; echo "FAIL chromium.errors: 1 unexpected"; } > "$r"; exit 2 ;;
+    esac ;;
   stucknototal)
     # A timeout that prints no total, then a retry of the stuck and not run tests that passes.
     case $out in
@@ -245,6 +258,9 @@ run stucklate 'a.*'
 check "a FAIL line after the TIMEOUT line is the stuck test's: only it and the not run tests rerun" \
   is "$(cat "$BOW_E2E_ROOT/latest/retry/args")" "e2e=a.two,a.three"
 
+run stuckchromium 'a.*'
+check "a chromium.errors FAIL after the TIMEOUT line: whole selection retried" is "$(cat "$BOW_E2E_ROOT/latest/retry/args")" "e2e=a.*"
+
 run stucknototal 'a.*'
 check "no total after a timeout: FLAKY says only the retried tests passed" \
   is "$last" "E2E: FLAKY retried tests passed 2/2 after retrying a.two,a.three (the first attempt printed no total)"
@@ -257,19 +273,20 @@ run badjson
 check "an app results.json that is not JSON: results.json stays valid" valid_json "$res"
 check "an app results.json is kept aside" has "$BOW_E2E_ROOT/latest/app-results.json" "not json"
 
-# interrupt <signal>: runs the wrapper on an app that never ends, sends the signal once the app runs, and sets
-# stopped (yes when the wrapper ended within 4 seconds), code, last, res and iroot.
+# interrupt <signal> [mode] [tenths]: runs the wrapper on an app that never ends (FAKE_MODE hang), sends the signal
+# once the app runs, and sets stopped (yes when the wrapper ended within tenths of a second, default 40), code, last,
+# res and iroot.
 interrupt() {
-  local sig=$1 i wpid
-  iroot="$tmp/int-$sig"
+  local sig=$1 mode=${2:-hang} limit=${3:-40} i wpid
+  iroot="$tmp/int-$sig-$mode"
   # perl gives the wrapper a default INT, as a terminal does: a background job of a script starts with INT ignored.
-  BOW_E2E_ROOT=$iroot FAKE_MODE=hang perl -e '$SIG{INT} = "DEFAULT"; exec @ARGV' ./scripts/e2e.sh "$app" \
+  BOW_E2E_ROOT=$iroot FAKE_MODE=$mode perl -e '$SIG{INT} = "DEFAULT"; exec @ARGV' ./scripts/e2e.sh "$app" \
     > "$tmp/int-$sig.out" 2>&1 &
   wpid=$!
   for i in $(seq 100); do [ -s "$iroot/latest/report.txt" ] && break; sleep 0.1; done
   kill -"$sig" "$wpid"
   stopped=no
-  for i in $(seq 40); do kill -0 "$wpid" 2>/dev/null || { stopped=yes; break; }; sleep 0.1; done
+  for i in $(seq "$limit"); do kill -0 "$wpid" 2>/dev/null || { stopped=yes; break; }; sleep 0.1; done
   if [ "$stopped" = no ]; then
     kill -KILL "$wpid" 2>/dev/null
     pkill -KILL -f "$app/Contents/" 2>/dev/null
@@ -289,6 +306,13 @@ for sig in TERM INT; do
   check "$sig: the app and its helper are ended" is "$(ps -axo command= | grep -F -- "$iroot/" | grep -vc grep)" 0
   check "$sig: the build lock slot is given back" is "$(ls "$BOW_LOCK_DIR/e2e/slots" | wc -l | tr -d ' ')" 0
 done
+# An app that ignores TERM is swept after 5 seconds, so the build lock still ends and gives back its slot.
+interrupt TERM hangterm 120
+check "an app that ignores TERM: the wrapper stops" is "$stopped" yes
+check "an app that ignores TERM: exit 130" is "$code" 130
+check "an app that ignores TERM: the app is ended" is "$(ps -axo command= | grep -F -- "$iroot/" | grep -vc grep)" 0
+check "an app that ignores TERM: the build lock slot is given back" is "$(ls "$BOW_LOCK_DIR/e2e/slots" | wc -l | tr -d ' ')" 0
+check "an app that ignores TERM: no build lock ticket is left" is "$(ls "$BOW_LOCK_DIR/e2e/queue" | wc -l | tr -d ' ')" 0
 
 # The Makefile keeps E2E out of every recipe's environment (xcodebuild takes environment variables as build
 # settings), and e2e and e2e-run hand it to the wrapper whole.
