@@ -49,9 +49,9 @@ extension E2ETestApp: E2EPopupsApp {
         }
     }
 
-    /// The popup panel windows attached to `page`'s window, oldest first.
+    /// The popup panel windows attached to `page`'s window, oldest first, also those a closed window ordered out.
     private func panelWindows(besides page: any E2EPage) throws -> [PopupPanelWindow] {
         let parent = try E2EAppAdapter.tabPage(page).controller.window
-        return (parent?.childWindows ?? []).compactMap { $0 as? PopupPanelWindow }.filter(\.isVisible)
+        return (parent?.childWindows ?? []).compactMap { $0 as? PopupPanelWindow }
     }
 }

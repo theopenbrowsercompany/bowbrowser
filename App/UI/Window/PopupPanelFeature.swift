@@ -53,11 +53,11 @@ final class PopupPanelFeature: NSResponder, BrowserWindowFeature {
 
     func tabDidClose(_ tab: any EngineTab) {
         // A sign in panel reports to the page that opened it; without that page it has nothing left to do.
-        for panel in panels where panel.opener === tab { panel.close() }
+        for panel in panels where panel.opener === tab { panel.close(force: true) }
     }
 
     @objc private func parentWillClose(_ notification: Notification) {
-        for panel in panels { panel.close(windowClosing: true) }
+        for panel in panels { panel.close(force: true) }
     }
 }
 
@@ -104,7 +104,8 @@ final class PopupPanel: NSObject, NSWindowDelegate, EngineTabDelegate {
         webView.autoresizingMask = [.width, .height]
         window.contentView = webView
         var frame = PopupPanelLayout.frame(size: window.frame.size, centeredIn: parent.frame)
-        let step = PopupPanelLayout.margin * CGFloat(cascade)
+        // Each further panel sits a little lower and to the right, starting over every few so none leaves its window.
+        let step = PopupPanelLayout.margin * CGFloat(cascade % 4)
         frame = frame.offsetBy(dx: step, dy: -step)
         window.setFrame(frame, display: false)
         tab.delegate = self
@@ -116,17 +117,30 @@ final class PopupPanel: NSObject, NSWindowDelegate, EngineTabDelegate {
         }
     }
 
-    /// Closes the page, running its beforeunload handler; the panel goes once the page has closed. With
-    /// `windowClosing` the panel leaves the screen at once, and a page that stays is unloaded, never kept unseen.
-    func close(windowClosing: Bool = false) {
+    /// Closes the page, running its beforeunload handler once (a close already under way is not asked again); the
+    /// panel goes once the page has closed. With `force` (its opener tab or window has gone) the panel leaves the
+    /// screen at once, and a page that stays is unloaded, never kept unseen.
+    func close(force: Bool = false) {
         guard !tab.isClosed else { return finish() }
-        if windowClosing { removeWindow() }
+        if force {
+            forced = true
+            removeWindow()
+        }
+        guard !isClosing else { return }
+        isClosing = true
         let tab = tab
-        Task {
+        Task { [weak self] in
             let closed = await tab.close()
-            if !closed && windowClosing { _ = await tab.unload() }
+            guard !closed else { return }
+            self?.isClosing = false
+            if self?.forced ?? true { _ = await tab.unload() }
         }
     }
+
+    /// True while a close of the page is under way.
+    private var isClosing = false
+    /// True once the panel must go whatever the page answers.
+    private var forced = false
 
     /// Takes the panel off the screen and lets go of it, once its page has closed (or will not be shown again).
     private func finish() {
@@ -136,6 +150,7 @@ final class PopupPanel: NSObject, NSWindowDelegate, EngineTabDelegate {
     }
 
     private func removeWindow() {
+        guard window.isVisible || window.parent != nil else { return }
         webView.detach()
         window.parent?.removeChildWindow(window)
         window.delegate = nil
@@ -178,6 +193,10 @@ final class PopupPanel: NSObject, NSWindowDelegate, EngineTabDelegate {
 /// The popup panel's window: it stays where it is put over its browser window (also an e2e window kept off every
 /// screen), and its close requests wait for the page without the alert sound, as `BrowserWindow`'s do.
 final class PopupPanelWindow: NSWindow {
+    /// The browser window stays the main window, so menu commands the panel does not handle (New Tab, Find, the
+    /// sidebar's) still reach it and its features.
+    override var canBecomeMain: Bool { false }
+
     override var isRestorable: Bool {
         get { false }
         set {}

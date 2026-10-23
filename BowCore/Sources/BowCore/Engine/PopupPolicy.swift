@@ -74,12 +74,9 @@ public enum PopupPolicy {
     public static let shiftDecision = PopupDecision.foregroundTab
     /// A request with no user gesture.
     public static let noGestureDecision = PopupDecision.block
-    /// A sized `window.open` from a click (a sign in popup) opens in a panel attached to the opener's window, as Arc
-    /// shows login popups in a small window of their own instead of a tab; it keeps `window.opener`.
-    public static let sizedPopupDecision = PopupDecision.popupPanel
-    /// A plain click (no modifier) that opens an identity provider's sign in page opens it in the panel too, sized or
-    /// not: Arc keeps a list of identity provider pages that stay in a popup. A modified click still opens a tab.
-    public static let identityProviderDecision = PopupDecision.popupPanel
+    /// What a request `opensPanel` accepts gets: a panel attached to the opener's window, as Arc shows sign in popups
+    /// in a small window of their own instead of a tab; it keeps `window.opener`.
+    public static let panelDecision = PopupDecision.popupPanel
     /// The identity providers' sign in pages: a host and, when set, the path the sign in pages start with.
     public static let identityProviders: [IdentityProviderPattern] = [
         IdentityProviderPattern(host: "accounts.google.com"),
@@ -94,13 +91,16 @@ public enum PopupPolicy {
         return identityProviders.contains { $0.matches(host: host, path: url.path) }
     }
 
-    /// True when `request` opens in a popup panel: a sized `window.open` from a click, or a plain click opening an
-    /// identity provider's sign in page. Never without a click.
+    /// True when `request` opens in a popup panel: a sized `window.open` from a click (a sign in popup), or a plain
+    /// click (no modifier) opening an identity provider's sign in page, sized or not, since Arc keeps a list of
+    /// identity provider pages that stay in a popup. Never without a click, and a modified click on an identity
+    /// provider's page still opens a tab.
     public static func opensPanel(_ request: PopupRequest) -> Bool {
         guard request.isUserGesture else { return false }
         if isSized(request) { return true }
         return request.clickModifiers == .none && isIdentityProvider(request.targetURL)
     }
+
     /// Where a tab opened from Today goes.
     public static let todayPlacement = PopupPlacement.afterOpener
     /// Where a tab opened from a pinned tab or a Favorite goes.
@@ -111,8 +111,7 @@ public enum PopupPolicy {
     public static func outcome(for request: PopupRequest, openerZone: PopupOpenerZone) -> PopupOutcome {
         let modifiers = request.clickModifiers
         guard request.isUserGesture else { return PopupOutcome(decision: noGestureDecision) }
-        if isSized(request) { return PopupOutcome(decision: sizedPopupDecision) }
-        if opensPanel(request) { return PopupOutcome(decision: identityProviderDecision) }
+        if opensPanel(request) { return PopupOutcome(decision: panelDecision) }
 
         let decision: PopupDecision
         switch (modifiers.command, modifiers.shift) {

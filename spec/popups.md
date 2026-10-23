@@ -38,13 +38,17 @@ That connection is what sign in popups (for example Google or GitHub sign in) us
 Arc shows sign in popups in a small window of their own, over the browser window, instead of as a tab; Bow does the same with a popup panel.
 
 - The panel is a small window attached to the browser window: it sits centered over the window and moves with it.
-- Its page area has the size `window.open` asked for, never smaller than 320 by 240 points and never larger than the window less a 20 point margin on each side; a side the page did not set is 500 wide or 640 high. The position the page asked for is ignored.
+- Its page area has the size `window.open` asked for, never smaller than 320 by 240 points and never larger than the window less a 20 point margin on each side; a side the page did not set is 500 wide or 640 high.
+  The position the page asked for is ignored.
 - Its title bar shows the page's title and the site it is on, so you can see where you are signing in.
 - The panel's page keeps `window.opener`, so it can report back to the page that opened it.
-- The panel closes when its page calls `window.close()` (a finished sign in), when you close it with its close button (the page is asked first), and when the tab that opened it or its window closes; quitting closes it with everything else. No panel outlives its window.
+- The panel closes when its page calls `window.close()` (a finished sign in) and when you close it with its close button (the page is asked first).
+  It also goes when the tab that opened it or its window closes, even if its page would rather stay, and quitting closes it with everything else.
+  No panel outlives its window.
+- The browser window stays the main window while a panel has the keyboard, so menu commands the panel does not take still work there.
 - A panel that moves on to another site (the site's own sign in callback, for example) stays a panel until it closes.
 - Pages a panel's page opens open in popup windows of their own, as the pages popup windows open do.
-- Each click opens its own panel; a second panel sits a little lower and to the right of the first.
+- Each click opens its own panel; a second panel sits a little lower and to the right of the first, starting over every four so none leaves its window.
 - A panel opens with the keyboard in its page when the browser window has it, and never takes focus from another app.
 
 ## Edge cases
