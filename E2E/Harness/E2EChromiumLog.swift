@@ -49,6 +49,36 @@ struct E2EChromiumLogReport {
     var temporary = 0
 }
 
+/// The context of unexpected lines, written to `chromium-errors.txt` so a rare error can be traced to its test and
+/// teardown step from one failing run: for each line, the nearest marks before and after it (see
+/// `E2EChromiumLog.mark`) and the log lines around it.
+enum E2EChromiumErrorContext {
+    static let fileName = "chromium-errors.txt"
+    /// Log lines kept before and after each unexpected line.
+    static let radius = 20
+    /// Unexpected lines given their own context; a run with more says how many it left out.
+    static let maxLines = 10
+
+    /// `lines` is the whole log and `unexpected` the indexes of its unexpected lines, in order.
+    static func text(lines: [Substring], unexpected: [Int], isMark: (Substring) -> Bool) -> String {
+        var text = ""
+        for (number, index) in unexpected.prefix(maxLines).enumerated() {
+            let before = lines[..<index].last(where: isMark) ?? "none (before the first test)"
+            let after = lines[(index + 1)...].first(where: isMark) ?? "none (after the last test)"
+            text += "== unexpected line \(number + 1) of \(unexpected.count)\n"
+            text += "mark before: \(before)\nmark after: \(after)\n"
+            for line in lines[max(0, index - radius)...min(lines.count - 1, index + radius)] {
+                text += line + "\n"
+            }
+            text += "\n"
+        }
+        if unexpected.count > maxLines {
+            text += "\(unexpected.count - maxLines) more unexpected lines are not shown\n"
+        }
+        return text
+    }
+}
+
 /// Collects everything the app and its Chromium helpers write to stderr in `<run>/chromium.log`, so Chromium's log
 /// stays with the run (also after a timeout or a crash) and the terminal only shows what matters.
 /// After the engine has shut down, `finish()` reads the file back: it echoes every line that is not a Chromium log
@@ -57,6 +87,8 @@ struct E2EChromiumLogReport {
 /// `E2E:` line (a crash or a failed engine start) `make e2e` prints the end of the file itself.
 final class E2EChromiumLog: Sendable {
     static let fileName = "chromium.log"
+    /// Starts the lines `mark(_:)` writes, which `report()` neither echoes nor checks.
+    static let markPrefix = "E2E MARK "
     /// How long `finish()` waits for Chromium's helpers to exit, so their last lines are in the file.
     static let helperExitTimeout: TimeInterval = 2
 
@@ -81,6 +113,23 @@ final class E2EChromiumLog: Sendable {
         signal(SIGPIPE, SIG_IGN)
     }
 
+    /// Writes `E2E MARK <time> <text>` into the log, with the time in the format of Chromium's log lines
+    /// (`MMDD/HHMMSS.microseconds`), so `chromium-errors.txt` can say which test step an error came during.
+    /// Safe to call from any thread.
+    func mark(_ text: String) {
+        var now = timeval()
+        gettimeofday(&now, nil)
+        var seconds = now.tv_sec
+        var local = tm()
+        localtime_r(&seconds, &local)
+        let time = String(
+            format: "%02d%02d/%02d%02d%02d.%06d", local.tm_mon + 1, local.tm_mday, local.tm_hour, local.tm_min,
+            local.tm_sec, Int32(now.tv_usec))
+        // stderr is the log, opened with O_APPEND, so one write(2) never interleaves with a helper's line.
+        let line = Array("\(Self.markPrefix)\(time) \(text)\n".utf8)
+        _ = line.withUnsafeBytes { write(STDERR_FILENO, $0.baseAddress, $0.count) }
+    }
+
     /// Waits for Chromium's helpers to exit, then reports the log (see `report()`). Call it after the engine has shut
     /// down.
     func finish() -> E2EChromiumLogReport {
@@ -88,7 +137,8 @@ final class E2EChromiumLog: Sendable {
         return report()
     }
 
-    /// Echoes the lines described above to the original stderr and returns what the scan found.
+    /// Echoes the lines described above to the original stderr and returns what the scan found. When there are
+    /// unexpected lines, it also writes their context to `chromium-errors.txt` next to the log.
     /// Safe to call from any thread.
     func report() -> E2EChromiumLogReport {
         guard let data = FileManager.default.contents(atPath: url.path) else {
@@ -99,7 +149,10 @@ final class E2EChromiumLog: Sendable {
         let severity = #/[\[:](VERBOSE\d*|INFO|WARNING|ERROR|FATAL):[^\]\s]+\] /#
         var result = E2EChromiumLogReport()
         var echo = ""
-        for line in String(decoding: data, as: UTF8.self).split(separator: "\n", omittingEmptySubsequences: true) {
+        let lines = String(decoding: data, as: UTF8.self).split(separator: "\n", omittingEmptySubsequences: true)
+        let isMark = { (line: Substring) in line.hasPrefix(Self.markPrefix) }
+        var unexpectedIndexes: [Int] = []
+        for (index, line) in lines.enumerated() where !isMark(line) {
             // Searched anywhere in the line, so a log line that another process's output ran into still counts.
             switch line.firstMatch(of: severity)?.output.1 {
             case nil:
@@ -111,6 +164,7 @@ final class E2EChromiumLog: Sendable {
                     result.temporary += 1
                 } else {
                     result.unexpected.append(String(line))
+                    unexpectedIndexes.append(index)
                     echo += line + "\n"
                 }
             default:
@@ -118,6 +172,11 @@ final class E2EChromiumLog: Sendable {
             }
         }
         writeToTerminal(echo)
+        if !unexpectedIndexes.isEmpty {
+            let context = E2EChromiumErrorContext.text(lines: lines, unexpected: unexpectedIndexes, isMark: isMark)
+            let contextURL = url.deletingLastPathComponent().appendingPathComponent(E2EChromiumErrorContext.fileName)
+            try? context.write(to: contextURL, atomically: true, encoding: .utf8)
+        }
         return result
     }
 
