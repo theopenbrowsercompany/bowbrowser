@@ -68,6 +68,28 @@ import Testing
         #expect(outcome(click("https://other.test/", gesture: false), from: .pinned) == .navigate)
     }
 
+    @Test func aRedirectNeverOpensPeek() {
+        // A same-site link the tab followed, redirected by the server to another site, stays in the tab.
+        let redirect = EngineNavigation(
+            url: URL(string: "https://accounts.other.test/signin")!, transition: .link, isUserGesture: true,
+            isRedirect: true)
+        #expect(outcome(redirect, from: .pinned) == .navigate)
+        #expect(outcome(redirect, from: .favorite) == .navigate)
+        #expect(outcome(redirect, from: .today) == .navigate)
+        let off = PeekContext(settings: PeekSettings(offSiteLinksOpenPeek: false))
+        #expect(outcome(redirect, from: .pinned, context: off) == .navigate)
+        // Even a redirect to the address already handed over is no second ask about that link.
+        #expect(outcome(redirect, from: .pinned, context: PeekContext(handledURL: redirect.url)) == .navigate)
+        // The navigation's first ask still opens a Peek.
+        var first = redirect
+        first.isRedirect = false
+        #expect(outcome(first, from: .pinned) == .peek)
+    }
+
+    @Test func navigationsAreFirstAsksByDefault() {
+        #expect(!EngineNavigation(url: page).isRedirect)
+    }
+
     @Test func nonWebAddressesNavigate() {
         #expect(outcome(click("mailto:someone@example.com"), from: .pinned) == .navigate)
         #expect(outcome(click("https://other.test/"), from: .pinned, current: URL(string: "about:blank")!) == .navigate)

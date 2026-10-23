@@ -34,6 +34,7 @@ CefRefPtr<CefResourceHandler> NotFound() {
 }
 
 const char kRedirectPrefix[] = "/_redirect/";
+const char kRedirectOtherPrefix[] = "/_redirect_other/";
 const char kErrorPrefix[] = "/_error/";
 const char kNoContentPrefix[] = "/_204/";
 const char kSlowPrefix[] = "/_slow/";
@@ -350,6 +351,10 @@ class FixtureHandlerFactory : public CefSchemeHandlerFactory {
     if (path.rfind(kRedirectPrefix, 0) == 0) {
       return new EmptyResponseHandler(
           302, std::string("https://") + kFixtureHost + "/" + path.substr(sizeof(kRedirectPrefix) - 1));
+    }
+    if (path.rfind(kRedirectOtherPrefix, 0) == 0) {
+      return new EmptyResponseHandler(
+          302, std::string("https://") + kOtherSiteHost + "/" + path.substr(sizeof(kRedirectOtherPrefix) - 1));
     }
     if (path.rfind(kErrorPrefix, 0) == 0) return new EmptyResponseHandler(0);
     if (path.rfind(kNoContentPrefix, 0) == 0) return new EmptyResponseHandler(204);

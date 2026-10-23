@@ -11,6 +11,7 @@ It is how pinned tabs and Favorites keep their own site: a link that leaves the 
 - A plain click on a link in a pinned tab or a Favorite that goes to another site opens that page in a Peek, and the tab stays on its own page.
   Another site means another host name, ignoring a leading `www.` and letter case, so another subdomain of the same site counts as another site.
   A link to the same site navigates the tab as usual.
+  Only the link itself counts: when the server redirects a same-site link to another site (a "Sign in with Google" link), the tab follows the redirect and no Peek opens, so a sign in finishes in the tab it started in.
 - Links in Today tabs, typed addresses, reloads, back and forward, form posts and navigations a script starts without a click are never peeked.
 - The Peek is a centered card with rounded corners and a soft shadow, the page around it dimmed, with two round buttons above the card's trailing edge: Open as Tab and Close.
 - The Peek's page is a page of its own in the same profile as the tab it was opened from, so it shares that tab's logins.
@@ -38,6 +39,7 @@ There is no settings window yet; the settings are stored in the app's preference
 - The Peek belongs to the tab it was opened from: closing, unloading or archiving that tab closes the Peek.
 - Showing another tab, or switching to another Space, closes the Peek.
 - Closing the window or quitting closes the Peek; nothing of it is left running.
+- Closing the window asks the Peek's page first: when it asks "Leave this site?", choosing to stay keeps the window and the Peek open on the same page, and choosing to leave closes the Peek and then the window.
 - When the Peek's page asks "Leave this site?" as you close it with Escape, Close or a click on the dimmed page, choosing to stay keeps the Peek open on the same page.
 - When the Peek closes because its tab closed or went out of sight and its page asks "Leave this site?", choosing to stay keeps the page as a tab in the background, right after its source tab, so nothing runs out of sight.
 - A Peek's page that closes itself (`window.close()`) closes the Peek.
@@ -50,7 +52,9 @@ There is no settings window yet; the settings are stored in the app's preference
 4. Shift-click a link, then close the tab it was clicked in: the Peek closes too.
 5. Shift-click a link, then select another tab: the Peek closes.
 6. Shift-click a link to a page with a form, type into it, press Close and choose to stay: the Peek stays open with the text kept; click the dimmed page and choose to leave: the Peek closes.
-7. Run `make e2e E2E=peek`: `PASS peek: overlay=B under=A after_esc=A`, and `PASS` for `peek.promote`, `peek.pinned`, `peek.source_close`, `peek.switch`, `peek.stay` and `peek.backdrop`.
+7. Pin a tab, click a link in it that the server redirects to another site: the pinned tab follows it and no Peek opens.
+8. Shift-click a link to a page with a form, type into it, close the window and choose to stay: the window and the Peek stay open; close it again and choose to leave: both close.
+9. Run `make e2e E2E=peek`: `PASS peek: overlay=B under=A after_esc=A`, and `PASS` for `peek.promote`, `peek.pinned`, `peek.source_close`, `peek.switch`, `peek.stay`, `peek.backdrop`, `peek.redirect`, `peek.window_close` and `peek.window_close_leave`.
 
 ## Out of scope
 
