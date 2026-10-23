@@ -26,6 +26,7 @@ Start every session in `~/code/GitHub/bowbrowser`: the maintainer's `.claude/set
 - `cef.lock`: the pinned CEF version and checksum. `Vendor/cef` links to one shared copy outside the repository and is gitignored.
 - `project.yml`: XcodeGen spec. `Bow.xcodeproj` is generated from it and not committed, so edit `project.yml`, never the project file.
 - `spec/`: behavior specs, one per feature area, following `spec/_template.md`.
+- `.claude/agents/`: subagent definitions the lead session uses: `bow-worker` builds one work item in its own worktree, and `bow-reviewer` reviews a branch read-only. Both are kept off Plane, and the reviewer cannot edit files.
 
 ## Commands
 
