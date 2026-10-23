@@ -38,6 +38,11 @@ Start every session in `~/code/GitHub/bowbrowser`: the maintainer's `.claude/set
   It prints one `PASS <check>` or `FAIL <check>: <reason>` line per check and a final `E2E: PASS n/n` (or `E2E: FAIL passed/n`) line, also saved in `build/e2e/<run>/report.txt`.
   Before quitting, pass or fail (but not after a timeout), it writes `build/e2e/<run>/final.png`: the last opened window, AppKit chrome and web content together, as evidence to look at, not to compare pixels.
   Exit code 0 means every check passed, 1 a check failed, 2 a step timed out (`E2E: TIMEOUT <step>`); a failed run keeps its profile in the run folder.
+  Everything the app and Chromium write to stderr goes to `build/e2e/<run>/chromium.log`, also after a timeout.
+  After quitting (or timing out), the run echoes the lines that are not Chromium log lines (such as `quit: seconds=`) and every Chromium ERROR or FATAL line, except the known harmless ones listed with their reasons in `E2E/Harness/E2EChromiumLog.swift`; the `chromium.errors` check fails when any other ERROR or FATAL line is left.
+  When the app ends without an `E2E:` line instead (a crash or a failed engine start), `make e2e` prints the end of `chromium.log`.
+  Add to that list only a message shown to be harmless, with its cause and evidence.
+  Lines still under investigation sit apart in its temporary list, counted as `temporary=` in the check's line, and come out once their cause is found.
 - `make smoke`: build, open the app in a background window on one page (`make smoke SMOKE_URL=https://example.org` picks it), print the load status and title, quit.
   The window appears on the maintainer's screen, so run it only when the maintainer asks; the lead runs it for agents working in parallel.
 - `make verify`: lint, guards (`make guards`: the e2e seam check in `scripts/check-e2e-seams.sh` and the Swift header check in `scripts/check-swift-headers.sh`), tests, the Debug build, and a Release build that must carry no e2e harness code or fixtures (`make release`).

@@ -26,15 +26,19 @@ final class E2EOutput: @unchecked Sendable {
 /// thread is blocked (for example inside Chromium's shutdown).
 final class E2EWatchdog: @unchecked Sendable {
     static let timeoutExitCode: Int32 = 2
+    static let beforeExitTimeout: TimeInterval = 2
 
     private let lock = NSLock()
     private let output: E2EOutput
+    private let beforeExit: @Sendable () -> Void
     private let timer = DispatchSource.makeTimerSource(queue: .global(qos: .userInitiated))
     private var step = ""
     private var deadline = DispatchTime.distantFuture
 
-    init(output: E2EOutput) {
+    /// `beforeExit` runs on the watchdog's queue after the TIMEOUT line, just before the process exits.
+    init(output: E2EOutput, beforeExit: @escaping @Sendable () -> Void = {}) {
         self.output = output
+        self.beforeExit = beforeExit
         timer.schedule(deadline: .distantFuture)
         timer.setEventHandler { [self] in fire() }
         timer.activate()
@@ -66,6 +70,13 @@ final class E2EWatchdog: @unchecked Sendable {
             return
         }
         output.line("E2E: TIMEOUT \(step)")
+        // Bounded, so a stuck beforeExit (for example a terminal that stopped reading) cannot keep the run alive.
+        let finished = DispatchSemaphore(value: 0)
+        DispatchQueue.global(qos: .userInitiated).async { [beforeExit] in
+            beforeExit()
+            finished.signal()
+        }
+        _ = finished.wait(timeout: .now() + Self.beforeExitTimeout)
         _exit(Self.timeoutExitCode)
     }
 }

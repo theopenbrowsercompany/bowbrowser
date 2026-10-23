@@ -8,6 +8,8 @@ import BowCore
 /// per check and a final `E2E: PASS n/n` (or `E2E: FAIL passed/n`) line, to stdout and `<folder>/report.txt`.
 /// Before quitting it writes `<folder>/final.png`, a screenshot of the last opened window, pass or fail
 /// (a run that times out has none).
+/// Everything the app and Chromium write to stderr goes to `<folder>/chromium.log`; after the engine shuts down the
+/// run echoes what matters from it and checks it for unexpected Chromium errors (`chromium.errors`).
 /// Exit codes: 0 when every check passed, 1 when one failed, 2 when a step timed out.
 @MainActor
 final class E2ERunner {
@@ -30,6 +32,7 @@ final class E2ERunner {
     private let defaultsSuiteName: String
     private let output: E2EOutput
     private let watchdog: E2EWatchdog
+    private let chromiumLog: E2EChromiumLog
     private var checks: [(name: String, passed: Bool)] = []
     private var quitCheck: (name: String, limit: TimeInterval)?
 
@@ -78,8 +81,12 @@ final class E2ERunner {
 
         fixtureDirectory = fixtures
         screenshotURL = runDirectory.appendingPathComponent("final.png")
+        // Last, so a run that cannot start still reports why on the terminal.
+        let chromiumLog = try E2EChromiumLog(url: runDirectory.appendingPathComponent(E2EChromiumLog.fileName))
+        self.chromiumLog = chromiumLog
         output = E2EOutput(reportURL: runDirectory.appendingPathComponent("report.txt"))
-        watchdog = E2EWatchdog(output: output)
+        // A run that times out still shows its stderr and unexpected Chromium errors on the terminal.
+        watchdog = E2EWatchdog(output: output) { _ = chromiumLog.report() }
         Self.removeStaleDefaultsSuites()
         defaultsSuiteName = Self.defaultsSuitePrefix + String(ProcessInfo.processInfo.processIdentifier)
 
@@ -152,8 +159,21 @@ final class E2ERunner {
             }
         }
 
+        // A run passes only when its tests recorded checks; chromium.errors alone does not count.
+        let testChecks = checks.count
+        let log = chromiumLog.finish()
+        if log.unexpected.isEmpty {
+            record(
+                "chromium.errors", passed: true, detail: "unexpected=0 known=\(log.known) temporary=\(log.temporary)")
+        } else {
+            let count = log.unexpected.count
+            let detail =
+                "\(count) unexpected ERROR or FATAL lines in \(E2EChromiumLog.fileName), first: \(log.unexpected[0])"
+            record("chromium.errors", passed: false, detail: detail)
+        }
+
         let passed = checks.filter(\.passed).count
-        let allPassed = !checks.isEmpty && passed == checks.count
+        let allPassed = testChecks > 0 && passed == checks.count
         output.line("E2E: \(allPassed ? "PASS" : "FAIL") \(passed)/\(checks.count)")
         BowEngine.exitCode = allPassed ? 0 : Self.failureExitCode
 
@@ -291,7 +311,8 @@ final class E2ERun {
     }
 
     /// Checks, after the engine has shut down, that quitting took less than `limit` seconds.
-    /// The app quits once every test has run, so this is reported after all other checks.
+    /// The app quits once every test has run, so this is reported after the tests' checks (only `chromium.errors`
+    /// follows it).
     func expectQuit(_ name: String, within limit: TimeInterval) {
         runner.expectQuit(name, within: limit)
     }
