@@ -40,16 +40,6 @@ enum DesignTests {
         }
     }
 
-    /// Waits until `condition` holds, or the step's wait budget runs out, and returns whether it held.
-    static func until(_ condition: () throws -> Bool) async throws -> Bool {
-        let deadline = Date().addingTimeInterval(E2EWaits.budget())
-        while Date() < deadline {
-            if try condition() { return true }
-            try await Task.sleep(nanoseconds: 20_000_000)
-        }
-        return try condition()
-    }
-
     /// The state the checks and screenshots look at: a Space with a pinned tab, a pinned folder of two tabs and a
     /// today tab, one Favorite, and "Notes" open as the active tab. Returns the Notes page.
     static func openBrowsing(_ run: E2ERun) async throws -> any E2EPage {
@@ -82,7 +72,7 @@ enum DesignTests {
         }
         try menus.chooseMenuItem(key: "t", modifiers: [.command], in: page)
         let bar = try bars.commandBar(of: page)
-        _ = try await until { bar.isShown }
+        _ = try await E2EWaits.until { bar.isShown }
         guard bar.isShown else { throw E2EError("the command bar did not open") }
         return bar
     }
@@ -174,7 +164,7 @@ struct DesignLookTest: E2ETest {
             let bar = try await DesignTests.openCommandBar(run, over: page)
             let look = try design.look(of: page)
             try bar.press(.escape)
-            _ = try await DesignTests.until { !bar.isShown }
+            _ = try await E2EWaits.until { !bar.isShown }
             return look
         }
         run.check(
@@ -184,7 +174,7 @@ struct DesignLookTest: E2ETest {
 
         let resized = try await run.step("resize the window", timeout: E2ETimeouts.step) {
             try design.resizeWindow(of: page, width: 900, height: 600)
-            _ = try await DesignTests.until {
+            _ = try await E2EWaits.until {
                 let now = try design.look(of: page)
                 return now.pageFrame.width != look.pageFrame.width && now.shadowFrame == now.pageFrame
             }
@@ -199,7 +189,7 @@ struct DesignLookTest: E2ETest {
 
         let empty = try await run.step("switch to an empty Space", timeout: E2ETimeouts.step) {
             _ = try edges.createSpace(besides: page, profileID: edges.profileID(of: page))
-            _ = try await DesignTests.until { try design.look(of: page).showsEmptyState }
+            _ = try await E2EWaits.until { try design.look(of: page).showsEmptyState }
             return try design.look(of: page)
         }
         run.check(
@@ -230,7 +220,7 @@ struct DesignScreensTest: E2ETest {
 
         let dark = try await run.step("dark", timeout: E2ETimeouts.step) {
             try design.setDarkAppearance(true, of: notes)
-            _ = try await DesignTests.until { try design.look(of: notes).frameColor == DesignTests.frameDark }
+            _ = try await E2EWaits.until { try design.look(of: notes).frameColor == DesignTests.frameDark }
             try await shoot(notes, "2-dark")
             let look = try design.look(of: notes)
             try design.setDarkAppearance(false, of: notes)
@@ -247,12 +237,12 @@ struct DesignScreensTest: E2ETest {
             let bar = try await DesignTests.openCommandBar(run, over: notes)
             try await shoot(notes, "3-command-bar")
             try bar.press(.escape)
-            _ = try await DesignTests.until { !bar.isShown }
+            _ = try await E2EWaits.until { !bar.isShown }
         }
 
         try await run.step("narrow", timeout: E2ETimeouts.step) {
             try design.resizeWindow(of: notes, width: 640, height: 560)
-            _ = try await DesignTests.until {
+            _ = try await E2EWaits.until {
                 let look = try design.look(of: notes)
                 return look.pageFrame.width < 400 && look.shadowFrame == look.pageFrame
             }
@@ -262,7 +252,7 @@ struct DesignScreensTest: E2ETest {
 
         try await run.step("empty Space", timeout: E2ETimeouts.step) {
             _ = try edges.createSpace(besides: notes, profileID: edges.profileID(of: notes))
-            _ = try await DesignTests.until { try design.look(of: notes).showsEmptyState }
+            _ = try await E2EWaits.until { try design.look(of: notes).showsEmptyState }
             try await shoot(notes, "5-empty-space")
         }
         run.check(
@@ -309,7 +299,7 @@ struct DesignFontsTest: E2ETest {
             let bar = try await DesignTests.openCommandBar(run, over: page)
             let look = try fonts.fonts(of: page)
             try bar.press(.escape)
-            _ = try await DesignTests.until { !bar.isShown }
+            _ = try await E2EWaits.until { !bar.isShown }
             return look
         }
         run.check(
@@ -319,7 +309,7 @@ struct DesignFontsTest: E2ETest {
 
         let empty = try await run.step("read the empty state font", timeout: E2ETimeouts.step) {
             _ = try edges.createSpace(besides: page, profileID: edges.profileID(of: page))
-            _ = try await DesignTests.until { try design.look(of: page).showsEmptyState }
+            _ = try await E2EWaits.until { try design.look(of: page).showsEmptyState }
             return try fonts.fonts(of: page)
         }
         // An empty Space shows the start screen, whose hint is 13 point Nunito Sans.
@@ -369,7 +359,7 @@ struct DesignStartScreenTest: E2ETest {
         }
         let folder = run.dataDirectory.deletingLastPathComponent().appendingPathComponent("design", isDirectory: true)
         func shown() async throws -> E2EStartScreenLook {
-            _ = try await DesignTests.until { try start.startScreen(of: page).isShown }
+            _ = try await E2EWaits.until { try start.startScreen(of: page).isShown }
             let look = try start.startScreen(of: page)
             guard look.isShown else { throw E2EError("the start screen is not shown") }
             return look
@@ -379,7 +369,7 @@ struct DesignStartScreenTest: E2ETest {
         let first = try await run.step("switch to an empty Space", timeout: E2ETimeouts.step) {
             _ = try edges.createSpace(besides: page, profileID: edges.profileID(of: page))
             try start.renameActiveSpace("Work Space", in: page)
-            _ = try await DesignTests.until { try start.startScreen(of: page).hint.hasPrefix("Work Space") }
+            _ = try await E2EWaits.until { try start.startScreen(of: page).hint.hasPrefix("Work Space") }
             return try await shown()
         }
         let expectedGreeting = Self.greeting(for: first.greetingHour)
@@ -400,10 +390,10 @@ struct DesignStartScreenTest: E2ETest {
         let second = try await run.step("switch to a second empty Space with a long name", timeout: E2ETimeouts.step) {
             _ = try edges.createSpace(besides: page, profileID: edges.profileID(of: page))
             try start.renameActiveSpace("Side", in: page)
-            _ = try await DesignTests.until { try start.startScreen(of: page).hint == Self.hint("Side", tabs: 0) }
+            _ = try await E2EWaits.until { try start.startScreen(of: page).hint == Self.hint("Side", tabs: 0) }
             let side = try start.startScreen(of: page)
             try start.renameActiveSpace(String(repeating: "Long ", count: 20), in: page)
-            _ = try await DesignTests.until { try start.startScreen(of: page).hint.contains("\u{2026}") }
+            _ = try await E2EWaits.until { try start.startScreen(of: page).hint.contains("\u{2026}") }
             return (side, try start.startScreen(of: page))
         }
         let long = second.1
@@ -420,11 +410,11 @@ struct DesignStartScreenTest: E2ETest {
         let opened = try await run.step("click the search pill", timeout: E2ETimeouts.step) {
             let bar = try bars.commandBar(of: page)
             try start.clickStartSearch(in: page)
-            _ = try await DesignTests.until { bar.isShown }
+            _ = try await E2EWaits.until { bar.isShown }
             let result = (bar.isShown, bar.text)
             if bar.isShown {
                 try bar.press(.escape)
-                _ = try await DesignTests.until { !bar.isShown }
+                _ = try await E2EWaits.until { !bar.isShown }
             }
             return result
         }
@@ -448,7 +438,7 @@ struct DesignStartScreenTest: E2ETest {
                 try start.addFavorite(
                     title: name, url: DesignTests.url(name.replacingOccurrences(of: " ", with: "")), in: page)
             }
-            _ = try await DesignTests.until {
+            _ = try await E2EWaits.until {
                 let look = try start.startScreen(of: page)
                 return look.linkTitles.count == 6 && look.bounds.width > 800
             }
@@ -467,7 +457,7 @@ struct DesignStartScreenTest: E2ETest {
 
         let narrow = try await run.step("narrow the window", timeout: E2ETimeouts.step) {
             try design.resizeWindow(of: page, width: 640, height: 560)
-            _ = try await DesignTests.until { try start.startScreen(of: page).bounds.width < 400 }
+            _ = try await E2EWaits.until { try start.startScreen(of: page).bounds.width < 400 }
             let look = try start.startScreen(of: page)
             try await design.writeScreenshot(of: page, to: folder.appendingPathComponent("7-start-narrow.png"))
             try design.resizeWindow(of: page, width: 1200, height: 800)
@@ -483,7 +473,7 @@ struct DesignStartScreenTest: E2ETest {
 
         let dark = try await run.step("switch to dark", timeout: E2ETimeouts.step) {
             try design.setDarkAppearance(true, of: page)
-            _ = try await DesignTests.until { try design.look(of: page).frameColor == DesignTests.frameDark }
+            _ = try await E2EWaits.until { try design.look(of: page).frameColor == DesignTests.frameDark }
             try await design.writeScreenshot(of: page, to: folder.appendingPathComponent("8-start-dark.png"))
             let look = try start.startScreen(of: page)
             try design.setDarkAppearance(false, of: page)
@@ -500,12 +490,12 @@ struct DesignStartScreenTest: E2ETest {
         let ids = added.0
         let afterDelete = try await run.step("delete the first Favorite", timeout: E2ETimeouts.step) {
             try start.deleteFavorite(ids[0], in: page)
-            _ = try await DesignTests.until { try start.startScreen(of: page).linkTitles.first == names[1] }
+            _ = try await E2EWaits.until { try start.startScreen(of: page).linkTitles.first == names[1] }
             return try start.startScreen(of: page)
         }
         let clicked = try await run.step("click a quick link", timeout: E2ETimeouts.firstLoad) {
             try start.clickQuickLink(1, in: page)
-            _ = try await DesignTests.until {
+            _ = try await E2EWaits.until {
                 let state = try edges.windowState(of: page)
                 return state.activeItem == ids[2] && state.showsPage
             }
