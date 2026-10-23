@@ -2,7 +2,7 @@ import Foundation
 
 /// Tests of the Favorites grid at the top of the sidebar. Uses the sidebar fixtures in E2E/Fixtures/sidebar/.
 @MainActor
-enum FavoritesTests {
+enum FavoritesGridTests {
     static let all: [any E2ETest] = [FavoritesGridTest()]
 }
 
