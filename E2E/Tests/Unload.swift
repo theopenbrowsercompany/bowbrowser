@@ -259,7 +259,9 @@ struct UnloadDialogTest: E2ETest {
             _ = try await E2EWaits.until(other, "window.alerted === true")
             guard try dialogs.pageDialogWaits(for: other) else { throw E2EError("the alert is not waiting") }
         }
-        let (during, duringState, alertKept) = try await run.step("pass with the alert waiting", timeout: E2ETimeouts.step) {
+        let (during, duringState, alertKept) = try await run.step(
+            "pass with the alert waiting", timeout: E2ETimeouts.step
+        ) {
             try app.setUnloadEnabled(true)
             try app.useManualUnloadClock()
             try app.advanceUnloadClock(by: UnloadTests.longIdle)
