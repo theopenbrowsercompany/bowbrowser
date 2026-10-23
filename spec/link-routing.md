@@ -17,7 +17,7 @@ People set it up once as an ordered list of rules plus a default.
 - Each request names the app that sent it when the system knows it.
   Bow records that app by its bundle identifier, and a helper process inside an app (for example "Slack Helper" inside Slack) counts as that app.
   A sender that is no app (a command line tool such as `open`) or a request with no sender leaves the link with no source app.
-- Until routing rules are wired in, every link opens in a new tab of the most recently used window, in the Space on screen there, as Arc does without rules.
+- Until routing rules are wired in, every link opens in Little Arc while "Links from other apps open in Little Arc" is on (the default) and a window is open (see `spec/little-arc.md`); otherwise in a new tab of the most recently used window, in the Space on screen there, as Arc does without rules.
   The source app goes with the link to where it opens, for the rules to use.
 - Links that arrive before Bow can open them are kept, in the order they came, and open once the first window is open.
   In practice the engine is ready before the system hands Bow its first link, so links that launch Bow open right away.
