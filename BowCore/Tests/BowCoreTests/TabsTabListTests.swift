@@ -205,8 +205,6 @@ import Testing
         #expect(throws: DecodingError.self) { try JSONDecoder().decode(TabList.self, from: bad) }
     }
 
-    // A window whose Space on screen has no tab selected still lists the Favorites it shows.
-
     @Test func listsTabsWithNoActiveTab() throws {
         let tabs = [makeTab("a"), makeTab("b")]
         let list = try #require(TabList(tabs: tabs, activeID: nil))
@@ -227,17 +225,17 @@ import Testing
         #expect(list.activeID == nil)
     }
 
-    @Test func selectingOrOpeningInAListWithNoActiveTabActivates() throws {
+    @Test func selectingActivatesAndBackgroundOpenKeepsNoActiveTab() throws {
         let tabs = [makeTab("a"), makeTab("b")]
         var list = try #require(TabList(tabs: tabs, activeID: nil))
         let selected = list.select(tabs[1].id)
         #expect(selected && list.activeID == tabs[1].id)
 
         var other = try #require(TabList(tabs: tabs, activeID: nil))
-        let id = other.open(makeTab("c"), at: .afterActive, activate: false)
-        // With no active tab, after the active one means the end.
+        other.open(makeTab("c"), at: .afterActive, activate: false)
+        // With no active tab, after the active one means the end, and a background tab stays in the background.
         #expect(titles(other) == ["a", "b", "c"])
-        #expect(other.activeID == id)
+        #expect(other.activeID == nil)
     }
 
     @Test func listWithNoActiveTabRoundTrips() throws {
