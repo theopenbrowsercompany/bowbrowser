@@ -10,79 +10,91 @@ import Testing
     let pageB = URL(string: "https://example.com/b")!
 
     /// A list with one active tab, fed by a mock engine tab.
-    private func makeTab() -> (MockEngine, MockTab, TabList, BrowserTabID) {
+    @MainActor private struct Fixture {
+        /// Kept so the mock tab's engine outlives the test.
         let engine = MockEngine()
-        let engineTab = engine.defaultProfile.createTab(url: pageA) as! MockTab
+        let engineTab: MockTab
         var list = TabList()
-        let id = list.open()!
-        return (engine, engineTab, list, id)
+        let id: BrowserTabID
+
+        init(url: URL) {
+            engineTab = engine.defaultProfile.createTab(url: url) as! MockTab
+            id = list.open()!
+        }
     }
+
+    private func makeTab() -> Fixture { Fixture(url: pageA) }
 
     private func controls(_ list: TabList) -> NavigationControls {
         NavigationControls(activeTab: list.activeTab)
     }
 
     @Test func freshTabCanOnlyReload() {
-        let (_, engineTab, list, id) = makeTab()
-        var updated = list
-        updated.update(id, from: engineTab.state)
+        var fixture = makeTab()
+        let (engineTab, id) = (fixture.engineTab, fixture.id)
+        fixture.list.update(id, from: engineTab.state)
         #expect(
-            controls(updated)
+            controls(fixture.list)
                 == NavigationControls(canGoBack: false, canGoForward: false, canReload: true, isLoading: false))
     }
 
     @Test func backFollowsTheTabsHistory() {
-        var (_, engineTab, list, id) = makeTab()
+        var fixture = makeTab()
+        let (engineTab, id) = (fixture.engineTab, fixture.id)
         engineTab.simulateLoad(EngineNavigation(url: pageA))
-        list.update(id, from: engineTab.state)
-        #expect(!controls(list).canGoBack)
+        fixture.list.update(id, from: engineTab.state)
+        #expect(!controls(fixture.list).canGoBack)
         engineTab.simulateLoad(EngineNavigation(url: pageB))
-        list.update(id, from: engineTab.state)
-        #expect(controls(list).canGoBack)
-        #expect(!controls(list).canGoForward)
+        fixture.list.update(id, from: engineTab.state)
+        #expect(controls(fixture.list).canGoBack)
+        #expect(!controls(fixture.list).canGoForward)
     }
 
     @Test func forwardFollowsTheTabsHistory() {
-        var (_, engineTab, list, id) = makeTab()
+        var fixture = makeTab()
+        let (engineTab, id) = (fixture.engineTab, fixture.id)
         engineTab.push {
             $0.url = pageA
             $0.canGoForward = true
         }
-        list.update(id, from: engineTab.state)
-        #expect(controls(list).canGoForward)
-        #expect(!controls(list).canGoBack)
+        fixture.list.update(id, from: engineTab.state)
+        #expect(controls(fixture.list).canGoForward)
+        #expect(!controls(fixture.list).canGoBack)
     }
 
     @Test func loadingOffersStopAndStillReload() {
-        var (_, engineTab, list, id) = makeTab()
+        var fixture = makeTab()
+        let (engineTab, id) = (fixture.engineTab, fixture.id)
         engineTab.push { $0.isLoading = true }
-        list.update(id, from: engineTab.state)
-        #expect(controls(list).canStop)
-        #expect(controls(list).canReload)
+        fixture.list.update(id, from: engineTab.state)
+        #expect(controls(fixture.list).canStop)
+        #expect(controls(fixture.list).canReload)
         engineTab.push { $0.isLoading = false }
-        list.update(id, from: engineTab.state)
-        #expect(!controls(list).canStop)
-        #expect(controls(list).canReload)
+        fixture.list.update(id, from: engineTab.state)
+        #expect(!controls(fixture.list).canStop)
+        #expect(controls(fixture.list).canReload)
     }
 
     @Test func backgroundTabStateLeavesActiveControlsAlone() {
-        var (_, engineTab, list, active) = makeTab()
-        let background = list.open(activate: false)!
+        var fixture = makeTab()
+        let (engineTab, active) = (fixture.engineTab, fixture.id)
+        let background = fixture.list.open(activate: false)!
         engineTab.push {
             $0.isLoading = true
             $0.canGoBack = true
         }
-        list.update(background, from: engineTab.state)
-        #expect(list.activeID == active)
+        fixture.list.update(background, from: engineTab.state)
+        #expect(fixture.list.activeID == active)
         #expect(
-            controls(list)
+            controls(fixture.list)
                 == NavigationControls(canGoBack: false, canGoForward: false, canReload: true, isLoading: false))
     }
 
     @Test func noActiveTabOffersNothing() {
-        var (_, _, list, id) = makeTab()
-        list.close(id)
-        #expect(controls(list) == .disabled)
+        var fixture = makeTab()
+        let id = fixture.id
+        fixture.list.close(id)
+        #expect(controls(fixture.list) == .disabled)
         #expect(!NavigationControls.disabled.canStop)
     }
 }

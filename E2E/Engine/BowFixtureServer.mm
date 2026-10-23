@@ -77,13 +77,9 @@ class HangingResponseHandler : public CefResourceHandler {
     return true;
   }
 
-  void GetResponseHeaders(CefRefPtr<CefResponse> response, int64_t& responseLength, CefString& redirectUrl) override {
-    responseLength = 0;
-    response->SetError(ERR_ABORTED);
-  }
-
+  // Never called, since the callback is never continued; required by the interface.
+  void GetResponseHeaders(CefRefPtr<CefResponse> response, int64_t& responseLength, CefString& redirectUrl) override {}
   bool Read(void* dataOut, int bytesToRead, int& bytesRead, CefRefPtr<CefResourceReadCallback> callback) override {
-    bytesRead = 0;
     return false;
   }
 

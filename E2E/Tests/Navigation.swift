@@ -9,7 +9,7 @@ enum NavigationTests {
 
 /// Drives the window's back, forward, reload and stop controls the way a person does: the toolbar buttons and the
 /// menu shortcuts (Cmd+[, Cmd+], Cmd+R, Cmd+.). Checks that back and forward land on the right pages, that the
-/// buttons are disabled when the tab cannot go back or forward, that reload loads a new document, and that a load
+/// buttons are disabled when the tab cannot go back or forward and follow the shown tab, that reload loads a new document, and that a load
 /// shows stop in place of reload and can be stopped.
 struct NavigationHistoryTest: E2ETest {
     let name = "nav.history"
@@ -64,24 +64,44 @@ struct NavigationHistoryTest: E2ETest {
             }
             return title
         }
+        // The controls follow the shown tab: a new tab has no history, and switching back shows B's again.
+        try await run.step("switch tabs", timeout: E2ETimeouts.step) {
+            let other = try app.openTab(at: pageA, besides: page, select: true)
+            _ = try await other.waitForLoad(after: 0)
+            if let wrong = try await Self.waitForButtons(app, other, back: false, forward: false) {
+                problems.append("new tab: \(wrong)")
+            }
+            try app.select(page)
+            if let wrong = try await Self.waitForButtons(app, page, back: true, forward: false) {
+                problems.append("switched back: \(wrong)")
+            }
+        }
         let passed = back == "A" && forward == "B" && problems.isEmpty
         run.check(
             name, passed: passed,
             "back=\(back) forward=\(forward)" + (problems.isEmpty ? "" : " " + problems.joined(separator: "; ")))
 
         let shortcuts = try await run.step("go back and forward with shortcuts", timeout: E2ETimeouts.step) {
+            var problems: [String] = []
             let back = try await navigate { try app.press(.back, in: page) }
-            _ = try await Self.waitForButtons(app, page, back: false, forward: true)
+            if let wrong = try await Self.waitForButtons(app, page, back: false, forward: true) {
+                problems.append("after Cmd+[: \(wrong)")
+            }
             let forward = try await navigate { try app.press(.forward, in: page) }
-            _ = try await Self.waitForButtons(app, page, back: true, forward: false)
+            if let wrong = try await Self.waitForButtons(app, page, back: true, forward: false) {
+                problems.append("after Cmd+]: \(wrong)")
+            }
             // With nothing ahead, the menu item is disabled like the button.
             let refused = (try? app.press(.forward, in: page)) == nil
-            return (back: back, forward: forward, refused: refused)
+            return (back: back, forward: forward, refused: refused, problems: problems)
         }
         run.check(
-            "nav.shortcuts", passed: shortcuts.back == "A" && shortcuts.forward == "B" && shortcuts.refused,
+            "nav.shortcuts",
+            passed: shortcuts.back == "A" && shortcuts.forward == "B" && shortcuts.refused
+                && shortcuts.problems.isEmpty,
             "back=\(shortcuts.back) forward=\(shortcuts.forward) disabled-forward="
-                + (shortcuts.refused ? "refused" : "ran"))
+                + (shortcuts.refused ? "refused" : "ran")
+                + (shortcuts.problems.isEmpty ? "" : " " + shortcuts.problems.joined(separator: "; ")))
 
         // A reload loads a new document: a mark the page held is gone afterwards.
         func reload(_ reload: () throws -> Void) async throws -> String {
@@ -151,9 +171,13 @@ struct NavigationHistoryTest: E2ETest {
         page.navigationEvents.filter { $0.kind == .commit && $0.url == url }.count
     }
 
-    /// Waits until `url` has committed more than `commits` times; the step's timeout bounds the wait.
+    /// Waits until `url` has committed more than `commits` times, failing the step after `settle` seconds.
     private static func waitForCommit(of url: URL, after commits: Int, in page: any E2EPage) async throws {
+        let deadline = Date().addingTimeInterval(settle)
         while Self.commits(of: url, in: page) <= commits {
+            guard Date() < deadline else {
+                throw E2EError("\(url.path) did not commit; events=\(page.navigationEvents)")
+            }
             try await Task.sleep(nanoseconds: 20_000_000)
         }
     }
