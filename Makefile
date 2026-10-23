@@ -11,7 +11,7 @@ E2E ?= all
 # scripts/e2e.sh alone, quoted for the shell.
 unexport E2E
 
-.PHONY: bootstrap hooks project build test test-lock test-e2e-wrapper test-prune test-scripts run smoke e2e e2e-run format lint guards release verify clean
+.PHONY: bootstrap hooks project build test test-lock test-e2e-wrapper test-prune test-affected test-scripts run smoke e2e e2e-run format lint guards release verify check clean
 
 bootstrap: hooks
 	./scripts/bootstrap-cef.sh
@@ -47,8 +47,12 @@ test-e2e-wrapper:
 test-prune:
 	./scripts/test-prune-compile-cache.sh
 
+# Tests scripts/e2e-affected.sh, the e2e selection make check runs, on fake changes (about a second).
+test-affected:
+	./scripts/test-e2e-affected.sh
+
 # The script self tests verify runs when scripts/ or the Makefile differ from origin/main.
-test-scripts: test-e2e-wrapper test-prune
+test-scripts: test-e2e-wrapper test-prune test-affected
 
 run: build
 	open $(APP)
@@ -87,6 +91,12 @@ release: project
 # scripts/ or the Makefile differ from origin/main; VERIFY_ALL=1 runs it always. scripts/verify.sh says how.
 verify:
 	@./scripts/verify.sh
+
+# The quick check while building and fixing: lint on the changed Swift files, guards, BowCore tests when BowCore/
+# changed, then build and e2e-run with only the tests the change touches (scripts/e2e-affected.sh). It never
+# replaces verify and the full e2e at the end. scripts/check.sh says how.
+check:
+	@./scripts/check.sh
 
 clean:
 	rm -rf $(BUILD_DIR) Bow.xcodeproj Generated
