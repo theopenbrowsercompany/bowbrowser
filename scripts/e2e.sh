@@ -137,13 +137,19 @@ on_signal() {
   # app that ignores TERM for 5 seconds is swept (KILL after 2 more), which lets the build lock end and give back
   # its slot; only a build lock still running 2 seconds after that is killed.
   if [ -n "$child" ] && kill -TERM "$child" 2>/dev/null; then
-    gone "$child" 25 || { [ -z "$current" ] || sweep "$current"; gone "$child" 10; } || kill -KILL "$child" 2>/dev/null
+    gone "$child" 25 || { [ -z "$current" ] || sweep "$current"; gone "$child" 10; } || {
+      # The PID was seen alive seconds ago: KILL it only while it is still this run's build lock.
+      case $(ps -o command= -p "$child" 2>/dev/null) in
+        *build-lock.sh*"$run"*) kill -KILL "$child" 2>/dev/null ;;
+      esac
+    }
     wait "$child" 2>/dev/null
   fi
   [ -z "$current" ] || sweep "$current"
   printf '{"status":"interrupted","exitCode":130,"signal":%s,"summary":"E2E: ERROR interrupted","selection":%s,"run":%s,%s}\n' \
     "$(json "$1")" "$(json "$selection")" "$(json "$run")" "$(commit_json)" > "$run/results.json"
   echo "E2E: ERROR interrupted"
+  echo "E2E: ERROR interrupted" >> "$run/report.txt"
   exit 130
 }
 trap 'on_signal INT' INT

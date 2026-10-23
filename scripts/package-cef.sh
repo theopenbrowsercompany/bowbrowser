@@ -22,17 +22,17 @@ helper_name() { if [ -z "$1" ]; then echo "Bow Helper"; else echo "Bow Helper ($
 # copies themselves, so a deleted or rebuilt app bundle is packaged again.
 stamp() {
   (cd "$framework_src" && pwd -P)
-  stat -f '%N %m %z %i' "$framework_src/Chromium Embedded Framework"
+  stat -f '%N %m %c %z %i' "$framework_src/Chromium Embedded Framework"
   # The framework's Libraries and Resources (about 230 files), by metadata, so a stat each is cheap.
-  find "$framework_src/Libraries" "$framework_src/Resources" -type f -print0 | sort -z | xargs -0 stat -f '%N %m %z %i'
+  find "$framework_src/Libraries" "$framework_src/Resources" -type f -print0 | sort -z | xargs -0 stat -f '%N %m %c %z %i'
   find "$helper_src" -type f -print0 | sort -z | xargs -0 shasum
   shasum "$0"
-  stat -f '%N %m %z %i' "$framework/Versions/A/Chromium Embedded Framework"
+  stat -f '%N %m %c %z %i' "$framework/Versions/A/Chromium Embedded Framework"
   find "$framework/Versions/A/Libraries" "$framework/Versions/A/Resources" -type f -print0 | sort -z |
-    xargs -0 stat -f '%N %m %z %i'
+    xargs -0 stat -f '%N %m %c %z %i'
   for kind in "" GPU Renderer Plugin Alerts; do
     name=$(helper_name "$kind")
-    stat -f '%N %m %z %i' "$frameworks/$name.app/Contents/MacOS/$name" \
+    stat -f '%N %m %c %z %i' "$frameworks/$name.app/Contents/MacOS/$name" \
       "$frameworks/$name.app/Contents/_CodeSignature/CodeResources"
   done
 }
