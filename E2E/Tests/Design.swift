@@ -361,7 +361,8 @@ struct DesignStartScreenTest: E2ETest {
             let seeds = run.app as? any E2EStoreSeedApp, let bars = run.app as? any E2ECommandBarApp
         else { throw E2EError("the app lacks the window edges, start screen, seed or command bar hooks") }
         let page = try await run.step("open the seeded window", timeout: E2ETimeouts.firstLoad) {
-            let seed = E2ESeed(spaces: [E2ESeedSpace("Home", today: [.tab("Reading", url: DesignTests.url("Reading"))])])
+            let seed = E2ESeed(spaces: [E2ESeedSpace("Home", today: [.tab("Reading", url: DesignTests.url("Reading"))])]
+            )
             let window = try await seeds.openWindow(seeded: seed)
             _ = try await window.page.waitForLoad(after: 0)
             return window.page

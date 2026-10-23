@@ -75,8 +75,10 @@ extension E2EAppAdapter {
         func cgHex(_ color: CGColor?) -> String? { color.flatMap { NSColor(cgColor: $0) }.flatMap { hex($0) } }
         func frame(_ view: NSView) -> CGRect { screen.convert(view.bounds, from: view) }
         let visibleLinks = screen.links.filter { $0.superview != nil && !$0.isHiddenOrHasHiddenAncestor }
-        let parts: [NSView] = [screen.markView, screen.greetingLabel, screen.searchPill, screen.linksRow, screen.hintLabel]
-            .filter { $0.superview != nil && !$0.isHiddenOrHasHiddenAncestor }
+        let parts: [NSView] = [
+            screen.markView, screen.greetingLabel, screen.searchPill, screen.linksRow, screen.hintLabel,
+        ]
+        .filter { $0.superview != nil && !$0.isHiddenOrHasHiddenAncestor }
         let frames = parts.map(frame)
         let gaps = zip(frames, frames.dropFirst()).map { Double($0.minY - $1.maxY) }
         let first = visibleLinks.first
