@@ -92,8 +92,8 @@ The list comes from the saved sidebar (see `sidebar-store.md`): a window's tabs 
 - Tab identities are separate from the engine's page identities, which do not survive a restart.
 - Known limit: a page that closes itself (`window.close()`) keeps its tab in the sidebar, unloaded, because Bow cannot yet tell that close from one made by quitting; its row stays selected with an empty page area until a row is chosen, and selecting it loads its saved page again.
 - A saved tab that has not loaded yet closes at once from its close button or Close Tab, since it has no page to ask.
-- Moving a tab in the flat list puts it in the place of the tab it lands on, in that tab's section or folder; past the last tab it goes to the end of its own section.
-  Dragging never pins or unpins: a tab dropped across the line between pinned tabs and the tabs section stays in its own section, at the edge nearest the drop.
+- Moving a tab to a position in the window's tab order puts it in the place of the tab it lands on, in that tab's section or folder (pinning or unpinning it when that is the other zone); past the last tab it goes to the end of today.
+  How dragging across the divider pins and unpins is in `sidebar.md`.
 - If the sidebar file can be neither read nor moved aside, Bow still opens with an empty sidebar for that launch, saved nowhere, and leaves the file alone.
 - A window opened for a smoke run or an e2e test runs on a sidebar of its own, so it never adds tabs to the person's sidebar.
 
@@ -123,7 +123,7 @@ The list comes from the saved sidebar (see `sidebar-store.md`): a window's tabs 
 
 - Keyboard shortcuts for switching tabs, reopening closed tabs, and moving tabs between windows.
 - How the sidebar looks beyond the rows above (collapsing, resizing, themes, a hidden title bar).
-- Showing pinned tabs, Favorites and folders as sections (the sidebar lists the Space's tabs as one flat list for now), archiving of old tabs and sleeping tabs to save memory.
+- The sidebar's sections (Favorites, pinned, today) and its folders, covered in `sidebar.md`; archiving of old tabs and sleeping tabs to save memory.
 - Switching Spaces, choosing a Space's profile, and tabs mirrored across windows.
 - Creating or closing the underlying pages in the engine (the tab list only records what the engine reports).
 - Prompts when a page reloads or navigates away (reloading asks "Reload this site?" the same way), which this spec does not check.
