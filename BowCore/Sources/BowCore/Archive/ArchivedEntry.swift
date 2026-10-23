@@ -50,6 +50,13 @@ public struct ArchivedEntry: Codable, Hashable, Sendable {
     public var savedURL: String? { item.tab?.savedURL }
 }
 
+extension SidebarItemData {
+    fileprivate var isSplit: Bool {
+        if case .split = self { return true }
+        return false
+    }
+}
+
 extension SidebarGraph {
     /// The kind of section an item hangs under and the Space that owns it. Nil for an unreachable item; Favorites
     /// has no Space.
@@ -89,6 +96,9 @@ extension ArchivedEntry {
         guard let item = graph[id] else { throw .itemNotFound(id) }
         guard !item.data.isContainer, let parentID = item.parentID, let parent = graph[parentID] else {
             throw .notEligible(id, "it is not an item in a section")
+        }
+        guard !(parent.data.isSplit) else {
+            throw .notEligible(id, "it is part of a split; archive the split instead")
         }
         guard let section = graph.section(of: id), section.kind == .unpinned, let space = section.space else {
             throw .notEligible(id, "only items in Today can be archived")

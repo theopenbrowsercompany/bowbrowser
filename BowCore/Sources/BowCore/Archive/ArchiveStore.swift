@@ -58,8 +58,14 @@ public final class ArchiveStore {
         if !FileManager.default.fileExists(atPath: fileURL.path) {
             origin = .freshBecauseMissing
         } else {
+            // A file that cannot be read at all (permissions, a lock) is not known to be bad: refuse to start.
+            let data: Data
             do {
-                let data = try Data(contentsOf: fileURL)
+                data = try Data(contentsOf: fileURL)
+            } catch {
+                throw ArchiveError.unreadableFileNotSetAside("reading failed: \(error)")
+            }
+            do {
                 let decoded = try ArchiveFileFormat.decode(data, currentVersion: currentVersion, migrations: migrations)
                 entries = decoded.entries
                 migratedFrom = decoded.migratedFrom
@@ -76,6 +82,8 @@ public final class ArchiveStore {
         self.entries = Self.newestFirst(entries)
         openReport = OpenReport(
             origin: origin, migratedFrom: migratedFrom, backupURL: backupURL, skippedRecordCount: skipped)
+        // The copy holds the original, so the cleaned file replaces it now; otherwise every launch would copy again.
+        if backupURL != nil { try commit(self.entries) }
     }
 
     public func entry(for id: SidebarItemID) -> ArchivedEntry? { entries.first { $0.id == id } }

@@ -86,12 +86,13 @@ public enum ArchiveFileFormat {
         } catch {
             throw .invalidContents(String(describing: error))
         }
+        let readable = contents.items.compactMap(\.value)
         var seen: Set<SidebarItemID> = []
         // One entry per item: a repeated ID keeps its first record, the newest.
-        let entries = contents.items.compactMap(\.value).filter { seen.insert($0.id).inserted }
+        let entries = readable.filter { seen.insert($0.id).inserted }
         return Decoded(
             entries: entries,
             migratedFrom: version < currentVersion ? version : nil,
-            skippedRecordCount: contents.items.count - entries.count)
+            skippedRecordCount: contents.items.count - readable.count)
     }
 }

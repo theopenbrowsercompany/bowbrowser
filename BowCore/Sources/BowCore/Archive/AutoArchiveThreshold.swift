@@ -44,31 +44,31 @@ public enum AutoArchiveThreshold: String, CaseIterable, Codable, Sendable {
 /// The auto-archive threshold of each profile. The threshold belongs to the profile, not to a Space: every Space
 /// of a profile archives on the same schedule. Codable so the app can keep it wherever it keeps settings.
 public struct AutoArchiveSettings: Equatable, Sendable {
-    private var thresholds: [String: AutoArchiveThreshold]
+    /// Saved values as text, so a value this build does not know (written by a newer build) survives a save.
+    private var saved: [String: String]
 
-    public init() { thresholds = [:] }
+    public init() { saved = [:] }
 
+    /// The profile's threshold; the default when it never chose or its saved value is not on this build's menu.
     public func threshold(for profile: ProfileID) -> AutoArchiveThreshold {
-        thresholds[profile.rawValue] ?? .default
+        saved[profile.rawValue].flatMap { AutoArchiveThreshold(rawValue: $0) } ?? .default
     }
 
     public mutating func setThreshold(_ threshold: AutoArchiveThreshold, for profile: ProfileID) {
-        thresholds[profile.rawValue] = threshold
+        saved[profile.rawValue] = threshold.rawValue
     }
 }
 
 extension AutoArchiveSettings: Codable {
     private enum CodingKeys: String, CodingKey { case thresholds }
 
-    /// Reads forgivingly: a profile whose saved value is not on the menu any more falls back to the default.
     public init(from decoder: any Decoder) throws {
         let values = try decoder.container(keyedBy: CodingKeys.self)
-        let raw = (try? values.decode([String: String].self, forKey: .thresholds)) ?? [:]
-        thresholds = raw.compactMapValues { AutoArchiveThreshold(rawValue: $0) }
+        saved = try values.decodeIfPresent([String: String].self, forKey: .thresholds) ?? [:]
     }
 
     public func encode(to encoder: any Encoder) throws {
         var values = encoder.container(keyedBy: CodingKeys.self)
-        try values.encode(thresholds.mapValues(\.rawValue), forKey: .thresholds)
+        try values.encode(saved, forKey: .thresholds)
     }
 }
