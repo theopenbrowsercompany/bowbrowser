@@ -209,9 +209,12 @@ final class E2EChromiumLog: Sendable {
         }
         Self.writeAll(echo, to: terminal)
         // A run that timed out gets the file too, because the watchdog calls this method as well.
-        if !unexpectedIndexes.isEmpty {
+        let contextURL = url.deletingLastPathComponent().appendingPathComponent(E2EChromiumErrorContext.fileName)
+        if unexpectedIndexes.isEmpty {
+            // No stale file from an earlier scan of the same run.
+            try? FileManager.default.removeItem(at: contextURL)
+        } else {
             let context = E2EChromiumErrorContext.text(lines: lines, unexpected: unexpectedIndexes, marks: markIndexes)
-            let contextURL = url.deletingLastPathComponent().appendingPathComponent(E2EChromiumErrorContext.fileName)
             try? context.write(to: contextURL, atomically: true, encoding: .utf8)
         }
         return result
