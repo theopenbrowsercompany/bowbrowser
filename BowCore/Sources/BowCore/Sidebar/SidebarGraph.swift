@@ -138,6 +138,12 @@ public struct SidebarGraph: Hashable, Sendable {
             } else {
                 problems.append("\(item.id) has no parent")
             }
+            if case .split = item.data {
+                let panes = item.childrenIDs.filter { items[$0]?.data.isTab == true }.count
+                if !(SidebarSplit.minimumPanes...SidebarSplit.maximumPanes).contains(panes) {
+                    problems.append("split \(item.id) holds \(panes) tabs, not 2 to 4")
+                }
+            }
             for childID in item.childrenIDs {
                 guard let child = items[childID] else {
                     problems.append("\(item.id) lists missing child \(childID)")

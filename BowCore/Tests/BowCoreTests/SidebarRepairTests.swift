@@ -11,11 +11,46 @@ extension SidebarItemData {
 }
 
 @Suite struct SidebarRepairTests {
-    /// Every tab, folder and split in `before` still exists after repair: repair never deletes what the person made.
-    /// The one exception is a split holding fewer than two tabs, which repair removes or turns back into its tab.
-    private func expectNothingLost(_ before: SidebarGraph, _ after: SidebarGraph) {
+    /// Nothing the person made is lost: every tab and folder in `before` still exists with the same data, and every
+    /// split either survives with its orientation or is gone with a log entry saying why (no tabs, or one tab that
+    /// now sits where the split was). Every split after repair holds two to four tabs and a layout that fits them.
+    private func expectNothingLost(_ before: SidebarGraph, _ after: SidebarGraph, _ log: [SidebarRepair]) {
         for item in before.items.values where !item.data.isContainer && !item.data.isSplit {
             #expect(after[item.id]?.data == item.data, "lost \(item.id)")
+        }
+        for item in before.items.values {
+            guard case .split(let was) = item.data else { continue }
+            if case .split(let now)? = after[item.id]?.data {
+                #expect(now.orientation == was.orientation, "split \(item.id) changed orientation")
+                continue
+            }
+            let id = item.id
+            if log.contains(.removedEmptySplit(id)) { continue }
+            let dissolved = log.compactMap { entry -> SidebarItemID? in
+                if case .dissolvedSingleTabSplit(id, let tab) = entry { return tab }
+                return nil
+            }
+            guard let tab = dissolved.first else {
+                Issue.record("split \(id) vanished without a log entry")
+                continue
+            }
+            #expect(after[tab] != nil, "the tab of dissolved split \(id) is gone")
+            if let parentID = item.parentID, let parent = before[parentID], parent.childrenIDs.contains(id),
+                parent.data.canHold(item.data), after[parentID] != nil
+            {
+                #expect(after[tab]?.parentID == parentID, "the tab of split \(id) is not under the split's parent")
+            }
+        }
+        for item in after.items.values {
+            guard case .split(let split) = item.data else { continue }
+            let panes = item.childrenIDs.filter { after[$0]?.data.isTab == true }
+            #expect((2...4).contains(panes.count) && panes.count == item.childrenIDs.count, "split \(item.id) panes")
+            if !split.widthFactors.isEmpty {
+                #expect(split.widthFactors.count == panes.count, "split \(item.id) width factor count")
+                #expect(abs(split.widthFactors.reduce(0, +) - 1) < 1e-9, "split \(item.id) widths sum")
+                #expect(split.widthFactors.allSatisfy { $0.isFinite && $0 > 0 })
+            }
+            if let focused = split.focusedItemID { #expect(panes.contains(focused), "split \(item.id) focus") }
         }
     }
 
@@ -23,7 +58,7 @@ extension SidebarItemData {
         var copy = graph
         let log = copy.repair()
         #expect(copy.integrityProblems() == [])
-        expectNothingLost(graph, copy)
+        expectNothingLost(graph, copy, log)
         return (copy, log)
     }
 
@@ -220,11 +255,24 @@ extension SidebarItemData {
     /// every item.
     @Test func randomDamageAlwaysRepairsWithoutLosingItems() throws {
         var random = SeededGenerator(seed: 42)
-        let base = try SidebarGraph.twelveItems().applying([.insertSpace("second", title: "Second")])
+        let base = try SidebarGraph.twelveItems().applying([
+            .insertSpace("second", title: "Second"),
+            .insert(.split(id: "triple", orientation: .horizontal), parent: "unpinned"),
+            .insert(.tab(id: "t1", url: "https://t1.example.com"), parent: "triple"),
+            .insert(.tab(id: "t2", url: "https://t2.example.com"), parent: "triple"),
+            .insert(.tab(id: "t3", url: "https://t3.example.com"), parent: "triple"),
+            .setSplitLayout("triple", widthFactors: [2, 1, 1], focusedItemID: "t2"),
+        ])
         let ids = Array(base.items.keys).sorted() + ["ghost-1", "ghost-2"]
+        let splitIDs: [SidebarItemID] = ["split", "triple"]
+        let tabIDs = base.items.values.filter { $0.data.isTab }.map(\.id).sorted()
         for _ in 0..<500 {
             var graph = base
             for _ in 0..<Int.random(in: 1...6, using: &random) {
+                if Int.random(in: 0..<3, using: &random) == 0 {
+                    damageSplit(&graph, splitIDs.randomElement(using: &random)!, tabIDs, &random)
+                    continue
+                }
                 let target = ids.randomElement(using: &random)!
                 guard graph.items[target] != nil else { continue }
                 switch Int.random(in: 0..<6, using: &random) {
@@ -237,11 +285,38 @@ extension SidebarItemData {
                 }
             }
             var copy = graph
-            copy.repair()
+            let log = copy.repair()
             #expect(copy.integrityProblems() == [])
-            for (id, item) in graph.items where !item.data.isContainer && !item.data.isSplit {
-                #expect(copy[id] != nil)
+            expectNothingLost(graph, copy, log)
+            // A second repair finds nothing to do.
+            var again = copy
+            #expect(again.repair().isEmpty && again == copy, "repair is idempotent")
+        }
+    }
+
+    /// Damages one split the ways a bad file can: too few or too many tabs, widths and focus that do not fit.
+    private func damageSplit(
+        _ graph: inout SidebarGraph, _ id: SidebarItemID, _ tabs: [SidebarItemID], _ random: inout SeededGenerator
+    ) {
+        guard case .split(var split)? = graph.items[id]?.data else { return }
+        switch Int.random(in: 0..<5, using: &random) {
+        case 0:
+            let kept = Array((graph.items[id]?.childrenIDs ?? []).prefix(1))
+            graph.items[id]?.childrenIDs = kept
+        case 1: graph.items[id]?.childrenIDs = []
+        case 2:
+            for tab in tabs.shuffled(using: &random).prefix(Int.random(in: 1...3, using: &random)) {
+                graph.items[id]?.childrenIDs.append(tab)
+                graph.items[tab]?.parentID = id
             }
+        case 3:
+            let count = Int.random(in: 0...5, using: &random)
+            let bad: [Double] = [0, -1, .nan, .infinity, 3, 0.2]
+            split.widthFactors = (0..<count).map { _ in bad.randomElement(using: &random)! }
+            graph.items[id]?.data = .split(split)
+        default:
+            split.focusedItemID = (tabs + ["ghost-1"]).randomElement(using: &random)
+            graph.items[id]?.data = .split(split)
         }
     }
 }

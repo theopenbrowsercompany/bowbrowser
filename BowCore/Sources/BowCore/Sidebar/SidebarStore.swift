@@ -124,14 +124,19 @@ public final class SidebarStore {
     /// The graph as the open transaction currently sees it.
     public var transactionGraph: SidebarGraph? { draft }
 
-    /// Checks the transaction's graph, makes it the committed graph and writes the file.
+    /// Applies the split rules to the transaction's graph (a split with no tabs goes, one with one tab turns back into
+    /// that tab), checks it, makes it the committed graph and writes the file.
     ///
     /// If the check fails, the transaction is rolled back and `integrityCheckFailed` is thrown. If only the write
     /// fails, the change stays committed in memory, `hasUnsavedChanges` stays true, and `saveFailed` is thrown; the
     /// file on disk keeps its previous contents.
     public func commitTransaction() throws(SidebarStoreError) {
-        guard let draft else { throw .noOpenTransaction }
+        guard var draft else { throw .noOpenTransaction }
         self.draft = nil
+        // A split left with fewer than two tabs by any change (a move to Favorites or another Space, a delete) is
+        // cleaned up here, so no path has to remember it and a committed graph never holds one.
+        var splitFixes: [SidebarRepair] = []
+        draft.repairSplits(&splitFixes)
         guard draft != graph else {
             // Nothing changed, but retry a write an earlier commit could not finish.
             try save()

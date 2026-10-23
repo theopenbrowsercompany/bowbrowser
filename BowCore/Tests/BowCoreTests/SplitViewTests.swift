@@ -448,18 +448,97 @@ import Testing
         #expect(log.contains(.dissolvedSingleTabSplit("s", tab: "x")))
     }
 
-    @Test func theStoreRepairsAndSavesASplitLeftWithOneTab() throws {
+    @Test func theStoreDissolvesASplitLeftWithOneTabWhenAPlainDeleteCommits() throws {
         try withTemporaryFolder { folder in
             let store = try makeStore(in: folder)
             try store.createSplit(from: ["b", "c"], id: "s")
-            // A generic delete leaves the split with one tab, which is what closing through the plain path does.
             try store.apply([.delete("c")])
-            #expect(store.graph.splitPaneIDs("s") == ["b"])
-            #expect(try store.repair() == [.dissolvedSingleTabSplit("s", tab: "b")])
-            #expect(store.graph["s"] == nil)
-            let reopened = try SidebarStore(fileURL: store.fileURL)
-            #expect(reopened.graph == store.graph)
-            #expect(reopened.openReport.repairs.isEmpty)
+            expectNoSmallSplit(store, remaining: "b", at: ["a", "b", "d", "e", "folder"])
+            #expect(try store.repair().isEmpty)
         }
+    }
+
+    @Test func draggingAPaneOfATwoPaneSplitToFavoritesLeavesNoOneTabSplit() throws {
+        try withTemporaryFolder { folder in
+            let store = try makeStore(in: folder)
+            try store.createSplit(from: ["b", "c"], id: "s")
+            try store.moveToFavorites("c")
+            expectNoSmallSplit(store, remaining: "b", at: ["a", "b", "d", "e", "folder"])
+            #expect(store.graph.isInFavorites("c"))
+        }
+    }
+
+    @Test func movingAPaneToAnotherSpaceLeavesNoOneTabSplit() throws {
+        try withTemporaryFolder { folder in
+            let store = try makeStore(in: folder)
+            try store.apply([.insertSpace("second", title: "Second")])
+            try store.createSplit(from: ["b", "c"], id: "s")
+            try store.moveToSpace("c", space: "second")
+            expectNoSmallSplit(store, remaining: "b", at: ["a", "b", "d", "e", "folder"])
+            #expect(store.graph.spaceID(containing: "c") == "second")
+        }
+    }
+
+    @Test func deletingAPaneThroughThePlainPathLeavesNoOneTabSplit() throws {
+        try withTemporaryFolder { folder in
+            let store = try makeStore(in: folder)
+            try store.createSplit(from: ["b", "c", "d"], id: "s")
+            try store.apply([.delete("b")])
+            #expect(store.graph.splitPaneIDs("s") == ["c", "d"])
+            try store.apply([.delete("d")])
+            expectNoSmallSplit(store, remaining: "c", at: ["a", "c", "e", "folder"])
+        }
+    }
+
+    /// The saved graph and the file it reopens as hold the lone tab in the split's place and need no repair.
+    private func expectNoSmallSplit(_ store: SidebarStore, remaining: SidebarItemID, at order: [SidebarItemID]) {
+        #expect(store.graph["s"] == nil)
+        #expect(unpinnedOrder(store) == order)
+        #expect(store.graph.splitID(containing: remaining) == nil)
+        #expect(store.graph.integrityProblems().isEmpty)
+        let reopened = try? SidebarStore(fileURL: store.fileURL)
+        #expect(reopened?.graph == store.graph)
+        #expect(reopened?.openReport.repairs.isEmpty == true)
+    }
+
+    @Test func aPaneLeavingWithTheFocusDoesNotBlockLaterSplitChanges() throws {
+        try withTemporaryFolder { folder in
+            let store = try makeStore(in: folder)
+            try store.apply([.insertSpace("second", title: "Second")])
+            try store.createSplit(from: ["a", "b", "c", "d"], id: "s")
+            try store.setFocusedPane("c")
+            try store.moveToSpace("c", space: "second")
+            #expect(store.graph.splitPaneIDs("s") == ["a", "b", "d"])
+            #expect(store.graph.split("s")?.focusedItemID == nil)
+            try store.setSplitWidthFactors("s", [2, 1, 1])
+            try store.moveSplitDivider("s", dividerIndex: 0, to: 0.6)
+            try store.movePane("d", to: 0)
+            try store.addPane("e", to: "s")
+            try store.removePane("e")
+            #expect(store.graph.splitPaneIDs("s") == ["d", "a", "b"])
+            #expect(store.graph.integrityProblems().isEmpty)
+        }
+    }
+
+    @Test func addingAPaneKeepsEveryPaneAtTheMinimum() throws {
+        try withTemporaryFolder { folder in
+            let store = try makeStore(in: folder)
+            try store.createSplit(from: ["a", "b", "c"], id: "s")
+            try store.setSplitWidthFactors("s", [0.1, 0.8, 0.1])
+            try store.addPane("d", to: "s")
+            let fractions = store.graph.splitWidthFractions("s")
+            #expect(fractions.count == 4)
+            #expect(fractions.allSatisfy { $0 >= SidebarSplit.minimumPaneFraction - 1e-9 })
+            #expect(abs(sum(fractions) - 1) < 1e-9)
+        }
+    }
+
+    @Test func anOrphanedEmptySplitIsRemovedWithoutAnEmptyRecoveredFolder() throws {
+        var graph = try splitGraph(panes: [])
+        graph.items["s"]?.parentID = nil
+        graph.items["unpinned"]?.childrenIDs.removeAll { $0 == "s" }
+        let (after, log) = repaired(graph)
+        #expect(after["s"] == nil && after[.recentlyRecovered] == nil)
+        #expect(log == [.removedEmptySplit("s")])
     }
 }

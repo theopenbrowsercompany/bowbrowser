@@ -52,6 +52,13 @@ extension SidebarGraph {
         var orphans = repairParents(listingOrder: listingOrder, &log)
         orphans += breakCycles(excluding: orphans, &log)
         repairActivePointers(&log)
+        // An orphaned split with no tabs holds nothing, so it goes before it can be the only thing "Recovered" holds.
+        orphans.removeAll { id in
+            guard case .split? = items[id]?.data, items[id]?.childrenIDs.isEmpty == true else { return false }
+            items[id] = nil
+            log.append(.removedEmptySplit(id))
+            return true
+        }
         placeOrphans(orphans, &log)
         repairSplits(&log)
         return log
