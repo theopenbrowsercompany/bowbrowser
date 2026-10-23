@@ -447,8 +447,8 @@ extension E2EAppAdapter: E2ESidebarApp {
         guard let id = page.controller.modelID(of: page.tab), let row = sidebar.tabList.index(of: id) else {
             throw E2EError("tab \(page.tab.tabID) has no sidebar row")
         }
-        // A click selects the row; the table reports the new selection to the sidebar the same way.
-        sidebar.tableView.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
+        // What the table's click action does with the clicked row.
+        sidebar.clickRow(row)
     }
 
     func clickSidebarClose(of page: any E2EPage) throws {
