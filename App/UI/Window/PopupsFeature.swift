@@ -7,8 +7,8 @@ import BowCore
 ///
 /// A link meant for a new tab and a script's `window.open` after a click arrive as popups with `window.opener` kept; a
 /// Cmd-click, Cmd-Shift-click, Shift-click or middle click on a link arrives the same way without an opener. A sized
-/// popup (a sign in window) stays the engine's own window, and a page that opens one without a click opens nothing.
-/// New kinds of answer (a popup panel, Peek) go into `PopupDecision` and are handled here.
+/// popup or an identity provider's sign in page is answered `.popupPanel`, which `PopupPanelFeature` takes, and a page
+/// that opens one without a click opens nothing. New kinds of answer (Peek) go into `PopupDecision`.
 @MainActor
 final class PopupsFeature: NSResponder, BrowserWindowFeature {
     private weak var window: BrowserWindowController?
@@ -36,7 +36,8 @@ final class PopupsFeature: NSResponder, BrowserWindowFeature {
         switch outcome.decision {
         case .foregroundTab: select = true
         case .backgroundTab: select = false
-        case .window, .block: return false
+        // PopupPanelFeature takes a panel's page.
+        case .popupPanel, .window, .block: return false
         }
         return window.adoptTab(
             newTab, after: tab, placement: outcome.placement ?? PopupPolicy.todayPlacement, select: select,
