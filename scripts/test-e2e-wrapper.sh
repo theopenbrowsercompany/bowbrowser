@@ -31,8 +31,24 @@ case $FAKE_MODE in
       *) echo "FAIL a.one: slow" > "$r"; echo "E2E: FAIL 0/1" >> "$r"; exit 1 ;;
     esac ;;
   orphan)
-    perl -e 'sleep 60' -- "$out/helper" &
+    "$(dirname "$0")/../Frameworks/Helper" "$out/helper" > /dev/null 2>&1 < /dev/null &
+    tail -f /dev/null "$out/report.txt" > /dev/null 2>&1 < /dev/null & echo $! > "$out/../tail.pid"
     echo "PASS a.one: ok" > "$r"; echo "E2E: PASS 1/1" >> "$r"; exit 0 ;;
+  retrycrash)
+    case $out in
+      */retry) kill -SEGV $$ ;;
+      *) echo "FAIL a.one: broken" > "$r"; echo "E2E: FAIL 0/1" >> "$r"; exit 1 ;;
+    esac ;;
+  chromium)
+    case $out in
+      */retry) echo "only=$only" > "$out/args"; { echo "TEST PASS a.one"; echo "PASS chromium.errors: ok"; echo "E2E: PASS 2/2"; } > "$r"; exit 0 ;;
+      *) { echo "TEST PASS a.one"; echo "FAIL chromium.errors: 1 unexpected"; echo "E2E: FAIL 1/2"; } > "$r"; exit 1 ;;
+    esac ;;
+  onlytimeout)
+    case $out in
+      */retry) echo "only=$only" > "$out/args"; { echo "TEST PASS a.one"; echo "TEST PASS a.two"; echo "E2E: PASS 2/2"; } > "$r"; exit 0 ;;
+      *) { echo "TEST PASS a.one"; echo "E2E: TIMEOUT a.two: open window"; } > "$r"; exit 2 ;;
+    esac ;;
   only)
     echo "only=$only" >> "$out/args"
     if [ "$only" = "a.two" ]; then
@@ -43,6 +59,10 @@ case $FAKE_MODE in
 esac
 EOF
 chmod +x "$app/Contents/MacOS/Bow"
+# A stand-in for a Chromium helper: lives in the bundle and runs until killed.
+mkdir -p "$app/Contents/Frameworks"
+printf '#!/bin/bash\nwhile :; do sleep 0.2; done\n' > "$app/Contents/Frameworks/Helper"
+chmod +x "$app/Contents/Frameworks/Helper"
 
 failed=0
 check() { # check <description> <condition command...>
@@ -104,8 +124,24 @@ check "usage: summary" is "$last" "E2E: ERROR the app could not start the run (e
 
 run orphan
 check "orphan: exit 0" is "$code" 0
-check "orphan: helper ended" is "$(pgrep -f -- "$BOW_E2E_ROOT/.*/helper" | wc -l | tr -d ' ')" 0
+check "orphan: helper ended" is "$(pgrep -f -- "Frameworks/Helper .*/helper" | grep -c .)" 0
 check "orphan: counted" is "$(field "$res" orphansKilled)" 1
+tail_pid=$(cat "$BOW_E2E_ROOT/tail.pid")
+check "orphan: a process outside the app bundle is left alone" kill -0 "$tail_pid"
+kill "$tail_pid" 2>/dev/null
+
+run retrycrash
+check "a crash on the retry: exit 4" is "$code" 4
+check "a crash on the retry: summary" is "$last" "E2E: CRASH exit=139 signal=11 without a summary line"
+
+run chromium
+check "a failed check outside any test: whole selection retried" is "$(cat "$BOW_E2E_ROOT/latest/retry/args")" "only="
+check "a failed check outside any test: FLAKY names it" is "$last" "E2E: FLAKY 2/2 after retrying chromium.errors"
+
+run onlytimeout 'a.*'
+check "only: a timeout before the first per-test line stays a timeout" is "$code" 3
+check "only: the timed out test is named" is "$last" "E2E: FLAKY 2/2 after retrying a.two"
+check "only: a timeout retries the whole selection" is "$(cat "$BOW_E2E_ROOT/latest/retry/args")" "only=a.*"
 
 run only 'a.*'
 check "only: retries only the failed test" is "$(cat "$BOW_E2E_ROOT/latest/retry/args")" "only=a.two"

@@ -38,8 +38,9 @@ if [ -f "$stamp_file" ] && current=$(stamp 2>/dev/null) && [ "$current" = "$(cat
 fi
 rm -f "$stamp_file"
 
-# Copies with APFS clones when the volume allows it, which is near instant; a plain copy otherwise.
-copy() { cp -cR "$1" "$2" 2>/dev/null || cp -R "$1" "$2"; }
+# Copies $1 to the path $2 with APFS clones when the volume allows it, which is near instant; a plain copy otherwise
+# (after removing whatever a failed clone left there).
+copy() { cp -cR "$1" "$2" 2>/dev/null || { rm -rf "$2" && cp -R "$1" "$2"; }; }
 
 # CEF ships a flat framework; Xcode's validation and macOS signing expect the versioned layout
 # (Versions/A plus symlinks), which is also how Chrome ships its framework.
@@ -47,7 +48,7 @@ mkdir -p "$frameworks"
 rm -rf "$framework"
 mkdir -p "$framework/Versions/A"
 for item in "Chromium Embedded Framework" Libraries Resources; do
-  copy "$framework_src/$item" "$framework/Versions/A/"
+  copy "$framework_src/$item" "$framework/Versions/A/$item"
 done
 ln -s A "$framework/Versions/Current"
 for item in "Chromium Embedded Framework" Libraries Resources; do
