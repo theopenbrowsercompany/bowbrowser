@@ -8,13 +8,13 @@ enum DownloadsTests {
 }
 
 /// Opens a slow download of known size in a second tab and closes that tab mid download. Chromium stops reporting a
-/// download once its tab closes (and CEF cancels it), so the row must update from disk to Cancelled, clear, and free
-/// its name.
+/// download once its tab closes (and CEF cancels it), so the row must update from disk to Cancelled and free its
+/// name while it is still listed, then clear.
 struct DownloadsTabClosedTest: E2ETest {
     let name = "downloads.tab-closed"
     let checks = ["downloads.tab-closed"]
-    /// About three seconds at the fixture's pace (1 KB every 20 ms).
-    static let size: Int64 = 160_000
+    /// About six seconds at the fixture's pace (1 KB every 20 ms), so the tab closes well before half of it under load.
+    static let size: Int64 = 320_000
 
     func run(_ run: E2ERun) async throws {
         let page = try await run.step("open window", timeout: E2ETimeouts.step) {
@@ -35,11 +35,13 @@ struct DownloadsTabClosedTest: E2ETest {
                         && $0.receivedBytes > 0
                 }
             }
-            guard row.receivedBytes < Self.size / 2 else {
-                throw E2EError("the download got \(row.receivedBytes) bytes before the tab could close")
-            }
             guard try await run.app.closeTab(tab) else { throw E2EError("the download's tab did not close") }
             return row
+        }
+        guard atClose.receivedBytes < Self.size / 2 else {
+            run.check(name, passed: false, "the download got \(atClose.receivedBytes) bytes before its tab closed")
+            await cancelRunning(run, except: earlier)
+            return
         }
 
         do {
@@ -61,11 +63,10 @@ struct DownloadsTabClosedTest: E2ETest {
                     await cancelRunning(run, except: earlier)
                     return
                 }
-                let fileLeft = done.path.map { FileManager.default.fileExists(atPath: $0.path) } ?? false
+                let fileLeft = done.path.map { FileManager.default.fileExists(atPath: $0.path) } ?? true
 
-                // The cancelled row clears, and its name is free for the next download of the file.
-                try await run.app.press(.cancelOrClear, of: done)
-                _ = try await waitFor(run) { rows in rows.contains { $0.id == done.id } ? nil : rows }
+                // The cancelled row frees its name while it is still listed, so the next download of the file takes
+                // it; then the row clears.
                 let again = try run.app.openTab(
                     at: E2EFixture.url("_slow/\(Self.size)/tab-closed.bin"), besides: page, select: false)
                 let next = try await waitFor(run) {
@@ -77,16 +78,18 @@ struct DownloadsTabClosedTest: E2ETest {
                 try await run.app.press(.cancelOrClear, of: next)
                 _ = try await waitFor(run) { [id = next.id] in $0.first { $0.id == id && $0.state == "cancelled" } }
                 _ = try await run.app.closeTab(again)
+                try await run.app.press(.cancelOrClear, of: done)
+                _ = try await waitFor(run) { rows in rows.contains { $0.id == done.id } ? nil : rows }
 
                 let passed =
-                    done.state == "cancelled" && done.status == "Cancelled" && !fileLeft
+                    done.state == "cancelled" && done.status == "Cancelled" && done.path != nil && !fileLeft
                     && next.fileName == "tab-closed.bin"
                 run.check(
                     name,
                     passed: passed,
                     passed
                         ? "state=\(done.state) row=updated"
-                        : "state=\(done.state) row=updated status=\"\(done.status)\" fileLeft=\(fileLeft) next=\(next.fileName)"
+                        : "state=\(done.state) row=updated status=\"\(done.status)\" path=\(done.path?.path ?? "none") fileLeft=\(fileLeft) next=\(next.fileName)"
                 )
             }
         } catch {
