@@ -37,7 +37,8 @@ import Testing
     @Test func openTabRanksAboveHistoryWithTheSameMatch() async throws {
         let store = try store()
         try store.recordVisit(url: URL(string: "https://swift.org/old")!, title: "Swift old", at: now)
-        let tab = OpenTabInfo(id: UUID(), title: "Swift open", url: URL(string: "https://swift.org/open")!, lastActive: now)
+        let tab = OpenTabInfo(
+            id: UUID(), title: "Swift open", url: URL(string: "https://swift.org/open")!, lastActive: now)
         let results = await registry(store, tabs: [tab]).results(for: "swift")
         #expect(results.map(\.title) == ["Swift open", "Swift old"])
     }

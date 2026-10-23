@@ -11,5 +11,6 @@ enum AppFeatures {
         DownloadsCenter.self,
         SidebarStores.self,
         TabActivityLog.self,
+        HistoryStores.self,
     ]
 }

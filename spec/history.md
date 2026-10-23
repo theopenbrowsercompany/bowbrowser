@@ -25,11 +25,16 @@ Private (ephemeral) profiles remember nothing on disk.
   Searching for nothing returns nothing, and characters such as `%` and `_` search for themselves.
 - A page can be forgotten with all its visits, a span of time can be forgotten, and the whole history can be cleared.
   Forgetting a span leaves the other visits of a page in place and a page with no visits left disappears.
+- Every tab feeds the history of its own profile, in any window, so a tab in one space never records into another space's profile.
+- A page appears in history as soon as its navigation commits, and its title fills in when the page reports it.
+- The command bar offers history below open tabs: a page that is open in a tab is shown as the tab, and a blank bar offers no history.
 - Persistent profiles keep their history in a file inside the profile's own folder, so it survives quitting and relaunching.
   Ephemeral profiles keep it in memory only, and it is gone when the profile closes.
 
 ## Edge cases
 
+- A history file that cannot be opened is reported once on standard error, and that profile records nothing for the run.
+- A profile the engine cannot describe is treated as ephemeral, so nothing is written to disk for it.
 - A profile name with odd characters (slashes, dots) still gets its own safe folder inside the history folder.
 - A history file written by a newer version of Bow is refused instead of being damaged.
 - Several tabs recording at once never lose or double count visits.
@@ -48,9 +53,11 @@ Private (ephemeral) profiles remember nothing on disk.
 5. Forget one page.
    It no longer appears in recent history or search, and other pages remain.
 
+6. In a private (ephemeral) profile, open two pages.
+   Its history lists both while Bow runs, and no history folder or file appears in Bow's data folder.
+
 ## Out of scope
 
 - Showing history in the command bar and a history window: the command bar spec covers results, and history UI is not built yet.
-- Feeding the store from the live engine in the app, and the end to end check of it.
 - Importing history from other browsers.
 - Favicons and sync.
