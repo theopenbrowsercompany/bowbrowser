@@ -284,8 +284,9 @@ struct PeekRedirectTest: E2ETest {
     func run(_ run: E2ERun) async throws {
         let (app, page) = try await PeekTests.openPinnedSource(run)
         let before = app.peekOpenBrowsers
-        let result = try await run.step("click a same-site link that redirects off the site", timeout: E2ETimeouts.firstLoad)
-        {
+        let result = try await run.step(
+            "click a same-site link that redirects off the site", timeout: E2ETimeouts.firstLoad
+        ) {
             try await page.click("#redirect")
             // The tab shows B once it followed the redirect; with the redirect taken for a click, a Peek opens on B
             // instead and the tab stays on A.
