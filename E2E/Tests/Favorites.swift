@@ -218,7 +218,9 @@ struct FavoritesActiveTabTest: E2ETest {
             }
             let tiles = try await settle({ try app.favoriteTiles(of: a) }) { $0.first?.isActive == true }
             let rows = try app.sidebarRows(of: a)
-            return (closedD: closedD, after: after, afterClose: afterClose, reopened: reopened, tiles: tiles, rows: rows)
+            return (
+                closedD: closedD, after: after, afterClose: afterClose, reopened: reopened, tiles: tiles, rows: rows
+            )
         }
         run.check(
             "favorites.close",
