@@ -35,6 +35,47 @@ import Foundation
     /// it, and the engine does not ask again for a kind already answered. The app's `SitePermissionStore` stays the
     /// record the app reads.
     func setPermission(_ setting: SitePermissionSetting, for kind: PermissionKind, on site: PermissionSite)
+
+    /// The profile's downloads. Always the same object for one profile.
+    var downloads: any EngineDownloads { get }
+}
+
+/// One profile's downloads: every download started in the profile's tabs since the engine started, in creation
+/// order, with controls for each. Without a delegate to choose destinations, downloads are refused.
+@MainActor public protocol EngineDownloads: AnyObject {
+    var profileID: ProfileID { get }
+    /// The snapshots the engine pushed last, oldest first, without removed downloads.
+    var items: [DownloadItem] { get }
+    /// Receives the downloads' events and chooses destinations. Implementations hold it weakly.
+    var delegate: (any EngineDownloadsDelegate)? { get set }
+
+    /// Each does nothing when the download cannot take it now (see `DownloadItem.canPause` and the others).
+    func pause(_ id: DownloadID)
+    func resume(_ id: DownloadID)
+    func cancel(_ id: DownloadID)
+    /// Takes a finished download out of the list, sending `DownloadEvent.removed`. The file stays on disk.
+    func remove(_ id: DownloadID)
+}
+
+/// Receives a profile's download events on the main actor, in the order the engine produced them.
+@MainActor public protocol EngineDownloadsDelegate: AnyObject {
+    func downloads(_ downloads: any EngineDownloads, didReceive event: DownloadEvent)
+
+    /// Asked once for each new download, after `created`: the file URL to save it to, or nil to cancel it.
+    func downloads(
+        _ downloads: any EngineDownloads,
+        destinationFor item: DownloadItem,
+        suggestedName: String
+    ) async -> URL?
+
+    /// Asked before a download starts, synchronously. Defaults to true; false refuses it with no events.
+    func downloads(_ downloads: any EngineDownloads, shouldAllowDownloadFrom url: URL) -> Bool
+}
+
+extension EngineDownloadsDelegate {
+    public func downloads(_ downloads: any EngineDownloads, shouldAllowDownloadFrom url: URL) -> Bool {
+        true
+    }
 }
 
 /// One web page for its whole life, independent of any view that shows it.
