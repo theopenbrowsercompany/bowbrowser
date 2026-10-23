@@ -5,9 +5,13 @@
 
 #include <sys/stat.h>
 
+#include <algorithm>
 #include <cstring>
+#include <functional>
 #include <memory>
+#include <set>
 #include <string>
+#include <vector>
 
 #include "include/cef_parser.h"
 #include "include/cef_scheme.h"
@@ -102,6 +106,135 @@ class SlowDownloadHandler : public CefResourceHandler {
 
   IMPLEMENT_REFCOUNTING(SlowDownloadHandler);
 };
+
+const char kHeldPrefix[] = "/_held/";
+
+class HeldDownloadHandler;
+
+// The held downloads still running and the keys released so far. IO thread only, so they need no lock.
+std::vector<CefRefPtr<HeldDownloadHandler>>& LiveHeldDownloads() {
+  static auto* live = new std::vector<CefRefPtr<HeldDownloadHandler>>();
+  return *live;
+}
+std::set<std::string>& ReleasedHoldKeys() {
+  static auto* keys = new std::set<std::string>();
+  return *keys;
+}
+
+// A held download: an attachment named `fileName` that declares `length` bytes, sends its first chunk at once, then
+// sends nothing more until its `key` is released (BowFixtureServer releaseHeld:), and then sends the rest at full
+// speed. So a test sees it provably in progress for as long as it needs, and its end comes when the test says.
+class HeldDownloadHandler : public CefResourceHandler {
+ public:
+  HeldDownloadHandler(std::string key, std::string fileName, int64_t length)
+      : key_(std::move(key)), fileName_(std::move(fileName)), length_(length) {}
+
+  const std::string& key() const { return key_; }
+
+  bool Open(CefRefPtr<CefRequest> request, bool& handleRequest, CefRefPtr<CefCallback> callback) override {
+    released_ = ReleasedHoldKeys().count(key_) > 0;
+    LiveHeldDownloads().push_back(this);
+    handleRequest = true;
+    return true;
+  }
+
+  void GetResponseHeaders(CefRefPtr<CefResponse> response, int64_t& responseLength, CefString& redirectUrl) override {
+    responseLength = length_;
+    response->SetStatus(200);
+    response->SetStatusText("OK");
+    response->SetMimeType("application/octet-stream");
+    response->SetHeaderByName("Cache-Control", "no-store", true);
+    response->SetHeaderByName("Content-Disposition", "attachment; filename=\"" + fileName_ + "\"", true);
+  }
+
+  bool Read(void* dataOut, int bytesToRead, int& bytesRead, CefRefPtr<CefResourceReadCallback> callback) override {
+    bytesRead = 0;
+    if (sent_ >= length_) {
+      Forget();
+      return false;
+    }
+    if (sent_ > 0 && !released_) {
+      // Held: the buffer stays valid until the callback runs, which ReleaseHold does.
+      pendingData_ = dataOut;
+      pendingSize_ = bytesToRead;
+      pendingCallback_ = callback;
+      return true;
+    }
+    bytesRead = Fill(dataOut, sent_ == 0 && bytesToRead > kFirstChunk ? kFirstChunk : bytesToRead);
+    return true;
+  }
+
+  // Lets the download finish: a read waiting for the release continues now.
+  void ReleaseHold() {
+    released_ = true;
+    if (!pendingCallback_) return;
+    CefRefPtr<CefResourceReadCallback> callback = pendingCallback_;
+    pendingCallback_ = nullptr;
+    callback->Continue(Fill(pendingData_, pendingSize_));
+  }
+
+  void Cancel() override {
+    pendingCallback_ = nullptr;
+    Forget();
+  }
+
+ private:
+  static constexpr int kFirstChunk = 1024;
+
+  int Fill(void* dataOut, int size) {
+    const int64_t left = length_ - sent_;
+    const int chunk = left < size ? static_cast<int>(left) : size;
+    memset(dataOut, 'x', chunk);
+    sent_ += chunk;
+    return chunk;
+  }
+
+  // Leaves the live list once the download has ended or was cancelled, so nothing keeps the handler.
+  void Forget() {
+    auto& live = LiveHeldDownloads();
+    live.erase(std::remove(live.begin(), live.end(), CefRefPtr<HeldDownloadHandler>(this)), live.end());
+  }
+
+  const std::string key_;
+  const std::string fileName_;
+  const int64_t length_;
+  // Read, ReleaseHold and Cancel all run on the IO thread.
+  int64_t sent_ = 0;
+  bool released_ = false;
+  void* pendingData_ = nullptr;
+  int pendingSize_ = 0;
+  CefRefPtr<CefResourceReadCallback> pendingCallback_;
+
+  IMPLEMENT_REFCOUNTING(HeldDownloadHandler);
+};
+
+// Runs a function on the thread it is posted to.
+class FunctionTask : public CefTask {
+ public:
+  explicit FunctionTask(std::function<void()> function) : function_(std::move(function)) {}
+  void Execute() override { function_(); }
+
+ private:
+  const std::function<void()> function_;
+
+  IMPLEMENT_REFCOUNTING(FunctionTask);
+};
+
+// Releases the held downloads with `key`, and those that start with it later. IO thread only.
+void ReleaseHeldOnIO(const std::string& key) {
+  ReleasedHoldKeys().insert(key);
+  const auto live = LiveHeldDownloads();
+  for (const auto& handler : live) {
+    if (handler->key() == key) handler->ReleaseHold();
+  }
+}
+
+// Releases every held download and forgets the released keys, so the next test starts with none. IO thread only.
+void ReleaseAllHeldOnIO() {
+  const auto live = LiveHeldDownloads();
+  for (const auto& handler : live) handler->ReleaseHold();
+  ReleasedHoldKeys().clear();
+}
 
 // Answers with no body: with `status` (a 302 redirect to `location`, or a 204), or, when `status` is 0, a failed
 // connection (ERR_CONNECTION_REFUSED), which Chromium reports as a failed load.
@@ -211,6 +344,22 @@ class FixtureHandlerFactory : public CefSchemeHandlerFactory {
       if (fileName.empty() || fileName.find_first_of("/\"\\") != std::string::npos) return NotFound();
       return new SlowDownloadHandler(fileName, length);
     }
+    if (path.rfind(kHeldPrefix, 0) == 0) {
+      // `/_held/<key>/<bytes>/<name>`: sends its first chunk, then holds the rest until `key` is released.
+      const std::string rest = path.substr(sizeof(kHeldPrefix) - 1);
+      const size_t first = rest.find('/');
+      const size_t second = first == std::string::npos ? first : rest.find('/', first + 1);
+      if (first == 0 || second == std::string::npos) return NotFound();
+      const std::string key = rest.substr(0, first);
+      const std::string bytes = rest.substr(first + 1, second - first - 1);
+      const std::string fileName = rest.substr(second + 1);
+      if (bytes.empty() || bytes.size() > 12 || bytes.find_first_not_of("0123456789") != std::string::npos) {
+        return NotFound();
+      }
+      const int64_t length = std::stoll(bytes);
+      if (length <= 0 || fileName.empty() || fileName.find_first_of("/\"\\") != std::string::npos) return NotFound();
+      return new HeldDownloadHandler(key, fileName, length);
+    }
     if (path.back() == '/') path += "index.html";
 
     const std::string file = directory_ + path;
@@ -245,6 +394,15 @@ void BowServeFixtures(CefRefPtr<CefRequestContext> context, NSString* directory)
 + (void)serveDirectory:(NSString*)directory {
   NSString* root = [directory copy];
   BowEngineObserveProfileContexts([root](CefRefPtr<CefRequestContext> context) { BowServeFixtures(context, root); });
+}
+
++ (void)releaseHeld:(NSString*)key {
+  const std::string held = key.UTF8String;
+  CefPostTask(TID_IO, new FunctionTask([held] { ReleaseHeldOnIO(held); }));
+}
+
++ (void)releaseAllHeld {
+  CefPostTask(TID_IO, new FunctionTask([] { ReleaseAllHeldOnIO(); }));
 }
 
 @end

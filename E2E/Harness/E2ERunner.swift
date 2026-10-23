@@ -235,6 +235,9 @@ final class E2ERunner {
         run.finish()
         // Work the test left running (a timed-out step) can no longer drive the app.
         app.endTest()
+        // A held download the test did not release (it failed or timed out first) ends now, so its tab's parked
+        // browser can close below and nothing waits on it into the next test.
+        E2EFixture.releaseAllHeld()
 
         let missing = test.checks.filter { !run.recorded.contains($0) }
         if let failure {

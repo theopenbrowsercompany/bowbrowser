@@ -36,6 +36,9 @@ final class E2EAppAdapter {
     init(delegate: AppDelegate, seedFolder: URL) {
         self.delegate = delegate
         self.seedFolder = seedFolder
+        // Windows write recorded pages 0.2 s after the first instead of the app's 1 s, so tabs.record_debounced
+        // proves the debounce in a fraction of a second (the same timer, only shorter).
+        BrowserWindowController.recordSaveDelay = 0.2
         delegate.appFeatures.require(SidebarStores.self).presentNotice = { [weak self] notice, _ in
             self?.appSidebarNotices.append(E2ESidebarNotice(notice))
         }
