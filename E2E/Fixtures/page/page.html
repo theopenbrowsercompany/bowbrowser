@@ -1,0 +1,10 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Page behaviors</title>
+<p>A page to zoom, crash and copy an image from.</p>
+<img id="image" src="image.png" width="32" height="32" alt="An icon">
+<script>
+  window.loadId = Math.random().toString(36).slice(2);
+  window.keyDowns = [];
+  addEventListener("keydown", (event) => window.keyDowns.push(event.key));
+</script>
