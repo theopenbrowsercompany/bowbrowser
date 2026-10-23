@@ -21,8 +21,9 @@ final class E2EOutput: @unchecked Sendable {
     }
 }
 
-/// Ends a stuck run. While tests run, the runner re-arms it from the main thread a few times a second, so it fires
-/// only when the main thread stops answering (a slow step fails on its own and the run goes on); around engine
+/// Ends a stuck run. While tests run, the runner re-arms it from the main dispatch queue a few times a second, so it
+/// fires only when the harness stops being served there, a blocked main thread or one stuck in a nested run loop
+/// (a slow step fails on its own and the run goes on); around engine
 /// start and quit it is armed with those phases' limits. When it fires it prints `E2E: TIMEOUT <step>` and a
 /// `NOT RUN <test>` line for each test that never ran, writes a stack sample of the app to `hang.txt` in the run
 /// folder, and exits with code 2. It runs on a background queue, so it still fires when the main thread is blocked

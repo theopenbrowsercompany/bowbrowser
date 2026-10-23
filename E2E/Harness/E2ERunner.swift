@@ -69,7 +69,7 @@ final class E2ERunner {
     private var quitFailure: String?
     /// The test running now, which the heartbeat names if the main thread gets stuck.
     private var activeRun: E2ERun?
-    private var heartbeat: Timer?
+    private var heartbeat: DispatchSourceTimer?
     /// How many checks the tests themselves recorded (not e2e.isolation, the quit check or chromium.errors).
     private var testCheckCount = 0
 
@@ -420,13 +420,20 @@ final class E2ERunner {
     /// Where the running test's checks start in `checks`.
     fileprivate var checkCount: Int { checks.count }
 
-    /// Re-arms the watchdog from the main thread a few times a second, so it fires only when the main thread has
-    /// not answered for `mainThreadStuckTimeout`.
+    /// Re-arms the watchdog a few times a second from the main dispatch queue, where the harness runs (main actor
+    /// jobs, step limits, waits), so it fires when the harness has not been served for `mainThreadStuckTimeout`.
+    ///
+    /// The beat must come through the main queue, not a run loop timer: a nested run loop that a main queue job
+    /// enters (a step whose synthetic mouseDown starts an AppKit tracking loop, a modal loop, `RunLoop.run(until:)`)
+    /// keeps the main thread busy serving its own mode, where a timer in the common modes still fires, but run loops
+    /// serve the main queue only from the outermost drain, so no step limit and no main actor job runs until it ends.
     private func startHeartbeat() {
-        let timer = Timer(timeInterval: Self.heartbeatInterval, repeats: true) { [weak self] _ in
+        let timer = DispatchSource.makeTimerSource(queue: .main)
+        timer.schedule(deadline: .now() + Self.heartbeatInterval, repeating: Self.heartbeatInterval)
+        timer.setEventHandler { [weak self] in
             MainActor.assumeIsolated { self?.beat() }
         }
-        RunLoop.main.add(timer, forMode: .common)
+        timer.activate()
         heartbeat = timer
         beat()
     }
@@ -442,7 +449,7 @@ final class E2ERunner {
     }
 
     private func stopHeartbeat() {
-        heartbeat?.invalidate()
+        heartbeat?.cancel()
         heartbeat = nil
         watchdog.disarm()
     }

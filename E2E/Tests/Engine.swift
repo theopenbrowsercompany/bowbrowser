@@ -6,7 +6,43 @@ import Foundation
 /// with their defaults until the features that use them land. Fixtures in E2E/Fixtures/engine/.
 @MainActor
 enum EngineTests {
-    static let all: [any E2ETest] = [EngineHooksTest(), EngineChallengesTest()]
+    static let all: [any E2ETest] = [
+        EngineHooksTest(), EngineChallengesTest(), EngineWatchdogTest(loop: .tracking),
+        EngineWatchdogTest(loop: .defaultMode),
+    ]
+}
+
+/// The watchdog's self tests: a step gets the main thread stuck in a nested run loop that never ends
+/// (`E2ENestedLoop`), and the run must end with `E2E: TIMEOUT <test>: <step>`, a stack sample in hang.txt and exit
+/// code 2 within the watchdog's limit. Each ends its run, so it runs only when named exactly (`selectedByNameOnly`):
+/// `make e2e E2E=engine.watchdog-tracking-loop` or `E2E=engine.watchdog-default-mode-loop`.
+/// The names are constants rather than `let name = "..."`, the form `make done` reads to repeat changed tests, so
+/// its repeat step never reruns a test whose pass is a TIMEOUT.
+struct EngineWatchdogTest: E2ETest {
+    enum Loop {
+        case tracking, defaultMode
+    }
+
+    static let trackingName = "engine.watchdog-tracking-loop"
+    static let defaultModeName = "engine.watchdog-default-mode-loop"
+
+    let loop: Loop
+    var name: String { loop == .tracking ? Self.trackingName : Self.defaultModeName }
+    var selectedByNameOnly: Bool { true }
+
+    func run(_ run: E2ERun) async throws {
+        switch loop {
+        case .tracking:
+            try await run.step("enter a tracking loop with no mouseUp", timeout: E2ETimeouts.step) { () -> Void in
+                E2ENestedLoop.trackWithoutMouseUp()
+            }
+        case .defaultMode:
+            try await run.step("spin the run loop in its default mode", timeout: E2ETimeouts.step) { () -> Void in
+                E2ENestedLoop.spinDefaultMode()
+            }
+        }
+        run.check(name, passed: false, "the nested run loop returned, which it never should")
+    }
 }
 
 /// Opens a probe tab on the fixture and walks it through every hook, one check each.
