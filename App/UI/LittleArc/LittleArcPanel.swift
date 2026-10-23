@@ -326,6 +326,7 @@ final class LittleArcToolbar: NSView {
         moveButton.bezelStyle = .accessoryBarAction
         moveButton.isBordered = false
         moveButton.controlSize = .small
+        moveButton.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
         moveButton.menu?.autoenablesItems = false
         moveButton.toolTip = "Move to Space"
         moveButton.setAccessibilityLabel("Move to Space")

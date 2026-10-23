@@ -44,5 +44,6 @@ enum E2EAreas {
         PanesTests.all,
         FullscreenTests.all,
         LittleArcTests.all,
+        LittleArcAreaTests.all,
     ]
 }

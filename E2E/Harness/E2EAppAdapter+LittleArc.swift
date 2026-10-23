@@ -68,7 +68,9 @@ extension E2ETestApp: E2ELittleArcApp {
             let toolbar = panel.toolbar
             // The move menu's Space items, as the menu shows them when opened.
             panel.menuNeedsUpdate(toolbar.moveButton.menu ?? NSMenu())
-            let spaces = (toolbar.moveButton.menu?.items ?? []).filter { $0.action == #selector(LittleArcPanel.moveToSpace(_:)) }
+            let spaces = (toolbar.moveButton.menu?.items ?? []).filter {
+                $0.action == #selector(LittleArcPanel.moveToSpace(_:))
+            }
             return E2ELittleArcWindowState(
                 windowNumber: window.windowNumber,
                 isFloatingPanel: window.isFloatingPanel && window.level == .floating

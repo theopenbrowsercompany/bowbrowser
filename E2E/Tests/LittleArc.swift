@@ -4,7 +4,7 @@ import Foundation
 /// into a chosen Space with one key and keeps running, and closing Little Arc closes its page. With the setting off,
 /// links open in the browser window as before. Fixtures in E2E/Fixtures/littlearc/.
 @MainActor
-enum LittleArcTests {
+enum LittleArcAreaTests {
     static let all: [any E2ETest] = [LittleArcPromoteTest(), LittleArcCloseTest(), LittleArcOffTest()]
 
     static func url(_ name: String) -> URL { E2EFixture.url("littlearc/page.html?name=\(name)") }
@@ -14,6 +14,14 @@ enum LittleArcTests {
             throw E2EError("the app has no Little Arc")
         }
         return app
+    }
+
+    /// Opens the app's link intake, as launch does once its first window is open (an e2e run keeps every link until a
+    /// test asks), so the links the test delivers open at once. Throws when a link was still kept: none is, unless a
+    /// test with early links ran out of order.
+    static func openIntake(_ app: any E2ELinksApp) throws {
+        let kept = try app.openKeptLinks()
+        guard kept.isEmpty else { throw E2EError("\(kept.count) kept links opened") }
     }
 
     /// What is wrong with the Little Arc window `state` as a freshly opened one, or nil: a floating panel off every
@@ -38,23 +46,24 @@ struct LittleArcPromoteTest: E2ETest {
     let tags = ["smoke"]
 
     func run(_ run: E2ERun) async throws {
-        let app = try LittleArcTests.app(run)
+        let app = try LittleArcAreaTests.app(run)
         try app.setLittleArcSetting(nil)
         let seed = E2ESeed(
             spaces: [
-                E2ESeedSpace("Home", today: [.tab("home", url: LittleArcTests.url("home"))]),
-                E2ESeedSpace("Work", today: [.tab("work", url: LittleArcTests.url("work"))]),
+                E2ESeedSpace("Home", today: [.tab("home", url: LittleArcAreaTests.url("home"))]),
+                E2ESeedSpace("Work", today: [.tab("work", url: LittleArcAreaTests.url("work"))]),
             ],
             activeSpace: "Home")
         let main = try await run.step("open the seeded window", timeout: E2ETimeouts.firstLoad) {
             let window = try await app.openWindow(seeded: seed)
             _ = try await window.page.waitForLoad(after: 0)
+            try LittleArcAreaTests.openIntake(app)
             return window.page
         }
         let before = try app.browserWindowState(of: main)
 
         let littleArc = try await run.step("deliver a link", timeout: E2ETimeouts.firstLoad) {
-            guard let window = try app.deliverLinkToLittleArc(LittleArcTests.url("link")) else {
+            guard let window = try app.deliverLinkToLittleArc(LittleArcAreaTests.url("link")) else {
                 throw E2EError("the link opened no Little Arc window")
             }
             _ = try await window.page.waitForLoad(after: 0)
@@ -64,7 +73,7 @@ struct LittleArcPromoteTest: E2ETest {
         let windowResult: String
         if windows.count != 1 {
             windowResult = "\(windows.count)_windows"
-        } else if let problem = LittleArcTests.problems(of: windows[0], spaces: ["Home", "Work"]) {
+        } else if let problem = LittleArcAreaTests.problems(of: windows[0], spaces: ["Home", "Work"]) {
             windowResult = problem
         } else {
             windowResult = "mini"
@@ -104,18 +113,19 @@ struct LittleArcCloseTest: E2ETest {
     let name = "little-arc.close"
 
     func run(_ run: E2ERun) async throws {
-        let app = try LittleArcTests.app(run)
+        let app = try LittleArcAreaTests.app(run)
         try app.setLittleArcSetting(true)
         let main = try await run.step("open window", timeout: E2ETimeouts.firstLoad) {
-            let page = try await app.openWindow(at: LittleArcTests.url("main"))
+            let page = try await app.openWindow(at: LittleArcAreaTests.url("main"))
             _ = try await page.waitForLoad(after: 0)
+            try LittleArcAreaTests.openIntake(app)
             return page
         }
         let before = try app.browserWindowState(of: main)
         let browsersBefore = app.openBrowsers
 
         let littleArc = try await run.step("deliver a link", timeout: E2ETimeouts.firstLoad) {
-            guard let window = try app.deliverLinkToLittleArc(LittleArcTests.url("draft")) else {
+            guard let window = try app.deliverLinkToLittleArc(LittleArcAreaTests.url("draft")) else {
                 throw E2EError("the link opened no Little Arc window")
             }
             _ = try await window.page.waitForLoad(after: 0)
@@ -163,16 +173,18 @@ struct LittleArcOffTest: E2ETest {
     let name = "little-arc.off"
 
     func run(_ run: E2ERun) async throws {
-        let app = try LittleArcTests.app(run)
+        let app = try LittleArcAreaTests.app(run)
         try app.setLittleArcSetting(false)
         let main = try await run.step("open window", timeout: E2ETimeouts.firstLoad) {
-            let page = try await app.openWindow(at: LittleArcTests.url("main"))
+            let page = try await app.openWindow(at: LittleArcAreaTests.url("main"))
             _ = try await page.waitForLoad(after: 0)
+            try LittleArcAreaTests.openIntake(app)
             return page
         }
         let before = try app.browserWindowState(of: main)
         let opened = try await run.step("deliver a link", timeout: E2ETimeouts.firstLoad) {
-            let opened = try app.deliverLinks([E2ELink(address: LittleArcTests.url("off").absoluteString, sender: true)])
+            let opened = try app.deliverLinks([E2ELink(address: LittleArcAreaTests.url("off").absoluteString, sender: true)]
+            )
             for link in opened { _ = try await link.page.waitForLoad(after: 0) }
             return opened
         }
@@ -183,6 +195,7 @@ struct LittleArcOffTest: E2ETest {
             && after.shownTab != before.shownTab
         run.check(
             name, passed: littleArc == 0 && inWindow,
-            "little_arc_windows=\(littleArc) opened_in_window=\(inWindow) tabs=\(before.tabs.count)->\(after.tabs.count)")
+            "little_arc_windows=\(littleArc) opened_in_window=\(inWindow) tabs=\(before.tabs.count)->\(after.tabs.count)"
+        )
     }
 }
