@@ -51,7 +51,33 @@ public enum ArcImportProfileTarget: Hashable, Sendable {
     static func mapping(_ profile: ArcImportProfile) -> ArcImportProfileTarget {
         switch profile {
         case .default: .defaultProfile
-        case .custom(let basename): .arcProfile(SidebarProfileID("arc-\(basename)"))
+        case .custom(let basename): .arcProfile(profileID(forArcProfile: basename))
         }
+    }
+
+    /// The Bow profile ID for the Arc profile folder `basename` (such as `Profile 1`).
+    ///
+    /// The engine names a profile's folder after its ID and accepts only `A-Z a-z 0-9 . _ -`, and it matches
+    /// folders without regard to case. So the ID is `arc-`, a lowercase slug of the name for reading, and a short
+    /// stable hash of the exact name: names that differ only in case or punctuation get different IDs, and the same
+    /// name gets the same ID on every import and on every machine.
+    static func profileID(forArcProfile basename: String) -> SidebarProfileID {
+        var slug = ""
+        for character in basename.lowercased() {
+            if character.isASCII, character.isLetter || character.isNumber {
+                slug.append(character)
+            } else if !slug.hasSuffix("-") {
+                slug.append("-")
+            }
+        }
+        slug = String(slug.prefix(32)).trimmingCharacters(in: CharacterSet(charactersIn: "-"))
+        // FNV-1a over the name in one canonical Unicode form, so the same name hashes the same however it was typed.
+        var hash: UInt64 = 0xcbf2_9ce4_8422_2325
+        for byte in basename.precomposedStringWithCanonicalMapping.utf8 {
+            hash = (hash ^ UInt64(byte)) &* 0x0000_0100_0000_01b3
+        }
+        let digits = String(hash & 0xff_ffff_ffff, radix: 16)
+        let suffix = String(repeating: "0", count: 10 - digits.count) + digits
+        return SidebarProfileID(slug.isEmpty ? "arc-\(suffix)" : "arc-\(slug)-\(suffix)")
     }
 }
