@@ -2,7 +2,7 @@ import Foundation
 
 /// A window's Spaces as a test sees them (`E2ESpacesApp.spaces(of:)`).
 struct E2ESpacesState: Equatable, CustomStringConvertible {
-    /// Every browser window the app has open, so a test can see that switching opened none.
+    /// The browser windows open on this window's sidebar (its Spaces), so a test can see that switching opened none.
     var windows: Int
     /// The Spaces' names, in order.
     var spaces: [String]
