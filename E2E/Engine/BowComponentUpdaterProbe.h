@@ -41,7 +41,8 @@ NS_ASSUME_NONNULL_BEGIN
 @property(nonatomic, readonly, copy) NSString *target;
 /// The Host header: the host the updater addressed before the host resolver rules sent it here.
 @property(nonatomic, readonly, copy) NSString *host;
-/// The request body as UTF-8 (the updater's JSON, which names each component by its app ID).
+/// The request body as UTF-8 (the updater's JSON, which names each component by its app ID), as it arrived: a
+/// chunked body keeps its chunk sizes.
 @property(nonatomic, readonly, copy) NSString *body;
 @end
 

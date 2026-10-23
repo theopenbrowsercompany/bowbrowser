@@ -1,5 +1,5 @@
 #import "BowComponentUpdaterProbe.h"
-#import "BowLoopbackFixtures+Identity.h"
+#import "BowLoopbackFixtures+Shared.h"
 
 #include <atomic>
 #include <vector>
@@ -116,16 +116,20 @@ NSError* ServerError(NSString* message) {
   return [NSError errorWithDomain:@"BowE2EUpdateServer" code:1 userInfo:@{NSLocalizedDescriptionKey : message}];
 }
 
-// The value of header `name` (compared ignoring case) in the request head `lines`, or nil.
-NSString* Header(NSArray<NSString*>* lines, NSString* name) {
-  for (NSString* line in lines) {
-    NSRange colon = [line rangeOfString:@":"];
-    if (colon.location == NSNotFound) continue;
-    if ([[line substringToIndex:colon.location] caseInsensitiveCompare:name] != NSOrderedSame) continue;
-    return [[line substringFromIndex:colon.location + 1]
-        stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet]];
+// True when the bytes after the head hold the whole body: `Content-Length` bytes, or for a chunked body everything
+// up to the last (empty) chunk. A chunked body is kept as it arrived, chunk sizes and all, which still holds the
+// app IDs the check looks for.
+bool BodyComplete(NSString* head, NSData* data, NSUInteger bodyStart) {
+  NSString* encoding = BowLoopbackHeaderValue(head, @"Transfer-Encoding");
+  if (encoding && [encoding rangeOfString:@"chunked" options:NSCaseInsensitiveSearch].location != NSNotFound) {
+    NSData* last = [@"0\r\n\r\n" dataUsingEncoding:NSUTF8StringEncoding];
+    NSRange body = NSMakeRange(bodyStart, data.length - bodyStart);
+    return body.length >= last.length &&
+           [data rangeOfData:last options:NSDataSearchBackwards | NSDataSearchAnchored range:body].location !=
+               NSNotFound;
   }
-  return nil;
+  NSInteger length = [BowLoopbackHeaderValue(head, @"Content-Length") integerValue];
+  return data.length >= bodyStart + (NSUInteger)MAX(0, length);
 }
 
 }  // namespace
@@ -204,8 +208,7 @@ NSString* Header(NSArray<NSString*>* lines, NSString* name) {
         sec_protocol_options_add_tls_application_protocol(options, "http/1.1");
       },
       NW_PARAMETERS_DEFAULT_CONFIGURATION);
-  nw_parameters_set_local_endpoint(parameters, nw_endpoint_create_host("127.0.0.1", "0"));
-  nw_parameters_set_required_interface_type(parameters, nw_interface_type_loopback);
+  BowLoopbackBind(parameters);
   nw_listener_t listener = nw_listener_create(parameters);
   if (!listener) {
     if (error) *error = ServerError(@"cannot create a loopback listener");
@@ -214,15 +217,17 @@ NSString* Header(NSArray<NSString*>* lines, NSString* name) {
   dispatch_semaphore_t settled = dispatch_semaphore_create(0);
   __block bool ready = false;
   __block bool signalled = false;
+  __block nw_error_t failure = nil;
   dispatch_group_t cancelled = _cancelled;
   dispatch_group_enter(cancelled);
   nw_listener_set_queue(listener, _queue);
-  nw_listener_set_state_changed_handler(listener, ^(nw_listener_state_t state, nw_error_t) {
+  nw_listener_set_state_changed_handler(listener, ^(nw_listener_state_t state, nw_error_t stateError) {
     switch (state) {
       case nw_listener_state_ready:
         ready = true;
         break;
       case nw_listener_state_failed:
+        failure = stateError;
         break;
       case nw_listener_state_cancelled:
         dispatch_group_leave(cancelled);
@@ -246,13 +251,16 @@ NSString* Header(NSArray<NSString*>* lines, NSString* name) {
   });
   _listener = listener;
   nw_listener_start(listener);
-  dispatch_semaphore_wait(settled, dispatch_time(DISPATCH_TIME_NOW, (int64_t)(kServerStartTimeout * NSEC_PER_SEC)));
+  long waited = dispatch_semaphore_wait(
+      settled, dispatch_time(DISPATCH_TIME_NOW, (int64_t)(kServerStartTimeout * NSEC_PER_SEC)));
   __block bool isReady = false;
+  __block NSString* reason = nil;
   dispatch_sync(_queue, ^{
     isReady = ready;
+    if (!ready) reason = waited != 0 ? @"it did not start in time" : BowLoopbackDescribe(failure);
   });
   if (!isReady) {
-    if (error) *error = ServerError(@"the update server listener could not start");
+    if (error) *error = ServerError([@"the update server listener could not start: " stringByAppendingString:reason]);
     return NO;
   }
   _port = nw_listener_get_port(listener);
@@ -300,14 +308,10 @@ NSString* Header(NSArray<NSString*>* lines, NSString* name) {
               [[NSString alloc] initWithData:[data subdataWithRange:NSMakeRange(0, found.location)]
                                     encoding:NSUTF8StringEncoding]
                   ?: @"";
-          NSArray<NSString*>* lines = [head componentsSeparatedByString:@"\r\n"];
           NSUInteger bodyStart = NSMaxRange(found);
-          NSUInteger length = (NSUInteger)MAX(0, [Header(lines, @"Content-Length") integerValue]);
-          bool bodyIn = data.length >= bodyStart + length;
-          if (bodyIn || error || isComplete || data.length > kMaxRequest) {
-            NSUInteger available = MIN(length, data.length - bodyStart);
-            NSData* body = [data subdataWithRange:NSMakeRange(bodyStart, available)];
-            [server answer:connection lines:lines body:body];
+          if (BodyComplete(head, data, bodyStart) || error || isComplete || data.length > kMaxRequest) {
+            NSData* body = [data subdataWithRange:NSMakeRange(bodyStart, data.length - bodyStart)];
+            [server answer:connection head:head body:body];
             return;
           }
         } else if (error || isComplete || data.length > kMaxRequest) {
@@ -318,12 +322,13 @@ NSString* Header(NSArray<NSString*>* lines, NSString* name) {
       });
 }
 
-- (void)answer:(nw_connection_t)connection lines:(NSArray<NSString*>*)lines body:(NSData*)body {
-  NSArray<NSString*>* requestLine = [lines.firstObject componentsSeparatedByString:@" "];
+- (void)answer:(nw_connection_t)connection head:(NSString*)head body:(NSData*)body {
+  NSArray<NSString*>* requestLine =
+      [[head componentsSeparatedByString:@"\r\n"].firstObject componentsSeparatedByString:@" "];
   BowE2EUpdateRequest* request = [[BowE2EUpdateRequest alloc]
       initWithMethod:requestLine.count > 0 ? requestLine[0] : @""
               target:requestLine.count > 1 ? requestLine[1] : @""
-                host:Header(lines, @"Host") ?: @""
+                host:BowLoopbackHeaderValue(head, @"Host") ?: @""
                 body:[[NSString alloc] initWithData:body encoding:NSUTF8StringEncoding] ?: @""];
   [_requests addObject:request];
   NSData* response = [@"HTTP/1.1 500 Internal Server Error\r\nContent-Length: 0\r\nCache-Control: no-store\r\n"
