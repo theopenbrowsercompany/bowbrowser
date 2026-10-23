@@ -27,7 +27,7 @@ struct ActivityLastTest: E2ETest {
             // Times are compared, so keep the two selections apart.
             try await Task.sleep(nanoseconds: 50_000_000)
             try run.app.select(b)
-            return (try app.lastActive(of: a), try app.lastActive(of: b))
+            return (try app.activityTime(of: a), try app.activityTime(of: b))
         }
         guard let timeA = times.0, let timeB = times.1 else {
             run.check(
