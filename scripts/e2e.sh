@@ -1062,17 +1062,14 @@ ledger_write() {
   local file=${BOW_E2E_LEDGER:-$HOME/Library/Caches/bowbrowser/e2e-ledger.tsv}
   # A shard's own run is written by the run that planned it, from the merged results.json.
   [ -z "$shard_dir" ] || return 0
-  local outcomes branch tree diff when shard_map
+  local outcomes branch tree when shard_map
   outcomes=$("$repo/scripts/e2e-flakes.sh" --emit "$run/results.json") || return 1
   [ -n "$outcomes" ] || return 0
   branch=$(git -C "$repo" branch --show-current 2>/dev/null)
-  tree=$(git -C "$repo" rev-parse 'HEAD^{tree}' 2>/dev/null)
-  # A modified tracked file or an untracked one (not ignored) makes the tree key its own.
-  if [ -n "$(git -C "$repo" status --porcelain 2>/dev/null)" ]; then
-    diff=$( { git -C "$repo" diff HEAD; git -C "$repo" ls-files --others --exclude-standard | while IFS= read -r f; do
-      echo "$f"; shasum < "$repo/$f"; done; } 2>/dev/null | shasum | cut -c1-8)
-    tree="${tree:-unknown}-$diff"
-  fi
+  # The tree key is the one stamped when the app was built (make build, scripts/stamp-tree.sh), not the tree
+  # checked out now: make e2e-run reruns an older build under whatever tree is checked out. No stamp (an old
+  # build, or one whose source changed while it built) is "unknown", which never counts as a pass on a tree.
+  tree=$(head -n 1 "$(dirname "$app")/.bow-tree-key" 2>/dev/null)
   when=$(date -u +%Y-%m-%dT%H:%M:%SZ)
   # The shard of each planned test (a run-wide check names every shard's result, so it has none).
   shard_map=$(printf '%s\n' "$shard_plan" | awk -F "$us" '$1 ~ /^[0-9]+$/ && NF == 3 { print $2 "\t" $1 }')

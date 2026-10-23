@@ -1049,8 +1049,8 @@ fakewt() {
   git -C "$d" add -A
   git -C "$d" -c user.name=t -c user.email=t@t commit -q -m t
 }
-# wtrun <worktree> <fake mode>: a run of that worktree's wrapper, its run folders outside the worktree.
-wtrun() { (cd "$tmp/wt-$1" && FAKE_MODE=$2 BOW_E2E_ROOT="$tmp/wt-$1-runs" ./scripts/e2e.sh "$app" a.one > "$tmp/wt-$1.out" 2>&1; echo $?); }
+# wtrun <worktree> <fake mode>: a run (after stamping a build of that tree) of that worktree's wrapper, its run folders outside the worktree.
+wtrun() { (cd "$tmp/wt-$1" && ./scripts/stamp-tree.sh "$tmp/.bow-tree-key" true && FAKE_MODE=$2 BOW_E2E_ROOT="$tmp/wt-$1-runs" ./scripts/e2e.sh "$app" a.one > "$tmp/wt-$1.out" 2>&1; echo $?); }
 fakewt one
 fakewt two
 rm -f "$BOW_E2E_LEDGER"
@@ -1095,6 +1095,34 @@ wait
 check "ledger: parallel runs write whole lines" \
   is "$(awk -F '\t' 'NR > 1 && NF != 8 { bad++ } END { print bad + 0 "/" NR - 1 "/" (NR - 1) / 2 }' "$BOW_E2E_LEDGER")" "0/12/6"
 check "ledger: parallel runs write one header" is "$(grep -c '^date' "$BOW_E2E_LEDGER")" 1
+# The tree key is the one stamped when the app was built, not the tree checked out when the run happens (make
+# e2e-run reruns an older build). Stamped on tree A, then the tree changes to B: a run without a build logs A.
+fakewt stale
+rm -f "$BOW_E2E_LEDGER" "$tmp/.bow-tree-key"
+treea=$(git -C "$tmp/wt-stale" rev-parse 'HEAD^{tree}')
+(cd "$tmp/wt-stale" && ./scripts/stamp-tree.sh "$tmp/.bow-tree-key" true)
+check "ledger: a build stamps the tree key beside the app" is "$(cat "$tmp/.bow-tree-key")" "$treea"
+echo changed > "$tmp/wt-stale/marker"
+(cd "$tmp/wt-stale" && FAKE_MODE=loudfail BOW_E2E_ROOT="$tmp/wt-stale-runs" ./scripts/e2e.sh "$app" a.one > /dev/null 2>&1)
+check "ledger: a run without a build logs the stamped tree, not the one checked out now" \
+  is "$(tail -n 1 "$BOW_E2E_LEDGER" | cut -f 3,5)" "FAIL	$treea"
+# The fix is built (stamped on the dirty tree B) and passes: B differs from A, so A's FAIL is no flake event.
+(cd "$tmp/wt-stale" && ./scripts/stamp-tree.sh "$tmp/.bow-tree-key" true)
+(cd "$tmp/wt-stale" && FAKE_MODE=loudpass BOW_E2E_ROOT="$tmp/wt-stale-runs" ./scripts/e2e.sh "$app" a.one > /dev/null 2>&1)
+check "ledger: a pass on the rebuilt tree is no later pass of the stale binary's fail" \
+  is "$(./scripts/e2e-flakes.sh | awk '$1 == "a.one" { print $2, $3, $4, $5, $7 }')" "2 1 0 1 0"
+# No stamp (an old build), a build whose tree changed while it ran and a failed build: the key is unknown, and an
+# unknown FAIL never counts as passed later on the same unknown tree.
+rm -f "$tmp/.bow-tree-key"
+(cd "$tmp/wt-stale" && FAKE_MODE=loudfail BOW_E2E_ROOT="$tmp/wt-stale-runs" ./scripts/e2e.sh "$app" a.one > /dev/null 2>&1)
+(cd "$tmp/wt-stale" && FAKE_MODE=loudpass BOW_E2E_ROOT="$tmp/wt-stale-runs" ./scripts/e2e.sh "$app" a.one > /dev/null 2>&1)
+check "ledger: a run with no stamp logs the tree as unknown" is "$(tail -n 2 "$BOW_E2E_LEDGER" | cut -f 3,5 | paste -sd, -)" "FAIL	unknown,PASS	unknown"
+check "ledger: an unknown tree is never a later pass" \
+  is "$(./scripts/e2e-flakes.sh | awk '$1 == "a.one" { print $2, $3, $4, $5, $7 }')" "4 2 0 2 0"
+(cd "$tmp/wt-stale" && ./scripts/stamp-tree.sh "$tmp/.bow-tree-key" sh -c 'echo moved > marker')
+check "ledger: a tree that changed while the build ran is stamped unknown" is "$(cat "$tmp/.bow-tree-key")" unknown
+(cd "$tmp/wt-stale" && ./scripts/stamp-tree.sh "$tmp/.bow-tree-key" false)
+check "ledger: a failed build leaves no stamp" is "$([ -e "$tmp/.bow-tree-key" ] && echo stamp || echo none)" none
 # A ledger that cannot be written warns on stderr and changes nothing about the run.
 touch "$tmp/notafolder"
 res=$(cd "$tmp/wt-three" && FAKE_MODE=flakyresult BOW_E2E_LEDGER="$tmp/notafolder/ledger.tsv" BOW_E2E_ROOT="$tmp/wt-three-runs" \
