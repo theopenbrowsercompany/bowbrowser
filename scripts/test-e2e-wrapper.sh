@@ -1,6 +1,7 @@
 #!/bin/bash
 # Tests scripts/e2e.sh with a fake Bow.app (a shell script) in a throwaway folder: the summary line, exit codes,
-# results.json, the retry and FLAKY, crash classification, the helper sweep, --only and build/e2e/latest.
+# results.json, the retry and FLAKY, crash classification, the helper sweep, --only and build/e2e/latest, repeats
+# (E2E_REPEAT), short output (E2E_QUIET, CLAUDECODE) and the flake count (scripts/e2e-flakes.sh).
 # Takes a few seconds and launches no real app.
 set -u
 cd "$(dirname "$0")/.."
@@ -9,6 +10,9 @@ cd "$(dirname "$0")/.."
 tmp=$(cd "$(mktemp -d)" && pwd -P)
 trap 'chmod -R u+rwX "$tmp" 2>/dev/null; rm -rf "$tmp"' EXIT
 export BOW_E2E_ROOT="$tmp/runs" BOW_LOCK_DIR="$tmp/lock"
+# A person's full output unless a check asks for short output (an agent's shell has CLAUDECODE=1).
+export E2E_QUIET=0
+unset E2E_REPEAT
 app="$tmp/Bow.app"
 mkdir -p "$app/Contents/MacOS"
 # The fake app reads FAKE_MODE and writes report.txt into its --e2e-out folder like the real runner.
@@ -29,7 +33,38 @@ fi
 # Records the selection each attempt got.
 [ -z "$out" ] || echo "e2e=$sel" > "$out/args"
 r="$out/report.txt"
+# The repeat modes count runs in the run root (a file, which pruning leaves alone) and print to stdout and stderr
+# like the real runner: result lines on stdout, and a plain line and Chromium's ERROR lines echoed on stderr.
+n=0
+case $FAKE_MODE in loud* | repeat*)
+  n=$(($(cat "$out/../count" 2>/dev/null || echo 0) + 1)); echo "$n" > "$out/../count" ;;
+esac
+loudpass() {
+  { echo "PASS a.one: ok"; echo "RESULT a.one pass seconds=0.1 checks=1/1"; echo "E2E: PASS 1/1"; } | tee "$r"
+  echo "quit: seconds=0.5" >&2
+  exit 0
+}
+loudfail() {
+  { echo "FAIL a.one: broken"; echo "RESULT a.one fail seconds=0.1 checks=0/1"; echo "E2E: FAIL 0/1"; } | tee "$r"
+  echo "quit: seconds=0.5" >&2
+  echo "[1023/101010.000001:ERROR:fake.cc(12)] something broke" >&2
+  exit 1
+}
 case $FAKE_MODE in
+  loudpass) loudpass ;;
+  loudfail) loudfail ;;
+  # The second run of a repeat fails, or times out.
+  repeatfail) [ "$n" = 2 ] && loudfail; loudpass ;;
+  repeattimeout)
+    [ "$n" = 2 ] && { echo "E2E: TIMEOUT a.one: open window" | tee "$r"; exit 2; }
+    loudpass ;;
+  repeatcrash) [ "$n" = 1 ] && kill -SEGV $$; loudpass ;;
+  # The second run starts a helper and never ends.
+  repeathang)
+    [ "$n" = 2 ] || loudpass
+    "$(dirname "$0")/../Frameworks/Helper" "$out/helper" > /dev/null 2>&1 < /dev/null &
+    echo "PASS a.one: ok" > "$r"; echo yes > "$out/../hanging"
+    while :; do sleep 0.1; done ;;
   pass) echo "PASS a.one: ok" > "$r"; echo "E2E: PASS 1/1" >> "$r"; exit 0 ;;
   fail) echo "FAIL a.one: broken" > "$r"; echo "E2E: FAIL 0/1" >> "$r"; exit 1 ;;
   timeout) echo "E2E: TIMEOUT a.one: open window" > "$r"; exit 2 ;;
@@ -290,6 +325,118 @@ run badjson
 check "an app results.json that is not JSON: results.json stays valid" valid_json "$res"
 check "an app results.json is kept aside" has "$BOW_E2E_ROOT/latest/app-results.json" "not json"
 
+# E2E_REPEAT: whole runs in their own folders with the retry off, each test's passes out of N, one summary line.
+# Each group of checks uses its own run root, so the fake app's run count starts at 1.
+rroot() { export BOW_E2E_ROOT="$tmp/repeat-$1"; }
+says() { printf '%s\n' "$out" | grep -qx -- "$1"; }
+says_some() { printf '%s\n' "$out" | grep -q -- "$1"; }
+runs_in() { find "$BOW_E2E_ROOT" -mindepth 2 -maxdepth 2 -name results.json | wc -l | tr -d ' '; }
+rroot pass
+E2E_REPEAT=3 run loudpass a.one
+check "repeat: exit 0" is "$code" 0
+check "repeat: summary" is "$last" "E2E: PASS 3/3 repeats"
+check "repeat: passes out of N per test" says "REPEAT a.one 3/3"
+check "repeat: one run folder per repeat" is "$(runs_in)" 3
+check "repeat: each repeat gets the selection" is "$(cat "$BOW_E2E_ROOT"/*/args | sort -u)" "e2e=a.one"
+check "repeat: a person sees each repeat's output" is "$(printf '%s\n' "$out" | grep -c '^PASS a.one: ok')" 3
+rroot fail
+E2E_REPEAT=3 run repeatfail
+check "a failing repeat: exit 1" is "$code" 1
+check "a failing repeat: the summary names it" is "$last" "E2E: FAIL 2/3 repeats passed; failed: repeat 2 (FAIL 0/1)"
+check "a failing repeat: passes out of N" says "REPEAT a.one 2/3"
+check "a failing repeat: the retry is off inside repeats" is "$(find "$BOW_E2E_ROOT" -name retry | wc -l | tr -d ' ')" 0
+check "a failing repeat: the repeats go on" is "$(runs_in)" 3
+rroot timeout
+E2E_REPEAT=3 run repeattimeout
+check "a repeat that times out: exit 2" is "$code" 2
+check "a repeat that times out: the summary names it" is "$last" "E2E: TIMEOUT 2/3 repeats passed; failed: repeat 2 (TIMEOUT a.one: open window)"
+rroot crash
+E2E_REPEAT=2 run repeatcrash
+check "a repeat that crashes: exit 4" is "$code" 4
+check "a repeat that crashes: the summary names it" is "$last" "E2E: CRASH 1/2 repeats passed; failed: repeat 1 (CRASH exit=139 signal=11 without a summary line)"
+rroot usage
+E2E_REPEAT=3 run usage nope.test
+check "a repeat that cannot start: exit 64" is "$code" 64
+check "a repeat that cannot start: the repeats stop" is "$(runs_in)" 1
+check "a repeat that cannot start: summary" is "$last" "E2E: ERROR repeat 1/3 could not run: the app could not start the run (exit 64): an unknown selection or switch"
+for bad in 0 x 1.5 -2; do
+  E2E_REPEAT=$bad run pass
+  check "E2E_REPEAT=$bad: exit 64" is "$code" 64
+  check "E2E_REPEAT=$bad: summary" is "$last" "E2E: ERROR bad E2E_REPEAT"
+done
+check "list ignores E2E_REPEAT" is "$(E2E_REPEAT=3 FAKE_MODE=pass ./scripts/e2e.sh "$app" list | wc -l | tr -d ' ')" 3
+E2E_REPEAT=1 run pass
+check "E2E_REPEAT=1 is a plain run" is "$last" "E2E: PASS 1/1"
+
+# Short output (E2E_QUIET=1, or CLAUDECODE=1 when E2E_QUIET is unset): the failing lines, the folder and the summary.
+rroot quiet
+E2E_QUIET=1 run loudpass
+check "short output on a pass: two lines" is "$(printf '%s\n' "$out" | wc -l | tr -d ' ')" 2
+check "short output on a pass: names the run folder" says "e2e: everything is in $(cd "$BOW_E2E_ROOT/latest" && pwd -P) (report.txt, results.json, chromium.log)"
+check "short output on a pass: ends with the summary" is "$last" "E2E: PASS 1/1"
+check "short output leaves no file of its own behind" not test -e "$BOW_E2E_ROOT/latest/.output"
+quiet_files=$(cd "$BOW_E2E_ROOT/latest" && ls -A)
+quiet_report=$(cat "$BOW_E2E_ROOT/latest/report.txt")
+run loudpass
+check "a person's output keeps everything" says "PASS a.one: ok"
+check "a person's output keeps the app's echoed lines" says "quit: seconds=0.5"
+check "a person's output keeps the progress lines" says_some "^e2e: .*results in results.json"
+check "short output writes the same files" is "$(cd "$BOW_E2E_ROOT/latest" && ls -A)" "$quiet_files"
+check "short output writes the same report.txt" is "$(cat "$BOW_E2E_ROOT/latest/report.txt")" "$quiet_report"
+(unset E2E_QUIET; CLAUDECODE=1 FAKE_MODE=loudpass ./scripts/e2e.sh "$app" > "$tmp/claude.out" 2>&1)
+check "CLAUDECODE=1 turns short output on" is "$(wc -l < "$tmp/claude.out" | tr -d ' ')" 2
+(CLAUDECODE=1 E2E_QUIET=0 FAKE_MODE=loudpass ./scripts/e2e.sh "$app" > "$tmp/claude.out" 2>&1)
+check "E2E_QUIET=0 turns it off" has "$tmp/claude.out" "^PASS a.one: ok"
+E2E_QUIET=1 run loudfail
+check "short output on a failure: exit 1" is "$code" 1
+check "short output on a failure: the FAIL line" says "FAIL a.one: broken"
+check "short output on a failure: the failing test's RESULT line" says "RESULT a.one fail seconds=0.1 checks=0/1"
+check "short output on a failure: the retry's lines" says "retry: FAIL a.one: broken"
+check "short output on a failure: the echoed ERROR line" says "\[1023/101010.000001:ERROR:fake.cc(12)\] something broke"
+check "short output on a failure: not the app's other lines" not says_some "quit: seconds"
+check "short output on a failure: no progress lines" not says_some "retrying once"
+check "short output on a failure: ends with the summary" is "$last" "E2E: FAIL 0/1"
+check "short output on a failure: nothing more" is "$(printf '%s\n' "$out" | wc -l | tr -d ' ')" 8
+E2E_QUIET=1 run flaky
+check "short output on a flake: the FLAKY line" says "FLAKY a.one: failed then passed (slow)"
+check "short output on a flake: ends with the summary" is "$last" "E2E: FLAKY 1/1 after retrying a.one"
+E2E_QUIET=1 run usage nope.test
+check "short output when the run cannot start: exit 64" is "$code" 64
+check "short output when the run cannot start: says why" says "bow: --e2e=nope is not a test"
+E2E_QUIET=1 BOW_E2E_SLOTS=none run pass
+check "short output when the build lock refuses: says why" says_some "^build-lock: BOW_E2E_SLOTS must be a positive number"
+rroot quietpass
+E2E_QUIET=1 E2E_REPEAT=3 run loudpass
+check "short output of passing repeats: two lines" is "$(printf '%s\n' "$out" | wc -l | tr -d ' ')" 2
+check "short output of passing repeats: summary" is "$last" "E2E: PASS 3/3 repeats"
+rroot quietfail
+E2E_QUIET=1 E2E_REPEAT=3 run repeatfail
+check "short output of a failing repeat: its FAIL line" says "FAIL a.one: broken"
+check "short output of a failing repeat: names the repeat" says_some "^e2e: repeat 2/3 failed: E2E: FAIL 0/1"
+check "short output of a failing repeat: the test below N" says "REPEAT a.one 2/3"
+check "short output of a failing repeat: not the passing repeats' lines" not says_some "^E2E: PASS"
+check "short output of a failing repeat: no file of its own left" is "$(find "$BOW_E2E_ROOT" -name '.repeat.*' -o -name .output | wc -l | tr -d ' ')" 0
+
+# The flake count: per test runs, passes, FLAKY, FAIL and TIMEOUT from the results.json files of a run root.
+rroot flakes
+E2E_REPEAT=3 run repeatfail
+run results 'a.*'
+E2E_RETRY=0 run stucknototal 'a.*'
+flakes=$(./scripts/e2e-flakes.sh "$BOW_E2E_ROOT")
+flakes_code=$?
+row() { printf '%s\n' "$flakes" | awk -v t="$1" '$1 == t { print $2, $3, $4, $5, $6 }'; }
+check "flakes: exit 0" is "$flakes_code" 0
+check "flakes: counts every run" is "$(printf '%s\n' "$flakes" | tail -n 1)" "e2e-flakes: 5 runs"
+check "flakes: a.one runs passes FLAKY FAIL TIMEOUT" is "$(row a.one)" "5 4 0 1 0"
+check "flakes: a.two flaked once and timed out once" is "$(row a.two)" "2 0 1 0 1"
+check "flakes: most failures first" is "$(printf '%s\n' "$flakes" | sed -n 2p | awk '{ print $1 }')" a.two
+check "flakes: a test that never ran is not counted" is "$(row a.three)" ""
+check "flakes: the newest failure is named" is "$(printf '%s\n' "$flakes" | awk '$1 == "a.two" { print $7 }')" \
+  "$(readlink "$BOW_E2E_ROOT/latest")"
+check "flakes: also takes a run folder" is "$(./scripts/e2e-flakes.sh "$BOW_E2E_ROOT/latest" | tail -n 1)" "e2e-flakes: 1 runs"
+check "flakes: an empty root exits 1" not ./scripts/e2e-flakes.sh "$tmp/none" 2> /dev/null
+export BOW_E2E_ROOT="$tmp/runs"
+
 # interrupt <signal> [mode] [tenths]: runs the wrapper on an app that never ends (FAKE_MODE hang), sends the signal
 # once the app runs, and sets stopped (yes when the wrapper ended within tenths of a second, default 100), code, last,
 # res and iroot.
@@ -323,6 +470,19 @@ for sig in TERM INT; do
   check "$sig: results.json says interrupted" is "$(field "$res" status)" interrupted
   check "$sig: the app and its helper are ended" is "$(ps -axo command= | grep -F -- "$iroot/" | grep -vc grep)" 0
   check "$sig: the build lock slot is given back" is "$(ls "$BOW_LOCK_DIR/e2e/slots" | wc -l | tr -d ' ')" 0
+done
+# A signal during a repeat ends that repeat's app and helpers and stops the repeats after it.
+for quiet in 0 1; do
+  E2E_QUIET=$quiet E2E_REPEAT=3 interrupt TERM repeathang 100 hanging
+  check "TERM during a repeat (quiet=$quiet): the wrapper stops at once" is "$stopped" yes
+  check "TERM during a repeat (quiet=$quiet): exit 130" is "$code" 130
+  check "TERM during a repeat (quiet=$quiet): summary" is "$last" "E2E: ERROR interrupted"
+  check "TERM during a repeat (quiet=$quiet): the repeat's results.json says interrupted" is "$(field "$res" status)" interrupted
+  check "TERM during a repeat (quiet=$quiet): no later repeat runs" is "$(find "$iroot" -mindepth 2 -maxdepth 2 -name report.txt | wc -l | tr -d ' ')" 2
+  check "TERM during a repeat (quiet=$quiet): the app and its helper are ended" is "$(ps -axo command= | grep -F -- "$iroot/" | grep -vc grep)" 0
+  check "TERM during a repeat (quiet=$quiet): the build lock slot is given back" is "$(ls "$BOW_LOCK_DIR/e2e/slots" | wc -l | tr -d ' ')" 0
+  check "TERM during a repeat (quiet=$quiet): no file of its own left" is "$(find "$iroot" -name '.repeat.*' -o -name .output | wc -l | tr -d ' ')" 0
+  rm -rf "$iroot"
 done
 # An app that ignores TERM is swept after 5 seconds, so the build lock still ends and gives back its slot.
 interrupt TERM hangterm 200
@@ -402,6 +562,8 @@ check "make: E2E stays out of other recipes' environment" \
   is "$(E2E=env nomake make -s -f Makefile -f "$tmp/env.mk" print-e2e-env E2E=cli)" "E2E=unset"
 FAKE_MODE=pass nomake make -s e2e-run APP="$app" BUILD_DIR="$tmp/mk" E2E="it's, a" > /dev/null 2>&1
 check "make e2e-run hands the selection to the wrapper whole" is "$(cat "$tmp/mk/e2e/latest/args" 2>/dev/null)" "e2e=it's, a"
+check "make e2e-run passes E2E_REPEAT on" \
+  is "$(FAKE_MODE=loudpass nomake make -s e2e-run APP="$app" BUILD_DIR="$tmp/mkr" E2E_REPEAT=2 2>&1 | tail -n 1)" "E2E: PASS 2/2 repeats"
 
 # package-cef.sh on a fake CEF build and helper: an unchanged build skips the work, and a change to the
 # framework's Libraries or Resources does not.
