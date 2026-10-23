@@ -112,22 +112,28 @@ struct SpaceNameRenameTest: E2ETest {
 
 /// Seeds "work" (A, B) and "personal" (C) and reads the Space name's context menu, built through the view's own
 /// `menu(for:)` so it never pops up: Rename Space… and Delete Space…, then the pinned section's items: New Folder, the
-/// Theme submenu with each color, Change Icon… and Remove Icon (disabled with no icon). Its Rename Space… opens the
+/// Profile submenu (Default, then New Profile…), the Theme submenu with each color, Change Icon… and Remove Icon (disabled with no icon). Its Rename Space… opens the
 /// same rename sheet, which Escape closes.
 struct SpaceNameMenuTest: E2ETest {
     let name = "spacename.menu"
     let tags = ["smoke"]
 
     static let expected =
-        ["Rename Space…", "Delete Space…", "-", "New Folder", "-", "Theme", "Theme/Default*"]
+        ["Rename Space…", "Delete Space…", "-", "New Folder", "-"]
+        + ["Profile", "Profile/Default", "Profile/-", "Profile/New Profile…", "-"]
+        + ["Theme", "Theme/Default*"]
         + ["Blue", "Jam", "Apricot", "Cocoa", "Green", "Brick"].map { "Theme/\($0)" }
         + ["Change Icon…", "Remove Icon!"]
+    /// The profiles other tests of the run created also show in the Profile submenu; only the fixed entries count.
+    static let fixedProfileEntries: Set<String> = ["Profile/Default", "Profile/-", "Profile/New Profile…"]
 
     func run(_ run: E2ERun) async throws {
         let app = try SpaceNameTests.app(of: run)
         let page = try await SpacesAreaTests.openWorkAndPersonal(run, app: app)
         let menu = try await run.step("read and use the Space name's menu", timeout: E2ETimeouts.step) {
-            let titles = try app.spaceMenuTitles(in: page)
+            let titles = try app.spaceMenuTitles(in: page).filter {
+                !$0.hasPrefix("Profile/") || Self.fixedProfileEntries.contains($0)
+            }
             try app.chooseSpaceMenuItem(["Rename Space…"], in: page)
             let field = try await E2EWaits.value({ try app.sheetField(in: page) }, until: { $0?.text == "work" })
             try app.pressSheetKey(.escape, in: page)
