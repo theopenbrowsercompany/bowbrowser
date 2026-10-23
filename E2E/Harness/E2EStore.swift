@@ -13,6 +13,25 @@ struct E2ERelaunchedSidebar {
     var loadedTabCount: Int
 }
 
+/// A notice about the sidebar the app showed, as the person reads it in its alert.
+struct E2ESidebarNotice: Equatable {
+    /// `cannotOpen`, `newerFile`, `setAside`, `missingProfile` or `windowSidebar`.
+    var kind: String
+    var message: String
+    var detail: String
+}
+
+/// What opening a window on a saved sidebar did: `E2EStoreApp.openSavedSidebar(...)`.
+@MainActor
+struct E2ESidebarOpening {
+    /// The page of the window's shown tab; nil when no window opened, or it opened without a tab (it is closed).
+    var page: (any E2EPage)?
+    /// Whether a window opened.
+    var opened: Bool
+    /// The notices shown while opening, in order: on the window, or in place of it.
+    var notices: [E2ESidebarNotice]
+}
+
 /// The sidebar store and tab creation as a test sees them: the saved sidebar behind a window, a relaunch of it, and
 /// links from other apps.
 @MainActor
@@ -26,4 +45,14 @@ protocol E2EStoreApp: E2EApp {
     func openExternalLink(_ url: URL) throws -> any E2EPage
     /// The ID of the engine profile `page`'s tab was created in.
     func tabProfileID(of page: any E2EPage) throws -> String
+    /// Opens a window the way the app opens one on its saved sidebar, opening `url`, but with the sidebar file in
+    /// `dataFolder` (read afresh on every call) and window sidebars in `windowFolder`. With `ownSidebar` the window
+    /// gets a sidebar of its own on the app's default profile instead, as a smoke window does. Notices are recorded,
+    /// never shown.
+    func openSavedSidebar(inDataFolder dataFolder: URL, windowFolder: URL, url: URL, ownSidebar: Bool)
+        async throws -> E2ESidebarOpening
+    /// Hands the app `url` the way the system delivers a link clicked in another app.
+    func deliverLinkFromOtherApp(_ url: URL) throws
+    /// The sidebar notices the app showed outside `openSavedSidebar`, since the run started.
+    var appSidebarNotices: [E2ESidebarNotice] { get }
 }

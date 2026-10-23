@@ -24,8 +24,15 @@ final class E2EAppAdapter {
     /// drive the app any further: a window it opened then would miss the cleanup and stay into later tests.
     private var activeToken: Int?
 
+    /// Notices about the sidebar the app showed outside a test's own sidebar folders, recorded instead of shown so
+    /// no alert waits for a click.
+    private(set) var appSidebarNotices: [E2ESidebarNotice] = []
+
     init(delegate: AppDelegate) {
         self.delegate = delegate
+        delegate.appFeatures.require(SidebarStores.self).presentNotice = { [weak self] notice, _ in
+            self?.appSidebarNotices.append(E2ESidebarNotice(notice))
+        }
         // The tabs' own leave prompts go to their pages instead of the screen. A reload prompt, or a prompt from a
         // tab with no page (a popup), leaves: tests only answer the prompts that closing a tab asks.
         BowLeavePrompts.answer { [weak self] tabID, isReload, answer in
@@ -50,7 +57,7 @@ final class E2EAppAdapter {
             engineProfile = try createProfile(id: profile.id, isPersistent: profile.isPersistent)
         }
         return try await showWindow(token: token) { window in
-            delegate.openWindow(url: url, profile: engineProfile, window: window)
+            try delegate.openWindow(url: url, profile: engineProfile, window: window)
         }
     }
 
@@ -58,15 +65,23 @@ final class E2EAppAdapter {
     /// orders it in once it is known to stay invisible. Returns the page of its shown tab.
     private func showWindow(
         token: Int,
-        open: (BrowserWindow) -> BrowserWindowController
+        open: (BrowserWindow) throws -> BrowserWindowController
     ) async throws -> TabPage {
-        let window = OffscreenBrowserWindow(
+        try await show(try open(Self.makeWindow()), token: token)
+    }
+
+    private static func makeWindow() -> BrowserWindow {
+        OffscreenBrowserWindow(
             contentRect: Self.windowFrame,
             styleMask: BrowserWindowController.styleMask,
             backing: .buffered,
             defer: false
         )
-        let controller = open(window)
+    }
+
+    /// Tracks the window of `controller` and its shown tab for the test, and orders it in once it is known to stay
+    /// invisible. Returns the page of its shown tab.
+    private func show(_ controller: BrowserWindowController, token: Int) async throws -> TabPage {
         testControllers.append(controller)
         controller.onTabEvent = { [weak self, unowned controller] tab, event in
             if case .stateChanged = event, let row = Self.sidebarRow(of: tab, in: controller) {
@@ -880,7 +895,7 @@ extension E2EAppAdapter {
         }
         let delegate = delegate
         let shown = try await showWindow(token: token) { window in
-            delegate.openWindow(url: nil, store: store, window: window)
+            try delegate.openWindow(url: nil, store: store, window: window)
         }
         let controller = shown.controller
         return E2ERelaunchedSidebar(
@@ -911,7 +926,67 @@ extension TestApp: E2EActivityApp {
     }
 }
 
+// Opening the app's own sidebar from a folder of the test's, the way launch does, and links from other apps.
+extension E2EAppAdapter {
+    func openSavedSidebar(
+        dataFolder: URL, windowFolder: URL, url: URL, ownSidebar: Bool, token: Int
+    ) async throws -> E2ESidebarOpening {
+        let stores = SidebarStores(dataDirectory: dataFolder, windowFolderParent: windowFolder)
+        let log = NoticeLog()
+        stores.presentNotice = { notice, _ in
+            log.notices.append(E2ESidebarNotice(notice))
+        }
+        let profile = ownSidebar ? delegate.engine.profile(id: .default) : nil
+        let controller: BrowserWindowController
+        do {
+            controller = try delegate.openWindow(
+                url: url, profile: profile, window: Self.makeWindow(), sidebarStores: stores)
+        } catch {
+            // As the app does when a window cannot open: the notice shows instead.
+            stores.present(error, in: nil)
+            return E2ESidebarOpening(page: nil, opened: false, notices: log.notices)
+        }
+        guard controller.selectedTab != nil else {
+            // A window with no tab has no browser; closed the way its close button does.
+            controller.window?.performClose(nil)
+            return E2ESidebarOpening(page: nil, opened: true, notices: log.notices)
+        }
+        let page = try await show(controller, token: token)
+        return E2ESidebarOpening(page: page, opened: true, notices: log.notices)
+    }
+
+    func deliverLinkFromOtherApp(_ url: URL) {
+        delegate.application(NSApp, open: [url])
+    }
+}
+
+@MainActor
+private final class NoticeLog {
+    var notices: [E2ESidebarNotice] = []
+}
+
+extension E2ESidebarNotice {
+    init(_ notice: SidebarNotice) {
+        self.init(kind: notice.kind.rawValue, message: notice.message, detail: notice.detail)
+    }
+}
+
 extension TestApp: E2EStoreApp {
+    func openSavedSidebar(inDataFolder dataFolder: URL, windowFolder: URL, url: URL, ownSidebar: Bool)
+        async throws -> E2ESidebarOpening
+    {
+        try adapter.requireActive(token, "open a saved sidebar")
+        return try await adapter.openSavedSidebar(
+            dataFolder: dataFolder, windowFolder: windowFolder, url: url, ownSidebar: ownSidebar, token: token)
+    }
+
+    func deliverLinkFromOtherApp(_ url: URL) throws {
+        try adapter.requireActive(token, "deliver a link from another app")
+        adapter.deliverLinkFromOtherApp(url)
+    }
+
+    var appSidebarNotices: [E2ESidebarNotice] { adapter.appSidebarNotices }
+
     func sidebarItemCount(of page: any E2EPage) throws -> Int {
         try adapter.sidebarItemCount(of: page)
     }

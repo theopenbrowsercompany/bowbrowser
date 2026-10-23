@@ -23,7 +23,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Where the engine keeps its profiles for this launch; app services keep their files beside them.
     private var rootDataDirectory = AppDelegate.dataDirectory
     /// The app's services (`AppFeatures.all`), created on first use, once launch has settled the data directory.
-    private lazy var appFeatures = AppFeatureSet(dataDirectory: rootDataDirectory)
+    private(set) lazy var appFeatures = AppFeatureSet(dataDirectory: rootDataDirectory)
     #if BOW_E2E
         private var e2eRunner: E2ERunner?  // E2E seam
     #endif
@@ -81,19 +81,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         #endif
 
         engineStarted = true
-        let controller: BrowserWindowController
         if options.isSmokeTest {
             // A smoke run opens its page in a sidebar of its own, so it never adds tabs to the person's sidebar.
             let startURL = options.smokeInput.flatMap(AddressInput.resolve) ?? Self.homeURL
-            controller = openWindow(url: startURL, profile: engine.profile(id: .default))
-            // Stay in the background so a smoke run never takes the keyboard from whoever is typing.
-            controller.window?.orderBack(nil)
-            runSmokeTest(in: controller)
+            do {
+                let controller = try openWindow(url: startURL, profile: engine.profile(id: .default))
+                // Stay in the background so a smoke run never takes the keyboard from whoever is typing.
+                controller.window?.orderBack(nil)
+                runSmokeTest(in: controller)
+            } catch {
+                finishSmokeTest("no window opened: \(error)", exitCode: 1)
+                return
+            }
         } else {
             // The saved sidebar comes back with only its active tab loading; an empty one opens the home page.
-            controller = openWindow(url: nil)
-            controller.showWindow(nil)
-            NSApp.activate()
+            do {
+                let controller = try openWindow(url: nil)
+                controller.showWindow(nil)
+                NSApp.activate()
+            } catch {
+                // Bow refuses to start rather than run on a sidebar that would not be saved.
+                NSApp.activate()
+                appFeatures.require(SidebarStores.self).present(error, in: nil)
+                BowEngine.exitCode = 1
+                NSApp.terminate(nil)
+                return
+            }
         }
         let links = pendingLinks
         pendingLinks.removeAll()
@@ -113,6 +126,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// used browser window, in the profile of its Space on screen, or in a new window when none is open. Links that
     /// arrive before the engine has started open once it has.
     func application(_ application: NSApplication, open urls: [URL]) {
+        // An e2e run is a throwaway profile beside the person's own Bow: a link meant for them never opens in it.
+        guard !options.isE2E else { return }
         for url in urls where ["http", "https"].contains(url.scheme?.lowercased()) {
             if engineStarted {
                 openLink(url)
@@ -138,9 +153,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return controller
         }
         guard !options.isE2E else { return nil }
-        let controller = openWindow(url: url)
-        controller.showWindow(nil)
-        return controller
+        do {
+            let controller = try openWindow(url: url)
+            controller.showWindow(nil)
+            return controller
+        } catch {
+            appFeatures.require(SidebarStores.self).present(error, in: nil)
+            return nil
+        }
     }
 
     /// File > Close Tab (Cmd+W) when the key window has no tabs (a page's popup window, for example): closes that
@@ -157,27 +177,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Opens a browser window. With no `profile` it runs on the app's sidebar (saved in the data directory): it opens
     /// `url` in a new tab, or restores the sidebar when `url` is nil (the home page when the sidebar has no tabs).
     /// With a `profile` it runs on a new sidebar of its own whose one Space shows that profile, and opens `url`.
-    /// A given `store` is used as it is, as on launch. `window` is the window to use (e2e runs pass an off-screen one).
+    /// A given `store` is used as it is, as on launch. `window` is the window to use (e2e runs pass an off-screen one),
+    /// and `sidebarStores` the stores to take the sidebar from (the app's own when nil).
+    ///
+    /// Throws, opening nothing, when the sidebar cannot be opened (the app's sidebar file can be neither read nor set
+    /// aside, or a window sidebar cannot be created); the caller shows the notice. A window never runs on a temporary
+    /// sidebar in place of the app's. A notice about the sidebar that opened (a file set aside, a Space whose profile
+    /// the engine does not have) shows on the window.
     func openWindow(
         url: URL?,
         profile: (any EngineProfile)? = nil,
         store givenStore: SidebarStore? = nil,
-        window: BrowserWindow? = nil
-    ) -> BrowserWindowController {
-        let stores = appFeatures.require(SidebarStores.self)
+        window: BrowserWindow? = nil,
+        sidebarStores: SidebarStores? = nil
+    ) throws(SidebarNotice) -> BrowserWindowController {
+        let stores = sidebarStores ?? appFeatures.require(SidebarStores.self)
         let store: SidebarStore
+        var notices: [SidebarNotice] = []
         if let givenStore {
             store = givenStore
-        } else if profile == nil, let main = stores.main() {
-            store = main
+        } else if let profile {
+            store = try stores.makeWindowStore(profile: SidebarStores.sidebarProfileID(of: profile.profileID))
         } else {
-            // The engine always has its default profile.
-            let profile = profile ?? engine.profile(id: .default)!
-            do {
-                store = try stores.makeWindowStore(profile: SidebarStores.sidebarProfileID(of: profile.profileID))
-            } catch {
-                fatalError("cannot create a sidebar for a window: \(error)")
-            }
+            store = try stores.main()
+            if let notice = stores.takePendingNotice() { notices.append(notice) }
         }
         var url = url
         if url == nil, store.graph.activeSpaceID.map({ store.graph.tabIDs(in: $0).isEmpty }) ?? true {
@@ -185,13 +208,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         let engine = engine
         let downloads = appFeatures.require(DownloadsCenter.self)
+        let missingProfiles = MissingProfileNotices(stores: stores, store: store)
         let controller = BrowserWindowController(
             store: store,
             // Every engine profile a window's tabs open in comes through here, before the tab exists, so its
-            // downloads are handled from the first one (observing a profile again does nothing).
+            // downloads are handled from the first one (observing a profile again does nothing). A profile the engine
+            // does not have is told to the person once per window, rather than leaving a window that opens nothing.
             profiles: {
                 let profile = engine.profile(id: SidebarStores.engineProfileID(of: $0))
-                if let profile { downloads.observe(profile) }
+                if let profile { downloads.observe(profile) } else { missingProfiles.report($0) }
                 return profile
             },
             url: url,
@@ -208,6 +233,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self.windowControllers.append(self.windowControllers.remove(at: index))
         }
         windowControllers.append(controller)
+        for notice in notices { stores.present(notice, in: controller.window) }
+        missingProfiles.attach(to: controller.window)
         return controller
     }
 
@@ -302,5 +329,40 @@ extension AppDelegate {
         default:
             break
         }
+    }
+}
+
+/// Tells the person, once per window and profile, that a Space's profile has no engine profile. Reports made while
+/// the window is still being created wait until it exists, so the alert can show on it.
+@MainActor
+private final class MissingProfileNotices {
+    private let stores: SidebarStores
+    private let store: SidebarStore
+    private weak var window: NSWindow?
+    private var attached = false
+    private var reported: Set<SidebarProfileID> = []
+    private var waiting: [SidebarNotice] = []
+
+    init(stores: SidebarStores, store: SidebarStore) {
+        self.stores = stores
+        self.store = store
+    }
+
+    func report(_ profile: SidebarProfileID) {
+        guard reported.insert(profile).inserted else { return }
+        let notice = SidebarStores.missingProfileNotice(profile, in: store.graph)
+        if attached {
+            stores.present(notice, in: window)
+        } else {
+            waiting.append(notice)
+        }
+    }
+
+    func attach(to window: NSWindow?) {
+        self.window = window
+        attached = true
+        let notices = waiting
+        waiting.removeAll()
+        for notice in notices { stores.present(notice, in: window) }
     }
 }

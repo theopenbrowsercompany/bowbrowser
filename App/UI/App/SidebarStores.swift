@@ -1,5 +1,33 @@
+import AppKit
 import BowCore
-import Foundation
+
+/// Something about the sidebar the person has to know: the app's sidebar cannot be opened, was set aside, or a
+/// window cannot run. Thrown when a window cannot open, and shown as an alert.
+struct SidebarNotice: Error, Equatable, CustomStringConvertible {
+    enum Kind: String {
+        /// The sidebar file can be neither read nor set aside, or the data folder cannot be created.
+        case cannotOpen
+        /// The sidebar file was written by a newer Bow, which this build leaves alone.
+        case newerFile
+        /// The sidebar file could not be read, so it was moved aside and an empty sidebar started.
+        case setAside
+        /// A Space's profile has no engine profile, so its tabs cannot open.
+        case missingProfile
+        /// A window's own sidebar (one on an explicit profile) cannot be created.
+        case windowSidebar
+    }
+
+    var kind: Kind
+    /// The alert's title.
+    var message: String
+    /// The alert's text: what happened, where the file is and what the person can do.
+    var detail: String
+
+    var description: String { "\(message) \(detail)" }
+
+    /// Whether the window it is about cannot open (the alert is critical).
+    var stopsWindow: Bool { kind == .cannotOpen || kind == .newerFile || kind == .windowSidebar }
+}
 
 /// The sidebar stores windows run on, and the engine profile behind each Space's profile ID.
 ///
@@ -7,44 +35,101 @@ import Foundation
 /// change (and again when the app stops, for a write that failed). A window opened on an explicit engine profile (an
 /// e2e window, a smoke run) gets a sidebar of its own instead, in a temporary folder, with one Space on that profile,
 /// so it never adds tabs to the person's sidebar.
+///
+/// A window never falls back to a temporary sidebar when the app's sidebar cannot be opened: `main()` throws a notice
+/// every time it is asked, and the caller shows it instead of opening the window.
 @MainActor
 final class SidebarStores: AppFeature {
     private let dataDirectory: URL
     private var mainStore: SidebarStore?
-    /// True once opening the app's sidebar failed, so it is not tried (and reported) again for every window.
-    private var mainStoreFailed = false
-    /// Where window sidebars are kept: a folder of this process in the temporary directory.
-    private lazy var windowStoreFolder = FileManager.default.temporaryDirectory
-        .appendingPathComponent("bow-sidebars-\(ProcessInfo.processInfo.processIdentifier)", isDirectory: true)
+    /// A notice the next window on the app's sidebar shows: the file was set aside when it was opened.
+    private var pendingNotice: SidebarNotice?
+    /// Where window sidebars are kept: a folder of this process in `windowFolderParent`.
+    private let windowStoreFolder: URL
+    /// Shows notices instead of an alert when set (the e2e harness records them, so no alert waits for a click).
+    var presentNotice: (@MainActor (SidebarNotice, NSWindow?) -> Void)?
 
-    init(dataDirectory: URL) {
-        self.dataDirectory = dataDirectory
+    convenience init(dataDirectory: URL) {
+        self.init(dataDirectory: dataDirectory, windowFolderParent: FileManager.default.temporaryDirectory)
     }
 
-    /// The app's sidebar, opened from the data directory on first use. Nil when the file can be neither read nor set
-    /// aside, in which case the store refuses to start rather than overwrite it.
-    func main() -> SidebarStore? {
+    /// Clears the window sidebar folders that stopped processes left in `windowFolderParent` (a crash skips
+    /// `saveAll()`), keeping those of running processes.
+    init(dataDirectory: URL, windowFolderParent: URL) {
+        self.dataDirectory = dataDirectory
+        windowStoreFolder = WindowSidebarFolders.folder(
+            in: windowFolderParent, processID: ProcessInfo.processInfo.processIdentifier)
+        WindowSidebarFolders.removeStale(in: windowFolderParent)
+    }
+
+    /// The app's sidebar, opened from the data directory on first use. Throws, every time it is asked, when the data
+    /// folder cannot be created or the file can be neither read nor set aside (or was written by a newer Bow): the
+    /// store refuses to start rather than overwrite the file, and no window runs on a temporary sidebar instead.
+    func main() throws(SidebarNotice) -> SidebarStore {
         if let mainStore { return mainStore }
-        guard !mainStoreFailed else { return nil }
-        mainStoreFailed = true
         let url = SidebarStore.fileURL(inApplicationSupportFolder: dataDirectory)
         do {
             try FileManager.default.createDirectory(at: dataDirectory, withIntermediateDirectories: true)
-            let store = try SidebarStore(fileURL: url)
-            mainStore = store
-            mainStoreFailed = false
-            return store
         } catch {
-            FileHandle.standardError.write(Data("bow: cannot open the sidebar at \(url.path): \(error)\n".utf8))
-            return nil
+            throw SidebarNotice(
+                kind: .cannotOpen,
+                message: "Bow cannot create its data folder",
+                detail: """
+                    Bow keeps your sidebar in \(dataDirectory.path), which could not be created: \
+                    \(error.localizedDescription) Make sure the folder can be created, then open Bow again.
+                    """)
         }
+        let store: SidebarStore
+        do {
+            store = try SidebarStore(fileURL: url)
+        } catch SidebarStoreError.fileFromNewerBuild(let version, let readable) {
+            throw SidebarNotice(
+                kind: .newerFile,
+                message: "Your sidebar was saved by a newer version of Bow",
+                detail: """
+                    \(url.path) is in format \(version), and this version of Bow reads up to format \(readable). \
+                    Bow has left it untouched: open it with the newer version of Bow.
+                    """)
+        } catch {
+            throw SidebarNotice(
+                kind: .cannotOpen,
+                message: "Bow cannot open your sidebar",
+                detail: """
+                    \(url.path) could not be read: \(error) Bow has left it untouched rather than start over it. \
+                    Check that the file and its folder can be read and changed, then open Bow again.
+                    """)
+        }
+        if case .freshAfterSettingAside(let setAside, let reason) = store.openReport.origin {
+            pendingNotice = SidebarNotice(
+                kind: .setAside,
+                message: "Bow could not read your sidebar and started a new one",
+                detail: """
+                    The old file was moved, untouched, to \(setAside.path) (\(reason)). To try it again, quit Bow \
+                    and rename it back to \(SidebarStore.fileName) in the same folder.
+                    """)
+        }
+        mainStore = store
+        return store
+    }
+
+    /// The notice the app's sidebar left when it was opened (a file set aside), once.
+    func takePendingNotice() -> SidebarNotice? {
+        defer { pendingNotice = nil }
+        return pendingNotice
     }
 
     /// A new, empty sidebar for one window, whose only Space shows `profile`.
-    func makeWindowStore(profile: SidebarProfileID) throws -> SidebarStore {
-        try FileManager.default.createDirectory(at: windowStoreFolder, withIntermediateDirectories: true)
+    func makeWindowStore(profile: SidebarProfileID) throws(SidebarNotice) -> SidebarStore {
         let url = windowStoreFolder.appendingPathComponent("\(UUID().uuidString).json")
-        return try Self.store(at: url, profile: profile)
+        do {
+            try FileManager.default.createDirectory(at: windowStoreFolder, withIntermediateDirectories: true)
+            return try Self.store(at: url, profile: profile)
+        } catch {
+            throw SidebarNotice(
+                kind: .windowSidebar,
+                message: "Bow cannot open the window",
+                detail: "Its sidebar could not be created in \(windowStoreFolder.path): \(error)")
+        }
     }
 
     /// Opens the sidebar at `url`; a fresh one (no file yet) gets its only Space on `profile`.
@@ -57,6 +142,44 @@ final class SidebarStores: AppFeature {
             try store.deleteSpace(fresh)
         }
         return store
+    }
+
+    /// The notice for a Space on `profile`, which the engine does not have.
+    static func missingProfileNotice(_ profile: SidebarProfileID, in graph: SidebarGraph) -> SidebarNotice {
+        let space = graph.spaces.first { $0.profileID == profile }?.title ?? "this Space"
+        return SidebarNotice(
+            kind: .missingProfile,
+            message: "This Space's profile is not available",
+            detail: """
+                The Space “\(space)” uses the profile “\(profile.rawValue)”, which this Bow does not have, so its \
+                tabs cannot open. Switch to another Space to keep browsing.
+                """)
+    }
+
+    /// Shows `notice` as an alert: a sheet on `window` when it is on screen, or else one of its own. It is also
+    /// written to standard error. `presentNotice` takes it instead when set.
+    func present(_ notice: SidebarNotice, in window: NSWindow?) {
+        FileHandle.standardError.write(Data("bow: \(notice)\n".utf8))
+        if let presentNotice {
+            presentNotice(notice, window)
+            return
+        }
+        let alert = NSAlert()
+        alert.alertStyle = notice.stopsWindow ? .critical : .warning
+        alert.messageText = notice.message
+        alert.informativeText = notice.detail
+        if let window {
+            // A window that is about to show gets its sheet once it does.
+            if window.isVisible {
+                alert.beginSheetModal(for: window)
+            } else {
+                DispatchQueue.main.async { [weak window] in
+                    if let window, window.isVisible { alert.beginSheetModal(for: window) } else { alert.runModal() }
+                }
+            }
+        } else {
+            alert.runModal()
+        }
     }
 
     /// Writes the app's sidebar if a save failed earlier, and removes the window sidebars, which last only as long as
