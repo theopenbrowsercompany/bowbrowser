@@ -509,7 +509,8 @@ final class SidebarView: NSView, NSOutlineViewDataSource, NSOutlineViewDelegate,
         delegate?.select(id)
     }
 
-    @objc private func outlineDoubleClicked(_ sender: Any?) {
+    /// The outline's double click action.
+    @objc func outlineDoubleClicked(_ sender: Any?) {
         doubleClickRow(outlineView.clickedRow)
     }
 

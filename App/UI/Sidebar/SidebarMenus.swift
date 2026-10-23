@@ -64,8 +64,8 @@ protocol SidebarActionContext: AnyObject {
     /// page's leave prompt keeps it open, the folder stays with what is left in it.
     func deleteWithTabs(_ item: SidebarItemID)
     /// Asks the person to confirm a destructive action in a sheet on the window: `message` and `detail`, a button
-    /// titled `action` and Cancel. Runs `confirmed` once they choose `action`; Cancel, Escape or a window without
-    /// room for a sheet changes nothing.
+    /// titled `action` and Cancel. Runs `confirmed` once they choose `action`; Cancel or Escape changes nothing, and
+    /// while the window shows another sheet it only beeps.
     func confirm(_ message: String, detail: String, action: String, confirmed: @escaping @MainActor () -> Void)
     /// Runs `change`, which changes what the sidebar shows (switching Spaces through `changeSidebar`), with the
     /// outline's old content sliding out towards `direction` as the new comes in: `SidebarView.slideOutline`.

@@ -7,8 +7,8 @@ import BowCore
 ///
 /// Deleting offers both ways: "Delete Folder and Tabs" asks to confirm and then deletes the folder with all it
 /// holds (`SidebarActionContext.deleteWithTabs`), and "Delete Folder, Keep Tabs" moves what the folder holds up to
-/// the folder's place in its parent and deletes only the folder. An empty folder has one "Delete Folder" item,
-/// which asks nothing.
+/// the folder's place in its parent and deletes only the folder. A folder without tabs (empty, or holding only empty
+/// folders) has one "Delete Folder" item, which asks nothing.
 enum FolderMenuItems: SidebarMenuItems {
     static let newFolderName = "New Folder"
 
@@ -21,7 +21,8 @@ enum FolderMenuItems: SidebarMenuItems {
         }
         guard case .folder? = context.graph[item]?.data else { return [newFolder] }
         let rename = SidebarMenuItem(title: "Rename Folder") { [weak context] in context?.beginRename(item) }
-        guard let folder = context.graph[item], !folder.childrenIDs.isEmpty else {
+        let tabs = tabCount(in: item, graph: context.graph)
+        guard tabs > 0 else {
             let delete = SidebarMenuItem(title: "Delete Folder") { [weak context] in
                 context?.changeSidebar { try $0.apply([.delete(item)]) }
             }
@@ -50,12 +51,18 @@ enum FolderMenuItems: SidebarMenuItems {
         context.beginRename(folder.id)
     }
 
-    /// Asks before deleting folder `item` with its tabs, naming how many tabs go with it.
+    /// How many tabs folder `item` holds, in its subfolders too.
+    static func tabCount(in item: SidebarItemID, graph: SidebarGraph) -> Int {
+        (graph[item]?.childrenIDs ?? []).reduce(0) { count, child in
+            count + (graph[child]?.data.isTab == true ? 1 : tabCount(in: child, graph: graph))
+        }
+    }
+
+    /// Asks before deleting folder `item` with its tabs, naming how many go with it.
     private static func confirmDelete(_ item: SidebarItemID, context: any SidebarActionContext) {
-        let graph = context.graph
-        let name = graph[item]?.title.flatMap { $0.isEmpty ? nil : $0 } ?? "Folder"
-        let tabs = graph.items.values.filter { $0.data.isTab && $0.id != item && graph.isDescendant($0.id, of: item) }
-        let count = tabs.count == 1 ? "1 tab" : "\(tabs.count) tabs"
+        let tabs = tabCount(in: item, graph: context.graph)
+        let name = context.graph[item]?.title.flatMap { $0.isEmpty ? nil : $0 } ?? "Folder"
+        let count = tabs == 1 ? "1 tab" : "\(tabs) tabs"
         context.confirm(
             "Delete \u{201C}\(name)\u{201D} and its tabs?",
             detail: "The folder and the \(count) inside it will be removed from the sidebar.",

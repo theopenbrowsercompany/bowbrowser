@@ -24,6 +24,10 @@ extension E2ETestApp: E2EFoldersApp {
         try adapter.requireActive(token, "double click a sidebar row")
         let sidebar = try E2EAppAdapter.tabPage(page).controller.e2eSidebar
         guard row >= 0, row < sidebar.outlineView.numberOfRows else { throw E2EError("there is no row \(row)") }
+        let outline = sidebar.outlineView
+        guard outline.target === sidebar, outline.doubleAction == #selector(SidebarView.outlineDoubleClicked(_:)) else {
+            throw E2EError("the outline's double click does not reach the sidebar")
+        }
         // What the outline's click and double click actions do with the clicked row.
         sidebar.clickRow(row)
         sidebar.doubleClickRow(row)
