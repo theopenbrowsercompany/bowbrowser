@@ -8,17 +8,16 @@ import BowCore
 @MainActor
 final class WindowLookFeature: NSResponder, BrowserWindowFeature {
     init(window: BrowserWindowController) {
+        let soft = BowBrand.softShadow()
+        cardShadow = PageShadow(
+            color: soft.shadowColor ?? .clear, radius: soft.shadowBlurRadius, offset: soft.shadowOffset,
+            fill: BowBrand.page)
         super.init()
         window.usesFullSizeContent = true
-        window.pageCornerRadius = BowBrand.radiusCard
         // The leading edge meets the sidebar, whose own padding spaces it.
         self.window = window
         applyPageInsets(for: .sidebar, showsToolbar: true)
         window.window?.backgroundColor = BowBrand.frame
-        let soft = BowBrand.softShadow()
-        window.pageShadow = PageShadow(
-            color: soft.shadowColor ?? .clear, radius: soft.shadowBlurRadius, offset: soft.shadowOffset,
-            fill: BowBrand.page)
         if let content = window.window?.contentView {
             dragArea.translatesAutoresizingMaskIntoConstraints = false
             content.addSubview(dragArea, positioned: .below, relativeTo: nil)
@@ -41,13 +40,37 @@ final class WindowLookFeature: NSResponder, BrowserWindowFeature {
 
     private weak var window: BrowserWindowController?
     private var placedNavigation = false
+    private let cardShadow: PageShadow
+    private var layout = WindowLayout.sidebar
+    private var showsToolbar = true
+    /// True while a page fills the window (page fullscreen), as `setPageFills(_:)` left it.
+    private(set) var pageFills = false
 
     /// The page card's insets for `layout` (`WindowLayout.pageInsets`): the top tabs layout leaves room above the card
-    /// for the tab strip and the toolbar row (the sidebar layout's leading edge meets the sidebar instead).
+    /// for the tab strip and the toolbar row (the sidebar layout's leading edge meets the sidebar instead). While a
+    /// page fills the window the card keeps no insets, and takes these back when it stops.
     func applyPageInsets(for layout: WindowLayout, showsToolbar: Bool) {
-        let insets = layout.pageInsets(showsToolbar: showsToolbar)
-        window?.pageInsets = NSEdgeInsets(
+        self.layout = layout
+        self.showsToolbar = showsToolbar
+        applyCard()
+    }
+
+    /// Lets the page card fill the window edge to edge, with no insets, corners or shadow (page fullscreen), or puts
+    /// it back as the layout has it.
+    func setPageFills(_ fills: Bool) {
+        guard fills != pageFills else { return }
+        pageFills = fills
+        applyCard()
+    }
+
+    private func applyCard() {
+        guard let window else { return }
+        let insets = WindowChrome.pageInsets(layout: layout, showsToolbar: showsToolbar, pageFullscreen: pageFills)
+        window.pageInsets = NSEdgeInsets(
             top: insets.top, left: insets.leading, bottom: insets.bottom, right: insets.trailing)
+        let styled = WindowChrome(layout: layout, pageFullscreen: pageFills).cardStyled
+        window.pageCornerRadius = styled ? BowBrand.radiusCard : 0
+        window.pageShadow = styled ? cardShadow : nil
     }
 
     /// The window shows its first tab (or its empty state) once every feature exists, which is when the navigation

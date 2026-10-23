@@ -42,5 +42,6 @@ enum E2EAreas {
         RecentTabsTests.all,
         PageDialogsTests.all,
         PanesTests.all,
+        FullscreenTests.all,
     ]
 }

@@ -28,5 +28,6 @@ enum WindowFeatures {
         PopupPanelFeature.self,
         RecentTabsFeature.self,
         PageDialogsFeature.self,
+        PageFullscreenFeature.self,
     ]
 }

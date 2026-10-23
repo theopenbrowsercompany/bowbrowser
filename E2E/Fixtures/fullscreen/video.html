@@ -1,0 +1,23 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Fullscreen</title>
+<style>
+  body { margin: 0; font: 14px system-ui; }
+  #go { position: absolute; top: 40px; left: 40px; width: 220px; height: 60px; }
+  #player { width: 320px; height: 180px; margin: 120px 40px 0; background: #3a1f14; color: #fff3e6; }
+</style>
+<button id="go">Fullscreen</button>
+<div id="player">A player that fills the screen</div>
+<script>
+  // Every fullscreen change the page saw, in order: "enter", "exit", or the refusal's name.
+  window.fullscreenEvents = [];
+  document.addEventListener("fullscreenchange", () =>
+    window.fullscreenEvents.push(document.fullscreenElement ? "enter" : "exit"));
+  document.addEventListener("fullscreenerror", () => window.fullscreenEvents.push("error"));
+  document.getElementById("go").addEventListener("click", () => {
+    document.getElementById("player").requestFullscreen().catch((error) =>
+      window.fullscreenEvents.push("refused:" + error.name));
+  });
+  window.keyDowns = [];
+  addEventListener("keydown", (event) => window.keyDowns.push(event.key));
+</script>

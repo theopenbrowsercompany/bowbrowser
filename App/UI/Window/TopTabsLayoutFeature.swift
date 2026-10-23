@@ -169,12 +169,27 @@ final class TopTabsLayoutFeature: NSResponder, BrowserWindowFeature, NSMenuItemV
         }
         applied = true
         layout = wanted
-        let top = wanted == .topTabs
-        window.feature(SidebarFeature.self)?.setHidden(top)
-        bar.isHidden = !top
+        applyVisibility()
         placeNavigation()
         applyChrome()
         placeWindowButtons(nil)
+    }
+
+    /// True while a page fills the window (page fullscreen), as `setPageFills(_:)` left it.
+    private(set) var pageFills = false
+
+    /// Hides the sidebar and the bar while a page fills the window (page fullscreen), or shows the layout's own again.
+    func setPageFills(_ fills: Bool) {
+        guard fills != pageFills else { return }
+        pageFills = fills
+        applyVisibility()
+    }
+
+    /// The sidebar in the sidebar layout, the bar in this one, and neither while a page fills the window.
+    private func applyVisibility() {
+        let chrome = WindowChrome(layout: layout, pageFullscreen: pageFills)
+        window.feature(SidebarFeature.self)?.setHidden(!chrome.showsSidebar)
+        bar.isHidden = !chrome.showsTopBar
     }
 
     /// The toolbar row and the card's insets, which follow the layout and View > Hide Toolbar.
