@@ -15,4 +15,28 @@ final class OffscreenBrowserWindow: BrowserWindow {
     override func constrainFrameRect(_ frameRect: NSRect, to screen: NSScreen?) -> NSRect {
         frameRect
     }
+
+    // AppKit also moves a window onto a screen to show a sheet on it; keep it off every screen.
+    override func setFrame(_ frameRect: NSRect, display flag: Bool) {
+        super.setFrame(E2EOffscreenFrame.kept(frameRect), display: flag)
+    }
+
+    override func setFrame(_ frameRect: NSRect, display displayFlag: Bool, animate animateFlag: Bool) {
+        super.setFrame(E2EOffscreenFrame.kept(frameRect), display: displayFlag, animate: animateFlag)
+    }
+
+    override func setFrameOrigin(_ point: NSPoint) {
+        super.setFrameOrigin(E2EOffscreenFrame.kept(NSRect(origin: point, size: frame.size)).origin)
+    }
+}
+
+/// Where an e2e window may go: anywhere off every screen.
+@MainActor
+enum E2EOffscreenFrame {
+    /// `frame`, or the same size at the e2e windows' place far from every screen when any part of it would show on
+    /// one.
+    static func kept(_ frame: NSRect) -> NSRect {
+        guard NSScreen.screens.contains(where: { $0.frame.intersects(frame) }) else { return frame }
+        return NSRect(origin: E2EAppAdapter.windowFrame.origin, size: frame.size)
+    }
 }
