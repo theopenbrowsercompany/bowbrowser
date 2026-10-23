@@ -50,7 +50,9 @@ final class SidebarNode: NSObject {
 final class SidebarView: NSView, NSOutlineViewDataSource, NSOutlineViewDelegate, NSMenuDelegate {
     static let width: CGFloat = 240
     private static let rowHeight: CGFloat = 32
-    private static let dragType = NSPasteboard.PasteboardType("dev.bowbrowser.sidebar-item")
+    /// The pasteboard type of a dragged sidebar item: its ID as a string. A header view that drags items of its own
+    /// (the Favorites grid) writes and reads this type, so its drags and the outline's go both ways.
+    static let dragType = NSPasteboard.PasteboardType("dev.bowbrowser.sidebar-item")
 
     weak var delegate: (any SidebarViewDelegate)?
     let newTabButton: NSButton
@@ -755,7 +757,8 @@ final class SidebarView: NSView, NSOutlineViewDataSource, NSOutlineViewDelegate,
         proposedItem item: Any?,
         proposedChildIndex index: Int
     ) -> NSDragOperation {
-        guard info.draggingSource as? NSOutlineView === outlineView, let id = draggedItem(info),
+        // Only drags that start in this sidebar: its outline, or a view inside it such as the Favorites grid.
+        guard (info.draggingSource as? NSView)?.isDescendant(of: self) == true, let id = draggedItem(info),
             let proposal = proposeDrop(of: id, on: item as? SidebarNode, childIndex: index)
         else { return [] }
         outlineView.setDropItem(proposal.node, dropChildIndex: proposal.childIndex)
