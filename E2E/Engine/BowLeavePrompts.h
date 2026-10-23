@@ -9,8 +9,9 @@ NS_ASSUME_NONNULL_BEGIN
 @interface BowLeavePrompts : NSObject
 
 /// From now on, a tab's own leave prompt is never shown: `handler` gets the tab's ID and whether the page is being
-/// reloaded, on the main thread, and calls `answer` exactly once on the main thread, with YES to leave or NO to
-/// stay. Call on the main thread, after the engine has started.
+/// reloaded, on the main thread, and calls `answer` once on the main thread, with YES to leave or NO to stay (later
+/// calls are ignored, and an `answer` released uncalled leaves). Call on the main thread, after the engine has
+/// started and before any page can ask, as BowEngineAnswerLeavePrompts says.
 + (void)answerWithHandler:(void (^)(uint64_t tabID, BOOL isReload, void (^answer)(BOOL leave)))handler
     NS_SWIFT_NAME(answer(with:));
 

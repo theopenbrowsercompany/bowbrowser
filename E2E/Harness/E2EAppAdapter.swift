@@ -2,8 +2,8 @@ import AppKit
 import BowCore
 
 // The only e2e file that knows the app's engine (the BowCore protocols the app drives it through), the window
-// controllers and the bridge's BowDevToolsSession and BowLeavePrompts. When those change shape, rewrite this file to keep E2EApp and
-// E2EPage working; tests stay as they are.
+// controllers and the bridge's BowDevToolsSession and BowLeavePrompts. When those change shape, rewrite this file
+// to keep E2EApp and E2EPage working; tests stay as they are.
 
 @MainActor
 final class E2EAppAdapter: E2EApp {
@@ -18,10 +18,11 @@ final class E2EAppAdapter: E2EApp {
 
     init(delegate: AppDelegate) {
         self.delegate = delegate
-        // The tabs' own leave prompts go to their pages instead of the screen. A tab with no page (a popup) leaves.
-        BowLeavePrompts.answer { [weak self] tabID, _, answer in
+        // The tabs' own leave prompts go to their pages instead of the screen. A reload prompt, or a prompt from a
+        // tab with no page (a popup), leaves: tests only answer the prompts that closing a tab asks.
+        BowLeavePrompts.answer { [weak self] tabID, isReload, answer in
             MainActor.assumeIsolated {
-                guard let page = self?.pages[TabID(rawValue: tabID)] else { return answer(true) }
+                guard !isReload, let page = self?.pages[TabID(rawValue: tabID)] else { return answer(true) }
                 answer(page.answerLeavePrompt())
             }
         }

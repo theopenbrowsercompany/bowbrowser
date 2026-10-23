@@ -1009,8 +1009,14 @@ class BowTabClient : public CefClient,
   if (gLeavePromptAnswerer) {
     const uint64_t tabID = self.tabID;
     const bool isReload = request.isReload;
+    // One answer only; released unanswered, it leaves, so a run never waits on a prompt nobody answers.
+    BowAnswerOnce* once = [[BowAnswerOnce alloc] initWithFallback:^{
+      answer(YES, nil);
+    }];
     dispatch_async(dispatch_get_main_queue(), ^{
-      gLeavePromptAnswerer(tabID, isReload, [answer](bool leave) { answer(leave, nil); });
+      gLeavePromptAnswerer(tabID, isReload, [once, answer](bool leave) {
+        if ([once claim]) answer(leave, nil);
+      });
     });
     return;
   }

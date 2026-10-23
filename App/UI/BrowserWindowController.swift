@@ -76,6 +76,8 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, Engin
     /// Closes `tab`, one of this window's tabs, after its page's beforeunload handler runs. Returns true once it has
     /// closed, and false when the person chose to stay at the page's leave prompt, which keeps the tab and its
     /// page as they were. The window shows a neighbor when the shown tab closes, and closes with its last tab.
+    /// A tab that is not in this window (another window's, or one already closed) is left alone, and the result
+    /// is whether it is closed.
     @discardableResult
     func closeTab(_ tab: any EngineTab) async -> Bool {
         guard tabs.contains(where: { $0 === tab }) else { return tab.isClosed }
@@ -123,7 +125,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, Engin
         // A page the person chooses to stay on keeps its tab and the window open. Each close request asks the
         // pages again, as quitting again does.
         for tab in tabs {
-            Task { await closeTab(tab) }
+            Task { _ = await tab.close() }
         }
         return false
     }
