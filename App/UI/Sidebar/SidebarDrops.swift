@@ -1,5 +1,5 @@
-import Foundation
 import BowCore
+import Foundation
 
 /// A sidebar item dropped (or about to be dropped) somewhere in the outline.
 struct SidebarDrop: Equatable, Sendable {

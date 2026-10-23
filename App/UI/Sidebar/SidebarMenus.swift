@@ -52,6 +52,8 @@ protocol SidebarMenuItems {
 /// Every provider of sidebar context menu items, in menu order. One entry per line.
 @MainActor
 enum SidebarMenus {
+    // swift-format-ignore
+    // (a one-entry list keeps its trailing comma, so each provider stays one line.)
     static let all: [any SidebarMenuItems.Type] = [
         CloseTabMenuItems.self,
     ]
