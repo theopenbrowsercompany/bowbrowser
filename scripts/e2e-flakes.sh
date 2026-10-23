@@ -19,7 +19,7 @@
 # Ledger mode prints, over the last N days (default 7, --days), one line per test: runs, passes, FLAKY (both kinds),
 # FAIL and TIMEOUT counts, EVENTS and FILING, and when it last failed. An event is a FLAKY outcome, or a FAIL or TIMEOUT
 # on a tree that the same test later passed (an earlier line of the same test and tree that is not a PASS, with a PASS
-# line at or after its date). FILING says FILE when a test has 2 or more events in the window: the lead files a flake
+# line at or after its date; tree "unknown", a build with no stamp, never matches). FILING says FILE when a test has 2 or more events in the window: the lead files a flake
 # item for it (E2E/README.md, Flake history). Most events first, then most failures, then newest failure, then name.
 # Exits 1 when the ledger has no line in the window.
 #
@@ -178,7 +178,7 @@ prog='
       if ($o eq "FAIL") { $r->{fail}++ } elsif ($o eq "TIMEOUT") { $r->{timeout}++ } else { $r->{flaky}++ }
       $r->{last} = $e->{date} if $e->{date} gt $r->{last};
       # A FLAKY outcome passed on the retry of its own tree; a FAIL or TIMEOUT is an event when the same tree passed later.
-      my $event = $o !~ /^(FAIL|TIMEOUT)\z/ || grep { $_->{outcome} eq "PASS" && $_->{tree} eq $e->{tree} && $_->{date} ge $e->{date} } @all;
+      my $event = $o !~ /^(FAIL|TIMEOUT)\z/ || grep { $_->{outcome} eq "PASS" && $e->{tree} ne "unknown" && $_->{tree} eq $e->{tree} && $_->{date} ge $e->{date} } @all;
       $r->{events}++ if $event;
     }
   }

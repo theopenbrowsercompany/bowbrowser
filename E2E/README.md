@@ -78,7 +78,9 @@ A plan or a shard that would run a test twice or not at all stops the run with e
 Every `scripts/e2e.sh` run appends one line per test and run-wide check to the shared ledger `~/Library/Caches/bowbrowser/e2e-ledger.tsv` (next to `timings.tsv`; `BOW_E2E_LEDGER` overrides the path, and the self tests use a temp file), from every worktree, so the history outlives a landed worktree.
 A line is tab separated: `date` (UTC), `test`, `outcome`, `branch`, `tree`, `load`, `shard`, `run`, under a header line written when the file is new.
 The outcome is `PASS`, `FLAKY` (failed or timed out, then passed on the retry), `QUARANTINED-FLAKY` (the same, on the quarantine list), `FAIL` or `TIMEOUT`, so a flake shows from the ledger alone.
-The `tree` is the commit's tree hash, with 8 hex digits of the diff added when tracked files were modified, so a fail fixed in the working tree is not a flake.
+The `tree` is the commit's tree hash, with 8 hex digits of the diff added when tracked files were modified or untracked ones exist, so a fail fixed in the working tree is not a flake.
+It is the key of the source the app was built from, not of the tree checked out when the run happens: `make build` takes it (`scripts/tree-key.sh`) before and after the build and stamps it in `.bow-tree-key` beside `Bow.app` (`scripts/stamp-tree.sh`), so `make e2e-run` on an older build logs the older tree.
+A build with no stamp (an old one, a failed one, or a tree that changed while it waited or ran) logs `unknown`, which never counts as a later pass.
 Each run's lines go in under a lock in one write, and a ledger that cannot be written only warns on stderr: it never changes the run's output or exit code.
 
 `scripts/e2e-flakes.sh [--days N]` reads the ledger (7 days by default) and prints per test its runs, passes, FLAKY, FAIL and TIMEOUT counts, its events, FILE or `-`, and when it last failed, most events first.

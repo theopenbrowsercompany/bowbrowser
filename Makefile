@@ -30,7 +30,7 @@ project:
 # The empty .metadata_never_index keeps Spotlight from indexing the build folder (derived data and e2e runs).
 build: project
 	@mkdir -p $(BUILD_DIR) && : > $(BUILD_DIR)/.metadata_never_index
-	./scripts/xcodebuild.sh -project Bow.xcodeproj -scheme Bow -configuration Debug -derivedDataPath $(BUILD_DIR) -quiet build
+	./scripts/stamp-tree.sh $(dir $(APP)).bow-tree-key ./scripts/xcodebuild.sh -project Bow.xcodeproj -scheme Bow -configuration Debug -derivedDataPath $(BUILD_DIR) -quiet build
 
 test:
 	swift test --package-path BowCore --quiet
