@@ -1,12 +1,13 @@
 #!/bin/bash
 # Tests scripts/build-lock.sh with fake builds (sleep) in a throwaway lock folder: queue order, the slot limit,
-# and slot release after kill -9, SIGINT, SIGTERM and a failing command. Takes about 30 seconds.
+# and slot release after kill -9, SIGINT, SIGTERM and a failing command. Takes about 50 seconds.
 set -u
 cd "$(dirname "$0")/.."
 
 export BOW_LOCK_DIR
 BOW_LOCK_DIR=$(mktemp -d)
 export BOW_BUILD_SLOTS=2
+trap 'rm -rf "$BOW_LOCK_DIR"; kill $(jobs -p) 2>/dev/null' EXIT
 lock=./scripts/build-lock.sh
 failed=0
 check() { # check <description> <condition command...>
@@ -50,12 +51,13 @@ for sig in INT TERM; do
   $lock sleep 30 &
   pid=$!
   sleep 1
+  kid=$(pgrep -P $pid)
   check "slot held while running ($sig)" is "$(slot_count)" 1
   kill -$sig $pid
   wait $pid 2> /dev/null
   sleep 0.5
   check "slot freed after $sig" is "$(slot_count)" 0
-  check "child stopped after $sig" test -z "$(pgrep -f 'sleep 30' || true)"
+  check "child stopped after $sig" test -z "$(ps -o pid= -p "$kid" 2>/dev/null)"
 done
 
 # 4. A waiting build killed while queued leaves its ticket behind for nobody.
@@ -97,6 +99,13 @@ start=$SECONDS
 BOW_BUILD_SLOTS=1 $lock true 2> "$BOW_LOCK_DIR/err6"
 check "stale slot reclaimed at once" test $((SECONDS - start)) -le 2
 check "no waiting line for a stale slot" test ! -s "$BOW_LOCK_DIR/err6"
+
+# 6b. A slot dir with no pids file (a build died between mkdir and writing it) is reclaimed once old enough.
+mkdir "$BOW_LOCK_DIR/build/slots/1"
+touch -t 202001010000 "$BOW_LOCK_DIR/build/slots/1"
+BOW_BUILD_SLOTS=1 $lock true 2> "$BOW_LOCK_DIR/err6b"
+check "pidless old slot reclaimed" test ! -s "$BOW_LOCK_DIR/err6b"
+check "bad slot count rejected" test "$(BOW_BUILD_SLOTS=00 $lock true 2> /dev/null; echo $?)" = 64
 
 # 7. The e2e pool is separate: a full build pool does not block an e2e run, and BOW_E2E_SLOTS limits it.
 BOW_BUILD_SLOTS=1 $lock sleep 3 &
