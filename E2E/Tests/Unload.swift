@@ -142,6 +142,7 @@ struct UnloadOffTest: E2ETest {
 /// unloaded tab loads it again on its address.
 struct UnloadPolicyTest: E2ETest {
     let name = "unload.policy"
+    let tags = ["smoke"]
     let checks = ["unload.policy", "unload.reload"]
 
     func run(_ run: E2ERun) async throws {

@@ -228,6 +228,7 @@ struct TabsCloseWindowTest: E2ETest {
 /// engine's load events. Also checks that the tab not shown counts as hidden while the shown one paints.
 struct TabsSwitchTest: E2ETest {
     let name = "tabs.switch"
+    let tags = ["smoke"]
     let checks = ["tabs.switch", "tabs.hidden"]
     static let rounds = 3
 

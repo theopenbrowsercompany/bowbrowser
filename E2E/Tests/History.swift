@@ -13,6 +13,7 @@ enum HistoryTests {
 /// D in a persistent profile, whose history file a store of its own reads back.
 struct HistoryRecordingTest: E2ETest {
     let name = "history.recording"
+    let tags = ["smoke"]
     let checks = ["history", "history.title", "history.ephemeral", "history.persistent", "history.profiles"]
 
     func run(_ run: E2ERun) async throws {

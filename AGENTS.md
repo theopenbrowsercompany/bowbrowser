@@ -46,7 +46,7 @@ Start every session in `~/code/GitHub/bowbrowser`: the maintainer's `.claude/set
 - `make test`: BowCore unit tests.
 - `make build`: build the app into `build/`.
 - `make e2e`: build Debug and run the e2e tests in the real app (`make e2e E2E=app.quit` runs one).
-  `E2E` takes `all`, or a comma separated list of test names, areas (`tabs`, the part of a name before the first dot), globs (`'tabs.*'`) and tags (`smoke`); `E2E=list` prints one `TEST <name> area=<area> tags=<tags> checks=<checks>` line per test and runs nothing.
+  `E2E` takes `all`, or a comma separated list of test names, areas (`tabs`, the part of a name before the first dot), globs (`'tabs.*'`) and tags (`smoke` marks one fast test per area, so `E2E=smoke` is a quick cross section); `E2E=list` prints one `TEST <name> area=<area> tags=<tags> checks=<checks>` line per test and runs nothing.
   Agents use it, not `make smoke`, for "Done when" checks: the window stays off screen, the app never takes focus or shows in the Dock, the profile and settings are throwaway, the network is blocked, and it runs from any worktree, beside a normal Bow and while other worktrees build.
   `make e2e-run` does the same without building, to rerun the last build (for example a test that looked like load).
   `E2E=` goes to the app as one `--e2e=` value, and the app refuses a selection it does not know with exit 64.

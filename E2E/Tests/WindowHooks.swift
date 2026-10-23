@@ -17,6 +17,7 @@ enum WindowHooksTests {
 /// had no modifiers, and the request says so.
 struct WindowAdoptTest: E2ETest {
     let name = "window.adopt"
+    let tags = ["smoke"]
 
     func run(_ run: E2ERun) async throws {
         guard let hooks = run.app as? any E2EWindowHooksApp else { throw E2EError("the app has no window hooks") }

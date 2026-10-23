@@ -12,6 +12,7 @@ enum EngineTests {
 /// Opens a probe tab on the fixture and walks it through every hook, one check each.
 struct EngineHooksTest: E2ETest {
     let name = "engine.hooks"
+    let tags = ["smoke"]
     let checks = ["engine.popup", "engine.key", "engine.zoom", "engine.unload", "engine.close-reason"]
 
     func run(_ run: E2ERun) async throws {

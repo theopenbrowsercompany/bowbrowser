@@ -337,6 +337,7 @@ struct LinkIgnoredTest: E2ETest {
 /// all twelve come back in the sidebar, and only the active tab loads its page.
 struct StoreRoundtripTest: E2ETest {
     let name = "store.roundtrip"
+    let tags = ["smoke"]
     static let tabCount = 12
 
     func run(_ run: E2ERun) async throws {
@@ -380,6 +381,7 @@ struct StoreRoundtripTest: E2ETest {
 /// and sees the cookie. The profile is fixed when the tab is created.
 struct LinkProfileTest: E2ETest {
     let name = "link.profile"
+    let tags = ["smoke"]
 
     func run(_ run: E2ERun) async throws {
         let app = try StoreTests.app(run)

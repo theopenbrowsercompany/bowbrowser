@@ -26,6 +26,7 @@ enum FavoritesGridTests {
 /// top of today).
 struct FavoritesGridTest: E2ETest {
     let name = "favorites"
+    let tags = ["smoke"]
     let checks = ["favorites", "favorites.reorder", "favorites.open", "favorites.move-out", "favorites.remove"]
 
     func run(_ run: E2ERun) async throws {

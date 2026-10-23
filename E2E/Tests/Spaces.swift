@@ -83,6 +83,7 @@ enum SpacesAreaTests {
 /// shows the name of the Space on screen and its footer an icon per Space with that one highlighted.
 struct SpacesSwitchTest: E2ETest {
     let name = "spaces.switch"
+    let tags = ["smoke"]
     let checks = ["spaces.switch", "spaces.shortcuts", "spaces.arrows", "spaces.switcher"]
 
     func run(_ run: E2ERun) async throws {

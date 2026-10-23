@@ -245,6 +245,7 @@ struct NavigationPopupTest: E2ETest {
 /// (start, commit, finish), and a 204 answer (start, then fail as aborted, and the page stays).
 struct NavigationEventsTest: E2ETest {
     let name = "nav.events"
+    let tags = ["smoke"]
     let checks = ["nav.events", "nav.redirect", "nav.fail", "nav.policy", "nav.back", "nav.abort"]
 
     func run(_ run: E2ERun) async throws {

@@ -50,7 +50,7 @@ Each profile keeps its own downloads, and the window shows every profile's downl
 3. Start a large download, open the downloads window and click Pause: the status reads Paused and the byte count stops; click Resume and it grows again; click Cancel and it reads Cancelled with no partial file left.
 4. Click Clear on a finished download: the row goes away and the file stays in the Downloads folder.
 5. Turn on "Ask where to save each file" and click a download link: a save panel opens on the Downloads folder with the suggested name; Cancel there cancels the download.
-6. Start a slow download in a second tab and close that tab mid download: the tab goes at once, the download keeps running (the same file downloaded meanwhile is numbered) and completes with every byte saved, Clear removes the row, and the hidden page closes once the download has ended.
+6. Start a download in a second tab and close that tab while it is still running (the e2e fixture holds it until the test releases it): the tab goes at once, the download keeps running (the same file downloaded meanwhile is numbered) and completes with every byte saved, Clear removes the row, and the hidden page closes once the download has ended.
    `make e2e E2E=downloads.tab-closed` prints `PASS downloads.tab-closed: state=complete row=updated closed-while=inProgress`.
 7. Close a tab whose page, once closed, keeps trying to open a popup, show an alert and start another download: no window, popup or dialog appears and no new download is listed, while its first download keeps running.
    `make e2e E2E=downloads.parked-page` prints `PASS downloads.parked-popup`, `PASS downloads.parked-dialog` and `PASS downloads.parked-download`.

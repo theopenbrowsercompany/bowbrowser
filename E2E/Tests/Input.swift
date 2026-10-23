@@ -10,6 +10,7 @@ enum InputTests {
 /// then checks the value the page's click handler saw.
 struct InputTypeTest: E2ETest {
     let name = "input.type"
+    let tags = ["smoke"]
 
     func run(_ run: E2ERun) async throws {
         let page = try await run.step("open window", timeout: E2ETimeouts.step) {
