@@ -12,11 +12,15 @@ public struct ChromiumImportSummary: Equatable, Sendable {
     public let bookmarkFolderCount: Int
     /// Files that were missing or unreadable, so the person sees a partial result instead of nothing.
     public let problems: [ChromiumImportError]
+    private let hasBookmarks: Bool
 
     /// A one line description for the import sheet or a log.
     public var text: String {
-        var parts = ["\(profile.displayName): \(visitCount) visits to \(distinctURLCount) pages"]
-        parts.append("\(bookmarkCount) bookmarks in \(bookmarkFolderCount) folders")
+        func plural(_ n: Int, _ word: String) -> String { "\(n) \(word)\(n == 1 ? "" : "s")" }
+        var parts = ["\(profile.displayName): \(plural(visitCount, "visit")) to \(plural(distinctURLCount, "page"))"]
+        if hasBookmarks {
+            parts.append("\(plural(bookmarkCount, "bookmark")) in \(plural(bookmarkFolderCount, "folder"))")
+        }
         if !problems.isEmpty { parts.append("problems: " + problems.map(\.description).joined(separator: "; ")) }
         return parts.joined(separator: ", ")
     }
@@ -33,11 +37,18 @@ public struct ChromiumImportSummary: Equatable, Sendable {
         bookmarkCount = bookmarks?.bookmarkCount ?? 0
         bookmarkFolderCount = bookmarks?.folderCount ?? 0
         self.problems = problems
+        hasBookmarks = bookmarks != nil
     }
 
     /// Reads one profile folder and summarizes it. A missing or broken Bookmarks or History file is recorded in
     /// `problems` and the other file is still summarized.
     public static func dryRun(userDataFolder: URL, profile: ChromiumProfile) -> ChromiumImportSummary {
+        guard !profile.directory.isEmpty, !profile.directory.contains("/"), profile.directory != "..",
+            profile.directory != "."
+        else {
+            let bad = ChromiumImportError.malformed(file: profile.directory, reason: "not a profile folder name")
+            return ChromiumImportSummary(profile: profile, visits: [], bookmarks: nil, problems: [bad])
+        }
         let folder = userDataFolder.appendingPathComponent(profile.directory, isDirectory: true)
         var problems: [ChromiumImportError] = []
         var visits: [ChromiumVisit] = []

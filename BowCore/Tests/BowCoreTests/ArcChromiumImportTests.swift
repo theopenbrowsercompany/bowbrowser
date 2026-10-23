@@ -223,6 +223,22 @@ import Testing
         #expect(summary.earliestVisit == nil)
     }
 
+    @Test func profileKeysThatEscapeUserDataAreSkipped() throws {
+        let text = "{\"profile\":{\"info_cache\":{\"../x\":{\"name\":\"Bad\"},\"..\":{},\"Default\":{}}}}"
+        #expect(try ChromiumProfileList.parse(data: Data(text.utf8)).map(\.directory) == ["Default"])
+        let summary = ChromiumImportSummary.dryRun(
+            userDataFolder: FileManager.default.temporaryDirectory,
+            profile: ChromiumProfile(directory: "../x", displayName: "Bad"))
+        #expect(summary.problems.count == 1)
+    }
+
+    @Test func summaryTextPluralizesAndSkipsMissingBookmarks() {
+        let profile = ChromiumProfile(directory: "Default", displayName: "P")
+        let visit = ChromiumVisit(url: "https://example.com/", title: "", date: Self.t0Date, transition: 0)
+        let summary = ChromiumImportSummary(profile: profile, visits: [visit], bookmarks: nil)
+        #expect(summary.text == "P: 1 visit to 1 page")
+    }
+
     // MARK: Helpers
 
     static func tempFolder() throws -> URL {
