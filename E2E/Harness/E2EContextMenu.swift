@@ -28,29 +28,15 @@ struct E2EContextMenu {
 
 extension E2EPage {
     /// Right clicks the center of the first element matching `selector`, which asks the page for a context menu.
+    /// Like `click(_:button:modifiers:)` it is confirmed: a press or `contextmenu` event the page never saw (Chromium
+    /// drops input while a page's frame updates are deferred, yet the DevTools call succeeds) is sent again and logged
+    /// as `E2E right click <selector>: ...`, and once the page saw `contextmenu` nothing is sent again, so the page
+    /// asks for one menu.
     func rightClick(_ selector: String) async throws {
-        try await emulateFocus()
-        let center = try await evaluate(
-            """
-            (() => {
-              const element = document.querySelector(\(Self.jsString(selector)));
-              if (!element) return 'no element matches';
-              element.scrollIntoView({ block: 'center', inline: 'center', behavior: 'instant' });
-              const rect = element.getBoundingClientRect();
-              if (rect.width === 0 || rect.height === 0) return 'the element has no size';
-              return [rect.left + rect.width / 2, rect.top + rect.height / 2];
-            })()
-            """
-        )
-        guard let point = center as? [Double], point.count == 2 else {
-            throw E2EError("cannot right click \(selector): \(center as? String ?? "no position")")
-        }
-        // `buttons` is the buttons held after the event: the right one (2) while pressed, none once released.
-        for (type, buttons) in [("mousePressed", 2), ("mouseReleased", 0)] {
-            _ = try await devTools(
-                "Input.dispatchMouseEvent",
-                ["type": type, "x": point[0], "y": point[1], "button": "right", "buttons": buttons, "clickCount": 1]
-            )
-        }
+        let target = try await pressTarget(selector, verb: "right click")
+        // The right button's held bit is 2.
+        try await confirmedPress(
+            at: target, verb: "right click", button: "right", heldBit: 2, modifiers: [],
+            released: (name: "contextmenu", events: ["contextmenu"]))
     }
 }
