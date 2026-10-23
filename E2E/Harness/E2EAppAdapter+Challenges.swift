@@ -9,6 +9,7 @@ extension E2ETestApp: E2EChallengesApp {
     func recordChallenges(of page: any E2EPage) throws {
         try adapter.requireActive(token, "record challenges")
         let page = try E2EAppAdapter.tabPage(page)
+        E2EChallengeRecorder.recorders = E2EChallengeRecorder.recorders.filter { !$0.value.tabClosed }
         let recorder = E2EChallengeRecorder(window: page.controller)
         E2EChallengeRecorder.recorders[page.tab.tabID] = recorder
         page.tab.delegate = recorder
@@ -30,7 +31,9 @@ extension E2ETestApp: E2EChallengesApp {
 /// to another window (attaching it there makes that window its delegate again, which ends the recording).
 @MainActor
 final class E2EChallengeRecorder: EngineTabDelegate {
-    /// Each recorded tab's recorder, held here since tabs hold their delegate weakly; dropped when the tab closes.
+    /// Each recorded tab's recorder, held here since tabs hold their delegate weakly. A closed tab's recorder stays
+    /// until the next `recordChallenges`, so a test can still read how a question was answered when its tab closed
+    /// (the window answers it as the tab goes).
     static var recorders: [TabID: E2EChallengeRecorder] = [:]
 
     static func recorder(of page: any E2EPage) throws -> E2EChallengeRecorder {
@@ -42,6 +45,8 @@ final class E2EChallengeRecorder: EngineTabDelegate {
     private weak var window: BrowserWindowController?
     private(set) var auth: [E2EAuthQuestion] = []
     private(set) var certificates: [E2ECertificateQuestion] = []
+    /// The tab has closed (or unloaded).
+    private(set) var tabClosed = false
 
     init(window: BrowserWindowController) {
         self.window = window
@@ -69,7 +74,7 @@ final class E2EChallengeRecorder: EngineTabDelegate {
 
     func tab(_ tab: any EngineTab, didReceive event: TabEvent) {
         window?.tab(tab, didReceive: event)
-        if event == .closed { Self.recorders[tab.tabID] = nil }
+        if event == .closed || event == .unloaded { tabClosed = true }
     }
 
     func tab(_ tab: any EngineTab, decidePolicyFor navigation: EngineNavigation) -> NavigationPolicy {

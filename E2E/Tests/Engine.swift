@@ -223,8 +223,9 @@ struct EngineHooksTest: E2ETest {
 
 /// A load's questions reach the window: a 401 with a Basic challenge from the loopback sign in fixture asks the
 /// window for a user name and password, and a self-signed certificate from the loopback TLS fixture asks it whether
-/// to go on. The window answers both with cancel (no feature takes them yet), so the 401 page shows and the
-/// certificate load fails, and neither fixture sees a request that got past its question.
+/// to go on. Both are answered with cancel (the sign in sheet's Cancel, and the certificate error page never goes
+/// on), so the 401 page shows and the certificate load fails, and neither fixture sees a request that got past its
+/// question. The auth area tests the sheet and the page themselves.
 struct EngineChallengesTest: E2ETest {
     let name = "engine.challenges"
     let checks = ["engine.auth_hook", "engine.cert_hook"]
@@ -242,7 +243,14 @@ struct EngineChallengesTest: E2ETest {
         }
 
         let auth = try await run.step("load a page that asks to sign in", timeout: E2ETimeouts.firstLoad) {
-            let ended = try await Self.load(E2ELoopback.authURL, in: page)
+            // The window's sign in sheet takes the question; Cancel answers it as no feature would.
+            let ended = try await Self.load(E2ELoopback.authURL, in: page) {
+                guard let sheets = run.app as? any E2EAuthApp else { throw E2EError("the app has no sign in sheet") }
+                guard try await E2EWaits.until({ try sheets.signInSheet(besides: page) != nil }) else {
+                    throw E2EError("no sign in sheet came up")
+                }
+                try sheets.answerSignInSheet(besides: page, user: nil, password: nil)
+            }
             let title = ended.kind == .finish ? try await page.string("document.title") : ""
             return (ended: ended, questions: try challenges.authChallenges(of: page), title: title)
         }
@@ -270,11 +278,15 @@ struct EngineChallengesTest: E2ETest {
             "questions=\(certificate.questions) ended=\(certificate.ended) served=\(fixtures.certificateRequests)")
     }
 
-    /// Loads `url` in `page` and returns the event its load ended with, finished or failed.
-    private static func load(_ url: URL, in page: any E2EPage) async throws -> E2ENavigationEvent {
+    /// Loads `url` in `page`, runs `whileLoading` once the load has started, and returns the event its load ended
+    /// with, finished or failed.
+    private static func load(
+        _ url: URL, in page: any E2EPage, whileLoading: () async throws -> Void = {}
+    ) async throws -> E2ENavigationEvent {
         let before = page.finishedLoads
         let events = page.navigationEvents.count
         try page.load(url)
+        try await whileLoading()
         do {
             _ = try await page.waitForLoad(after: before)
         } catch is CancellationError {

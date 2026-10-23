@@ -2,9 +2,9 @@ import AppKit
 import BowCore
 
 /// The certificate error page: when a tab's top level page fails its certificate check, the load is cancelled (the
-/// engine's own error page loads under it) and the page area shows "Your connection is not private" over it while that
-/// tab is shown, naming the host and what is wrong in plain words, with Go back as its only action (the default
-/// button). Go back goes back in the tab's history, or closes the tab when it has no page to go back to, so the window
+/// engine's own error page loads under it) and the page area shows "This connection is not secure" over it while that
+/// tab is shown, naming the host and what is wrong in plain words, with Go back as its primary and only action, the
+/// default as Chrome's "Back to safety" is. Go back goes back in the tab's history, or closes the tab when it has no page to go back to, so the window
 /// shows what it shows after Cmd+W (the start screen when the Space has no other tab). Nothing offers to go on to the
 /// site: `CertificateErrorPages` holds the rules, and a way past waits until the engine can say whether the site
 /// requires HTTPS. The page goes when the tab starts another navigation, crashes or closes; a tab that failed in the
@@ -29,7 +29,7 @@ final class CertificateErrorFeature: NSResponder, BrowserWindowFeature {
             errorView.bottomAnchor.constraint(equalTo: window.pageArea.bottomAnchor),
         ])
         errorView.goBackButton.target = self
-        errorView.goBackButton.action = #selector(goBack(_:))
+        errorView.goBackButton.action = #selector(pressGoBack(_:))
     }
 
     @available(*, unavailable)
@@ -62,24 +62,41 @@ final class CertificateErrorFeature: NSResponder, BrowserWindowFeature {
         case .renderProcessGone:
             // The crashed tab page takes over.
             pages.forget(tab.tabID)
+        case .stateChanged(let state):
+            // A Go back pressed before the failed load settled runs once it has.
+            if !state.isLoading, goBackPending.contains(tab.tabID) { goBack(tab) }
+            return
         default:
             return
         }
+        goBackPending.remove(tab.tabID)
         update()
     }
 
     func tabDidClose(_ tab: any EngineTab) {
+        goBackPending.remove(tab.tabID)
         pages.forget(tab.tabID)
         update()
     }
 
-    @objc private func goBack(_ sender: Any?) {
-        guard let tab = window.selectedTab, pages.page(for: tab.tabID) != nil else { return }
-        switch CertificateErrorPage.goBack(canGoBack: tab.state.canGoBack) {
+    /// Tabs whose Go back waits for their failed load to settle.
+    private var goBackPending: Set<TabID> = []
+
+    @objc private func pressGoBack(_ sender: Any?) {
+        guard let tab = window.selectedTab else { return }
+        goBack(tab)
+    }
+
+    private func goBack(_ tab: any EngineTab) {
+        goBackPending.remove(tab.tabID)
+        guard pages.page(for: tab.tabID) != nil else { return }
+        switch CertificateErrorPage.goBack(canGoBack: tab.state.canGoBack, isLoading: tab.state.isLoading) {
         case .history:
             tab.goBack()
         case .closeTab:
             Task { await window.closeTab(tab) }
+        case .waitForLoad:
+            goBackPending.insert(tab.tabID)
         }
     }
 
@@ -146,14 +163,13 @@ final class CertificateErrorView: NSView {
         fatalError("init(coder:) is not supported")
     }
 
-    /// Shows `page`, or hides the view for nil. Go back takes Return only while the page shows, so a hidden page never
-    /// claims a key the web page should get.
+    /// Shows `page`, or hides the view for nil. Go back is the page's primary and only action; it takes no Return key
+    /// equivalent, since the window would then claim Return from the toolbar and every other field while the page shows.
     func show(_ page: CertificateErrorPage?) {
         if let page {
             messageLabel.stringValue = page.message
             detailLabel.stringValue = page.errorName
         }
-        goBackButton.keyEquivalent = page == nil ? "" : "\r"
         isHidden = page == nil
     }
 }

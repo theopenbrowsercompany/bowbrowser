@@ -123,6 +123,17 @@ NSData* Response(NSInteger status, NSString* reason, NSArray<NSString*>* extraHe
   return data;
 }
 
+// The realm the sign in listener names for `path`: `<name>` for a path under `/realm/<name>/` whose name is letters
+// and digits only, else "bow". Each test signs in to a realm of its own, since the engine remembers a realm's
+// credentials for the session and would answer a second question for it without asking.
+NSString* RealmForPath(NSString* path) {
+  NSArray<NSString*>* parts = [path componentsSeparatedByString:@"/"];
+  if (parts.count < 4 || ![parts[1] isEqualToString:@"realm"] || parts[2].length == 0) return @"bow";
+  NSCharacterSet* allowed = [NSCharacterSet alphanumericCharacterSet];
+  if ([parts[2] rangeOfCharacterFromSet:allowed.invertedSet].location != NSNotFound) return @"bow";
+  return parts[2];
+}
+
 // The value of the request head's header `name` (compared ignoring case), or nil.
 NSString* HeaderValue(NSString* head, NSString* name) {
   for (NSString* line in [head componentsSeparatedByString:@"\r\n"]) {
@@ -377,7 +388,8 @@ enum class Listener { auth, certificate };
     response = Response(200, @"OK", @[], @"Signed in");
   } else {
     _unauthorized++;
-    response = Response(401, @"Unauthorized", @[ @"WWW-Authenticate: Basic realm=\"bow\"" ], @"Sign in required");
+    NSString* challenge = [NSString stringWithFormat:@"WWW-Authenticate: Basic realm=\"%@\"", RealmForPath(path)];
+    response = Response(401, @"Unauthorized", @[ challenge ], @"Sign in required");
   }
   dispatch_data_t data =
       dispatch_data_create(response.bytes, response.length, _queue, DISPATCH_DATA_DESTRUCTOR_DEFAULT);

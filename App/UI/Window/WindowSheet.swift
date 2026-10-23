@@ -1,7 +1,7 @@
 import AppKit
 
-/// One feature's alert sheet on a browser window, shared by the page dialogs and the sign in sheet so both follow the
-/// same rules: an `NSAlert` as a sheet on the window, never an app modal panel. While the window already has a sheet
+/// One feature's alert sheet on a browser window (today the sign in sheet), following the page dialogs' sheet rules
+/// (`PageDialogsFeature`): an `NSAlert` as a sheet on the window, never an app modal panel. While the window already has a sheet
 /// (another feature's, or a leave prompt), a new one waits instead of being queued by AppKit where nothing could take
 /// it down again, and `retry` offers it again once that sheet ends. Taking a sheet down ends it with `.abort` without
 /// calling its `ended` handler, so the feature answers its request once, its own way.
@@ -46,6 +46,10 @@ final class WindowSheet<ID: Hashable> {
         if waiting == id { waiting = nil }
         let alert = makeAlert()
         shown = (id, alert)
+        // Putting a sheet up can bring a window that sits where no screen shows (an e2e window kept off every screen)
+        // onto the main screen, so such a window goes back where it was. A window on a screen is left alone.
+        let frame = parent.frame
+        let offScreen = !NSScreen.screens.contains { $0.frame.intersects(frame) }
         alert.beginSheetModal(for: parent) { [weak self] response in
             MainActor.assumeIsolated {
                 guard let self, let shown = self.shown, shown.id == id, shown.alert === alert else { return }
@@ -53,6 +57,7 @@ final class WindowSheet<ID: Hashable> {
                 ended(response)
             }
         }
+        if offScreen, parent.frame != frame { parent.setFrame(frame, display: false) }
         return true
     }
 

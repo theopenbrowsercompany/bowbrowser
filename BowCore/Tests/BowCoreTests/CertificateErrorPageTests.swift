@@ -7,7 +7,7 @@ import Testing
 
     @Test func pageNamesTheHostAndTheErrorInPlainWords() {
         let page = CertificateErrorPage(error: CertificateError(url: url, code: -202))
-        #expect(CertificateErrorPage.title == "Your connection is not private")
+        #expect(CertificateErrorPage.title == "This connection is not secure")
         #expect(CertificateErrorPage.goBackTitle == "Go back")
         #expect(page.host == "badcert.bow.test")
         #expect(
@@ -42,8 +42,11 @@ import Testing
     }
 
     @Test func goBackUsesHistoryOrClosesTheTab() {
-        #expect(CertificateErrorPage.goBack(canGoBack: true) == .history)
-        #expect(CertificateErrorPage.goBack(canGoBack: false) == .closeTab)
+        #expect(CertificateErrorPage.goBack(canGoBack: true, isLoading: false) == .history)
+        #expect(CertificateErrorPage.goBack(canGoBack: false, isLoading: false) == .closeTab)
+        // Before the failed load settles, the history still ends at the page before it, so neither is known.
+        #expect(CertificateErrorPage.goBack(canGoBack: false, isLoading: true) == .waitForLoad)
+        #expect(CertificateErrorPage.goBack(canGoBack: true, isLoading: true) == .waitForLoad)
     }
 
     @Test func aTabShowsThePageUntilItsNextNavigation() {
