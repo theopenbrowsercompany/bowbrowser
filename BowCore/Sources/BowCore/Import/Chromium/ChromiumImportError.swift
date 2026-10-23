@@ -31,9 +31,4 @@ enum ChromiumTime {
         guard microseconds > 0 else { return nil }
         return Date(timeIntervalSince1970: Double(microseconds) / 1_000_000 - epochOffsetSeconds)
     }
-
-    /// The inverse, for building fixtures.
-    static func microseconds(from date: Date) -> Int64 {
-        Int64((date.timeIntervalSince1970 + epochOffsetSeconds) * 1_000_000)
-    }
 }

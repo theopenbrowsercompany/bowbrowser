@@ -11,7 +11,7 @@ This spec covers the reading side in BowCore; writing into the history store and
 - The person picks a User Data folder. `Local State` lists the profiles (`profile.info_cache`): the folder name and the display name, with `Default` first and `Profile N` in numeric order.
 - For one profile, `Bookmarks` is read as roots (bookmark bar, other, synced, and others such as Arc's `custom_root`), nested folders and URLs with their added dates.
 - `History` is opened read only and copied with SQLite's online backup into a temporary database, which gives one consistent snapshot even while the browser is writing (committed WAL frames included, open transactions excluded). The snapshot is read, never the original. Its `urls` and `visits` tables become a list of visits in time order: URL, title, date, and Chromium's transition type.
-- Only http and https visits are kept by default. `chrome://`, `file:` and `about:` pages are dropped.
+- Subframe loads (ads, embeds) are skipped. Only http and https visits are kept by default. `chrome://`, `file:` and `about:` pages are dropped.
 - A dry run reports visit count, distinct pages, first and last visit, bookmark and folder counts, and any file that was missing or unreadable, without writing anything.
 - Cookies, passwords and extensions are never read.
 

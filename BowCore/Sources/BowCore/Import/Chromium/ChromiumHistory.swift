@@ -89,7 +89,7 @@ public enum ChromiumHistory {
         sqlite3_backup_finish(backup)
         guard result == SQLITE_DONE else {
             // A file that is not a database fails here, with "file is not a database".
-            throw fail(sourceHandle, "the copy stopped with code \(result)")
+            throw ChromiumImportError.database(file: fileName, reason: String(cString: sqlite3_errstr(result)))
         }
         // The backup keeps the source's WAL flag; the snapshot is read later without side files, so turn it off.
         guard sqlite3_exec(destinationHandle, "PRAGMA journal_mode=DELETE", nil, nil, nil) == SQLITE_OK else {
@@ -138,6 +138,8 @@ public enum ChromiumHistory {
             }
             let title = sqlite3_column_text(stmt, 1).map { String(cString: $0) } ?? ""
             let transition = Int(sqlite3_column_int64(stmt, 3) & 0xFF)
+            // Subframe loads (ads, embeds) are not pages the person visited.
+            if transition == 3 || transition == 4 { continue }
             visits.append(ChromiumVisit(url: url, title: title, date: date, transition: transition))
         }
         return ChromiumHistoryReport(visits: visits, undatedCount: undated)
