@@ -80,9 +80,10 @@ enum E2ES3Processes {
             guard let kind = row["kind"] as? String else { continue }
             var total = totals[kind] ?? [:]
             total["processes", default: 0] += 1
-            for key in ["cpuPercent", "idleWakeupsPerSecond", "interruptWakeupsPerSecond", "energyMilliwatts",
-                "footprintMB"]
-            {
+            for key in [
+                "cpuPercent", "idleWakeupsPerSecond", "interruptWakeupsPerSecond", "energyMilliwatts",
+                "footprintMB",
+            ] {
                 total[key, default: 0] += row[key] as? Double ?? 0
             }
             totals[kind] = total.mapValues(round2)
