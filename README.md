@@ -53,7 +53,7 @@ Chromium comes in as a prebuilt engine (CEF), so building the app never compiles
 
 ## Contributing
 
-`AGENTS.md` describes how the repository is laid out and how changes are made and checked.
+Read `CONTRIBUTING.md` first; `AGENTS.md` describes how the repository is laid out and how changes are made and checked.
 `spec/` holds the behavior spec for each feature area.
 
 ## License
