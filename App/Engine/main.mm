@@ -101,9 +101,16 @@ int main(int argc, char* argv[]) {
     CefRunMessageLoop();
     // Every page has closed, but quitting closes no window, and Chromium's shutdown below can take seconds on a busy
     // machine: take every window off screen now, so quitting looks done the moment the app stops taking input.
-    // Ordering out sends no close callbacks, so nothing reaches the engine or the stores after the loop ended. With the
-    // loop gone nothing would finish AppKit's fade out animation, which leaves the window on screen, so it is off.
-    for (NSWindow* window in NSApp.windows) {
+    // Ordering out sends no close callbacks, so nothing reaches the engine or the stores after the loop ended. The main
+    // and key windows go last, so AppKit has no other window to make key or main and calls no delegate for it. With
+    // the loop gone nothing would finish AppKit's fade out animation, which leaves the window on screen, so it is off.
+    NSMutableArray<NSWindow*>* windows = [NSApp.windows mutableCopy];
+    for (NSWindow* last in @[ NSApp.mainWindow ?: NSNull.null, NSApp.keyWindow ?: NSNull.null ]) {
+      if (![last isKindOfClass:NSWindow.class]) continue;
+      [windows removeObject:last];
+      [windows addObject:last];
+    }
+    for (NSWindow* window in windows) {
       window.animationBehavior = NSWindowAnimationBehaviorNone;
       [window orderOut:nil];
     }

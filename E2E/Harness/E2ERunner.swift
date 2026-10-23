@@ -30,12 +30,13 @@ final class E2ERunner {
     /// It must fire well before Chromium's own teardown watchdog (`shutdown_watchdog_mac.cc`), which ends the
     /// process with exit code 2 and no summary ("Teardown watchdog expired") when Chromium's shutdown has not
     /// finished 10 seconds after its teardown began (`BrowserProcessImpl::StartTearDown`, inside `CefShutdown`, so
-    /// always after the quit start timed here). Firing at 6 seconds prints the TIMEOUT line, the run's summary, at
-    /// once; the stack sample and the Chromium log report then usually finish in the 4 seconds left, and if
-    /// Chromium ends the process first the summary still stands. It stays above the quit check's own limit
+    /// always after the quit start timed here). Firing at 8 seconds prints the TIMEOUT line, the run's summary, at
+    /// once; the one second stack sample and the Chromium log report then usually finish in the 2 seconds left,
+    /// and if Chromium ends the process first the summary still stands. It stays above the quit check's own limit
     /// (`closingWithin`, checked in `expectQuit`), so a close slower than that check still reports its times. It is
-    /// also the only limit on Chromium's part of quitting (spec/quit.md says why).
-    static let quitHangTimeout: TimeInterval = 6
+    /// also the only limit on Chromium's part of quitting, which has taken 5.4 s under load, so it is as late as
+    /// Chromium's watchdog allows (spec/quit.md says why).
+    static let quitHangTimeout: TimeInterval = 8
     /// While tests run, the run ends only when the main thread has not answered for this long.
     static let mainThreadStuckTimeout: TimeInterval = 10
     static let heartbeatInterval: TimeInterval = 0.25
@@ -339,7 +340,7 @@ final class E2ERunner {
             let windows = Self.onScreenWindowCount()
             let times =
                 "closed=\(Self.preciseSeconds(closed)) limit \(Self.format(quitCheck.closeLimit)), "
-                + "windows=\(windows), stopped=\(Self.preciseSeconds(stopped)) (no limit)"
+                + "windows=\(windows.map(String.init) ?? "unknown"), stopped=\(Self.preciseSeconds(stopped)) (no limit)"
             if let quitFailure {
                 record(quitCheck.name, passed: false, detail: stopped > 0 ? "\(quitFailure) (\(times))" : quitFailure)
             } else if stopped <= 0 {
@@ -351,7 +352,10 @@ final class E2ERunner {
                         + "or the quit clock started after the message loop ended")
             } else if closed >= quitCheck.closeLimit {
                 record(quitCheck.name, passed: false, detail: "closing took too long: \(times)")
-            } else if windows > 0 {
+            } else if windows == nil {
+                record(
+                    quitCheck.name, passed: false, detail: "the window server's window list was unavailable: \(times)")
+            } else if let windows, windows > 0 {
                 record(quitCheck.name, passed: false, detail: "a window is still on screen after quitting: \(times)")
             } else {
                 record(quitCheck.name, passed: true, detail: times)
@@ -503,14 +507,14 @@ final class E2ERunner {
         }
     }
 
-    /// How many of this process's normal windows the window server has on screen: what a person would still see.
-    /// Asked of the window server rather than AppKit, so a window AppKit thinks hidden but still drawn counts.
-    private static func onScreenWindowCount() -> Int {
-        let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly], kCGNullWindowID) as? [[String: Any]] ?? []
+    /// How many of this process's windows, at any level (panels included), the window server has on screen: what a
+    /// person would still see. Asked of the window server rather than AppKit, so a window AppKit thinks hidden but
+    /// still drawn counts. nil when the window server could not be asked.
+    private static func onScreenWindowCount() -> Int? {
+        guard let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly], kCGNullWindowID) as? [[String: Any]]
+        else { return nil }
         let pid = Int(ProcessInfo.processInfo.processIdentifier)
-        return list.filter {
-            ($0[kCGWindowOwnerPID as String] as? Int) == pid && ($0[kCGWindowLayer as String] as? Int) == 0
-        }.count
+        return list.filter { ($0[kCGWindowOwnerPID as String] as? Int) == pid }.count
     }
 
     /// Seconds with three decimals, so a close of a few milliseconds does not read as zero.
