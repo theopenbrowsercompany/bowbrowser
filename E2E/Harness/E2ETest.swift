@@ -105,6 +105,34 @@ enum E2EWaits {
         return max(min(left, limit), 0.05)
     }
 
+    /// Waits until `condition` holds, checking it every 20 ms, and returns whether it held; a condition still false
+    /// when the wait's budget (or `limit`) runs out is checked once more and returns false, so the caller can report
+    /// what it saw as a failed check. It is for app state the harness reads in Swift (AppKit views, the sidebar
+    /// store); page state waits in the page with `until(_:_:limit:)`.
+    @discardableResult
+    static func until(limit: TimeInterval = .infinity, _ condition: () throws -> Bool) async throws -> Bool {
+        let deadline = Date().addingTimeInterval(budget(limit: limit))
+        while Date() < deadline {
+            if try condition() { return true }
+            try await Task.sleep(nanoseconds: 20_000_000)
+        }
+        return try condition()
+    }
+
+    /// Reads `read` every 20 ms until its value satisfies `done`, and returns that value, or the value it reads last
+    /// when the wait's budget (or `limit`) runs out, so the caller can report what it saw as a failed check.
+    static func value<Value>(
+        limit: TimeInterval = .infinity, _ read: () throws -> Value, until done: (Value) -> Bool
+    ) async throws -> Value {
+        let deadline = Date().addingTimeInterval(budget(limit: limit))
+        while Date() < deadline {
+            let value = try read()
+            if done(value) { return value }
+            try await Task.sleep(nanoseconds: 20_000_000)
+        }
+        return try read()
+    }
+
     /// Throws unless the page counts as visible and paints three animation frames within the wait's budget,
     /// which an off-screen window must still do.
     static func untilRendering(_ page: any E2EPage) async throws {
