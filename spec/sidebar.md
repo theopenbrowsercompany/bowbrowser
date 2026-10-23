@@ -72,7 +72,7 @@ The sidebar is built so later features each add one file plus one line in a list
 5. Run `make e2e`: `PASS zones.drop-divider: favorites | pinned | divider | today | A | B` shows A dropped on the divider row landing at the top of today.
 6. Run `make e2e`: `PASS zones.drop-tab: favorites | pinned | divider | today | B | A` shows B dropped on A's row landing above it.
 7. Run `make e2e`: `PASS newtab`, `PASS newtab.look`, `PASS newtab.bar`, `PASS newtab.dismiss`, `PASS newtab.open`, `PASS newtab.not-a-tab` and `PASS newtab.places` show the New Tab row last in the list and styled as above, opening the command bar with no tab, closing on Escape with no tab, opening a tab after the active one when an address is chosen, never selected, refusing a drop on it, and ending the list in a Space with only pinned tabs and in an empty one.
-7. By hand: drag a today tab above the divider; it moves into the pinned tabs; close it and it stays in the sidebar, unloaded; select it and it loads the page it was pinned on.
+8. By hand: drag a today tab above the divider; it moves into the pinned tabs; close it and it stays in the sidebar, unloaded; select it and it loads the page it was pinned on.
 
 ## Out of scope
 
