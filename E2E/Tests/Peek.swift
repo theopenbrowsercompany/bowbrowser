@@ -49,7 +49,9 @@ enum PeekTests {
             let loaded = try await E2EWaits.until {
                 try app.peek(besides: page).map { $0.title == "B" && !$0.isLoading } ?? false
             }
-            guard loaded else { throw E2EError("the Peek did not load B: \(String(describing: try app.peek(besides: page)))") }
+            guard loaded else {
+                throw E2EError("the Peek did not load B: \(String(describing: try app.peek(besides: page)))")
+            }
             return peek
         }
     }
@@ -87,7 +89,8 @@ struct PeekOverlayTest: E2ETest {
         let passed = overlay == "B" && under == "A" && afterEscape == "A" && looks && closed && tabs == ["A"]
         var detail = "overlay=\(overlay) under=\(under) after_esc=\(afterEscape)"
         if !passed {
-            detail += " card=\(state.map { "\($0)" } ?? "none") page=\(rendering) page_closed=\(closed) tabs=\(PeekTests.list(tabs))"
+            detail +=
+                " card=\(state.map { "\($0)" } ?? "none") page=\(rendering) page_closed=\(closed) tabs=\(PeekTests.list(tabs))"
         }
         run.check(name, passed: passed, detail)
     }
