@@ -32,9 +32,38 @@ A blocker is one of these six:
 
 Style, naming, comments, commit layout and polish are never blockers.
 
+## Evidence
+
+- A claim about CEF or Chromium behavior needs a CEF header `path:line` under `Vendor/cef/include` or a line of the diff that shows it.
+  You can read CEF's headers, not Chromium's sources.
+  A claim with neither goes under "Questions" and is never a blocker.
+- Read the Done when list from the brief file the lead names; it is the only statement of the goal.
+
+## Rule IDs
+
+Cite the ID with the `file:line` when a finding breaks one of these rules.
+Each row's source is the line that states the rule; if the line has moved, find it by the rule's words.
+
+| ID | Rule | Source |
+| --- | --- | --- |
+| T-WAIT-1 | A test waits for a specific URL, ID or event through `E2EWaits`, never for a fixed time. | `E2E/README.md:34` |
+| T-CHECK-1 | Each test declares its checks and records each check once. | `E2E/README.md:30` |
+| T-INPUT-1 | Page input goes through the DevTools Input domain with focus emulation on; app shortcuts go through the app's menu, never DevTools. | `AGENTS.md:28` |
+| T-FLAKY-1 | A FLAKY run (failed, then passed on the retry) is not a pass unless every such test is on the unexpired quarantine list. | `AGENTS.md:53` |
+| S-SEAM-1 | `App/` and `BowCore/` reach `E2E/` only through `BowE2EHooks.h` and lines marked `E2E seam` inside an `#if BOW_E2E` block; Release builds leave the harness out. | `AGENTS.md:33` |
+| S-LIST-1 | A feature is its own files plus one line in its list; the window core and central list expressions do not grow. | `AGENTS.md:80` |
+| H-SWIFT-1 | Headers Swift sees stay plain Objective-C, with browsers addressed by ID and never by pointer. | `AGENTS.md:14` |
+| H-REF-1 | No method named `Release`, `AddRef` or `HasOneRef` on a class in `App/Engine` or `E2E/Engine`. | `AGENTS.md:59` |
+| D-CORE-1 | Browser decisions live in `BowCore` with unit tests; the app and engine layers stay thin wiring. | `AGENTS.md:76` |
+| D-SPEC-1 | A behavior change extends the spec in `spec/` that covers the area. | `AGENTS.md:79` |
+| P-ARC-1 | The installed Arc app and its profile are never opened, quit, scripted or read. | `AGENTS.md:86` |
+| P-PATH-1 | No commit adds a private path (a macOS home directory, for example). | `AGENTS.md:58` |
+
 ## Report
 
-- For each blocker: `file:line`, the concrete scenario a person would hit, and which of the six it is.
+- Open with one line on what you could and could not read (for example "read the diff, the touched files and AGENTS.md; could not read Chromium sources").
+- For each blocker: `file:line`, the concrete scenario a person would hit, which of the six it is, and the rule ID when one applies.
+- Then a "Questions" list for claims you could not confirm from evidence, one line each.
 - Then a "Later" list, one line per item, no detail.
 - Keep the report under about 400 words.
 - Say plainly if there are no blockers.
