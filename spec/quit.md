@@ -16,6 +16,12 @@ People rely on it every day, and every automated run relies on the app exiting o
     Chromium's part waits on other threads and processes, so it stretches when the machine is busy (for example many parallel builds), sometimes to a few seconds.
 - Closing the last window (its close button, Window > Close or Cmd+W) closes every page (tab) in it, then the app quits the same way.
 - Closing a window that is not the last one closes only that window's pages and leaves the app running.
+- Clicking the Dock icon (or opening the app again) while it runs, as in Arc and Chrome:
+  - with no browser window open, a new one opens on the sidebar's last shown Space, even when only a Little Arc window is open;
+  - with a window on screen, nothing new opens and the window comes forward;
+  - with a minimized window, it comes back from the Dock instead of another opening (the most recently used one);
+  - while quitting, or when launch refused to start, nothing opens;
+  - when the last window closed while a closed tab's download still runs, the new window keeps the app from quitting once the download ends.
 - A page's own "leave this page?" prompt still appears when quitting or closing its window.
   Choosing to stay keeps that page open and cancels the quit, so the app keeps running; quitting again asks again.
   When a window has several pages, the pages that agree to close do close, and the window stays open with the page that asked to stay.
@@ -48,6 +54,8 @@ People rely on it every day, and every automated run relies on the app exiting o
 6. Run the built app with `--smoke-quit=later`: it prints an error, opens no window, and exits with code 64.
 7. Run `make e2e`: the `app.quit` test loads a page in an off-screen window, quits, and prints `PASS app.quit: closed=<s> limit 2, windows=0, stopped=<s> (no limit)` after every other check and a final `E2E: PASS n/n`, exiting with code 0.
    `closed` is the closing part, `windows` the number of the app's windows the window server still has on screen after Chromium's shutdown, and `stopped` the time until Chromium's shutdown returned, just before the process exits, printed for information.
+8. Close every window, click the Dock icon: a window opens on the Space shown last.
+   Run `make e2e E2E=app.reopen`: it prints `PASS app.reopen`, `PASS app.reopen.one` (a second reopen opens no window) and `PASS app.reopen.space` (after showing another Space and closing the window, the reopened window shows that Space); the minimized window case is covered by the BowCore `DockReopen` unit tests, since a minimized window animates to the Dock on screen.
 
 ## Why the automated check limits closing and not Chromium's shutdown
 
