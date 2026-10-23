@@ -199,7 +199,10 @@ private struct ArcImportBuilder {
         if let (pairs, droppedTail) = raw.json["containerIDs"]?.keyValuePairs() {
             if droppedTail { skip(.malformedEntry, itemID: raw.id, label: "containerIDs: odd number of elements") }
             for (key, value) in pairs {
-                guard let containerID = value.string else { continue }
+                guard let containerID = value.string else {
+                    skip(.malformedEntry, itemID: raw.id, label: "container id")
+                    continue
+                }
                 switch key.caseName {
                 case "pinned": pinned += walkRoot(containerID)
                 case "unpinned": unpinned += walkRoot(containerID)
@@ -293,7 +296,14 @@ private struct ArcImportBuilder {
 
     mutating func mapSplitView(_ item: RawItem, depth: Int) -> ArcImportNode? {
         var panes: [ArcImportTab] = []
-        for case .tab(let tab) in walkChildren(of: item.id, depth: depth) { panes.append(tab) }
+        for child in walkChildren(of: item.id, depth: depth) {
+            if case .tab(let tab) = child {
+                panes.append(tab)
+            } else {
+                let name = item.title ?? "Split view"
+                skip(.unsupportedItem, itemID: item.id, label: "\(name): only tabs fit in a split view")
+            }
+        }
         guard !panes.isEmpty else {
             skip(.emptySplitView, itemID: item.id, label: item.title)
             return nil
@@ -374,6 +384,8 @@ private struct ArcImportBuilder {
             stats.add(space.unpinned, depth: 0, into: \.unpinnedTabs)
         }
         for list in favorites { stats.add(list.items, depth: 0, into: \.favorites) }
+        var rescued = Stats()
+        rescued.add(recovered, depth: 0, into: \.pinnedTabs)
         return ArcImportReport(
             spaces: spaces.count,
             folders: stats.folders,
@@ -385,6 +397,7 @@ private struct ArcImportBuilder {
             splitViews: stats.splitViews,
             customNamedTabs: stats.customNamed,
             recoveredItems: recovered.count,
+            recoveredTabs: rescued.pinnedTabs,
             skipped: skipped)
     }
 
