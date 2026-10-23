@@ -5,14 +5,29 @@ import BowCore
 /// person picks, how Spaces come across with a checkbox per Arc Space, a preview tree, the import, and an Undo.
 /// Nothing reads Arc's data before the file is picked, and nothing changes in the sidebar before Import.
 ///
-/// The choices and the preview come from BowCore (`ArcImportChoices`, `ArcImporter.preview`); this class only shows
-/// them and calls `ArcImporter.apply` and `ArcImportApplied.undo` on the window's store. It ends with its sheet: its
-/// reading task is cancelled, and the app service forgets it.
+/// History and bookmarks come from Arc's User Data folder, on their own from the consent step or after the sidebar
+/// import from its last step: the person picks the folder, sees per profile what comes and which Bow profile it goes
+/// to, chooses whether bookmarks come as a pinned folder, and imports. One Undo then takes out everything this wizard
+/// added: the sidebar import and the bookmarks folder in one sidebar transaction, and the visits it added.
+///
+/// The choices and the preview come from BowCore (`ArcImportChoices`, `ArcImporter.preview`, `ChromiumImportPreview`);
+/// this class only shows them and calls `ArcImporter.apply`, `ChromiumBookmarkImport.apply`,
+/// `HistoryStore.importVisits` and their undos. It ends with its sheet: its reading task is cancelled, and the app
+/// service forgets it.
 @MainActor
 final class ArcImportWizard: NSObject {
     enum Step: String {
-        case consent, reading, failed, spaces, preview, done
+        case consent, reading, failed, spaces, preview, history, importing, done
     }
+
+    /// What the failed step's retry button picks again.
+    private enum Retry {
+        case sidebarFile, userDataFolder
+    }
+
+    /// The titles of the bookmarks choice, in `ChromiumBookmarksChoice.allCases` order.
+    static let bookmarksChoiceTitles = ["Bookmarks as a pinned folder", "Skip bookmarks"]
+    static let historyButtonTitle = "History and Bookmarks…"
 
     private weak var controller: BrowserWindowController?
     private let service: ArcImportFeature
@@ -30,6 +45,22 @@ final class ArcImportWizard: NSObject {
     private var doneText = ""
     private var failureText = ""
     private var previewRows: [PreviewItem] = []
+
+    private var retry = Retry.sidebarFile
+    private var readingText = "Reading the file…"
+    private var historyPreview: ChromiumImportPreview?
+    private var bookmarksChoice = ChromiumBookmarksChoice.pinnedFolder
+    /// The visits the history import added, per history store, for Undo.
+    private var historyRecords: [(store: HistoryStore, record: HistoryImportRecord)] = []
+    /// The bookmarks folder the history import added, for Undo.
+    private var bookmarksApplied: ChromiumBookmarksApplied?
+    private var historyImported = false
+    private var didUndo = false
+
+    /// Whether the done step offers Undo: this wizard added something that is still there.
+    private var canUndo: Bool { applied != nil || bookmarksApplied != nil || !historyRecords.isEmpty }
+    /// Whether the done step offers the history import: once per wizard, and not after an Undo.
+    private var canImportHistory: Bool { !historyImported && !didUndo }
 
     init(controller: BrowserWindowController, service: ArcImportFeature) {
         self.controller = controller
@@ -89,6 +120,8 @@ final class ArcImportWizard: NSObject {
         case .failed: content = failedView()
         case .spaces: content = spacesView()
         case .preview: content = previewView()
+        case .history: content = historyView()
+        case .importing: content = importingView()
         case .done: content = doneView()
         }
         content.setAccessibilityIdentifier("arcImport.\(next.rawValue)")
@@ -102,16 +135,19 @@ final class ArcImportWizard: NSObject {
         column([
             heading("Import from Arc"),
             body(
-                "Bow reads one file that you choose: Arc's sidebar file, StorableSidebar.json. "
-                    + "From it Bow takes your Spaces, folders, pinned tabs and Favorites."),
+                "Bow reads only what you choose. Arc's sidebar file, StorableSidebar.json, brings your Spaces, "
+                    + "folders, pinned tabs and Favorites."),
             body(
-                "Nothing leaves this Mac. Bow does not read your cookies, passwords or history, and it never "
-                    + "changes Arc's file."),
+                "Arc's User Data folder brings your history and bookmarks: from it Bow reads only Local State, "
+                    + "Bookmarks and a copy of History."),
             body(
-                "You see a preview before anything is added to your sidebar, and you can undo the import "
-                    + "afterwards."),
+                "Nothing leaves this Mac. Bow does not read your cookies, passwords or extensions, and it never "
+                    + "changes Arc's files."),
+            body(
+                "You see a preview before anything is added, and you can undo the import afterwards."),
             buttons([
                 button("Cancel", cancel: true) { [weak self] in self?.close() },
+                button(Self.historyButtonTitle) { [weak self] in self?.chooseFolder() },
                 button("Choose File…", isDefault: true) { [weak self] in self?.chooseFile() },
             ]),
         ])
@@ -120,20 +156,53 @@ final class ArcImportWizard: NSObject {
     private func readingView() -> NSView {
         column([
             heading("Import from Arc"),
-            body("Reading the file…"),
-            buttons([button("Cancel", cancel: true) { [weak self] in self?.close() }]),
+            body(readingText),
+            buttons([button("Cancel", cancel: true) { [weak self] in self?.cancelStep() }]),
         ])
     }
 
     private func failedView() -> NSView {
-        column([
-            heading("This file cannot be imported"),
+        let folder = retry == .userDataFolder
+        return column([
+            heading(folder ? "This folder cannot be imported" : "This file cannot be imported"),
             body(failureText),
             buttons([
-                button("Cancel", cancel: true) { [weak self] in self?.close() },
-                button("Choose Another File…", isDefault: true) { [weak self] in self?.chooseFile() },
+                button("Cancel", cancel: true) { [weak self] in self?.cancelStep() },
+                folder
+                    ? button("Choose Another Folder…", isDefault: true) { [weak self] in self?.chooseFolder() }
+                    : button("Choose Another File…", isDefault: true) { [weak self] in self?.chooseFile() },
             ]),
         ])
+    }
+
+    private func historyView() -> NSView {
+        guard let preview = historyPreview, let controller else { return failedView() }
+        let features = controller.appFeatures
+        let service = service
+        let lines = preview.lines(
+            bookmarks: bookmarksChoice, profileName: { service.profileName($0, in: features) },
+            fallbackSpaceTitle: controller.store.graph.activeSpace?.title ?? "your first Space")
+        var views: [NSView] = [heading("History and bookmarks")]
+        views.append(contentsOf: lines.map(body))
+        let popup = ActionPopUp()
+        popup.addItems(withTitles: Self.bookmarksChoiceTitles)
+        popup.selectItem(at: ChromiumBookmarksChoice.allCases.firstIndex(of: bookmarksChoice) ?? 0)
+        popup.setAccessibilityLabel("Bookmarks")
+        popup.onChange = { [weak self] index in
+            self?.bookmarksChoice = ChromiumBookmarksChoice.allCases[index]
+            self?.show(.history)
+        }
+        views.append(popup)
+        views.append(body("Cookies, passwords and extensions are not imported."))
+        let importButton = button("Import", isDefault: true) { [weak self] in self?.performHistoryImport() }
+        importButton.isEnabled = !preview.isEmpty(bookmarks: bookmarksChoice)
+        views.append(
+            buttons([button("Cancel", cancel: true) { [weak self] in self?.cancelStep() }, importButton]))
+        return column(views)
+    }
+
+    private func importingView() -> NSView {
+        column([heading("Import from Arc"), body("Importing your history…")])
     }
 
     private func spacesView() -> NSView {
@@ -251,23 +320,159 @@ final class ArcImportWizard: NSObject {
     }
 
     private func doneView() -> NSView {
-        var rows: [NSView] = [heading("Import from Arc"), body(doneText)]
-        if applied != nil {
-            rows.append(
-                buttons([
-                    button("Undo") { [weak self] in self?.undoImport() },
-                    button("Done", isDefault: true, cancel: true) { [weak self] in self?.close() },
-                ]))
-        } else {
-            rows.append(buttons([button("Done", isDefault: true, cancel: true) { [weak self] in self?.close() }]))
+        var row: [NSButton] = []
+        if canUndo { row.append(button("Undo") { [weak self] in self?.undoImport() }) }
+        if canImportHistory {
+            row.append(button(Self.historyButtonTitle) { [weak self] in self?.chooseFolder() })
         }
-        return column(rows)
+        row.append(button("Done", isDefault: true, cancel: true) { [weak self] in self?.close() })
+        return column([heading("Import from Arc"), body(doneText), buttons(row)])
     }
 
     // MARK: Actions
 
+    /// Cancel on the reading, failed and history steps: a history import that follows a sidebar import goes back to
+    /// the sidebar import's last step, where its Undo still is; otherwise the wizard closes.
+    private func cancelStep() {
+        if retry == .userDataFolder || step == .history, !doneText.isEmpty {
+            readTask?.cancel()
+            readTask = nil
+            historyPreview = nil
+            retry = .sidebarFile
+            show(.done)
+        } else {
+            close()
+        }
+    }
+
+    private func chooseFolder() {
+        guard step == .consent || (step == .done && canImportHistory) || (step == .failed && retry == .userDataFolder)
+        else { return }
+        let back = step
+        retry = .userDataFolder
+        readingText = "Reading the folder…"
+        show(.reading)
+        let service = service
+        let sheet = sheet
+        readTask = Task { [weak self] in
+            let url = await service.chooseUserDataFolder(for: sheet)
+            guard let self, !ended, !Task.isCancelled else { return }
+            guard let url else {
+                if back != .failed { retry = .sidebarFile }
+                show(back)
+                return
+            }
+            let log = ChromiumFileLog()
+            #if BOW_E2E  // E2E seam: the test reads which files the history step touched.
+                service.e2eLastFileLog = log
+            #endif
+            do {
+                let data = try await ArcImportFeature.readUserData(url, log: log)
+                guard !ended, !Task.isCancelled else { return }
+                prepareHistory(data)
+            } catch {
+                guard !ended, !Task.isCancelled else { return }
+                failureText =
+                    (error as? ChromiumUserData.Refusal)?.description
+                    ?? "The folder could not be read (\(error.localizedDescription))."
+                show(.failed)
+            }
+        }
+    }
+
+    private func prepareHistory(_ data: [ChromiumProfileData]) {
+        guard let controller else { return }
+        let features = controller.appFeatures
+        let service = service
+        let preview = ChromiumImportPreview(
+            data: data, isKnown: { service.hasProfile($0, in: features) },
+            fallback: controller.store.graph.activeSpace?.profileID ?? .default)
+        guard !preview.isEmpty(bookmarks: .pinnedFolder) else {
+            let problems = preview.lines(bookmarks: .pinnedFolder, profileName: { $0.rawValue }, fallbackSpaceTitle: "")
+                .filter { !$0.contains(" visit") }
+            failureText = (["The folder has no history or bookmarks to import."] + problems).joined(separator: " ")
+            show(.failed)
+            return
+        }
+        historyPreview = preview
+        bookmarksChoice = .pinnedFolder
+        show(.history)
+    }
+
+    private func performHistoryImport() {
+        guard step == .history, let controller, let preview = historyPreview else { return }
+        let folders = preview.bookmarkFolders(bookmarksChoice, in: controller.store.graph)
+        var bookmarks = ChromiumBookmarksApplied()
+        if !folders.isEmpty {
+            let went = controller.changeSidebar { store in
+                bookmarks = try ChromiumBookmarkImport.apply(folders, to: store)
+            }
+            guard went else {
+                failureText = "The sidebar refused the bookmarks, so nothing was added."
+                show(.failed)
+                return
+            }
+        }
+        bookmarksApplied = bookmarks.isEmpty ? nil : bookmarks
+        historyImported = true
+        var unopened: [String] = []
+        var jobs: [(store: HistoryStore, visits: [HistoryImportVisit])] = []
+        for entry in preview.entries where !entry.visits.isEmpty {
+            guard let store = service.historyStore(for: entry.target.bowProfile, in: controller.appFeatures) else {
+                unopened.append(entry.data.profile.displayName)
+                continue
+            }
+            jobs.append((store, entry.visits))
+        }
+        show(.importing)
+        let folderTitles = folders.map(\.title)
+        readTask = Task { [weak self] in
+            let results = await ArcImportFeature.importVisits(jobs)
+            guard let self, !ended else { return }
+            var added = 0
+            var known = 0
+            var failures = unopened.map { "the history of \($0) could not be opened" }
+            for (job, result) in zip(jobs, results) {
+                switch result {
+                case .success(let record):
+                    added += record.addedCount
+                    known += record.skippedCount
+                    if record.addedCount > 0 { historyRecords.append((job.store, record)) }
+                case .failure(let error):
+                    failures.append("history could not be written (\(error))")
+                }
+            }
+            doneText = Self.historyDoneText(
+                visits: added, knownVisits: known, bookmarks: bookmarks, folders: folderTitles,
+                saveFailure: bookmarks.saveFailure, failures: failures)
+            show(.done)
+        }
+    }
+
+    private static func historyDoneText(
+        visits: Int, knownVisits: Int, bookmarks: ChromiumBookmarksApplied, folders: [String], saveFailure: String?,
+        failures: [String]
+    ) -> String {
+        func plural(_ n: Int, _ word: String) -> String { "\(n) \(word)\(n == 1 ? "" : "s")" }
+        var text = "Imported \(plural(visits, "visit")) into your history"
+        if folders.isEmpty {
+            text += "."
+        } else {
+            text += " and \(plural(bookmarks.addedBookmarks, "bookmark")) into \(folders.joined(separator: ", "))."
+        }
+        if knownVisits > 0 { text += " \(plural(knownVisits, "visit")) were already in your history." }
+        if bookmarks.knownBookmarks > 0 {
+            text += " \(plural(bookmarks.knownBookmarks, "bookmark")) were already in the folder."
+        }
+        if let saveFailure { text += " Bow could not save your sidebar yet (\(saveFailure)); it keeps trying." }
+        if !failures.isEmpty { text += " Not imported: " + failures.joined(separator: "; ") + "." }
+        return text
+    }
+
     private func chooseFile() {
-        guard step == .consent || step == .failed else { return }
+        guard step == .consent || (step == .failed && retry == .sidebarFile) else { return }
+        retry = .sidebarFile
+        readingText = "Reading the file…"
         show(.reading)
         readTask = Task { [weak self] in
             guard let self else { return }
@@ -331,18 +536,38 @@ final class ArcImportWizard: NSObject {
     }
 
     private func undoImport() {
-        guard step == .done, let controller, let applied else { return }
+        guard step == .done, let controller, canUndo else { return }
         var refusal: String?
         var undone = ArcImportUndone()
-        let went = controller.changeSidebar { store in
-            do {
-                undone = try applied.undo(on: store)
-            } catch let error as ArcImportUndoError {
-                refusal = error.description
+        var went = true
+        if applied != nil || bookmarksApplied != nil {
+            let sidebar = applied ?? ArcImportApplied()
+            let bookmarks = bookmarksApplied
+            went = controller.changeSidebar { store in
+                do {
+                    undone = try sidebar.undo(on: store, alongWith: bookmarks)
+                } catch let error as ArcImportUndoError {
+                    refusal = error.description
+                }
             }
         }
-        // A refusal or a sidebar that would not change keeps the record, so Undo can be tried again.
-        if refusal == nil, went { self.applied = nil }
+        // A refusal or a sidebar that would not change keeps every record, so Undo can be tried again.
+        var historyFailure: String?
+        if refusal == nil, went {
+            applied = nil
+            bookmarksApplied = nil
+            didUndo = true
+            var kept: [(store: HistoryStore, record: HistoryImportRecord)] = []
+            for entry in historyRecords {
+                do {
+                    try entry.store.removeImported(entry.record)
+                } catch {
+                    historyFailure = "\(error)"
+                    kept.append(entry)
+                }
+            }
+            historyRecords = kept
+        }
         if let refusal {
             doneText = "The import was not undone: \(refusal)."
         } else if went {
@@ -355,6 +580,10 @@ final class ArcImportWizard: NSObject {
         }
         if let failure = undone.saveFailure {
             doneText += " Bow could not save your sidebar yet (\(failure)); it keeps trying."
+        }
+        if let historyFailure {
+            doneText +=
+                " Some imported visits could not be taken out of your history (\(historyFailure)); try Undo again."
         }
         show(.done)
     }
