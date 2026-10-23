@@ -3,43 +3,86 @@ import BowCoreTestSupport
 import Foundation
 import Testing
 
+/// The navigation rules, each checked through the tab model: the engine's pushed state is applied to the tab list,
+/// and the controls are read from its active tab.
 @MainActor @Suite struct NavigationControlsTests {
     let pageA = URL(string: "https://example.com/a")!
     let pageB = URL(string: "https://example.com/b")!
 
-    @Test func freshTabCanOnlyReload() {
+    /// A list with one active tab, fed by a mock engine tab.
+    private func makeTab() -> (MockEngine, MockTab, TabList, BrowserTabID) {
         let engine = MockEngine()
-        let tab = engine.defaultProfile.createTab(url: pageA)
-        let controls = NavigationControls(state: tab.state, isClosed: tab.isClosed)
-        #expect(controls == NavigationControls(canGoBack: false, canGoForward: false, canReload: true, isLoading: false))
-        #expect(!controls.canStop)
+        let engineTab = engine.defaultProfile.createTab(url: pageA) as! MockTab
+        var list = TabList()
+        let id = list.open()!
+        return (engine, engineTab, list, id)
     }
 
-    @Test func backFollowsCanGoBack() {
-        var state = EngineTabState(tabID: 1, url: pageB)
-        #expect(!NavigationControls(state: state, isClosed: false).canGoBack)
-        state.canGoBack = true
-        #expect(NavigationControls(state: state, isClosed: false).canGoBack)
+    private func controls(_ list: TabList) -> NavigationControls {
+        NavigationControls(activeTab: list.activeTab)
     }
 
-    @Test func forwardFollowsCanGoForward() {
-        var state = EngineTabState(tabID: 1, url: pageA)
-        #expect(!NavigationControls(state: state, isClosed: false).canGoForward)
-        state.canGoForward = true
-        #expect(NavigationControls(state: state, isClosed: false).canGoForward)
+    @Test func freshTabCanOnlyReload() {
+        let (_, engineTab, list, id) = makeTab()
+        var updated = list
+        updated.update(id, from: engineTab.state)
+        #expect(
+            controls(updated)
+                == NavigationControls(canGoBack: false, canGoForward: false, canReload: true, isLoading: false))
+    }
+
+    @Test func backFollowsTheTabsHistory() {
+        var (_, engineTab, list, id) = makeTab()
+        engineTab.simulateLoad(EngineNavigation(url: pageA))
+        list.update(id, from: engineTab.state)
+        #expect(!controls(list).canGoBack)
+        engineTab.simulateLoad(EngineNavigation(url: pageB))
+        list.update(id, from: engineTab.state)
+        #expect(controls(list).canGoBack)
+        #expect(!controls(list).canGoForward)
+    }
+
+    @Test func forwardFollowsTheTabsHistory() {
+        var (_, engineTab, list, id) = makeTab()
+        engineTab.push {
+            $0.url = pageA
+            $0.canGoForward = true
+        }
+        list.update(id, from: engineTab.state)
+        #expect(controls(list).canGoForward)
+        #expect(!controls(list).canGoBack)
     }
 
     @Test func loadingOffersStopAndStillReload() {
-        let state = EngineTabState(tabID: 1, url: pageA, isLoading: true)
-        let controls = NavigationControls(state: state, isClosed: false)
-        #expect(controls.isLoading)
-        #expect(controls.canStop)
-        #expect(controls.canReload)
+        var (_, engineTab, list, id) = makeTab()
+        engineTab.push { $0.isLoading = true }
+        list.update(id, from: engineTab.state)
+        #expect(controls(list).canStop)
+        #expect(controls(list).canReload)
+        engineTab.push { $0.isLoading = false }
+        list.update(id, from: engineTab.state)
+        #expect(!controls(list).canStop)
+        #expect(controls(list).canReload)
     }
 
-    @Test func closedTabOffersNothing() {
-        let state = EngineTabState(tabID: 1, url: pageA, isLoading: true, canGoBack: true, canGoForward: true)
-        #expect(NavigationControls(state: state, isClosed: true) == .disabled)
+    @Test func backgroundTabStateLeavesActiveControlsAlone() {
+        var (_, engineTab, list, active) = makeTab()
+        let background = list.open(activate: false)!
+        engineTab.push {
+            $0.isLoading = true
+            $0.canGoBack = true
+        }
+        list.update(background, from: engineTab.state)
+        #expect(list.activeID == active)
+        #expect(
+            controls(list)
+                == NavigationControls(canGoBack: false, canGoForward: false, canReload: true, isLoading: false))
+    }
+
+    @Test func noActiveTabOffersNothing() {
+        var (_, _, list, id) = makeTab()
+        list.close(id)
+        #expect(controls(list) == .disabled)
         #expect(!NavigationControls.disabled.canStop)
     }
 }

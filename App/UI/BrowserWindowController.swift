@@ -160,9 +160,18 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
         }
     }
 
-    /// Reads the controls from the selected tab's last pushed state and shows them in the toolbar.
+    /// Applies the selected tab's last pushed state to its tab model, reads the controls from that model and shows
+    /// them in the toolbar.
     private func updateNavigationControls() {
-        navigationControls = selectedTab.map { NavigationControls(state: $0.state, isClosed: $0.isClosed) } ?? .disabled
+        // The window does not keep a TabList yet, so the model tab is made here from the engine's snapshot; once the
+        // window's tabs live in a TabList, its active tab is read instead.
+        let activeTab: BrowserTab? = selectedTab.flatMap { tab in
+            guard !tab.isClosed else { return nil }
+            var model = BrowserTab()
+            model.apply(tab.state)
+            return model
+        }
+        navigationControls = NavigationControls(activeTab: activeTab)
         navigationToolbar.show(navigationControls)
     }
 

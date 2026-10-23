@@ -1,7 +1,8 @@
 import Foundation
 
-/// What the back, forward, reload and stop controls of a window offer for its active tab, read from the state the
-/// engine pushed last. The toolbar buttons and the menu items both follow it, so they always agree.
+/// What the back, forward, reload and stop controls of a window offer for its active tab, read from the tab model
+/// (`BrowserTab`), into which the engine's pushed state is applied. The toolbar buttons and the menu items both
+/// follow it, so they always agree.
 public struct NavigationControls: Equatable, Sendable {
     public var canGoBack: Bool
     public var canGoForward: Bool
@@ -21,14 +22,13 @@ public struct NavigationControls: Equatable, Sendable {
         self.isLoading = isLoading
     }
 
-    /// The controls for a tab whose last pushed snapshot is `state`; a closed tab offers nothing.
-    public init(state: EngineTabState, isClosed: Bool) {
-        guard !isClosed else {
+    /// The controls for the active tab, or `disabled` when there is none (no tab, or it has closed).
+    public init(activeTab tab: BrowserTab?) {
+        guard let tab else {
             self = .disabled
             return
         }
-        self.init(
-            canGoBack: state.canGoBack, canGoForward: state.canGoForward, canReload: true, isLoading: state.isLoading)
+        self.init(canGoBack: tab.canGoBack, canGoForward: tab.canGoForward, canReload: true, isLoading: tab.isLoading)
     }
 
     /// True when stop would do something: only while the page loads.
