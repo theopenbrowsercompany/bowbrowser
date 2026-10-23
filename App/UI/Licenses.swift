@@ -31,8 +31,13 @@ final class Licenses: NSObject {
         return text
     }
 
+    /// Shows the About panel with `options`; the e2e run replaces it so no panel opens on the person's screen.
+    static var presentAboutPanel: ([NSApplication.AboutPanelOptionKey: Any]) -> Void = {
+        NSApp.orderFrontStandardAboutPanel(options: $0)
+    }
+
     /// The "About Bow" menu action.
     @objc static func showAbout(_ sender: Any?) {
-        NSApp.orderFrontStandardAboutPanel(options: [.credits: credits()])
+        presentAboutPanel([.credits: credits()])
     }
 }
