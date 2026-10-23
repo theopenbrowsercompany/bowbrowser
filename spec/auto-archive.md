@@ -4,7 +4,7 @@
 
 Bow keeps the Today section of the sidebar clean: tabs that have not been used for a while move into an archive, where they stay until the person puts them back.
 Each profile chooses how long "a while" is.
-This spec covers the archive store and the rules that decide what archives; the settings menu, the archive list and the timer belong to the app and come later.
+This spec covers the archive store, the rules that decide what archives, and the app's timer and Reopen; the settings menu and the archive list come later.
 
 ## Behavior
 
@@ -24,6 +24,12 @@ This spec covers the archive store and the rules that decide what archives; the 
 - Putting an item back returns it to its old parent at its old position, with the same ID and title, and removes the entry.
 - Archiving a tab by hand uses the same store and rules, with the reason manual.
 - Time comes from an injectable clock, so tests and the end to end run can move it forward instead of waiting.
+- While Bow runs, it checks every open window's sidebar for expired tabs about once a minute and right after the Mac wakes, and archives them with the reason auto.
+  Two windows on one sidebar are checked once, and both follow the change.
+- A Today tab whose last use is unknown (restored from the sidebar file and not selected since) counts as used when Bow first sees it, so it archives once it has sat unused for the threshold from then.
+- The tab a window shows, and a tab playing sound or using the camera or microphone, stays.
+- Reopening an archived tab puts it back in its Space's Today (or the folder it was in), at its old position, and shows it when its Space is on screen.
+- Each sidebar has its own archive file: `ArchivedItems.json` beside the app's `Sidebar.json`, and `<name>.ArchivedItems.json` beside any other sidebar file (a window's own sidebar).
 
 ## Edge cases
 
@@ -35,6 +41,10 @@ This spec covers the archive store and the rules that decide what archives; the 
 - An archive file written by a newer version of Bow, or one that cannot be read, is moved aside untouched and the archive starts empty.
   A file with a few damaged entries keeps the readable ones and a copy of the original is kept beside it.
 - A failed write leaves the archive as it was.
+- An archive file Bow cannot open at all (from a newer Bow, or unreadable and impossible to move aside) turns auto-archive off for that sidebar for the run, and the file is left alone; what happened is written to the log.
+  How many damaged entries opening a file left out is written to the log too.
+- A window that is closing or shows a sheet (a leave prompt), or an app modal panel (a page's alert), postpones the check of its sidebar to the next one, so no tab is archived from under a prompt.
+- Quitting stops the timer; a check runs on the main thread in one go, so quitting never lands in the middle of one.
 - If the sidebar cannot be changed after an archive was written, the archive entry is taken back out, so a tab is never listed in both places.
 
 ## Acceptance checks
@@ -47,11 +57,12 @@ This spec covers the archive store and the rules that decide what archives; the 
    It returns with both tabs, in its old position, and the sidebar passes its integrity check.
 4. Open `ArchivedItems.json` after archiving.
    It has a `version` and the entry with its reason and source Space, and the sidebar file has no trace of the tab.
-5. Later, with the app part, `make e2e` prints `PASS archive: clock+13h today=[] archived=[B] reopen=B`.
+5. `make e2e` prints `PASS archive: clock+13h today=[] archived=[B] reopen=B`: a window shows pinned tab A with Today tab B; B stays 11 hours after it was first seen, archives at 13 hours, and Reopen puts it back in Today and shows it.
+6. `make e2e` prints `PASS archive.damaged: skipped=1 archived=[B] copies=1`: an archive file with one damaged entry opens with that entry left out and counted, a copy of the file is kept, and archiving works.
 
 ## Out of scope
 
-- The settings menu, the archive list and Put Back controls, and the timer that runs auto-archive in the app.
+- The settings menu, the archive list and its Reopen control (the archive list opens in a popover from the sidebar footer).
 - Page thumbnails and favicons for archived items.
 - Clearing the archive by age and syncing it.
 - Spaces and folders themselves: the sidebar store spec covers them.
