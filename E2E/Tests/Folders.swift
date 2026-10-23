@@ -5,7 +5,9 @@ import Foundation
 /// state surviving a relaunch. Fixtures in E2E/Fixtures/sidebar/.
 @MainActor
 enum FoldersTests {
-    static let all: [any E2ETest] = [FoldersTreeTest(), FoldersDeleteTest(), FoldersStayTest(), FoldersCollapseTest()]
+    static let all: [any E2ETest] = [
+        FoldersTreeTest(), FoldersDeleteTest(), FoldersStayTest(), FoldersCollapseTest(), FoldersGeometryTest(),
+    ]
 
     static func app(_ run: E2ERun) throws -> any E2EFoldersApp {
         guard let app = run.app as? any E2EFoldersApp else { throw E2EError("the app has no sidebar folders") }
@@ -386,5 +388,103 @@ struct FoldersCollapseTest: E2ETest {
             passed
                 ? "relaunch: Shut=closed Open=open Empty=kept"
                 : "before=\(afterClose) after=\(afterRelaunch)")
+    }
+}
+
+/// The sidebar's geometry: a drop between rows lands on the level the pointer's x picks at the folder rows' own
+/// 22 point step, and its gap shows that level, also two levels deep and below the last row of the list; rows a
+/// folder shows when it opens are 32 points tall from the first layout.
+struct FoldersGeometryTest: E2ETest {
+    let name = "folders.geometry"
+    let checks = ["folders.dropLevel", "folders.childRowHeight"]
+
+    /// One drop: the row dragged, the row above the gap, the row whose icon's x the pointer is at, the level the gap
+    /// should show and the outline after it.
+    struct Drop {
+        var item: String
+        var below: String
+        var atX: String
+        var level: Int
+        var outline: String
+    }
+
+    func run(_ run: E2ERun) async throws {
+        let app = try FoldersTests.app(run)
+        let url = FoldersTests.url
+        let seed = E2ESeed(spaces: [
+            E2ESeedSpace(
+                "Work",
+                pinned: [
+                    .folder("Outer", [.folder("Inner", [.tab("I1", url: url("I1"))])]),
+                    .folder("Shut", expanded: false, [.tab("S1", url: url("S1")), .tab("S2", url: url("S2"))]),
+                    .tab("Tail", url: url("Tail")),
+                ],
+                today: [
+                    .tab("T1", url: url("T1")), .tab("T2", url: url("T2")),
+                    .folder("Last", [.tab("L1", url: url("L1"))]),
+                ])
+        ])
+        let window = try await run.step("open the seeded window", timeout: E2ETimeouts.firstLoad) {
+            let window = try await app.openWindow(seeded: seed)
+            _ = try await window.page.waitForLoad(after: 0)
+            return window
+        }
+        let page = window.page
+        let pinned = "favorites | pinned | >Outer | >>Inner | >>>I1"
+        let seeded = "\(pinned) | >Shut | >Tail | divider | today | >T1 | >T2 | >Last | >>L1"
+        _ = try await run.step("read the seeded outline", timeout: E2ETimeouts.step) {
+            try await FoldersTests.outline(app, of: page, until: seeded)
+        }
+
+        let drops = [
+            // Below Inner's last child at Inner's own x: leaves Inner, stays in Outer.
+            Drop(
+                item: "T1", below: "I1", atX: "Inner", level: 2,
+                outline: "\(pinned) | >>T1 | >Shut | >Tail | divider | today | >T2 | >Last | >>L1"),
+            // Below Outer's last child at Outer's own x: leaves Outer.
+            Drop(
+                item: "T2", below: "T1", atX: "Outer", level: 1,
+                outline: "\(pinned) | >>T1 | >T2 | >Shut | >Tail | divider | today | >Last | >>L1"),
+            // Two levels deep at the child's own x: joins Inner.
+            Drop(
+                item: "Tail", below: "I1", atX: "I1", level: 3,
+                outline: "\(pinned) | >>>Tail | >>T1 | >T2 | >Shut | divider | today | >Last | >>L1"),
+            // Below the last row of the list's last folder at that folder's x: the end of today.
+            Drop(
+                item: "T2", below: "L1", atX: "Last", level: 1,
+                outline: "\(pinned) | >>>Tail | >>T1 | >Shut | divider | today | >Last | >>L1 | >T2"),
+        ]
+        var problems: [String] = []
+        for drop in drops {
+            let (level, outline) = try await run.step(
+                "drop \(drop.item) below \(drop.below) at \(drop.atX)'s x", timeout: E2ETimeouts.step
+            ) {
+                let level = try app.dragSidebarRow(
+                    try FoldersTests.row(drop.item, in: page, app: app),
+                    gapBelowRow: try FoldersTests.row(drop.below, in: page, app: app),
+                    atXOfRow: try FoldersTests.row(drop.atX, in: page, app: app), in: page)
+                return (level, try await FoldersTests.outline(app, of: page, until: drop.outline))
+            }
+            if level != drop.level || outline != drop.outline {
+                problems.append(
+                    "\(drop.item) below \(drop.below) at \(drop.atX): gap level \(level) (want \(drop.level)), \(outline)"
+                )
+            }
+        }
+        run.check(
+            "folders.dropLevel", passed: problems.isEmpty,
+            problems.isEmpty ? "4 drops landed with their gap at levels 2, 1, 3, 1" : problems.joined(separator: "; "))
+
+        let opened = "\(pinned) | >>>Tail | >>T1 | >Shut | >>S1 | >>S2 | divider | today | >Last | >>L1 | >T2"
+        let heights = try await run.step("open Shut", timeout: E2ETimeouts.step) {
+            try app.clickSidebarDisclosure(row: try FoldersTests.row("Shut", in: page, app: app), in: page)
+            _ = try await FoldersTests.outline(app, of: page, until: opened)
+            let all = try app.sidebarRowHeights(of: page)
+            return try ["Shut", "S1", "S2"].map { all[try FoldersTests.row($0, in: page, app: app)] }
+        }
+        let heightsPassed = heights == [34, 32, 32]
+        run.check(
+            "folders.childRowHeight", passed: heightsPassed,
+            "Shut=\(heights[0]) S1=\(heights[1]) S2=\(heights[2])")
     }
 }

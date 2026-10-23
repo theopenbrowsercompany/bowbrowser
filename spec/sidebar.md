@@ -21,7 +21,10 @@ Pinned tabs are the sites a person keeps; today's tabs are the ones they opened 
   - a pinned tab dropped among today's tabs is unpinned there, and keeps the page it shows;
   - a tab dropped on another tab lands just above it, one dropped on the divider lands at the top of today, and one dropped on a folder lands at its end;
   - a folder or split moves with everything inside it.
+- Dropping between two rows where the gap could mean more than one level (below a folder's last child) lands on the level the pointer's x picks, stepping 22 points per level as folder rows do: at a folder's own x the drop goes after the folder, leaving it, and at its children's x it stays inside; the drop gap opens at that level.
+  Below an open folder the gap is its first slot, and below a closed folder the drop goes after it.
 - A drag never changes the active tab.
+- A row's hover tint and close button clear when a scroll moves the row away from a still pointer.
 - Some drags are refused, and the sidebar shows no drop gap for them: a row dropped into itself, a tab taken alone out of a split view or dropped into one, and anything dragged into or out of Favorites other than what `spec/favorites.md` allows.
 - Right-clicking a tab row shows its menu; for now that menu has Close Tab, which closes the tab as its close button does.
 - Folder actions (New Folder, Rename Folder, the delete items, renaming by double-clicking a folder's row) are in `folders.md`.
