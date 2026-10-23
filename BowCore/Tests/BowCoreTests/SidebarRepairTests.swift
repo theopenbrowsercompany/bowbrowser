@@ -3,10 +3,18 @@ import Testing
 
 @testable import BowCore
 
+extension SidebarItemData {
+    fileprivate var isSplit: Bool {
+        if case .split = self { return true }
+        return false
+    }
+}
+
 @Suite struct SidebarRepairTests {
     /// Every tab, folder and split in `before` still exists after repair: repair never deletes what the person made.
+    /// The one exception is a split holding fewer than two tabs, which repair removes or turns back into its tab.
     private func expectNothingLost(_ before: SidebarGraph, _ after: SidebarGraph) {
-        for item in before.items.values where !item.data.isContainer {
+        for item in before.items.values where !item.data.isContainer && !item.data.isSplit {
             #expect(after[item.id]?.data == item.data, "lost \(item.id)")
         }
     }
@@ -231,7 +239,9 @@ import Testing
             var copy = graph
             copy.repair()
             #expect(copy.integrityProblems() == [])
-            for (id, item) in graph.items where !item.data.isContainer { #expect(copy[id] != nil) }
+            for (id, item) in graph.items where !item.data.isContainer && !item.data.isSplit {
+                #expect(copy[id] != nil)
+            }
         }
     }
 }

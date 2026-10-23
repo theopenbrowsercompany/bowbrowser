@@ -70,6 +70,9 @@ public enum SidebarMutation: Equatable, Sendable {
     case setSavedPage(SidebarItemID, url: String, title: String)
     case setFolderExpanded(SidebarItemID, Bool)
     case setSplitOrientation(SidebarItemID, SidebarSplit.Orientation)
+    /// Sets a split's width factors (empty for equal panes, otherwise one per child; they are normalized to sum to 1)
+    /// and its focused pane (nil for the first). See `SplitViews.swift`.
+    case setSplitLayout(SidebarItemID, widthFactors: [Double], focusedItemID: SidebarItemID?)
     /// Adds a Space with new empty pinned and unpinned sections at `index` (nil appends). The title is trimmed. A
     /// profile that has no Favorites section yet gets one.
     case insertSpace(SidebarSpaceID, title: String, index: Int? = nil, profileID: SidebarProfileID = .default)
@@ -105,6 +108,7 @@ extension SidebarGraph {
             }
             let parent = try existing(parentID)
             guard parent.data.canHold(item.data) else { throw .invalidHierarchy("\(parentID) cannot hold \(item.id)") }
+            try requireSplitRoom(in: parentID, excluding: item.id)
             item.parentID = parentID
             items[item.id] = item
             try insertChild(item.id, into: parentID, at: index)
@@ -115,6 +119,7 @@ extension SidebarGraph {
             guard !item.data.isContainer else { throw .invalidHierarchy("sections cannot move") }
             guard parent.data.canHold(item.data) else { throw .invalidHierarchy("\(parentID) cannot hold \(id)") }
             guard !isDescendant(parentID, of: id) else { throw .invalidHierarchy("\(id) cannot move inside itself") }
+            try requireSplitRoom(in: parentID, excluding: id)
             if let oldParentID = item.parentID { items[oldParentID]?.childrenIDs.removeAll { $0 == id } }
             items[id]?.parentID = parentID
             try insertChild(id, into: parentID, at: index)
@@ -155,7 +160,12 @@ extension SidebarGraph {
 
         case .setSplitOrientation(let id, let orientation):
             guard case .split = try existing(id).data else { throw .invalidHierarchy("\(id) is not a split") }
-            items[id]?.data = .split(SidebarSplit(orientation: orientation))
+            guard case .split(var split)? = items[id]?.data else { break }
+            split.orientation = orientation
+            items[id]?.data = .split(split)
+
+        case .setSplitLayout(let id, let factors, let focusedID):
+            try setSplitLayout(id, widthFactors: factors, focusedItemID: focusedID)
 
         case .insertSpace(let id, let rawTitle, let index, let profileID):
             let title = try Self.validSpaceTitle(rawTitle)
