@@ -21,5 +21,6 @@ enum E2EAreas {
         ActivityTests.all,
         HistoryTests.all,
         EngineTests.all,
+        WindowHooksTests.all,
     ]
 }

@@ -23,9 +23,11 @@ BowPopupDisposition ToPopupDisposition(cef_window_open_disposition_t disposition
 }
 
 // The modifiers held at the click that opened a new page. CEF passes no input event to OnBeforePopup, and Chromium
-// folds the modifiers into the disposition: Cmd-click (and middle click) arrives as a background tab and Shift-click
-// as a new window, but a plain target="_blank" click and Cmd-Shift-click both arrive as a foreground tab. For that
-// one case the keys still held as the request arrives (a few milliseconds after the click) tell them apart.
+// folds the modifiers into the disposition: a background tab means Command (or a middle click) and a new window means
+// Shift, but a plain target="_blank" click and Cmd-Shift-click both arrive as a foreground tab. For that one case the
+// keys still held as the request arrives (a few milliseconds after the click) tell them apart. A modified click on a
+// link (Cmd-click, also on a target="_blank" link) does not come here at all: CEF 156 sends it to the request
+// handler's OnOpenURLFromTab, which the bridge does not handle yet.
 BowPopupClickModifiers ClickModifiers(cef_window_open_disposition_t disposition, bool userGesture) {
   if (!userGesture) return 0;
   switch (disposition) {
