@@ -294,6 +294,9 @@ struct FoldersStayTest: E2ETest {
             _ = try await FoldersTests.wait(until: { $0 != nil }, read: { try app.sidebarSheet(in: page) })
             try app.clickSheetButton("Delete", in: page)
             _ = try await FoldersTests.wait(until: { $0 >= 1 }, read: { draft.leavePrompts })
+            // The page runs script again once its leave prompt is over, after the close it answered was refused;
+            // the outline read after that also sees what the delete did once the page stayed.
+            _ = try await draft.evaluate("document.querySelector('textarea').value")
             return try await FoldersTests.outline(app, of: page, until: filled)
         }
         let stayPassed = before == filled && afterStay == filled && draft.leavePrompts == 1 && !draft.isClosed
