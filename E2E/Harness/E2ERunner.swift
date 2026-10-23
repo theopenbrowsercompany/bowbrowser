@@ -428,8 +428,10 @@ final class E2ERunner {
     /// keeps the main thread busy serving its own mode, where a timer in the common modes still fires, but run loops
     /// serve the main queue only from the outermost drain, so no step limit and no main actor job runs until it ends.
     private func startHeartbeat() {
-        let timer = DispatchSource.makeTimerSource(queue: .main)
-        timer.schedule(deadline: .now() + Self.heartbeatInterval, repeating: Self.heartbeatInterval)
+        // Strict, with a small leeway, so timer coalescing in an app that is never active cannot stretch the beat.
+        let timer = DispatchSource.makeTimerSource(flags: .strict, queue: .main)
+        timer.schedule(
+            deadline: .now() + Self.heartbeatInterval, repeating: Self.heartbeatInterval, leeway: .milliseconds(10))
         timer.setEventHandler { [weak self] in
             MainActor.assumeIsolated { self?.beat() }
         }
@@ -454,12 +456,15 @@ final class E2ERunner {
         watchdog.disarm()
     }
 
-    /// Prints one line per test: `TEST <name> area=<area> tags=<tags or -> checks=<checks>`. Tests selected by name
-    /// only are left out, so a selection the wrapper resolves from this list (shards) never includes them.
+    /// Prints one line per test: `TEST <name> area=<area> tags=<tags or -> checks=<checks>`, followed by
+    /// ` by-name-only` for a test selected by name only, which the wrapper's own selection (shards) then resolves as
+    /// `select` does, and which lets it trust that test's name on a TIMEOUT line.
     private static func list() {
-        for test in E2ETests.all where !test.selectedByNameOnly {
+        for test in E2ETests.all {
             let tags = test.tags.isEmpty ? "-" : test.tags.joined(separator: ",")
-            print("TEST \(test.name) area=\(test.area) tags=\(tags) checks=\(test.checks.joined(separator: ","))")
+            let byName = test.selectedByNameOnly ? " by-name-only" : ""
+            print(
+                "TEST \(test.name) area=\(test.area) tags=\(tags) checks=\(test.checks.joined(separator: ","))\(byName)")
         }
         fflush(stdout)
     }
