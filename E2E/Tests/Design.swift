@@ -287,12 +287,13 @@ struct DesignFontsTest: E2ETest {
         }
         run.check(
             "design.fonts_registered",
-            passed: browsing.nunitoRegistered && browsing.fredokaRegistered && !browsing.jetBrainsPresent
+            passed: browsing.nunitoRegistered && browsing.nunitoFromApp && browsing.fredokaRegistered
+                && !browsing.jetBrainsPresent
                 && browsing.fontFilesBundled && browsing.licenseFilesBundled
                 && browsing.uiToken == E2EFontInfo(family: nunito, name: browsing.uiToken.name, size: 13.5)
                 && browsing.displayToken.family == "Fredoka" && browsing.displayToken.name.contains("SemiBold")
                 && browsing.displayToken.size == 40,
-            "nunito=\(browsing.nunitoRegistered) fredoka=\(browsing.fredokaRegistered)"
+            "nunito=\(browsing.nunitoRegistered) from_app=\(browsing.nunitoFromApp) fredoka=\(browsing.fredokaRegistered)"
                 + " jetbrains=\(browsing.jetBrainsPresent) files=\(browsing.fontFilesBundled)"
                 + " licenses=\(browsing.licenseFilesBundled) ui=\(browsing.uiToken) display=\(browsing.displayToken)")
         run.check(

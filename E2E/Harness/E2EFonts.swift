@@ -21,6 +21,8 @@ struct E2EFontsLook {
     /// Whether the system font list holds the bundled families (they are in it only when the app registered them).
     var nunitoRegistered: Bool
     var fredokaRegistered: Bool
+    /// Whether the UI token's font file is inside the app's Resources (not a copy installed on the machine).
+    var nunitoFromApp: Bool
     /// Whether JetBrains Mono is registered or bundled (it must not be).
     var jetBrainsPresent: Bool
     /// The bundled files in Resources/Fonts, each non-empty.

@@ -9,6 +9,9 @@ extension E2ETestApp: E2EFontsApp {
         func info(_ font: NSFont?) -> E2EFontInfo? {
             font.map { E2EFontInfo(family: $0.familyName ?? "", name: $0.fontName, size: Double($0.pointSize)) }
         }
+        func fileURL(of font: NSFont?) -> URL? {
+            font.flatMap { CTFontCopyAttribute($0, kCTFontURLAttribute) as? URL }?.standardizedFileURL
+        }
         let families = NSFontManager.shared.availableFontFamilies
         let resources = Bundle.main.resourceURL
         func size(_ path: String) -> Int {
@@ -28,8 +31,14 @@ extension E2ETestApp: E2EFontsApp {
         return E2EFontsLook(
             nunitoRegistered: families.contains(BowBrand.uiFamily),
             fredokaRegistered: families.contains(BowBrand.displayFamily),
-            jetBrainsPresent: families.contains { $0.hasPrefix("JetBrains") }
-                || size("Fonts/JetBrainsMono.ttf") > 0,
+            nunitoFromApp: fileURL(of: BowBrand.ui())?.path.hasPrefix(resources?.standardizedFileURL.path ?? "/\0")
+                ?? false,
+            jetBrainsPresent: size("Fonts/JetBrainsMono.ttf") > 0
+                || families.contains {
+                    $0.hasPrefix("JetBrains")
+                        && fileURL(of: NSFont(name: $0, size: 12))?.path.hasPrefix(
+                            resources?.standardizedFileURL.path ?? "/\0") == true
+                },
             fontFilesBundled: size("Fonts/NunitoSans.ttf") > 0 && size("Fonts/Fredoka.ttf") > 0,
             licenseFilesBundled: size("OFL-NunitoSans.txt") > 0 && size("OFL-Fredoka.txt") > 0,
             uiToken: info(BowBrand.ui())!,
