@@ -84,9 +84,11 @@ Start every session in `~/code/GitHub/bowbrowser`: the maintainer's `.claude/set
   After quitting (or timing out), the run echoes the lines that are not Chromium log lines and every Chromium ERROR or FATAL line; `chromium.errors` fails on any not listed as harmless in `E2E/Harness/E2EChromiumLog.swift`, whose header says what may be added.
   When a run ends any other way than PASS or FAIL (a timeout, a crash, a failed engine start), `make e2e` prints the end of `chromium.log`.
 - `make smoke`: opens a window on the maintainer's screen; never run it unless the maintainer asks.
-- `make verify`: lint, guards (`make guards`: e2e seams, Swift headers, list format), BowCore tests, the script self tests (`make test-scripts`: `make test-e2e-wrapper` and `make test-prune`) and the Debug build, side by side, each part's output printed whole with a `verify: <part> ok|FAIL <seconds>s` line.
+- `make verify`: lint, guards (`make guards`: e2e seams, Swift headers, list format), BowCore tests, the script self tests (`make test-scripts`: `make test-e2e-wrapper`, `make test-prune` and `make test-affected`) and the Debug build, side by side, each part's output printed whole with a `verify: <part> ok|FAIL <seconds>s` line.
   The script self tests run only when `scripts/` or the `Makefile` differ from `origin/main` (committed or not); `VERIFY_ALL=1 make verify` runs every part.
   A change is done when this and its end-to-end check pass.
+- `make check`: the quick check while building and fixing, running only what the change touches against `origin/main` (committed or not): lint on the changed Swift files, guards, BowCore tests when `BowCore/` changed, then the build and `make e2e-run` with the selection `scripts/e2e-affected.sh` prints (a test file's areas, a fixture folder's areas, a few mapped app files, smoke for a BowCore change, nothing for docs, and `all` for anything else).
+  It prints a `check: <part> ok|FAIL|skip` line per part and ends with `check: PASS ...` or `check: FAIL <parts>`; it never replaces the full `make verify` and `make e2e` at the end.
 - `make release`: a Release build that must carry no e2e harness code or fixtures. It is not part of `make verify`; the lead runs it once per branch before merging.
 - Builds take turns through `scripts/build-lock.sh`, whose header documents the slots, the settings and the lead's priority file; a waiting build prints its rank, so let it wait; each build gets the machine's cores divided by the build slots as compile jobs (at least 2), and `BOW_BUILD_JOBS` overrides that.
   Every build and e2e run that got a slot appends a line (pool, branch, seconds waited, seconds run, exit code, date) to `~/Library/Caches/bowbrowser/timings/timings.tsv`.
@@ -105,7 +107,7 @@ Start every session in `~/code/GitHub/bowbrowser`: the maintainer's `.claude/set
 - Add a feature as its own files (a window feature in `App/UI/Window/`, an app service in `App/UI/App/`, an e2e area in `E2E/Tests/`) plus one line in its list; never grow the window core or a central list expression.
 - Put a shared contract change (a protocol requirement, a harness rule, a shared model field, a rename) alone in its own first commit; under a lead, tell the lead.
 - Commit after each passing step, so an interruption loses nothing.
-- While building, run only your area (`make e2e E2E=<area or test>`, and `make e2e-run` to rerun without building).
+- While building and fixing, run `make check`, which runs only what your change touches (or `make e2e E2E=<area or test>` for one test, and `make e2e-run` to rerun without building).
   Before the final checks, rebase onto a fresh `origin/main` and confirm `git diff origin/main --stat` lists only intended files; then run the full `make verify` and `make e2e` before reporting.
 - Never run CPU stress or load tools: every worktree shares the machine's build and e2e slots.
 - The installed Arc app and `~/Library/Application Support/Arc` are the maintainer's real browser and profile: do not open, quit, script or read them.

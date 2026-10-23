@@ -36,7 +36,7 @@ Your working directory is your own git worktree of this repository.
 
 ## Checks, once
 
-- While building, run only your area.
+- While building and fixing, run `make check` (only what your change touches), and the full `make verify` and `make e2e` once at the end.
 - At the end, rebase onto `origin/main` once, then run `make verify` once and the full `make e2e` once, as separate commands.
 - If main moves afterwards with no conflict, report anyway: the landing reruns everything.
 - A failure or FLAKY outside your area is reported, not rerun.

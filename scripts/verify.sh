@@ -11,7 +11,8 @@
 # ends, so the parts never interleave. Every part prints one "verify: <part> ok|FAIL <seconds>s" line, and the last
 # line is "verify: PASS <n> parts in <seconds>s" or "verify: FAIL <parts> (<seconds>s)".
 #
-# test-scripts (the e2e wrapper's and the compile cache prune's self tests, about 35 seconds) runs only when
+# test-scripts (the self tests of the e2e wrapper, the compile cache prune and make check's e2e selection, about
+# 35 seconds) runs only when
 # something they test differs from origin/main, committed or not: scripts/ or the Makefile. A docs or app only
 # change skips it, and so does a branch whose scripts match origin/main. Without an origin/main ref it runs.
 # VERIFY_ALL=1 runs every part regardless, for a full backstop run. VERIFY_BASE=<ref> compares with another ref.
