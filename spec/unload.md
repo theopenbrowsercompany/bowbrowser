@@ -10,15 +10,34 @@ An unloaded tab stays in the sidebar and loads again when you open it.
 - A tab that has not been used for a while is unloaded.
   How long "a while" is depends on memory pressure: it is longest when memory is fine and shorter when the system is under pressure.
 - When more tabs are loaded than memory pressure allows, the least recently used tabs are unloaded first until the limit is met.
+  When memory is fine there is no such limit: only idle time unloads.
 - Under critical memory pressure every tab that may be unloaded is unloaded, regardless of how recently it was used.
 - Pinned tabs and Favorites are unloaded after a longer idle time than other tabs, except under critical memory pressure.
-- These tabs are never unloaded, whatever the pressure: a tab playing sound, a tab using the camera or microphone, and a tab visible in a window.
-- An unloaded tab keeps its address, title, icon and a snapshot placeholder.
-  Opening it loads the page again from its address.
+- These tabs are never unloaded, whatever the pressure: a tab playing sound or that stopped playing less than 30 seconds ago, a tab using the camera or microphone, and a tab visible in a window.
+- An unloaded tab keeps its address, title and icon.
+  Opening it loads the page again from its address, and until that page has loaded (or failed to) the page area shows a placeholder: a white card with the tab's icon, title and site, centred.
+  The placeholder is not a picture of the page: the page view draws blank when the app draws it, a hidden tab produces no frames to capture, and capturing the window from the system needs the Screen Recording permission.
+  It shows only when the tab is the one page shown; a tab loading again in one of several panes shows its page as it loads.
 - Unloading a tab loses its back and forward history, and the page's own state (scroll position, form text) is not kept.
   This stays so until a later phase restores navigation history.
 - The decision depends only on the tabs, the clock and the memory pressure, so the same inputs always give the same tabs in the same order.
 - The idle times and loaded tab limits are settings, not fixed numbers, and are tuned from measurements.
+
+## Numbers and their basis
+
+Measured on a quiet machine in the hidden tab spike (S3): a silent hidden tab under Chromium's default background throttling costs about 0.02 percent of a core and next to no wakeups (29 of them about 0.7 percent of a core together), and reaches its cheapest state about a minute after it is hidden.
+What a hidden tab costs is memory: about 31 MB for a light page, more for real ones, so about 900 MB for 29.
+A hidden tab playing sound is not throttled at all (about 4.5 percent of a core each, muted or not), and Chromium keeps a page unthrottled for 30 seconds after its sound stops.
+
+| Setting | Normal | Warning | Critical | Basis |
+| --- | --- | --- | --- | --- |
+| Idle time before unloading | 60 minutes | 10 minutes | none | Normal: judged, since CPU gives no reason to unload sooner and memory pressure covers memory. Warning and critical: judged, kept from the first version. |
+| Loaded tab limit | none | 6 | 1 | Normal: from the measurements (a hidden tab costs memory, not CPU, so memory pressure decides). Warning and critical: judged. |
+| Pinned tabs and Favorites | idle time times 3 | idle time times 3 | as other tabs | Judged. |
+| Recently audible | 30 seconds | 30 seconds | 30 seconds | Measured: Chromium's own unthrottled window after sound stops. |
+
+- Unloading relies on Chromium's default background throttling to keep the tabs it leaves loaded cheap: the shipping app passes none of the switches that turn that throttling off (only e2e runs do).
+- Telling a hidden page it is hidden, a lower frame rate and freezing hidden pages measured no gain worth making a default, so Bow does none of them.
 
 - Unloading a page lets its beforeunload handler run but never shows a prompt: a page that would ask to stay is left loaded.
 - A tab that is closing for good is never unloaded instead: not after its page closed itself, and not while the app quits.
@@ -26,7 +45,8 @@ An unloaded tab stays in the sidebar and loads again when you open it.
 
 ## App wiring
 
-- Unloading is off by default, behind one setting; with it off, nothing is ever unloaded, not even under critical memory pressure.
+- Unloading is on by default, as Chrome's Memory Saver and Arc's tab unloading are, behind one setting; with it off, nothing is ever unloaded, not even under critical memory pressure.
+  E2e runs turn it off before the app starts, and the tests that need it turn it on.
 - While it is on, Bow looks for idle tabs about once a minute, across every window and every Space, and at once whenever macOS reports memory pressure.
 - Under warning or critical memory pressure, as macOS reports it, the shorter idle times and lower loaded tab limits apply, and critical pressure unloads every tab that may be unloaded.
 - Never unloaded, however long idle and whatever the pressure:
@@ -36,7 +56,7 @@ An unloaded tab stays in the sidebar and loads again when you open it.
   - a tab using the camera or microphone;
   - a tab you typed into, until it goes to another page: a key that enters or edits text in one of its fields (Command-V, Command-X and Command-Z included) keeps it loaded, so form text with no leave prompt to guard it is never lost;
   - a pinned tab or Favorite showing a page other than its saved address, since loading it again would go back to that address and lose the page it was on;
-  - a tab playing sound, once the engine reports audio (the current engine does not, so this does not apply yet);
+  - a tab playing sound, or that stopped less than 30 seconds ago, once the engine reports sound: the current engine (CEF 156) has no event for it (its audio handler takes the sound over instead of reporting it), so this does not apply yet outside e2e runs, which report sound through the tab as an engine event would;
   - every tab of a window that is closing or showing a sheet (a leave prompt or a page's dialog), and a tab whose page alert waits for the tab to be shown (see page-dialogs.md), so a dialog never vanishes unseen; the next look tries again.
 - Pinned tabs and Favorites are spared longer than other tabs.
 - The idle times, loaded tab limits and how often Bow looks are named in one place, so measurements can tune them without touching the rest.
@@ -55,26 +75,28 @@ An unloaded tab stays in the sidebar and loads again when you open it.
 ## Acceptance checks
 
 1. Normal memory, two tabs idle for 5 minutes: both stay loaded.
-2. Normal memory, a tab idle for 31 minutes: it is unloaded.
-3. Same tab idle for 31 minutes but pinned: it stays loaded; at 91 minutes it is unloaded.
+2. Normal memory, a tab idle for 61 minutes: it is unloaded; at 59 minutes it stays.
+3. Same tab idle for 61 minutes but pinned: it stays loaded; at 181 minutes it is unloaded.
 4. Warning pressure, a tab idle for 11 minutes: it is unloaded.
 5. Critical pressure, one visible tab and one recently used background tab: only the background tab is unloaded.
-6. A background tab playing audio, or using the microphone, idle for hours: it stays loaded.
-7. Fourteen recently used loaded tabs at normal pressure: the two least recently used are unloaded.
+6. A background tab playing audio, or that stopped 29 seconds ago, or using the microphone, idle for hours: it stays loaded; 30 seconds after its sound stopped it may be unloaded.
+7. Thirty recently used loaded tabs at normal pressure: none is unloaded; eight at warning pressure: the two least recently used are unloaded.
+8. The placeholder shows for an unloaded tab shown alone, not in one of several panes, and goes when its page finishes, fails, its render process ends or it closes.
 
 These run as unit tests today (`UnloadPolicyTests`).
 
-8. Run `make e2e`: the `engine.unload` check unloads a tab through the engine, then closes a tab whose slow beforeunload keeps its unload pending, and prints `PASS engine.unload: unloaded=true closed=true last=unloaded taken-over-unload=false close=true close-last=closed close-reason=app`.
-9. Run `make e2e`: `PASS tabs.unload-reload: row=kept loaded=again url=same` shows an unloaded tab keeping its row in the window and loading again at its address when chosen, and `PASS tabs.unload-stay` shows a page that would ask to stay left loaded with no prompt.
+9. Run `make e2e`: the `engine.unload` check unloads a tab through the engine, then closes a tab whose slow beforeunload keeps its unload pending, and prints `PASS engine.unload: unloaded=true closed=true last=unloaded taken-over-unload=false close=true close-last=closed close-reason=app`.
+10. Run `make e2e`: `PASS tabs.unload-reload: row=kept loaded=again url=same` shows an unloaded tab keeping its row in the window and loading again at its address when chosen, and `PASS tabs.unload-stay` shows a page that would ask to stay left loaded with no prompt.
 
-10. Run `make e2e E2E=unload`: `PASS unload.off` shows nothing unloaded with the setting off, after a day idle and under critical pressure; `PASS unload.policy: live=1 unloaded=3` shows a pass after a day idle unloading every background tab and keeping the shown one, and `PASS unload.reload` choosing an unloaded tab loading it again at its address; `PASS unload.exempt` shows a tab using the camera kept; `PASS unload.pressure` shows critical pressure unloading a recently used background tab; `PASS unload.engine_reload` shows an unloaded row keeping its title and icon; `PASS unload.dialog` shows a pass while a background tab's alert waits for its tab unloading nothing, and the next pass after the alert was shown and answered unloading the tab.
-11. Run `make e2e E2E=unload`: `PASS unload.offscreen_space: unloaded=3` shows a today tab and a pinned tab unloaded while their Space is off screen keeping their icon, address and title when you switch back, and `PASS unload.offscreen_reload` choosing each loading it again at that address; `PASS unload.pinned_away: unloaded=1 pinned=live` shows a pinned tab browsed away from its pinned address kept loaded while a background tab unloads; `PASS unload.typed: unloaded=0 tab=live` shows a tab with text typed into its field kept loaded with its text, and `PASS unload.typed_navigated: unloaded=1` shows it unloading once it has gone to another page.
+11. Run `make e2e E2E=unload`: `PASS unload.off` shows nothing unloaded with the setting off, after a day idle and under critical pressure; `PASS unload.policy: live=1 unloaded=3` shows a pass after a day idle unloading every background tab and keeping the shown one, and `PASS unload.reload` choosing an unloaded tab loading it again at its address; `PASS unload.exempt` shows a tab using the camera kept; `PASS unload.pressure` shows critical pressure unloading a recently used background tab; `PASS unload.engine_reload` shows an unloaded row keeping its title and icon; `PASS unload.dialog` shows a pass while a background tab's alert waits for its tab unloading nothing, and the next pass after the alert was shown and answered unloading the tab.
+12. Run `make e2e E2E=unload`: `PASS unload.offscreen_space: unloaded=3` shows a today tab and a pinned tab unloaded while their Space is off screen keeping their icon, address and title when you switch back, and `PASS unload.offscreen_reload` choosing each loading it again at that address; `PASS unload.pinned_away: unloaded=1 pinned=live` shows a pinned tab browsed away from its pinned address kept loaded while a background tab unloads; `PASS unload.typed: unloaded=0 tab=live` shows a tab with text typed into its field kept loaded with its text, and `PASS unload.typed_navigated: unloaded=1` shows it unloading once it has gone to another page.
+13. Run `make e2e E2E=unload`: `PASS unload: live=1 unloaded=29` shows 30 tabs in one window, one shown, at normal pressure: nothing unloaded 59 minutes on, every background tab 61 minutes on; `PASS unload.audible: within=live quiet=unloaded after=unloaded` shows a tab whose sound stopped 20 seconds ago kept under critical pressure while a quiet tab unloads, and unloaded 31 seconds after; `PASS unload.placeholder: unloaded=1 card="Unload held" page=shown order=card,page` shows an unloaded tab chosen again showing the card with its title while its page loads, then its page.
 
 ## Out of scope
 
-- The placeholder snapshot and showing in the sidebar that a tab is unloaded are not built yet.
-  A setting in a settings window for unloading is not built yet either; it is a stored setting only.
-- The idle times and limits shown here are placeholders until those measurements arrive.
+- Showing in the sidebar that a tab is unloaded: Arc shows no such marker, so Bow does not either.
+- A snapshot of the page as the placeholder (see Behavior for why it is a card).
+- A setting in a settings window for unloading is not built yet; it is a stored setting only.
 - Restoring back and forward history after unloading.
 
 ## Later
