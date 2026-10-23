@@ -29,9 +29,9 @@ enum CommandBarTests {
         return bar
     }
 
-    /// Whether `bar` meets `condition` within the step's time, checking every 10 ms.
+    /// Whether `bar` meets `condition` within the running step's budget, checking every 10 ms.
     static func until(_ bar: any E2ECommandBar, _ condition: (any E2ECommandBar) -> Bool) async throws -> Bool {
-        let deadline = Date().addingTimeInterval(E2EWaits.budget(limit: 2))
+        let deadline = Date().addingTimeInterval(E2EWaits.budget())
         while !condition(bar) {
             if Date() >= deadline { return false }
             try await Task.sleep(nanoseconds: 10_000_000)
@@ -269,26 +269,33 @@ struct CommandBarKeysTest: E2ETest {
             }
         }
         let bar = try app.commandBar(of: page)
-        let seen = try await run.step("send Cmd+T, Escape and Cmd+L to the page", timeout: E2ETimeouts.step) {
-            let before = try await keyDowns().count
-            // The tab hands each key to the app on its way back from the page's process, so wait for the bar.
+        let before = try await keyDowns().count
+        // The tab hands each key to the app on its way back from the page's process, so each key gets its own step
+        // and waits for the bar on that step's whole budget.
+        let afterT = try await run.step("send Cmd+T to the page", timeout: E2ETimeouts.step) {
             try await page.press(letter: "t", macKeyCode: 17, modifiers: .command)
-            let afterT = try await CommandBarTests.until(bar) { $0.isShown }
+            return try await CommandBarTests.until(bar) { $0.isShown }
+        }
+        let afterEscape = try await run.step("send Escape to the page", timeout: E2ETimeouts.step) {
             try await page.press(.escape)
-            let afterEscape = try await CommandBarTests.until(bar) { !$0.isShown }
+            return try await CommandBarTests.until(bar) { !$0.isShown }
+        }
+        let afterL = try await run.step("send Cmd+L to the page", timeout: E2ETimeouts.step) {
             try await page.press(letter: "l", macKeyCode: 37, modifiers: .command)
-            let afterL = (try await CommandBarTests.until(bar) { $0.isShown && $0.hasKeyboard }, bar.text)
+            return (try await CommandBarTests.until(bar) { $0.isShown && $0.hasKeyboard }, bar.text)
+        }
+        let seen = try await run.step("send J to the page", timeout: E2ETimeouts.step) {
             if afterL.0 { try bar.press(.escape) }
             try await page.press(letter: "j", macKeyCode: 38, modifiers: [])
             try await E2EWaits.until(page, "window.keyDowns.length > \(before)")
-            return (afterT, afterEscape, afterL, Array(try await keyDowns().dropFirst(before)))
+            return Array(try await keyDowns().dropFirst(before))
         }
         let url = CommandBarTests.url("keys").absoluteString
         run.check(
             name,
-            passed: seen.0 && seen.1 && seen.2.0 && seen.2.1 == url && seen.3 == ["j"],
-            "cmd-t=\(seen.0 ? "shown" : "hidden") escape=\(seen.1 ? "closed" : "shown") "
-                + "cmd-l=\(seen.2.0 ? seen.2.1 : "hidden") page-keys=[\(seen.3.joined(separator: ","))]")
+            passed: afterT && afterEscape && afterL.0 && afterL.1 == url && seen == ["j"],
+            "cmd-t=\(afterT ? "shown" : "hidden") escape=\(afterEscape ? "closed" : "shown") "
+                + "cmd-l=\(afterL.0 ? afterL.1 : "hidden") page-keys=[\(seen.joined(separator: ","))]")
     }
 }
 
