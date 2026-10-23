@@ -1,18 +1,36 @@
 # bowbrowser
 
-An Arc-inspired browser for macOS (RIP Arc), built in Swift on Chromium.
-Inspired by Arc, built by Arc fans.
-Early work in progress.
+An Arc-inspired browser for macOS, built in Swift on Chromium.
+Built by Arc fans.
+
+Website: https://www.bowbrowser.com
+
+Status: early work in progress.
 
 _Not affiliated with Arc, The Browser Company of New York, or Atlassian._
 
+## Requirements
+
+- macOS 14 or later on Apple Silicon
+- Xcode 26
+- Homebrew `cmake` and `xcodegen`
+
 ## Build
 
-Requirements: macOS 14 or later on Apple Silicon, Xcode 26, Homebrew `cmake` and `xcodegen`.
-
 ```sh
-make bootstrap   # download the pinned Chromium Embedded Framework and generate the project
+make bootstrap   # download the pinned Chromium Embedded Framework and generate the Xcode project
 make run         # build and open the app
+make verify      # lint, checks, tests and the Debug build
 ```
 
-`make verify` runs lint, tests and the build.
+Chromium comes in as a prebuilt engine (CEF), so building the app never compiles Chromium.
+
+## Contributing
+
+`AGENTS.md` describes how the repository is laid out and how changes are made and checked.
+`spec/` holds the behavior spec for each feature area.
+
+## License
+
+Bow is released under the [MIT License](LICENSE).
+Chromium and CEF keep their own licenses.
