@@ -47,6 +47,23 @@ final class SidebarFeature: NSResponder, BrowserWindowFeature, SidebarViewDelega
         fatalError("init(coder:) is not supported")
     }
 
+    /// Whether the sidebar is out of the window (the top tabs layout), as `setHidden(_:)` left it.
+    private(set) var isHidden = false
+
+    /// Takes the sidebar out of the window, or brings it back exactly as it was. Hidden, the view stays alive and
+    /// keeps following the store; it only sits one width to the left of the window's edge, so the page card (which
+    /// follows the sidebar's trailing edge) starts at the window's edge. Its own size and layout never change.
+    func setHidden(_ hidden: Bool) {
+        guard hidden != isHidden else { return }
+        isHidden = hidden
+        if let edge = sidebar.superview?.constraints.first(where: {
+            $0.firstItem === sidebar && $0.firstAttribute == .leading && $0.secondAttribute == .leading
+        }) {
+            edge.constant = hidden ? -SidebarView.width : 0
+        }
+        sidebar.isHidden = hidden
+    }
+
     /// Also called after every store change (the window shows its active tab once it has updated), so the sidebar
     /// follows the store from here without a second refresh in `storeChanged(_:)`.
     func selectedTabChanged(_ tab: (any EngineTab)?) {

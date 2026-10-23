@@ -12,8 +12,8 @@ final class WindowLookFeature: NSResponder, BrowserWindowFeature {
         window.usesFullSizeContent = true
         window.pageCornerRadius = BowBrand.radiusCard
         // The leading edge meets the sidebar, whose own padding spaces it.
-        let inset = BowBrand.pageInset
-        window.pageInsets = NSEdgeInsets(top: inset, left: 0, bottom: inset, right: inset)
+        self.window = window
+        applyPageInsets(for: .sidebar, showsToolbar: true)
         window.window?.backgroundColor = BowBrand.frame
         let soft = BowBrand.softShadow()
         window.pageShadow = PageShadow(
@@ -29,7 +29,6 @@ final class WindowLookFeature: NSResponder, BrowserWindowFeature {
                 dragArea.bottomAnchor.constraint(equalTo: content.bottomAnchor),
             ])
         }
-        self.window = window
     }
 
     /// The frame behind everything else in the window, which drags the window as a title bar does.
@@ -42,6 +41,14 @@ final class WindowLookFeature: NSResponder, BrowserWindowFeature {
 
     private weak var window: BrowserWindowController?
     private var placedNavigation = false
+
+    /// The page card's insets for `layout` (`WindowLayout.pageInsets`): the top tabs layout leaves room above the card
+    /// for the tab strip and the toolbar row (the sidebar layout's leading edge meets the sidebar instead).
+    func applyPageInsets(for layout: WindowLayout, showsToolbar: Bool) {
+        let insets = layout.pageInsets(showsToolbar: showsToolbar)
+        window?.pageInsets = NSEdgeInsets(
+            top: insets.top, left: insets.leading, bottom: insets.bottom, right: insets.trailing)
+    }
 
     /// The window shows its first tab (or its empty state) once every feature exists, which is when the navigation
     /// buttons can move into the sidebar's top row.
