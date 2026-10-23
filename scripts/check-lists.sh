@@ -34,8 +34,9 @@ trap 'rm -rf "$tmp"' EXIT
 declared=$tmp/declared
 # The names of the types, extensions and typealiases declared in App/ and E2E/ (a type a macro declares is
 # allowed with a `// lists: declared by <macro>` comment on its entry line).
-find App E2E -name '*.swift' -exec grep -hoE '\b(class|struct|enum|actor|extension|typealias)[[:space:]]+[A-Z][A-Za-z0-9_]*' {} + 2> /dev/null |
-  awk '{ print $2 }' | sort -u > "$declared" || true
+find App E2E -name '*.swift' -exec grep -hE '^[[:space:]]*([@A-Za-z().]+[[:space:]]+)*(class|struct|enum|actor|extension|typealias)[[:space:]]+[A-Z][A-Za-z0-9_]*' {} + 2> /dev/null |
+  sed -E 's/^[[:space:]]*([@A-Za-z().]+[[:space:]]+)*(class|struct|enum|actor|extension|typealias)[[:space:]]+([A-Z][A-Za-z0-9_]*).*/\3/' | sort -u > "$declared" || true
+[ -s "$declared" ] || { echo "lists: found no Swift declaration under App/ or E2E/ (is the scan broken?)" >&2; exit 1; }
 
 for file in $swift_lists; do
   [ -f "$file" ] || { fail "$file is missing"; continue; }

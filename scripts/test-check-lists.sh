@@ -63,6 +63,11 @@ fixture '        MacroMade.self,
 ' 'struct Other {}'
 check "the same entry without the comment fails" 1 "$(run)"
 
+fixture '        GoneTests.self,
+' '// the old struct GoneTests was renamed
+let text = "enum GoneTests"'
+check "a name only in a comment or a string is not a declaration" 1 "$(run)"
+
 fixture '        Real.all,
         Real.all,
 ' ''
