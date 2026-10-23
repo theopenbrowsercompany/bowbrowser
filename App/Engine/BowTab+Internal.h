@@ -11,6 +11,7 @@
 #include "include/cef_browser.h"
 #include "include/cef_client.h"
 #include "include/cef_find_handler.h"
+#include "include/cef_keyboard_handler.h"
 
 NS_ASSUME_NONNULL_BEGIN
 
@@ -44,7 +45,10 @@ class BowTabClient;
                    faviconURL:(nullable NSURL*)faviconURL
                       loading:(BOOL)loading
                     canGoBack:(BOOL)canGoBack
-                 canGoForward:(BOOL)canGoForward NS_DESIGNATED_INITIALIZER;
+                 canGoForward:(BOOL)canGoForward
+                      audible:(BOOL)audible
+               capturingVideo:(BOOL)capturingVideo
+               capturingAudio:(BOOL)capturingAudio NS_DESIGNATED_INITIALIZER;
 @end
 
 @interface BowFindResult ()
@@ -77,7 +81,17 @@ class BowTabClient;
   // What the search has reported so far, since each report carries only what changed.
   int _findMatchCount;
   int _findActiveMatch;
+  // YES while an unload is pending: the page's leave prompt answers stay without showing, and a close reports
+  // tabDidUnload: instead of tabDidClose:.
+  BOOL _unloading;
 }
+/// A tab for a popup browser CEF is about to create with this tab's client, in the opener's profile. Its browser
+/// arrives in OnAfterCreated as for any tab.
+- (instancetype)initForPopupWithProfileID:(NSString*)profileID
+                          downloadHandler:(CefRefPtr<CefDownloadHandler>)downloadHandler;
+/// CEF did not create the popup browser this tab was made for.
+- (void)popupCreationFailed;
+- (void)mediaCaptureChangedVideo:(BOOL)video audio:(BOOL)audio;
 @property(nonatomic, readwrite) BowTabState* state;
 @property(nonatomic, readwrite, getter=isClosed) BOOL closed;
 - (void)browserCreated:(CefRefPtr<CefBrowser>)browser;
@@ -113,6 +127,13 @@ class BowTabClient;
                        ask:(void (^)(BowTab* tab, id<BowTabUIDelegate> delegate))ask
                  otherwise:(nullable dispatch_block_t)otherwise;
 - (void)requestPopup:(BowPopupRequest*)request;
+/// The UI delegate's answer, asked synchronously; `BowPopupDecisionWindow` without one.
+- (BowPopupDecision)decidePopup:(BowPopupRequest*)request;
+/// Hands `newTab` to the UI delegate on a later main thread task, or closes it when nobody takes it.
+- (void)openPopupTab:(BowTab*)newTab request:(BowPopupRequest*)request;
+- (BOOL)handleKeyBeforePage:(BowKeyEvent*)event;
+- (void)answerAuthChallenge:(BowAuthChallenge*)challenge callback:(CefRefPtr<CefAuthCallback>)callback;
+- (void)decideCertificateError:(BowCertificateError*)error callback:(CefRefPtr<CefCallback>)callback;
 - (void)runJavaScriptDialog:(BowJSDialogRequest*)request callback:(CefRefPtr<CefJSDialogCallback>)callback;
 - (void)runBeforeUnloadDialog:(BowJSDialogRequest*)request callback:(CefRefPtr<CefJSDialogCallback>)callback;
 - (void)requestPermission:(BowPermissionRequest*)request answer:(void (^)(BowPermissionDecision))answer;
@@ -128,11 +149,12 @@ class BowTabClient;
 // calls. Every callback runs on the main thread because the app uses CefRunMessageLoop. Each handler lives in its
 // own file: life span and popups (BowTabLifeSpan.mm), loads (BowTabLoads.mm), display (BowTabDisplay.mm),
 // JavaScript dialogs (BowTabDialogs.mm), requests (BowTabRequests.mm), permissions (BowTabPermissions.mm), context
-// menus (BowTabContextMenu.mm), find (BowTabFind.mm) and downloads (BowTabDownloads.mm).
+// menus (BowTabContextMenu.mm), keys (BowTabKeyboard.mm), find (BowTabFind.mm) and downloads (BowTabDownloads.mm).
 //
-// Popups the page opens (always in CEF's own windows, see OnBeforePopup) share this client but live in windows CEF
+// Popups the engine opens in windows of its own (see OnBeforePopup) share this client but live in windows CEF
 // creates and closes itself. The engine tracks them so quitting waits for them; the tab only follows its own
-// browser, and popups keep CEF's default behavior for everything else.
+// browser (IsOwn), and popups keep CEF's default behavior for everything else. A popup the app takes as a tab gets
+// a client of its own instead, so it is that tab's own browser.
 class BowTabClient : public CefClient,
                      public CefLifeSpanHandler,
                      public CefLoadHandler,
@@ -141,7 +163,8 @@ class BowTabClient : public CefClient,
                      public CefRequestHandler,
                      public CefPermissionHandler,
                      public CefContextMenuHandler,
-                     public CefFindHandler {
+                     public CefFindHandler,
+                     public CefKeyboardHandler {
  public:
   BowTabClient(BowTab* tab, CefRefPtr<CefDownloadHandler> downloadHandler)
       : tab_(tab), downloadHandler_(downloadHandler) {}
@@ -154,6 +177,7 @@ class BowTabClient : public CefClient,
   CefRefPtr<CefPermissionHandler> GetPermissionHandler() override { return this; }
   CefRefPtr<CefContextMenuHandler> GetContextMenuHandler() override { return this; }
   CefRefPtr<CefFindHandler> GetFindHandler() override { return this; }
+  CefRefPtr<CefKeyboardHandler> GetKeyboardHandler() override { return this; }
   CefRefPtr<CefDownloadHandler> GetDownloadHandler() override;
 
   // CefLifeSpanHandler (BowTabLifeSpan.mm)
@@ -170,6 +194,7 @@ class BowTabClient : public CefClient,
                      CefBrowserSettings& settings,
                      CefRefPtr<CefDictionaryValue>& extraInfo,
                      bool* noJavaScriptAccess) override;
+  void OnBeforePopupAborted(CefRefPtr<CefBrowser> browser, int popupID) override;
   void OnAfterCreated(CefRefPtr<CefBrowser> browser) override;
   bool DoClose(CefRefPtr<CefBrowser> browser) override;
   void OnBeforeClose(CefRefPtr<CefBrowser> browser) override;
@@ -184,12 +209,26 @@ class BowTabClient : public CefClient,
                                  TerminationStatus status,
                                  int errorCode,
                                  const CefString& errorString) override;
+  bool GetAuthCredentials(CefRefPtr<CefBrowser> browser,
+                          const CefString& originURL,
+                          bool isProxy,
+                          const CefString& host,
+                          int port,
+                          const CefString& realm,
+                          const CefString& scheme,
+                          CefRefPtr<CefAuthCallback> callback) override;
+  bool OnCertificateError(CefRefPtr<CefBrowser> browser,
+                          cef_errorcode_t certError,
+                          const CefString& requestURL,
+                          CefRefPtr<CefSSLInfo> sslInfo,
+                          CefRefPtr<CefCallback> callback) override;
 
   // CefDisplayHandler (BowTabDisplay.mm)
   void OnTitleChange(CefRefPtr<CefBrowser> browser, const CefString& title) override;
   void OnAddressChange(CefRefPtr<CefBrowser> browser, CefRefPtr<CefFrame> frame, const CefString& url) override;
   void OnFaviconURLChange(CefRefPtr<CefBrowser> browser, const std::vector<CefString>& iconURLs) override;
   void OnFullscreenModeChange(CefRefPtr<CefBrowser> browser, bool fullscreen) override;
+  void OnMediaAccessChange(CefRefPtr<CefBrowser> browser, bool hasVideoAccess, bool hasAudioAccess) override;
 
   // CefFindHandler (BowTabFind.mm)
   void OnFindResult(CefRefPtr<CefBrowser> browser,
@@ -234,6 +273,12 @@ class BowTabClient : public CefClient,
                               uint32_t requestedPermissions,
                               CefRefPtr<CefPermissionPromptCallback> callback) override;
 
+  // CefKeyboardHandler (BowTabKeyboard.mm)
+  bool OnPreKeyEvent(CefRefPtr<CefBrowser> browser,
+                     const CefKeyEvent& event,
+                     CefEventHandle osEvent,
+                     bool* isKeyboardShortcut) override;
+
   // CefContextMenuHandler (BowTabContextMenu.mm)
   bool RunContextMenu(CefRefPtr<CefBrowser> browser,
                       CefRefPtr<CefFrame> frame,
@@ -241,8 +286,15 @@ class BowTabClient : public CefClient,
                       CefRefPtr<CefMenuModel> model,
                       CefRefPtr<CefRunContextMenuCallback> callback) override;
 
+  /// True for the tab's own browser: the first browser created with this client. Every other browser created with
+  /// it is a popup the engine opened in a window of its own, which keeps CEF's defaults.
+  bool IsOwn(CefRefPtr<CefBrowser> browser) const { return ownBrowserID_ != 0 && browser->GetIdentifier() == ownBrowserID_; }
+
  private:
   __weak BowTab* tab_;
+  int ownBrowserID_ = 0;
+  // Tabs made for popups decided as tabs, by popup ID, until CEF creates their browser or gives up.
+  NSMapTable<NSNumber*, BowTab*>* pendingPopupTabs_ = [NSMapTable strongToWeakObjectsMapTable];
   CefRefPtr<CefDownloadHandler> downloadHandler_;
   // Identifiers of this tab's popups that were created in no window.
   std::set<int> windowlessPopups_;

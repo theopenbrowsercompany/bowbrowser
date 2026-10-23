@@ -12,6 +12,10 @@ extension CEFTab: BowTabUIDelegate {
         send(.closed)
     }
 
+    func tabDidUnload(_ tab: BowTab) {
+        send(.unloaded)
+    }
+
     func tab(_ tab: BowTab, didRequestPopup request: BowPopupRequest) {
         send(.popupRequested(PopupRequest(request)))
     }

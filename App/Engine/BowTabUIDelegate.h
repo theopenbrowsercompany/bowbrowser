@@ -34,10 +34,44 @@ NS_SWIFT_UI_ACTOR
 /// thread task than the engine callback that closed it.
 - (void)tabDidClose:(BowTab *)tab;
 
-/// The page asked to open a new tab or window (mirrors `TabEvent.popupRequested`). This only informs the app: the
-/// engine opens the page itself, in a popup window of its own, so the new page keeps its `window.opener` (sign in
-/// popups report back through it). The engine cannot tell a plain link to a new tab from a page's
-/// `window.open(url)`, so it never turns one into a tab, and the app must not open `request.targetURL` again.
+/// The page was unloaded by `unloadWithCompletion:` (mirrors `TabEvent.unloaded`): called instead of `tabDidClose:`,
+/// on a later main thread task.
+- (void)tabDidUnload:(BowTab *)tab;
+
+/// The page is opening a new page: where it goes. Asked synchronously, inside the engine callback, so answer at once
+/// and show no UI. Without this method every popup opens in a window of the engine's own (`BowPopupDecisionWindow`).
+/// Popups opened by popups the engine opened in its own windows, links saved to disk and ignored actions are not
+/// asked about.
+- (BowPopupDecision)tab:(BowTab *)tab decidePopup:(BowPopupRequest *)request NS_SWIFT_NAME(tab(_:decidePopup:));
+
+/// A popup decided as a tab arrived as `newTab`, in the same profile and still connected to its opener. Called on a
+/// later main thread task. The app owns the new tab from now on; without this method (or once the delegate is gone)
+/// the tab closes.
+- (void)tab:(BowTab *)tab
+    didOpenPopupTab:(BowTab *)newTab
+            request:(BowPopupRequest *)request NS_SWIFT_NAME(tab(_:didOpenPopup:request:));
+
+/// A key event is about to reach the page; YES claims it, so the page never sees it. Asked synchronously, inside the
+/// engine callback.
+- (BOOL)tab:(BowTab *)tab handleKeyBeforePage:(BowKeyEvent *)event NS_SWIFT_NAME(tab(_:handleKeyBeforePage:));
+
+/// A server asked for a user name and password. Answer with both, or nil to cancel (the page then shows the
+/// server's own response). Without this method the sign in is cancelled.
+- (void)tab:(BowTab *)tab
+    answerAuthChallenge:(BowAuthChallenge *)challenge
+      completionHandler:(void (^)(NSString *_Nullable user, NSString *_Nullable password))completionHandler
+    NS_SWIFT_NAME(tab(_:answer:completionHandler:));
+
+/// The page's certificate failed to verify. Answer YES to load it anyway; NO (the default without this method)
+/// fails the navigation and shows the engine's error page.
+- (void)tab:(BowTab *)tab
+    decideCertificateError:(BowCertificateError *)error
+           decisionHandler:(void (^)(BOOL proceed))decisionHandler
+    NS_SWIFT_NAME(tab(_:decideCertificateError:decisionHandler:));
+
+/// The page asked to open a new tab or window and the engine opens it in a popup window of its own (mirrors
+/// `TabEvent.popupRequested`; see `tab(_:decidePopup:)`). This only informs the app: the new page keeps its
+/// `window.opener` (sign in popups report back through it), and the app must not open `request.targetURL` again.
 /// Called as the engine starts opening it; if the engine then fails to create it, nothing more is reported.
 /// Saving a link to disk, ignored actions and popups opened by popups are not reported.
 - (void)tab:(BowTab *)tab didRequestPopup:(BowPopupRequest *)request NS_SWIFT_NAME(tab(_:didRequestPopup:));

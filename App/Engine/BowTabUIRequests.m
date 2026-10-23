@@ -13,18 +13,36 @@
 
 @end
 
+@implementation BowPopupWindowFeatures
+
+- (instancetype)initWithX:(NSNumber*)x y:(NSNumber*)y width:(NSNumber*)width height:(NSNumber*)height isPopup:(BOOL)isPopup {
+  self = [super init];
+  if (self) {
+    _x = x;
+    _y = y;
+    _width = width;
+    _height = height;
+    _isPopup = isPopup;
+  }
+  return self;
+}
+
+@end
+
 @implementation BowPopupRequest
 
 - (instancetype)initWithTargetURL:(NSURL*)targetURL
                       disposition:(BowPopupDisposition)disposition
                     isUserGesture:(BOOL)isUserGesture
-                    requestedSize:(BowPopupSize*)requestedSize {
+                    requestedSize:(BowPopupSize*)requestedSize
+                   windowFeatures:(BowPopupWindowFeatures*)windowFeatures {
   self = [super init];
   if (self) {
     _targetURL = [targetURL copy];
     _disposition = disposition;
     _isUserGesture = isUserGesture;
     _requestedSize = requestedSize;
+    _windowFeatures = windowFeatures;
   }
   return self;
 }
@@ -108,6 +126,63 @@
     _sourceURL = [sourceURL copy];
     _selectionText = [selectionText copy];
     _defaultItems = [defaultItems copy];
+  }
+  return self;
+}
+
+@end
+
+@implementation BowKeyEvent
+
+- (instancetype)initWithKind:(BowKeyEventKind)kind
+                     keyCode:(NSInteger)keyCode
+                  characters:(NSString*)characters
+ charactersIgnoringModifiers:(NSString*)charactersIgnoringModifiers
+                   modifiers:(BowKeyModifiers)modifiers
+             inEditableField:(BOOL)inEditableField {
+  self = [super init];
+  if (self) {
+    _kind = kind;
+    _keyCode = keyCode;
+    _characters = [characters copy];
+    _charactersIgnoringModifiers = [charactersIgnoringModifiers copy];
+    _modifiers = modifiers;
+    _inEditableField = inEditableField;
+  }
+  return self;
+}
+
+@end
+
+@implementation BowAuthChallenge
+
+- (instancetype)initWithURL:(NSURL*)url
+                       host:(NSString*)host
+                       port:(NSInteger)port
+                      realm:(NSString*)realm
+                     scheme:(NSString*)scheme
+                    fromProxy:(BOOL)fromProxy {
+  self = [super init];
+  if (self) {
+    _url = [url copy];
+    _host = [host copy];
+    _port = port;
+    _realm = [realm copy];
+    _scheme = [scheme copy];
+    _fromProxy = fromProxy;
+  }
+  return self;
+}
+
+@end
+
+@implementation BowCertificateError
+
+- (instancetype)initWithURL:(NSURL*)url code:(NSInteger)code {
+  self = [super init];
+  if (self) {
+    _url = [url copy];
+    _code = code;
   }
   return self;
 }

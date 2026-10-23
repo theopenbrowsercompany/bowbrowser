@@ -46,7 +46,7 @@ bool BowTabClient::OnRequestMediaAccessPermission(CefRefPtr<CefBrowser> browser,
                                                   const CefString& requestingOrigin,
                                                   uint32_t requestedPermissions,
                                                   CefRefPtr<CefMediaAccessCallback> callback) {
-  if (browser->IsPopup() || ![tab_ takesUIRequest:@selector(tab:requestPermission:decisionHandler:)]) return false;
+  if (!IsOwn(browser) || ![tab_ takesUIRequest:@selector(tab:requestPermission:decisionHandler:)]) return false;
   BowPermissionRequest* request =
       [[BowPermissionRequest alloc] initWithRequestingOrigin:BowToNSURL(requestingOrigin)
                                                        kinds:MediaPermissionKinds(requestedPermissions)];
@@ -66,7 +66,7 @@ bool BowTabClient::OnShowPermissionPrompt(CefRefPtr<CefBrowser> browser,
                                           const CefString& requestingOrigin,
                                           uint32_t requestedPermissions,
                                           CefRefPtr<CefPermissionPromptCallback> callback) {
-  if (browser->IsPopup() || ![tab_ takesUIRequest:@selector(tab:requestPermission:decisionHandler:)]) return false;
+  if (!IsOwn(browser) || ![tab_ takesUIRequest:@selector(tab:requestPermission:decisionHandler:)]) return false;
   BowPermissionRequest* request =
       [[BowPermissionRequest alloc] initWithRequestingOrigin:BowToNSURL(requestingOrigin)
                                                        kinds:PromptPermissionKinds(requestedPermissions)];

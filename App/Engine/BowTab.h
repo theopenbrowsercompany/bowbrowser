@@ -20,6 +20,12 @@ NS_SWIFT_SENDABLE
 @property(nonatomic, readonly, getter=isLoading) BOOL loading;
 @property(nonatomic, readonly) BOOL canGoBack;
 @property(nonatomic, readonly) BOOL canGoForward;
+/// Always NO for now: CEF 156 reports no audible state.
+@property(nonatomic, readonly, getter=isAudible) BOOL audible;
+/// YES while the page uses a camera (or captures the screen's video).
+@property(nonatomic, readonly, getter=isCapturingVideo) BOOL capturingVideo;
+/// YES while the page uses a microphone (or captures the screen's audio).
+@property(nonatomic, readonly, getter=isCapturingAudio) BOOL capturingAudio;
 
 @end
 
@@ -75,6 +81,15 @@ NS_SWIFT_UI_ACTOR
 /// with YES once the page is destroyed, or NO when the person chose to stay on the page (at the UI delegate's
 /// JavaScript dialog, or at the tab's own prompt when the delegate has none).
 - (void)closeWithCompletion:(void (^)(BOOL closed))completion NS_SWIFT_NAME(close(completion:));
+
+/// Destroys the page's browser to free its memory; the app keeps its own model of the tab. The page's beforeunload
+/// handler runs but never prompts: a page that would ask to stay keeps the tab, and the completion gets NO. On
+/// YES the tab is closed and its UI delegate gets `tabDidUnload:` instead of `tabDidClose:`. A closed tab answers NO.
+- (void)unloadWithCompletion:(void (^)(BOOL unloaded))completion NS_SWIFT_NAME(unload(completion:));
+
+/// The page's zoom level (0 is 100%). Chromium keeps zoom per site in the profile, so setting it changes every tab
+/// on the page's site. 0 while the tab has no browser, and setting it then does nothing.
+@property(nonatomic) double zoomLevel;
 
 /// Downloads the site icon at `url` (usually the state's `faviconURL`) through the tab's own profile, at most
 /// `maxPixelSize` pixels on a side, and calls `completion` on a later main thread task with the image, or nil when

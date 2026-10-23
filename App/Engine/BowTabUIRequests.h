@@ -31,6 +31,40 @@ __attribute__((objc_subclassing_restricted))
 
 @end
 
+/// Where the app wants a new page the page opened to go. Mirrors BowCore's `PopupDecision`.
+typedef NS_CLOSED_ENUM(NSInteger, BowPopupDecision) {
+  /// A new tab, shown at once, handed to the UI delegate's `tab(_:didOpenPopup:request:)`.
+  BowPopupDecisionForegroundTab,
+  /// A new tab left in the background, handed over the same way.
+  BowPopupDecisionBackgroundTab,
+  /// A separate window the engine opens itself (the default).
+  BowPopupDecisionWindow,
+  /// Nothing opens.
+  BowPopupDecisionBlock,
+} NS_SWIFT_NAME(BowPopupRequest.Decision);
+
+/// The window features a page passed to `window.open`; each number is nil when the page did not set it. Immutable.
+/// Mirrors BowCore's `PopupWindowFeatures`.
+NS_SWIFT_SENDABLE
+__attribute__((objc_subclassing_restricted))
+@interface BowPopupWindowFeatures : NSObject
+
+- (instancetype)initWithX:(nullable NSNumber *)x
+                        y:(nullable NSNumber *)y
+                    width:(nullable NSNumber *)width
+                   height:(nullable NSNumber *)height
+                  isPopup:(BOOL)isPopup NS_DESIGNATED_INITIALIZER;
+- (instancetype)init NS_UNAVAILABLE;
++ (instancetype)new NS_UNAVAILABLE;
+
+@property(nonatomic, readonly, nullable) NSNumber *x;
+@property(nonatomic, readonly, nullable) NSNumber *y;
+@property(nonatomic, readonly, nullable) NSNumber *width;
+@property(nonatomic, readonly, nullable) NSNumber *height;
+@property(nonatomic, readonly) BOOL isPopup;
+
+@end
+
 /// A page asked to open a new tab or window. Immutable. Mirrors BowCore's `PopupRequest`.
 NS_SWIFT_SENDABLE
 __attribute__((objc_subclassing_restricted))
@@ -39,7 +73,8 @@ __attribute__((objc_subclassing_restricted))
 - (instancetype)initWithTargetURL:(nullable NSURL *)targetURL
                       disposition:(BowPopupDisposition)disposition
                     isUserGesture:(BOOL)isUserGesture
-                    requestedSize:(nullable BowPopupSize *)requestedSize NS_DESIGNATED_INITIALIZER;
+                    requestedSize:(nullable BowPopupSize *)requestedSize
+                   windowFeatures:(BowPopupWindowFeatures *)windowFeatures NS_DESIGNATED_INITIALIZER;
 - (instancetype)init NS_UNAVAILABLE;
 + (instancetype)new NS_UNAVAILABLE;
 
@@ -49,6 +84,7 @@ __attribute__((objc_subclassing_restricted))
 @property(nonatomic, readonly) BOOL isUserGesture;
 /// The size the page asked for, when it asked for one.
 @property(nonatomic, readonly, nullable) BowPopupSize *requestedSize;
+@property(nonatomic, readonly) BowPopupWindowFeatures *windowFeatures;
 
 @end
 
@@ -227,5 +263,87 @@ typedef NS_CLOSED_ENUM(NSInteger, BowProcessGoneReason) {
   BowProcessGoneReasonLaunchFailed,
   BowProcessGoneReasonOther,
 };
+
+#pragma mark Keys before the page
+
+/// Which key event is on its way to the page. Mirrors BowCore's `EngineKeyEvent.Kind`.
+typedef NS_CLOSED_ENUM(NSInteger, BowKeyEventKind) {
+  BowKeyEventKindKeyDown,
+  BowKeyEventKindKeyUp,
+  BowKeyEventKindCharacter,
+} NS_SWIFT_NAME(BowKeyEvent.Kind);
+
+/// Modifier keys held during a key event. Mirrors BowCore's `KeyModifiers`.
+typedef NS_OPTIONS(NSUInteger, BowKeyModifiers) {
+  BowKeyModifierShift = 1 << 0,
+  BowKeyModifierControl = 1 << 1,
+  BowKeyModifierOption = 1 << 2,
+  BowKeyModifierCommand = 1 << 3,
+} NS_SWIFT_NAME(BowKeyEvent.Modifiers);
+
+/// A key event on its way to the page. Immutable. Mirrors BowCore's `EngineKeyEvent`.
+NS_SWIFT_SENDABLE
+__attribute__((objc_subclassing_restricted))
+@interface BowKeyEvent : NSObject
+
+- (instancetype)initWithKind:(BowKeyEventKind)kind
+                     keyCode:(NSInteger)keyCode
+                  characters:(NSString *)characters
+ charactersIgnoringModifiers:(NSString *)charactersIgnoringModifiers
+                   modifiers:(BowKeyModifiers)modifiers
+             inEditableField:(BOOL)inEditableField NS_DESIGNATED_INITIALIZER;
+- (instancetype)init NS_UNAVAILABLE;
++ (instancetype)new NS_UNAVAILABLE;
+
+@property(nonatomic, readonly) BowKeyEventKind kind;
+/// The macOS virtual key code.
+@property(nonatomic, readonly) NSInteger keyCode;
+@property(nonatomic, readonly, copy) NSString *characters;
+@property(nonatomic, readonly, copy) NSString *charactersIgnoringModifiers;
+@property(nonatomic, readonly) BowKeyModifiers modifiers;
+@property(nonatomic, readonly, getter=isInEditableField) BOOL inEditableField;
+
+@end
+
+#pragma mark Sign in and certificates
+
+/// A server or proxy asked for a user name and password. Immutable. Mirrors BowCore's `AuthChallenge`.
+NS_SWIFT_SENDABLE
+__attribute__((objc_subclassing_restricted))
+@interface BowAuthChallenge : NSObject
+
+- (instancetype)initWithURL:(nullable NSURL *)url
+                       host:(NSString *)host
+                       port:(NSInteger)port
+                      realm:(NSString *)realm
+                     scheme:(NSString *)scheme
+                    fromProxy:(BOOL)fromProxy NS_DESIGNATED_INITIALIZER;
+- (instancetype)init NS_UNAVAILABLE;
++ (instancetype)new NS_UNAVAILABLE;
+
+@property(nonatomic, readonly, copy, nullable) NSURL *url;
+@property(nonatomic, readonly, copy) NSString *host;
+@property(nonatomic, readonly) NSInteger port;
+@property(nonatomic, readonly, copy) NSString *realm;
+@property(nonatomic, readonly, copy) NSString *scheme;
+/// YES when a proxy asked rather than the server.
+@property(nonatomic, readonly) BOOL fromProxy;
+
+@end
+
+/// A page's certificate failed to verify. Immutable. Mirrors BowCore's `CertificateError`.
+NS_SWIFT_SENDABLE
+__attribute__((objc_subclassing_restricted))
+@interface BowCertificateError : NSObject
+
+- (instancetype)initWithURL:(nullable NSURL *)url code:(NSInteger)code NS_DESIGNATED_INITIALIZER;
+- (instancetype)init NS_UNAVAILABLE;
++ (instancetype)new NS_UNAVAILABLE;
+
+@property(nonatomic, readonly, copy, nullable) NSURL *url;
+/// The engine's network error code.
+@property(nonatomic, readonly) NSInteger code;
+
+@end
 
 NS_ASSUME_NONNULL_END

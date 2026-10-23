@@ -5,7 +5,7 @@ void BowTabClient::OnLoadingStateChange(CefRefPtr<CefBrowser> browser,
                                         bool isLoading,
                                         bool canGoBack,
                                         bool canGoForward) {
-  if (browser->IsPopup()) return;
+  if (!IsOwn(browser)) return;
   [tab_ updateState:^(NSURL* __strong*, NSString* __strong*, NSURL* __strong*, BOOL* loading, BOOL* back,
                       BOOL* forward) {
     *loading = isLoading;
@@ -18,13 +18,13 @@ void BowTabClient::OnLoadingStateChange(CefRefPtr<CefBrowser> browser,
 // Called once a navigation has committed, before the new page starts loading. Chromium does not call it for
 // same document navigations or for the error page it shows after a failure.
 void BowTabClient::OnLoadStart(CefRefPtr<CefBrowser> browser, CefRefPtr<CefFrame> frame, TransitionType transitionType) {
-  if (browser->IsPopup() || !frame->IsMain()) return;
+  if (!IsOwn(browser) || !frame->IsMain()) return;
   NSURL* url = BowToNSURL(frame->GetURL());
   if (url) [tab_ navigationCommitted:url transition:BowToTransition(transitionType)];
 }
 
 void BowTabClient::OnLoadEnd(CefRefPtr<CefBrowser> browser, CefRefPtr<CefFrame> frame, int httpStatusCode) {
-  if (browser->IsPopup() || !frame->IsMain()) return;
+  if (!IsOwn(browser) || !frame->IsMain()) return;
   [tab_ navigationFinished:httpStatusCode];
 }
 
@@ -33,7 +33,7 @@ void BowTabClient::OnLoadError(CefRefPtr<CefBrowser> browser,
                                ErrorCode errorCode,
                                const CefString& errorText,
                                const CefString& failedUrl) {
-  if (browser->IsPopup() || !frame->IsMain()) return;
+  if (!IsOwn(browser) || !frame->IsMain()) return;
   [tab_ navigationFailed:errorCode text:BowToNSString(errorText) url:BowToNSURL(failedUrl)];
 }
 
