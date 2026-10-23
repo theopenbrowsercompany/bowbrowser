@@ -41,6 +41,7 @@ dispatch_source_t gQuitWatchdog = nil;
 
 int gExitCode = 0;
 NSTimeInterval gQuitDuration = 0;
+NSTimeInterval gQuitCloseDuration = 0;
 BowEngineConfiguration* gConfiguration = nil;
 
 #if BOW_E2E  // E2E seam
@@ -170,6 +171,10 @@ void BowEngineBrowserClosed(CefRefPtr<CefBrowser> browser) {
   QuitMessageLoopIfDone();
 }
 
+void BowEngineMessageLoopDidEnd() {
+  if (gQuitStart > 0) gQuitCloseDuration = CFAbsoluteTimeGetCurrent() - gQuitStart;
+}
+
 void BowEngineDidShutDown() {
   StopQuitWatchdog();
   if (gQuitStart > 0) gQuitDuration = CFAbsoluteTimeGetCurrent() - gQuitStart;
@@ -263,6 +268,10 @@ void BowEngineDidShutDown() {
 
 + (NSTimeInterval)quitDuration {
   return gQuitDuration;
+}
+
++ (NSTimeInterval)quitCloseDuration {
+  return gQuitCloseDuration;
 }
 
 + (void)startQuitClock {

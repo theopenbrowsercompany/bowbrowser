@@ -43,6 +43,8 @@ bool BowEngineBrowserCloseCancelled(CefRefPtr<CefBrowser> browser);
 void BowEngineBrowserWillClose(CefRefPtr<CefBrowser> browser);
 /// OnBeforeClose. Ends the message loop when the app is quitting and this was the last browser.
 void BowEngineBrowserClosed(CefRefPtr<CefBrowser> browser);
+/// Called by main when the message loop has ended, before CefShutdown.
+void BowEngineMessageLoopDidEnd();
 /// Called by main after CefShutdown returns.
 void BowEngineDidShutDown();
 
