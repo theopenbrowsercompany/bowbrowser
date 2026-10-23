@@ -29,7 +29,7 @@ public actor CommandBarRegistry {
         let timeout = timeout
         let (stream, continuation) = AsyncStream.makeStream(of: [CommandBarResult].self)
 
-        let task = Task {
+        let task = Task.detached {
             var answers = [[CommandBarCandidate]](repeating: [], count: providers.count)
             await withTaskGroup(of: (Int, [CommandBarCandidate])?.self) { group in
                 for (index, provider) in providers.enumerated() {
@@ -37,7 +37,10 @@ public actor CommandBarRegistry {
                         await Self.answer(from: provider, index: index, query: query, timeout: timeout)
                     }
                 }
-                if providers.isEmpty { return }
+                if providers.isEmpty {
+                    continuation.yield(ranker.rank(query: query, candidatesByProvider: []))
+                    return
+                }
                 for await answer in group {
                     if let (index, candidates) = answer { answers[index] = candidates }
                     continuation.yield(ranker.rank(query: query, candidatesByProvider: answers))

@@ -24,7 +24,7 @@ Everyone who browses uses it, mostly through Cmd+T and Cmd+L.
   - Anything else, including numbers such as `3.14`, is a web search.
   - Characters such as `&`, `=`, `+` and `#` in search text are searched for, not treated as part of the address.
 - When the typed text is an address, the first row loads it, and a second row below the matches searches for it instead.
-  When it is not an address, a search row sits below the rows that start with the text and above looser matches.
+  When it is not an address, a search row sits below the rows where a word of the title or address starts with the text and above rows that match only inside a word.
 - Ranking, in order of strength:
   1. A tab or page whose address equals the typed address.
   2. The typed address itself.
@@ -47,6 +47,8 @@ Everyone who browses uses it, mostly through Cmd+T and Cmd+L.
 
 ## Acceptance checks
 
+Checks 1 to 8 need the command bar UI and shortcuts, which are built separately from the ranking logic; the ranking and address rules above are covered by unit tests.
+
 1. Start with tabs "Alpha" and "Beta" open and Alpha selected.
    Press Cmd+T, then Escape.
    The bar closes and still only two tabs exist.
@@ -64,7 +66,7 @@ Everyone who browses uses it, mostly through Cmd+T and Cmd+L.
    The list shows the open tabs, most recently used first.
 7. Type `a&b=c`.
    The search row loads a search for exactly `a&b=c`.
-8. `make e2e` prints `PASS cmdbar: query=a first=tab:A`.
+8. (Pending the app work, not part of the ranking logic.) `make e2e` prints `PASS cmdbar: query=a first=tab:A`.
 
 ## Out of scope
 

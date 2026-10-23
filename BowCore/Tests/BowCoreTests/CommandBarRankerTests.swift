@@ -193,6 +193,24 @@ import Testing
         #expect(results.filter { $0.kind == .history }.allSatisfy { $0.action == .navigate($0.url) })
     }
 
+    @Test func searchKeepsItsPlaceWhenAnOpenTabHidesTheTypedAddress() {
+        let results = ranker.rank(
+            query: "example.com",
+            candidatesByProvider: [
+                typed("example.com"),
+                [tab("Example", "https://example.com"), page("Visit example.com", "https://z.test/")],
+            ])
+        #expect(results.map(\.title) == ["Example", "example.com", "Visit example.com"])
+        #expect(results[1].kind == .search)
+    }
+
+    @Test func aSchemeInsideTheTextIsNotTreatedAsTheAddress() {
+        let results = ranker.rank(
+            query: "redirect?u=http://x.com",
+            candidatesByProvider: [typed("redirect?u=http://x.com"), [tab("X", "https://x.com/")]])
+        #expect(results.map(\.kind) == [.search])
+    }
+
     func tabID(_ candidate: CommandBarCandidate) -> UUID {
         guard case .openTab(let id) = candidate.kind else { fatalError("not a tab") }
         return id

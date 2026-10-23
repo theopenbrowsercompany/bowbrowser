@@ -45,4 +45,20 @@ import Testing
         let expected = AddressInput.searchURL + "a%26b%3Dc%2Bd%23e"
         #expect(AddressInput.resolve("a&b=c+d#e")?.absoluteString == expected)
     }
+
+    @Test func schemeFollowedByWordsIsASearch() {
+        #expect(!AddressInput.interpret("about: how to").isAddress)
+        #expect(!AddressInput.interpret("file: report.pdf").isAddress)
+    }
+
+    @Test func emailsAndLeadingSlashesAreSearches() {
+        #expect(!AddressInput.interpret("user@mail.com").isAddress)
+        #expect(!AddressInput.interpret("/foo.bar").isAddress)
+        #expect(!AddressInput.interpret("a?b.c").isAddress)
+    }
+
+    @Test func hostsMayCarryQueriesAndFragments() {
+        #expect(AddressInput.interpret("example.com?q=1").isAddress)
+        #expect(AddressInput.interpret("example.com#top").isAddress)
+    }
 }
