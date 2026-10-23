@@ -4,7 +4,9 @@ import Foundation
 /// its rows, close buttons and New Tab button drive the tabs. Fixtures in E2E/Fixtures/sidebar/.
 @MainActor
 enum SidebarViewTests {
-    static let all: [any E2ETest] = [SidebarTabsTest(), SidebarLongTitleTest()]
+    static let all: [any E2ETest] = [
+        SidebarTabsTest(), SidebarLongTitleTest(), SidebarMenuShortcutsTest(), SidebarSeedTest(),
+    ]
 }
 
 /// Waits on the sidebar shared by the sidebar and tab list tests.
@@ -177,5 +179,108 @@ struct SidebarLongTitleTest: E2ETest {
         let clears = row?.titleClearsClose == true
         run.check(
             name, passed: clears, clears ? "title ends before the close button" : "title runs under the close button")
+    }
+}
+
+/// Chooses menu items by shortcut with their modifiers: closes tab B with Command-W, finds the Option-Command,
+/// Shift-Command and uppercase key items by their shortcut and none for a combination no item has, then closes the
+/// window with Shift-Command-W. Every shortcut goes through the app's main menu, never DevTools.
+struct SidebarMenuShortcutsTest: E2ETest {
+    let name = "sidebar.menu"
+    let checks = ["sidebar.menu-command", "sidebar.menu-modifiers"]
+
+    func run(_ run: E2ERun) async throws {
+        let sidebar = try SidebarWaits.app(run)
+        guard let app = run.app as? any E2EMenuApp else { throw E2EError("the app has no menu to drive") }
+        let a = try await run.step("open window", timeout: E2ETimeouts.firstLoad) {
+            let page = try await run.app.openWindow(at: E2EFixture.url("sidebar/page.html?name=A"))
+            _ = try await page.waitForLoad(after: 0)
+            return page
+        }
+        let command = try await run.step("close B with Command-W", timeout: E2ETimeouts.firstLoad) {
+            let b = try sidebar.clickNewTab(besides: a, opening: E2EFixture.url("sidebar/page.html?name=B"))
+            _ = try await b.waitForLoad(after: 0)
+            try await SidebarWaits.rows(sidebar, of: a) { $0.map(\.title) == ["A", "B"] }
+            try app.chooseMenuItem(key: "w", modifiers: .command, in: b)
+            while !b.isClosed { try await Task.sleep(nanoseconds: 10_000_000) }
+            return SidebarWaits.summary(try await SidebarWaits.rows(sidebar, of: a) { $0.count == 1 })
+        }
+        run.check("sidebar.menu-command", passed: command == "tabs=[A] active=A", command)
+
+        // What each lookup should find; nil where no item has the shortcut (an exact match, not a subset).
+        let lookups: [(key: String, modifiers: E2EKeyModifiers, title: String?)] = [
+            ("l", [.option, .command], "Downloads"),
+            ("w", [.shift, .command], "Close Window"),
+            ("W", .command, "Close Window"),
+            ("w", .command, "Close Tab"),
+            ("w", [.control, .option, .shift, .command], nil),
+        ]
+        var problems: [String] = []
+        for lookup in lookups {
+            let title = app.menuItemTitle(key: lookup.key, modifiers: lookup.modifiers)
+            if title != lookup.title {
+                problems.append("\(lookup.modifiers.shortcut(lookup.key))=\(title ?? "none")")
+            }
+        }
+        try await run.step("close the window with Shift-Command-W", timeout: E2ETimeouts.step) {
+            try app.chooseMenuItem(key: "w", modifiers: [.shift, .command], in: a)
+            while !a.isClosed { try await Task.sleep(nanoseconds: 10_000_000) }
+        }
+        let detail = problems.isEmpty ? "lookups=\(lookups.count) shift-cmd-w=closed" : problems.joined(separator: " ")
+        run.check("sidebar.menu-modifiers", passed: problems.isEmpty, detail)
+    }
+}
+
+/// Seeds two Spaces before the window opens: Work, on the test's profile, with a pinned folder holding a tab and a
+/// nested folder, a pinned tab and two today tabs, and Home on a profile of its own with one today tab. Checks the
+/// window shows Work laid out as seeded, and that every created Space, folder and tab came back with its own ID.
+struct SidebarSeedTest: E2ETest {
+    let name = "sidebar.seed"
+    let checks = ["sidebar.seed", "sidebar.seed-ids"]
+
+    func run(_ run: E2ERun) async throws {
+        guard let app = run.app as? any E2EZonesApp & E2EStoreSeedApp else {
+            throw E2EError("the app cannot seed a sidebar")
+        }
+        let url = { (name: String) in E2EFixture.url("sidebar/page.html?name=\(name)") }
+        let seed = E2ESeed(
+            spaces: [
+                E2ESeedSpace(
+                    "Work",
+                    pinned: [
+                        .folder("Docs", [.tab("P1", url: url("P1")), .folder("Inner", [.tab("P2", url: url("P2"))])]),
+                        .tab("P3", url: url("P3")),
+                    ],
+                    today: [.tab("T1", url: url("T1")), .tab("T2", url: url("T2"))]
+                ),
+                E2ESeedSpace(
+                    "Home", profile: .new(E2EProfile(id: "e2e-seed-home", isPersistent: false)),
+                    today: [.tab("H1", url: url("H1"))]),
+            ],
+            activeSpace: "Work"
+        )
+        let window = try await run.step("open the seeded window", timeout: E2ETimeouts.firstLoad) {
+            let window = try await app.openWindow(seeded: seed)
+            _ = try await window.page.waitForLoad(after: 0)
+            return window
+        }
+        let expected = ["favorites", "pinned", "Docs", "P1", "Inner", "P2", "P3", "divider", "today", "T1", "T2"]
+        let outline = try await run.step("outline", timeout: E2ETimeouts.step) {
+            while true {
+                let outline = try app.sidebarOutline(of: window.page)
+                if outline == expected { return outline }
+                try await Task.sleep(nanoseconds: 10_000_000)
+            }
+        }
+        run.check("sidebar.seed", passed: outline == expected, outline.joined(separator: " | "))
+
+        let items = ["Docs", "P1", "Inner", "P2", "P3", "T1", "T2", "H1"]
+        let ids = Array(window.spaceIDs.values) + Array(window.itemIDs.values)
+        let complete =
+            Set(window.spaceIDs.keys) == ["Work", "Home"] && Set(window.itemIDs.keys) == Set(items)
+            && Set(ids).count == ids.count && !ids.contains("")
+        run.check(
+            "sidebar.seed-ids", passed: complete,
+            "spaces=\(window.spaceIDs.keys.sorted()) items=\(window.itemIDs.keys.sorted()) distinct=\(Set(ids).count)")
     }
 }
