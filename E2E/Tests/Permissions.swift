@@ -19,7 +19,8 @@ struct PermissionsPromptTest: E2ETest {
     func run(_ run: E2ERun) async throws {
         let url = E2EFixture.url("permissions/index.html")
         let page = try await run.step("open window", timeout: E2ETimeouts.firstLoad) {
-            let page = try await run.app.openWindow(at: url)
+            // The app's default profile, whose answers are saved to disk (each test's own profile is in memory).
+            let page = try await run.app.openWindow(at: url, profile: .appDefault)
             _ = try await page.waitForLoad(after: 0)
             return page
         }
