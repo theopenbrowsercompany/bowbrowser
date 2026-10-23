@@ -17,6 +17,13 @@ Everyone who browses uses it, mostly through Cmd+T and Cmd+L.
   Up to 8 rows show.
   Each row has a title and an address, and an open tab is marked as one.
 - Choosing a row that is an open tab switches to that tab instead of opening a new one.
+- Every open tab row shows the Space the tab lives in (its icon and name), so two tabs on similar pages in different Spaces can be told apart and the person sees which profile, and so which logins, the tab uses.
+  The Ctrl+Tab tab switcher shows the same Space beside each tab.
+  A Favorite belongs to no one Space, so its row shows none.
+  Rows for visited pages, typed addresses and searches show no Space.
+- Choosing an open tab that lives in another Space first shows that Space, then selects the tab.
+  Choosing one in the Space already on screen only selects it.
+  Choosing a Favorite never changes the Space on screen.
 - With the bar empty, the list shows the open tabs, most recently used first.
 - What gets typed is read the same way as in the address field:
   - A full address (`https://example.com/a`) loads as typed.
@@ -68,9 +75,16 @@ Checks 1 to 8 need the command bar UI and shortcuts, which are built separately 
    The search row loads a search for exactly `a&b=c`.
 8. (Pending the app work, not part of the ranking logic.) `make e2e` prints `PASS cmdbar: query=a first=tab:A`.
 
+9. With Spaces "work" (tab A) and "personal" (tab B) and "work" on screen, press Cmd+T, type `b`, press Enter on the B row.
+   The B row shows "personal".
+   "personal" comes on screen with B selected and no tab is added.
+   (The Space switch is covered by unit tests; the on screen check is pending the app work: `make e2e` prints `PASS cmdbar.space: first=tab:A space=work`.)
+
 ## Out of scope
 
 - The history store that feeds visited pages: not yet built, see its own spec when added.
 - Commands and actions in the bar, and suggestions from the search engine.
 - Ctrl+Tab switching by recency.
 - Sidebar and tab behavior: see the tab specs.
+- A Space icon: Spaces have no icon yet (see the Spaces spec), so rows show the name until they do.
+- Finding tabs by typing a Space's name.
