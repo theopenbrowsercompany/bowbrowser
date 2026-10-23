@@ -447,9 +447,10 @@ final class E2ERunner {
         watchdog.disarm()
     }
 
-    /// Prints one line per test: `TEST <name> area=<area> tags=<tags or -> checks=<checks>`.
+    /// Prints one line per test: `TEST <name> area=<area> tags=<tags or -> checks=<checks>`. Tests selected by name
+    /// only are left out, so a selection the wrapper resolves from this list (shards) never includes them.
     private static func list() {
-        for test in E2ETests.all {
+        for test in E2ETests.all where !test.selectedByNameOnly {
             let tags = test.tags.isEmpty ? "-" : test.tags.joined(separator: ",")
             print("TEST \(test.name) area=\(test.area) tags=\(tags) checks=\(test.checks.joined(separator: ","))")
         }

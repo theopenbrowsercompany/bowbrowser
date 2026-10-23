@@ -15,6 +15,10 @@ protocol E2ETest {
     /// True for the one test that checks quitting with `E2ERun.expectQuit`. It runs last, and the runner leaves its
     /// windows open, so quitting is timed with only that test's window. Defaults to false.
     var quitsApp: Bool { get }
+    /// True for a harness self test that ends its run on purpose (for example by getting the main thread stuck to
+    /// prove the watchdog fires). Only a selection part that is exactly its name runs it: `all`, areas, globs and
+    /// tags skip it, and `--e2e=list` leaves it out, so normal runs never pay for it. Defaults to false.
+    var selectedByNameOnly: Bool { get }
     func run(_ run: E2ERun) async throws
 }
 
@@ -22,6 +26,7 @@ extension E2ETest {
     var checks: [String] { [name] }
     var tags: [String] { [] }
     var quitsApp: Bool { false }
+    var selectedByNameOnly: Bool { false }
     /// The part of the name before the first dot, which `--e2e=<area>` selects.
     var area: String { String(name.prefix { $0 != "." }) }
 }
@@ -33,19 +38,20 @@ enum E2ETests {
     static let all: [any E2ETest] = E2EAreas.all.flatMap { $0 }
 
     /// The tests `selection` names, in the order of `all`. A selection is `all`, or a comma separated list of test
-    /// names, areas (`tabs`), globs (`tabs.*`, `nav.?ack`) and tags (`smoke`). Throws for a part that matches
-    /// nothing, listing the tests.
+    /// names, areas (`tabs`), globs (`tabs.*`, `nav.?ack`) and tags (`smoke`). A test with `selectedByNameOnly`
+    /// matches only its exact name. Throws for a part that matches nothing, listing the tests.
     static func select(_ selection: String, from tests: [any E2ETest] = all) throws -> [any E2ETest] {
-        if selection == "all" { return tests }
+        if selection == "all" { return tests.filter { !$0.selectedByNameOnly } }
         let parts = selection.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }
         var chosen = Set<String>()
         for part in parts where !part.isEmpty {
             let matching = tests.filter { test in
-                test.name == part || test.area == part || test.tags.contains(part)
-                    || fnmatch(part, test.name, 0) == 0
+                test.name == part
+                    || (!test.selectedByNameOnly
+                        && (test.area == part || test.tags.contains(part) || fnmatch(part, test.name, 0) == 0))
             }
             guard !matching.isEmpty else {
-                let known = tests.map(\.name).joined(separator: ", ")
+                let known = tests.filter { !$0.selectedByNameOnly }.map(\.name).joined(separator: ", ")
                 throw E2EError(
                     "--e2e=\(selection): \(part) matches no test, area or tag; use all, list, or any of: \(known)")
             }
