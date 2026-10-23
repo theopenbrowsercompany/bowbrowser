@@ -4,8 +4,8 @@
 
 A window holds several tabs, each one a live web page, and shows one of them at a time.
 People keep many pages open and move between them all day, so switching must be instant and lossless, and closing a page must never throw away work without asking.
-Each window keeps an ordered list of tabs with one active tab, and everything the sidebar shows or does with tabs starts from that list.
-The list is the base for pinned tabs, folders, spaces and restoring tabs after a restart.
+Each window shows an ordered list of tabs with one active tab, and everything the sidebar shows or does with tabs starts from that list.
+The list comes from the saved sidebar (see `sidebar-store.md`): a window's tabs are the tabs of the Space on screen, its pinned tabs first and then its other tabs, so the same list carries pinned tabs, folders, Spaces and restoring tabs after a restart.
 
 ## Behavior
 
@@ -35,8 +35,17 @@ The list is the base for pinned tabs, folders, spaces and restoring tabs after a
 - A tab has a stable identity that never changes while it exists, an address, a title, an optional favicon, a loading flag, and whether it can go back and forward.
 - A tab's address, title, favicon, loading flag and back and forward state always mirror what the page last reported.
   The tab's identity is its own and does not change when the page navigates.
-- Opening a tab puts it right after the active tab by default, or at the end of the list when asked.
+- Opening a tab adds it to the Space on screen's tabs section (below the pinned tabs): right after the active tab when that tab is in the tabs section itself, otherwise at the end.
   When nothing is active, "after the active tab" means the end.
+- Every tab is created in the profile of the Space that holds it, decided before its first request, so it never starts in another profile's cookies.
+  This holds for every way a tab opens: the New Tab button and menu, a link from another app, and a saved tab loading after a relaunch.
+  A tab whose Space names a profile Bow does not have does not open.
+- A link from another app (for example one clicked in Mail) opens in a new tab of the most recently used window, in the profile of its Space on screen, or in a new window when none is open.
+  Rules that send links to a chosen Space come later.
+- Opening, selecting, moving and closing tabs are saved to the sidebar as they happen.
+  A tab in the tabs section remembers the page it shows, so a relaunch brings it back on that page; a pinned tab keeps the address it was pinned on.
+- Relaunching shows the same tabs in the same order with the same active tab.
+  Only the active tab loads its page right away; every other tab shows its saved title and loads when it is selected.
 - A newly opened tab becomes the active tab, unless it is opened in the background, in which case the active tab stays as it was.
   The first tab opened in an empty window is always active.
 - Selecting a tab makes it the active tab.
@@ -48,6 +57,8 @@ The list is the base for pinned tabs, folders, spaces and restoring tabs after a
   When it was the last tab, the tab before it becomes active.
 - Closing the only tab leaves an empty list with no active tab.
   Opening a tab afterwards works as in any empty window.
+- Closing a tab (its close button, Close Tab) removes it from the sidebar; closing a pinned tab only unloads its page and keeps it.
+  Tabs that close because their window closes or the app quits keep their place in the sidebar and come back on the next launch.
 - Asking for a tab that does not exist (select, close, move or update with an unknown identity) changes nothing.
 - Opening a tab whose identity is already in the list is refused and changes nothing.
 
@@ -79,6 +90,9 @@ The list is the base for pinned tabs, folders, spaces and restoring tabs after a
 - Saved tab lists are plain data.
   A saved list that is inconsistent (repeated identities, an active tab that is not in the list, an active tab in an empty list, or no active tab in a non-empty list) is rejected as a whole instead of being repaired silently.
 - Tab identities are separate from the engine's page identities, which do not survive a restart.
+- Known limit: a page that closes itself (`window.close()`) keeps its tab in the sidebar, unloaded, because Bow cannot yet tell that close from one made by quitting; selecting the tab loads its saved page again.
+- Moving a tab in the flat list puts it in the place of the tab it lands on, in that tab's section or folder; past the last tab it goes to the end of the tabs section.
+- A window opened for a smoke run or an e2e test runs on a sidebar of its own, so it never adds tabs to the person's sidebar.
 
 ## Acceptance checks
 
@@ -98,13 +112,15 @@ The list is the base for pinned tabs, folders, spaces and restoring tabs after a
 14. Run `make e2e`: `PASS sidebar.tabs: tabs=[A,B] active=B` shows a window with tab A and tab B (opened with the New Tab button) listed with their icons and titles and B highlighted, B's row showing a spinner while it loaded and then its title, a title change reaching the row, and clicking each row showing its page without reloading it.
 15. Run `make e2e`: `PASS sidebar.close: button=closed cmd-w=closed` shows one tab closed with its row's close button and another with Command-W, each leaving A and B with B active.
 16. By hand: drag a row to another position in the sidebar; the tab moves there and the highlighted tab stays the same.
+17. Run `make e2e`: `PASS store.roundtrip: items=12 after_relaunch=12` shows twelve tabs saved, their window closed and the sidebar read back from its file into a new window, which lists all twelve with the same active tab and loads only that one.
+18. Run `make e2e`: `PASS link.profile: opened_in=work cookie=1` shows a link from another app opening in the most recent window, created in its Space's profile (work), and seeing the cookie that profile set.
+19. By hand: open a few tabs, select one, quit and relaunch; the same tabs come back in order with the selected one loaded and the others loading only when clicked.
 
 ## Out of scope
 
 - Keyboard shortcuts for switching tabs, reopening closed tabs, and moving tabs between windows.
 - How the sidebar looks beyond the rows above (collapsing, resizing, themes, a hidden title bar).
-- Pinned tabs, favorites, folders, archiving of old tabs and sleeping tabs to save memory.
-- Several spaces, and tabs mirrored across windows.
-- Saving the tab list to disk and restoring it on launch.
+- Showing pinned tabs, Favorites and folders as sections (the sidebar lists the Space's tabs as one flat list for now), archiving of old tabs and sleeping tabs to save memory.
+- Switching Spaces, choosing a Space's profile, and tabs mirrored across windows.
 - Creating or closing the underlying pages in the engine (the tab list only records what the engine reports).
 - Prompts when a page reloads or navigates away (reloading asks "Reload this site?" the same way), which this spec does not check.
