@@ -242,35 +242,37 @@ struct UnloadPressureTest: E2ETest {
     }
 }
 
-/// A background tab's alert shows as the engine's own app modal panel (the app takes no page dialogs): a pass while
-/// it is up unloads nothing and leaves the alert for the person to answer; once it is answered, the next pass unloads
-/// the tab.
+/// A background tab's alert waits for its tab to be shown (the page dialogs feature): a pass while it waits unloads
+/// nothing, so the alert is not lost unseen; once the person has seen and answered it, the next pass unloads the tab.
 struct UnloadDialogTest: E2ETest {
     let name = "unload.dialog"
 
     func run(_ run: E2ERun) async throws {
         let (app, _) = try UnloadTests.apps(run)
+        let dialogs = try PageDialogsTests.dialogsApp(run)
         defer { app.resetUnloader() }
         let page = try await UnloadTests.openWindow(run, "home")
         let other = try await UnloadTests.openBackground(run, ["dialog"], besides: page)[0]
         let item = try app.unloadItem(of: other)
-        try await run.step("show an alert from the background tab", timeout: E2ETimeouts.step) {
-            _ = try await other.evaluate("setTimeout(() => alert('unload dialog'), 0); true")
-            guard try await TabEdgesTests.until({ try app.unloadDialogShown(besides: page) }) else {
-                throw E2EError("the alert never showed")
-            }
+        try await run.step("alert from the background tab", timeout: E2ETimeouts.step) {
+            _ = try await other.evaluate("setTimeout(() => { alert('unload dialog'); window.alerted = true }, 0); true")
+            _ = try await E2EWaits.until(other, "window.alerted === true")
+            guard try dialogs.pageDialogWaits(for: other) else { throw E2EError("the alert is not waiting") }
         }
-        let (during, duringState, alertKept) = try await run.step("pass with the alert up", timeout: E2ETimeouts.step) {
+        let (during, duringState, alertKept) = try await run.step("pass with the alert waiting", timeout: E2ETimeouts.step) {
             try app.setUnloadEnabled(true)
             try app.useManualUnloadClock()
             try app.advanceUnloadClock(by: UnloadTests.longIdle)
             let unloaded = try await app.runUnloadPass()
-            return (unloaded, try app.unloadTabState(item, besides: page), try app.unloadDialogShown(besides: page))
+            return (unloaded, try app.unloadTabState(item, besides: page), try dialogs.pageDialogWaits(for: other))
         }
-        let (after, afterState) = try await run.step("answer the alert, then pass", timeout: E2ETimeouts.step) {
-            guard try app.cancelUnloadDialog(besides: page) else { throw E2EError("no alert to answer") }
-            // The alert is answered once the page runs script again.
-            _ = try await other.evaluate("true")
+        let (after, afterState) = try await run.step("see and answer the alert, then pass", timeout: E2ETimeouts.step) {
+            try run.app.select(other)
+            _ = try await PageDialogsTests.untilDialog(dialogs, besides: page)
+            try dialogs.answerPageDialog(besides: page, accept: true, text: nil)
+            try run.app.select(page)
+            guard try await TabEdgesTests.until({ page.isShown }) else { throw E2EError("the first tab is not shown") }
+            try app.advanceUnloadClock(by: UnloadTests.longIdle)
             let unloaded = try await app.runUnloadPass()
             return (unloaded, try app.unloadTabState(item, besides: page))
         }
