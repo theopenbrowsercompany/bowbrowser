@@ -4,7 +4,8 @@ import Testing
 @Suite struct PageFullscreenTests {
     @Test func enteringHidesTheChromeAndEntersWindowFullScreen() {
         var state = PageFullscreen()
-        #expect(state.pageEntered(1, isShown: true, windowIsFullScreen: false) == [.hideChrome, .toggleWindowFullScreen])
+        #expect(
+            state.pageEntered(1, isShown: true, windowIsFullScreen: false) == [.hideChrome, .toggleWindowFullScreen])
         #expect(state.tab == 1)
         #expect(state.isActive)
         #expect(state.enteredWindowFullScreen)
@@ -106,7 +107,9 @@ import Testing
     @Test func theCardLosesItsInsetsOnlyWhileAPageFillsTheWindow() {
         for layout in WindowLayout.allCases {
             for toolbar in [true, false] {
-                #expect(WindowChrome.pageInsets(layout: layout, showsToolbar: toolbar, pageFullscreen: true) == (0, 0, 0, 0))
+                #expect(
+                    WindowChrome.pageInsets(layout: layout, showsToolbar: toolbar, pageFullscreen: true) == (0, 0, 0, 0)
+                )
                 #expect(
                     WindowChrome.pageInsets(layout: layout, showsToolbar: toolbar, pageFullscreen: false)
                         == layout.pageInsets(showsToolbar: toolbar))
