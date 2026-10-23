@@ -32,7 +32,7 @@ extension E2ETestApp: E2ECommandBarApp {
 /// E2ECommandBar over a window's command bar. Keys go to the window's first responder as key events, which is where
 /// the window would deliver them if it were key.
 @MainActor
-private final class WindowCommandBar: E2ECommandBar {
+final class WindowCommandBar: E2ECommandBar {
     private let page: E2ETabPage
     private let window: NSWindow
     private var feature: CommandBarFeature { page.controller.feature(CommandBarFeature.self)! }

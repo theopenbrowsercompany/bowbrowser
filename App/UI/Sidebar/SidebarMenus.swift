@@ -70,6 +70,8 @@ protocol SidebarActionContext: AnyObject {
     /// Runs `change`, which changes what the sidebar shows (switching Spaces through `changeSidebar`), with the
     /// outline's old content sliding out towards `direction` as the new comes in: `SidebarView.slideOutline`.
     func slideOutline(_ direction: SidebarSlideDirection, change: () -> Void)
+    /// Opens the command bar for a new tab, as Cmd+T does (the New Tab row); no tab opens until the person chooses.
+    func openNewTab()
 }
 
 /// Context menu items for sidebar items of some kinds.
