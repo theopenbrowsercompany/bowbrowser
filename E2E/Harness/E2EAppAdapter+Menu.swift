@@ -11,7 +11,8 @@ extension E2EAppAdapter {
 
     private static func menuItem(matching wanted: Shortcut, in menu: NSMenu?) -> NSMenuItem? {
         for item in menu?.items ?? [] {
-            if !item.keyEquivalent.isEmpty,
+            // A hidden item is skipped, as AppKit skips it for key presses.
+            if !item.isHidden, !item.keyEquivalent.isEmpty,
                 normalized(key: item.keyEquivalent, modifiers: modifiers(of: item.keyEquivalentModifierMask))
                     == wanted
             {
@@ -44,7 +45,7 @@ extension E2EAppAdapter {
     }
 
     /// Finds the menu item with the shortcut and sends its action the way AppKit does for a key press: to the first
-    /// object in the window's responder chain (then its delegate) that handles it, after that object validates the
+    /// object in the window's responder chain (then its delegate, the application and the app delegate) that handles it, after that object validates the
     /// item. The e2e window never becomes key, so the window is named here instead of AppKit finding the key window.
     func chooseMenuItem(key: String, modifiers: E2EKeyModifiers, in page: any E2EPage) throws {
         let controller = try Self.tabPage(page).controller
@@ -59,12 +60,17 @@ extension E2EAppAdapter {
             if current.responds(to: action) { target = current }
             responder = current.nextResponder
         }
+        // After the window's chain, AppKit tries the window's delegate, then the application and its delegate.
         if target == nil, let delegate = window.delegate, delegate.responds(to: action) { target = delegate }
-        guard let target else { throw E2EError("nothing in the window handles \(item.title)") }
+        if target == nil, NSApp.responds(to: action) { target = NSApp }
+        if target == nil, let delegate = NSApp.delegate, delegate.responds(to: action) { target = delegate }
+        guard let target else { throw E2EError("nothing in the window or the app handles \(item.title)") }
         if let validator = target as? NSMenuItemValidation, !validator.validateMenuItem(item) {
             throw E2EError("\(item.title) (\(shortcut)) is disabled")
         }
-        NSApp.sendAction(action, to: target, from: item)
+        guard NSApp.sendAction(action, to: target, from: item) else {
+            throw E2EError("the menu item \"\(item.title)\" (\(shortcut)) did nothing")
+        }
     }
 }
 

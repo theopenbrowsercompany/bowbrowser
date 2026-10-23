@@ -265,10 +265,12 @@ struct SidebarSeedTest: E2ETest {
             return window
         }
         let expected = ["favorites", "pinned", "Docs", "P1", "Inner", "P2", "P3", "divider", "today", "T1", "T2"]
+        // The outline once it reads as seeded, or what it read last shortly before the step's limit.
         let outline = try await run.step("outline", timeout: E2ETimeouts.step) {
+            let deadline = Date().addingTimeInterval(E2EWaits.budget())
             while true {
                 let outline = try app.sidebarOutline(of: window.page)
-                if outline == expected { return outline }
+                if outline == expected || Date() >= deadline { return outline }
                 try await Task.sleep(nanoseconds: 10_000_000)
             }
         }
