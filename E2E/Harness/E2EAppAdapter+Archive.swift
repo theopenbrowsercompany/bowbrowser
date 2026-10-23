@@ -49,6 +49,11 @@ extension E2ETestApp: E2EArchiveApp {
         return adapter.archiveCenter.reopen(SidebarItemID(id), in: try E2EAppAdapter.tabPage(page).controller)
     }
 
+    func archiveItem(of page: any E2EPage) throws -> String {
+        try adapter.requireActive(token, "read a tab")
+        return try E2EAppAdapter.sidebarItem(of: E2EAppAdapter.tabPage(page)).rawValue
+    }
+
     func archiveShownItem(besides page: any E2EPage) throws -> String? {
         try adapter.requireActive(token, "read the shown tab")
         let controller = try E2EAppAdapter.tabPage(page).controller

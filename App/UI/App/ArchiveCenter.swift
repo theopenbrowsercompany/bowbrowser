@@ -191,10 +191,10 @@ final class ArchiveCenter: AppFeature {
             {
                 keeping.insert(item)
             }
-            for row in window.tabList.tabs {
-                guard let state = window.engineTab(for: row.id)?.state,
+            for id in window.loadedTabIDs {
+                guard let state = window.engineTab(for: id)?.state,
                     state.isAudible || state.isCapturingAudio || state.isCapturingVideo,
-                    let item = window.sidebarItemID(for: row.id)
+                    let item = window.sidebarItemID(for: id)
                 else { continue }
                 keeping.insert(item)
             }
