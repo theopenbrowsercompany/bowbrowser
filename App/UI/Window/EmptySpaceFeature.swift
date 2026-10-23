@@ -44,7 +44,8 @@ final class EmptySpaceFeature: NSResponder, BrowserWindowFeature {
             return
         }
         emptyView.isHidden = false
-        emptyView.showsUnloadedTab = !window.store.graph.tabIDs(in: space).isEmpty
+        // An active tab without a page (a pinned tab or Favorite the person closed) offers to load it.
+        emptyView.showsUnloadedTab = window.tabList.activeID != nil || !window.store.graph.tabIDs(in: space).isEmpty
     }
 
     /// Loads the active tab the unloaded state stands for, as choosing its row does.

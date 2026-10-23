@@ -48,21 +48,18 @@ enum FavoritesGridLayout {
 }
 
 /// The Favorites of the profile the Space on screen uses, as a grid of icons at the top of the sidebar (Arc's
-/// Favorites). Each tile shows its site's icon, or the first letter of its title when there is none. A click opens
-/// the Favorite or shows the tab it opened; dragging a tab onto the grid makes it a Favorite at the gap under the
+/// Favorites). Each tile shows its site's icon, or the first letter of its title when there is none. A Favorite is its
+/// own tab, which the window lists with the Space's tabs: a click shows it in place (loading its saved address when it
+/// has no page), and its tile is highlighted while it is the active tab. Dragging a tab onto the grid makes it a Favorite at the gap under the
 /// pointer, dragging a tile reorders it or moves it out to the pinned or today zone, and right-clicking a tile shows
 /// the Favorite's menu (`SidebarMenus`).
 @MainActor
 final class FavoritesGridView: NSView {
     private weak var context: (any SidebarActionContext)?
     private(set) var tiles: [FavoriteTileView] = []
-    /// The tab a click on each Favorite opened, so the next click shows that tab rather than opening another.
-    private var openedTabs: [SidebarItemID: SidebarItemID] = [:]
     /// The site icon a tab showed when it was dragged in, kept while the Favorite has no loaded page of its own.
     private var icons: [SidebarItemID: NSImage] = [:]
     private let dropIndicator = NSView()
-    /// The content last shown, to redraw the highlight when a click records the tab it opened.
-    private var shownContent: SidebarContent?
 
     override var isFlipped: Bool { true }
 
@@ -87,9 +84,7 @@ final class FavoritesGridView: NSView {
     /// Shows the Favorites `content` lists for the Space on screen, keeping each tile across updates.
     func update(content: SidebarContent, context: (any SidebarActionContext)?) {
         self.context = context
-        shownContent = content
         let graph = content.graph
-        openedTabs = openedTabs.filter { graph[$0.key] != nil && graph[$0.value]?.data.isTab == true }
         let ids = graph.activeFavoriteIDs
         icons = icons.filter { ids.contains($0.key) }
         let existing = Dictionary(tiles.map { ($0.item, $0) }, uniquingKeysWith: { first, _ in first })
@@ -100,11 +95,9 @@ final class FavoritesGridView: NSView {
         for tile in tiles {
             guard let item = graph[tile.item], let saved = item.tab else { continue }
             if let icon = context?.favicon(for: tile.item) { icons[tile.item] = icon }
-            let opened = openedTabs[tile.item]
             tile.show(
                 title: Self.title(of: item, saved: saved), icon: icons[tile.item],
-                isActive: content.activeItem != nil && (opened == content.activeItem || tile.item == content.activeItem)
-            )
+                isActive: tile.item == content.activeItem)
         }
         needsLayout = true
     }
@@ -133,32 +126,16 @@ final class FavoritesGridView: NSView {
 
     // MARK: Actions
 
-    /// What a click on Favorite `item` does: shows its own loaded page or the tab an earlier click opened when that
-    /// tab is still in the Space on screen; otherwise opens it (`SidebarActionContext.open(favorite:)`) and remembers
-    /// the tab it opened. Returns whether a tab was shown or opened.
+    /// What a click on Favorite `item` does: shows the Favorite itself in place
+    /// (`SidebarActionContext.open(favorite:)`), never a copy. Returns whether it is shown.
     @discardableResult
     func click(_ item: SidebarItemID) -> Bool {
-        guard let context else { return false }
-        let graph = context.graph
-        if context.livePage(of: item) != nil {
-            context.select(item)
-            return true
-        }
-        if let tab = openedTabs[item], graph[tab]?.data.isTab == true, let space = graph.activeSpaceID,
-            graph.spaceID(containing: tab) == space
-        {
-            context.select(tab)
-            return true
-        }
-        guard context.open(favorite: item) else { return false }
-        // The tab the window just opened and shows; the highlight follows it once it is recorded.
-        openedTabs[item] = context.graph.activeTabID
-        if let shownContent { update(content: shownContent, context: context) }
-        return true
+        context?.open(favorite: item) ?? false
     }
 
     /// Drops sidebar item `item` into the grid at gap `index` (counted before it leaves its place), as dropping it
-    /// there does: a tab becomes a Favorite keeping its saved page, and a Favorite moves within the grid. Returns
+    /// there does: a tab becomes a Favorite keeping its saved page and its live page (the active tab stays active),
+    /// and a Favorite moves within the grid. Returns
     /// whether the drop went through; one no rule allows changes nothing.
     ///
     /// It does not go through `SidebarDrop.perform(in:)`, which gives a pinned tab leaving the pinned zone its live
@@ -267,6 +244,9 @@ final class FavoriteTileView: NSView, NSDraggingSource {
     private(set) var isActive = false
     private var mouseDownPoint: NSPoint?
     private var isDragging = false
+    /// The sidebar told a drag began, kept from the drag's start: a tile dragged out leaves the grid (and the sidebar)
+    /// before the drag ends, so it can no longer find the sidebar then.
+    private weak var dragSidebar: SidebarView?
 
     /// True while the tile shows a site icon rather than the letter tile.
     var hasIcon: Bool { !iconView.isHidden }
@@ -354,7 +334,8 @@ final class FavoriteTileView: NSView, NSDraggingSource {
             return image
         }
         dragItem.setDraggingFrame(bounds, contents: image)
-        enclosingSidebar?.itemDragBegan()
+        dragSidebar = enclosingSidebar
+        dragSidebar?.itemDragBegan()
         beginDraggingSession(with: [dragItem], event: event, source: self)
     }
 
@@ -388,7 +369,8 @@ final class FavoriteTileView: NSView, NSDraggingSource {
     func draggingSession(_ session: NSDraggingSession, endedAt screenPoint: NSPoint, operation: NSDragOperation) {
         isDragging = false
         mouseDownPoint = nil
-        enclosingSidebar?.itemDragEnded()
+        dragSidebar?.itemDragEnded()
+        dragSidebar = nil
     }
 }
 
