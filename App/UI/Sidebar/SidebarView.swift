@@ -231,6 +231,7 @@ final class SidebarView: NSView, NSOutlineViewDataSource, NSOutlineViewDelegate,
             return node
         }
         func children(of id: SidebarItemID, under parent: SidebarNode, depth: Int) -> [SidebarNode] {
+            // The outline's child index equals the graph's: integrity forbids containers and duplicate children.
             graph.children(of: id).filter { !$0.data.isContainer && used[.item($0.id)] == nil }.map { item in
                 let child = node(.item(item.id), parent: parent)
                 shape.append("\(depth) \(item.id)")
@@ -310,22 +311,59 @@ final class SidebarView: NSView, NSOutlineViewDataSource, NSOutlineViewDelegate,
         delegate?.select(id)
     }
 
-    /// Drops `item` into `parent` at `index` (counted before it leaves its place), as dropping its row there does.
-    /// Returns whether it moved; a drop a validator refuses changes nothing.
-    @discardableResult
-    func drop(_ item: SidebarItemID, into parent: SidebarItemID, at index: Int) -> Bool {
-        guard let delegate else { return false }
-        return SidebarDrop(item: item, parent: parent, index: index).perform(in: delegate)
+    /// A drop the outline resolved: what it makes, and the row and child index the outline shows its gap at.
+    struct ProposedDrop {
+        let drop: SidebarDrop
+        let node: SidebarNode
+        let childIndex: Int
     }
 
-    /// Where a drop of `item` the outline proposes on `node` at `index` lands, nil when no rule allows it there: a
-    /// container, folder or split and a position in it. A drop on a tab goes above it, a drop on the divider to the
-    /// top of the section after it, a drop on a folder or split to its end, and a drop between sections to the end
-    /// of the section above or, when that is refused (Favorites), the top of the one below.
-    private func dropTarget(of item: SidebarItemID, on node: SidebarNode?, index: Int) -> SidebarDrop? {
-        dropCandidates(on: node, index: index).lazy
-            .map { SidebarDrop(item: item, parent: $0.parent, index: $0.index) }
-            .first { SidebarDropValidators.allows($0, in: self.content.graph) }
+    /// Where a drop of `item` the outline proposes on `node` (nil between sections) at `childIndex` (-1 on the row
+    /// itself) lands, nil when no rule allows it there: a container, folder or split and a position in it. A drop on a
+    /// tab goes above it, a drop on the divider to the top of the section after it, a drop on a folder or split to
+    /// its end, and a drop between sections to the end of the section above or, when that is refused (Favorites),
+    /// the top of the one below. Both the outline's drag and the e2e drag resolve drops here.
+    func proposeDrop(of item: SidebarItemID, on node: SidebarNode?, childIndex: Int) -> ProposedDrop? {
+        guard
+            let drop = dropCandidates(on: node, index: childIndex).lazy
+                .map({ SidebarDrop(item: item, parent: $0.parent, index: $0.index) })
+                .first(where: { SidebarDropValidators.allows($0, in: self.content.graph) }),
+            let target = outlineNode(for: drop.parent)
+        else { return nil }
+        return ProposedDrop(drop: drop, node: target, childIndex: drop.index)
+    }
+
+    /// Makes the drop of `item` the outline accepts on `node` at `childIndex`, resolved as `proposeDrop` does.
+    /// Returns whether it went through; a drop no rule allows changes nothing.
+    func acceptDrop(of item: SidebarItemID, on node: SidebarNode?, childIndex: Int) -> Bool {
+        guard let delegate, let proposal = proposeDrop(of: item, on: node, childIndex: childIndex) else { return false }
+        return proposal.drop.perform(in: delegate)
+    }
+
+    /// Drags `item` onto row `row` (nil for between sections) at `childIndex` (-1 on the row itself), as the outline
+    /// does: it proposes the drop, moves the gap to where it resolves and accepts it there. Returns whether it moved.
+    @discardableResult
+    func dragItem(_ item: SidebarItemID, onRow row: Int?, childIndex: Int) -> Bool {
+        var node: SidebarNode?
+        if let row {
+            guard row >= 0, row < outlineView.numberOfRows, let found = outlineView.item(atRow: row) as? SidebarNode
+            else { return false }
+            node = found
+        }
+        return drag(item, on: node, childIndex: childIndex)
+    }
+
+    /// Drags `item` into `parent` at `index` (counted before it leaves its place), as dropping its row in that gap
+    /// does, also when `parent`'s rows are hidden in a closed folder. Returns whether it moved.
+    @discardableResult
+    func dragItem(_ item: SidebarItemID, into parent: SidebarItemID, at index: Int) -> Bool {
+        guard let node = outlineNode(for: parent) else { return false }
+        return drag(item, on: node, childIndex: index)
+    }
+
+    private func drag(_ item: SidebarItemID, on node: SidebarNode?, childIndex: Int) -> Bool {
+        guard let proposal = proposeDrop(of: item, on: node, childIndex: childIndex) else { return false }
+        return acceptDrop(of: item, on: proposal.node, childIndex: proposal.childIndex)
     }
 
     /// The places a proposed drop may land, in order of preference.
@@ -468,10 +506,9 @@ final class SidebarView: NSView, NSOutlineViewDataSource, NSOutlineViewDelegate,
         proposedChildIndex index: Int
     ) -> NSDragOperation {
         guard info.draggingSource as? NSOutlineView === outlineView, let id = draggedItem(info),
-            let target = dropTarget(of: id, on: item as? SidebarNode, index: index),
-            let node = outlineNode(for: target.parent)
+            let proposal = proposeDrop(of: id, on: item as? SidebarNode, childIndex: index)
         else { return [] }
-        outlineView.setDropItem(node, dropChildIndex: target.index)
+        outlineView.setDropItem(proposal.node, dropChildIndex: proposal.childIndex)
         return .move
     }
 
@@ -481,9 +518,8 @@ final class SidebarView: NSView, NSOutlineViewDataSource, NSOutlineViewDelegate,
         item: Any?,
         childIndex index: Int
     ) -> Bool {
-        guard let id = draggedItem(info), let target = dropTarget(of: id, on: item as? SidebarNode, index: index)
-        else { return false }
-        return drop(id, into: target.parent, at: target.index)
+        guard let id = draggedItem(info) else { return false }
+        return acceptDrop(of: id, on: item as? SidebarNode, childIndex: index)
     }
 
     private func draggedItem(_ info: any NSDraggingInfo) -> SidebarItemID? {
