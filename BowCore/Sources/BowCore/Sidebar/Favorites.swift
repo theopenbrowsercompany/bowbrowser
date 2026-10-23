@@ -70,15 +70,18 @@ extension SidebarStore {
     ///
     /// `page` is the address and title the Favorite will return to, normally the page the tab shows now; without it the
     /// tab keeps the address it was saved with. A tab already in this profile's Favorites is only moved, so this also
-    /// reorders. Folders and splits are refused: Favorites hold tabs only.
+    /// reorders. Folders and splits are refused: Favorites hold tabs only. A tab of a Space or Favorites of another
+    /// profile is refused with `crossProfileMove`, since its page and logins belong to that profile's storage.
     public func moveToFavorites(
         _ id: SidebarItemID,
         profile: SidebarProfileID? = nil,
         at index: Int? = nil,
         page: (url: String, title: String)? = nil
     ) throws {
+        let target = profile ?? graph.activeSpace?.profileID ?? .default
+        guard !graph.crossesProfiles(id, intoFavoritesOf: target) else { throw SidebarStoreError.crossProfileMove(id) }
         try transaction {
-            let container = try favoritesContainer(for: profile)
+            let container = try favoritesContainer(for: target)
             try mutate(.move(id, parent: container, index: index))
             if let page { try mutate(.setSavedPage(id, url: page.url, title: page.title)) }
             try mutate(.reconcileSelectedTab)
@@ -96,6 +99,7 @@ extension SidebarStore {
 
     /// Takes a Favorite out of the icon row and keeps it as a tab: it goes to the top of the unpinned or pinned section of
     /// `space` (default: the Space on screen). Nothing is closed. A selected Favorite stays selected when it lands in the Space on screen; if it lands in a Space that is not shown, the Space on screen selects its own tab.
+    /// A Space of another profile is refused with `crossProfileMove`, since the Favorite's page belongs to its own.
     public func removeFavorite(
         _ id: SidebarItemID,
         to section: SpaceSection = .unpinned,
@@ -107,6 +111,11 @@ extension SidebarStore {
         }
         guard let target = space ?? graph.activeSpaceID else { throw SidebarStoreError.invalidHierarchy("no space") }
         guard let destination = graph.space(target) else { throw SidebarStoreError.spaceNotFound(target) }
+        if let owner = graph.favoritesProfileID(containing: id),
+            TabMoveKind.between(owner, destination.profileID) != .keepsLivePage
+        {
+            throw SidebarStoreError.crossProfileMove(id)
+        }
         let container = section == .pinned ? destination.pinnedContainerID : destination.unpinnedContainerID
         try transaction {
             try mutate(.move(id, parent: container, index: index))
