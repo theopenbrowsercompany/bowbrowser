@@ -103,14 +103,13 @@ Bow keeps it in one file of its own, separate from the engine's session data.
 14. Close a pinned tab that browsed away from its saved page, then select it: it loads the saved address.
 15. Drag a pinned tab above another one, then drag it to the tabs section: the order changes, then it leaves the pinned section and sits on top of the tabs.
 16. Run `make e2e`: `pinned.reset` prints `PASS pinned.reset: saved=A navigated=B reset=A`.
-
-12. Add two Favorites A and B, then make an open tab C a Favorite at the front: the row reads C, A, B and C returns to the page it was on when it was made a Favorite.
+17. Add two Favorites A and B, then make an open tab C a Favorite at the front: the row reads C, A, B and C returns to the page it was on when it was made a Favorite.
     Move A to the end: the row reads C, B, A.
     Remove B: it is a tab at the top of the Space on screen and the row reads C, A.
     Quit and relaunch: the row and the saved addresses are the same.
-13. With two Spaces on the default profile, both show the row C, A.
+18. With two Spaces on the default profile, both show the row C, A.
     Create a Space on another profile: its row is empty, and adding a Favorite there leaves the other row unchanged.
-14. Try to make a folder or a split view a Favorite: Bow refuses and nothing changes.
+19. Try to make a folder or a split view a Favorite: Bow refuses and nothing changes.
 
 ## Out of scope
 
