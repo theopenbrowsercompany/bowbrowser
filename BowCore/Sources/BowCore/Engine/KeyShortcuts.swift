@@ -72,6 +72,8 @@ public enum KeyShortcut: String, CaseIterable, Hashable, Sendable {
     case closeCommandBar
     /// Cmd+Shift+C: copy the shown page's address.
     case copyURL
+    /// Cmd+Shift+D (View > Hide Toolbar, Show Toolbar): hide or show the sidebar's toolbar row and URL field.
+    case toggleToolbar
     /// Cmd+plus (Cmd+= on a US keyboard): zoom in.
     case zoomIn
     /// Cmd+minus: zoom out.
@@ -88,6 +90,7 @@ public enum KeyShortcut: String, CaseIterable, Hashable, Sendable {
         case .changeURL: [.character("l", .command)]
         case .closeCommandBar: [KeyChord(.keyCode(KeyChord.escapeKeyCode), [])]
         case .copyURL: [.character("c", [.command, .shift])]
+        case .toggleToolbar: [.character("d", [.command, .shift])]
         case .zoomIn: [.character("=", .command), .character("+", .command), .character("+", [.command, .shift])]
         case .zoomOut: [.character("-", .command)]
         case .actualSize: [.character("0", .command)]
@@ -105,7 +108,7 @@ public enum KeyShortcut: String, CaseIterable, Hashable, Sendable {
 public enum KeyShortcutOwner: String, Hashable, Sendable {
     /// The command bar: new tab, change URL, and Escape while it is open.
     case commandBar
-    /// The page's toolbar actions: copy URL.
+    /// The toolbar actions: copy URL, and hiding or showing the toolbar.
     case toolbar
     /// Page zoom.
     case zoom
@@ -143,6 +146,7 @@ public enum KeyShortcuts {
         KeyShortcutClaim(.changeURL, .commandBar),
         KeyShortcutClaim(.closeCommandBar, .commandBar),
         KeyShortcutClaim(.copyURL, .toolbar),
+        KeyShortcutClaim(.toggleToolbar, .toolbar),
         KeyShortcutClaim(.zoomIn, .zoom),
         KeyShortcutClaim(.zoomOut, .zoom),
         KeyShortcutClaim(.actualSize, .zoom),

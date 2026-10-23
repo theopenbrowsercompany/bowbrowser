@@ -110,6 +110,13 @@ final class CommandBarFeature: NSResponder, BrowserWindowFeature, NSMenuItemVali
         open(.currentTab(tab))
     }
 
+    /// A click on the sidebar's URL field: the bar over the shown tab, filled with its address, as Cmd+L opens it;
+    /// with no tab shown (an empty Space), the bar to open a new tab, as Cmd+T opens it.
+    @objc func openFromURLField(_ sender: Any?) {
+        guard let tab = shownTab else { return open(.newTab) }
+        open(.currentTab(tab))
+    }
+
     /// View > Close Command Bar.
     @objc func closeCommandBar(_ sender: Any?) {
         close()

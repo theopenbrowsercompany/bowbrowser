@@ -10,6 +10,15 @@ It uses Bow's brand colors as light and dark tokens, soft radii and one soft sha
 - The window is one Frame colored surface from its top edge down: the title bar is transparent, there is no toolbar band, the sidebar runs to the top, and the close, minimize and zoom buttons sit in it.
 - The sidebar is 264 points wide, padded 14 points at the top and leading edge and 12 at the trailing and bottom edges.
 - The sidebar's top row, level with the window buttons, holds Back, Forward and Reload as plain 17 point icons in Soft, right aligned.
+- Below the top row sits the URL field, as in Arc: 36 points tall across the sidebar's padding, 10 point continuous corners, the Active fill, and 12 points of padding with 8 between a 13 point lock symbol in Soft and one line of text in the UI font, cut at its end when it does not fit.
+  The lock is decoration for now; it does not open site settings.
+  It shows the shown tab's site the way Arc's sidebar URL bar does: the host without the scheme, a leading `www.`, the path or the query (`notes.example.com`), with a port only when it is not the scheme's default (`localhost:3000`); a local file shows its file name.
+  A blank tab, an internal page, a `data:` address or an empty Space shows "Search or type a URL" in Soft.
+  It follows the shown tab: switching tabs or Spaces, a navigation, a redirect or a page changing its own address updates it.
+  A click on it opens the command bar on the current address, as Cmd+L does; the full address is always one click or Cmd+L away.
+- View > Hide Toolbar (Cmd+Shift+D, the name and keys of Arc's View > Show Toolbar) hides the top row's Back, Forward and Reload and the URL field for the most minimal chrome; the window buttons stay, and the item then reads Show Toolbar and brings them back.
+  Cmd+L still shows the address in the command bar while they are hidden, and the shortcut is taken before the page, as Cmd+L is.
+  The choice is one app setting: every open window follows it at once, a new window opens with it, and it is kept across quit and relaunch.
 - The page is a White card inset 8 points from the frame at the top, trailing and bottom edges (the sidebar side meets the sidebar), with 10 point continuous rounded corners and one soft shadow (1 point down, 3 point blur, 14 percent Night).
 - A click near the card's top edge reaches the page.
 - Pressing and dragging on the frame around the card (its 8 point inset) or on the sidebar's empty top area moves the window, as a title bar does; the card itself and every control keep their clicks, so the card's top edge does not drag the window.
@@ -51,13 +60,16 @@ It uses Bow's brand colors as light and dark tokens, soft radii and one soft sha
 7. Open the command bar: its panel's content is clipped to 14 point corners, and its shadow has a path the size of the panel.
 8. Switch the window to dark: the frame is #2A1710, the active row #3D2519 and its title #FFF3E6, and the navigation buttons draw dark.
 9. The app bundle names its icon (CFBundleIconName AppIcon) and carries AppIcon.icns.
-10. `design.fonts` prints PASS for `design.fonts_registered`, `design.fonts_sidebar`, `design.fonts_command_bar` and `design.fonts_empty`.
-11. `make e2e E2E=design` runs these checks and writes screenshots to `build/e2e/<run>/design/`.
+10. Open a window on a page: the URL field below the top row reads the page's site, is 238 by 36 points and clears the window buttons; open a blank tab and it reads "Search or type a URL"; go back to the page, let the page send itself to a blank page and load it again, and the field follows each change; click the field and the command bar opens on the full address, selected (`make e2e E2E=chrome` prints `PASS chrome.url-field`, `chrome.url-field.follows` and `chrome.url-field.click`).
+11. Choose View > Hide Toolbar: the top row and the URL field hide, the item reads Show Toolbar, the setting is saved, a new window opens without them, and Cmd+L still opens the command bar on the address; Show Toolbar brings both back at full width (`PASS chrome.toolbar-hidden`, `chrome.toolbar-hidden.cmd-l` and `chrome.toolbar-hidden.show`).
+12. `design.fonts` prints PASS for `design.fonts_registered`, `design.fonts_sidebar`, `design.fonts_command_bar` and `design.fonts_empty`.
+13. `make e2e E2E=design` runs these checks and writes screenshots to `build/e2e/<run>/design/`.
 
 ## Out of scope
 
-- A URL field in the sidebar, a downloads button in the footer, and moving New Tab to the end of the tab list: each is later work.
-- Hiding the sidebar or the navigation buttons, per Space colors, themes, animations and settings.
+- A downloads button in the footer, and moving New Tab to the end of the tab list: each is later work.
+- The lock symbol opening site settings, and showing the full address in the URL field.
+- Revealing the hidden toolbar at the window's edge, hiding the sidebar, per Space colors, themes, animations and settings.
 - A dark app tile as an icon appearance variant: on macOS it needs an Icon Composer icon, not an asset catalog app icon set.
 
 ## Sources
@@ -68,4 +80,6 @@ It uses Bow's brand colors as light and dark tokens, soft radii and one soft sha
 - Apple, CALayer shadowPath (an explicit path improves shadow rendering): https://developer.apple.com/documentation/quartzcore/calayer/shadowpath
 - Apple, CALayerCornerCurve.continuous: https://developer.apple.com/documentation/quartzcore/calayercornercurve/continuous
 - Apple, Core Animation layer style properties (a corner radius clips content only with masksToBounds, which also clips the shadow, so the shadow sits on a separate view): https://developer.apple.com/library/archive/documentation/Cocoa/Conceptual/CoreAnimation_guide/LayerStyleProperties/LayerStyleProperties.html
+- Arc's View > Show Toolbar and its Command-Shift-D shortcut: https://resources.arc.net/hc/en-us/articles/25625458052247-How-Do-You-View-the-Full-URL-at-the-Top-of-the-Page-in-Arc-for-Desktop and https://resources.arc.net/hc/en-us/articles/20498377604887-Arc-for-macOS-2023-Release-Notes
+- Arc's sidebar URL bar shows the site rather than the full address, which is why Arc documents a way to see the full URL (same help article).
 - An Arc style window reference (tinted frame, the page inset about 8 px on three sides with rounded corners): https://deviceshots.com/browsers/arc/

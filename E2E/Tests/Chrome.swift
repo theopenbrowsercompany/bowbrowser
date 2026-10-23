@@ -4,9 +4,11 @@ import Foundation
 /// pasteboard the window is given, never the general one. Fixtures in E2E/Fixtures/chrome/.
 @MainActor
 enum ChromeTests {
-    static let all: [any E2ETest] = [ChromeCopyTest(), ChromeCopyEdgesTest()]
+    static let all: [any E2ETest] = [
+        ChromeCopyTest(), ChromeCopyEdgesTest(), ChromeURLFieldTest(), ChromeToolbarHiddenTest(),
+    ]
 
-    typealias App = any E2EChromeApp & E2EMenuApp
+    typealias App = any E2EChromeApp & E2EMenuApp & E2EURLFieldApp & E2ECommandBarApp
 
     static func app(_ run: E2ERun) throws -> App {
         guard let app = run.app as? App else { throw E2EError("the app has no chrome hooks") }
@@ -137,5 +139,140 @@ struct ChromeCopyEdgesTest: E2ETest {
             return shown
         }
         run.check("chrome.copy.window-close", passed: closed, "the confirmation never showed before the close")
+    }
+}
+
+/// The sidebar's URL field shows the shown tab's site under the top row, follows tab switches and navigations (to a
+/// blank page it shows the placeholder), and a click on it opens the command bar on the current address as Cmd+L does.
+struct ChromeURLFieldTest: E2ETest {
+    let name = "chrome.url-field"
+    let tags = ["smoke"]
+    let checks = ["chrome.url-field", "chrome.url-field.follows", "chrome.url-field.click"]
+
+    func run(_ run: E2ERun) async throws {
+        let app = try ChromeTests.app(run)
+        let page = try await run.step("open the page", timeout: E2ETimeouts.firstLoad) {
+            let page = try await app.openWindow(at: ChromeTests.url("page"))
+            _ = try await page.waitForLoad(after: 0)
+            return page
+        }
+
+        let shown = try await run.step("read the field", timeout: E2ETimeouts.step) {
+            _ = try await ChromeTests.until { try app.urlField(of: page).text == "bow.test" }
+            return try app.urlField(of: page)
+        }
+        // The sidebar is 264 wide with 14 and 12 points of padding: the field is 238 by 36.
+        run.check(
+            name,
+            passed: shown.text == "bow.test" && !shown.isPlaceholder && shown.isShown && shown.isTopRowShown
+                && shown.size == CGSize(width: 238, height: 36) && shown.isBelowTopRow,
+            "field: \(shown)")
+
+        let follows = try await run.step("switch tabs and navigate", timeout: E2ETimeouts.firstLoad) {
+            let blank = try app.openTab(at: URL(string: "about:blank")!, besides: page, select: true)
+            let onBlank = try await ChromeTests.until {
+                let field = try app.urlField(of: blank)
+                return field.isPlaceholder && field.text == "Search or type a URL"
+            }
+            try app.select(page)
+            let back = try await ChromeTests.until { try app.urlField(of: page).text == "bow.test" }
+            // A navigation the page makes itself, by script.
+            _ = try await page.evaluate("location.href = 'about:blank'; true")
+            let navigated = try await ChromeTests.until { try app.urlField(of: page).isPlaceholder }
+            let loads = page.finishedLoads
+            try page.load(ChromeTests.url("page"))
+            _ = try await page.waitForLoad(after: loads)
+            let reloaded = try await ChromeTests.until { try app.urlField(of: page).text == "bow.test" }
+            return (onBlank, back, navigated, reloaded, try app.urlField(of: page))
+        }
+        run.check(
+            "chrome.url-field.follows", passed: follows.0 && follows.1 && follows.2 && follows.3,
+            "blank-tab=\(follows.0) back=\(follows.1) script-to-blank=\(follows.2) loaded-again=\(follows.3) "
+                + "field: \(follows.4)")
+
+        let clicked = try await run.step("click the field", timeout: E2ETimeouts.step) {
+            try app.clickURLField(of: page)
+            let bar = try app.commandBar(of: page)
+            let opened = try await ChromeTests.until { bar.isShown && bar.hasKeyboard }
+            let state = (opened, bar.text, bar.isTextSelected)
+            try bar.press(.escape)
+            let closed = try await ChromeTests.until { !bar.isShown }
+            return (state, closed)
+        }
+        run.check(
+            "chrome.url-field.click",
+            passed: clicked.0.0 && clicked.0.1 == ChromeTests.url("page").absoluteString && clicked.0.2 && clicked.1,
+            "opened=\(clicked.0.0) text=\(clicked.0.1) selected=\(clicked.0.2) closed-by-escape=\(clicked.1)")
+    }
+}
+
+/// View > Hide Toolbar (Cmd+Shift+D) hides the top row and the URL field in every window, saves the choice (a window
+/// opened afterwards starts hidden), keeps Cmd+L showing the address in the command bar, and Show Toolbar brings both
+/// back.
+struct ChromeToolbarHiddenTest: E2ETest {
+    let name = "chrome.toolbar-hidden"
+    let checks = ["chrome.toolbar-hidden", "chrome.toolbar-hidden.cmd-l", "chrome.toolbar-hidden.show"]
+
+    func run(_ run: E2ERun) async throws {
+        let app = try ChromeTests.app(run)
+        let page = try await run.step("open the page", timeout: E2ETimeouts.firstLoad) {
+            let page = try await app.openWindow(at: ChromeTests.url("page"))
+            _ = try await page.waitForLoad(after: 0)
+            return page
+        }
+        let toggle = { try app.chooseMenuItem(key: "d", modifiers: [.command, .shift], in: page) }
+        var hidden = false
+        // A failed step must not leave the toolbar hidden for the tests after this one.
+        defer { if hidden { try? toggle() } }
+
+        let hide = try await run.step("hide the toolbar", timeout: E2ETimeouts.firstLoad) {
+            let title = try app.toolbarMenuTitle(of: page)
+            try toggle()
+            hidden = true
+            let gone = try await ChromeTests.until {
+                let field = try app.urlField(of: page)
+                return !field.isShown && !field.isTopRowShown
+            }
+            let other = try await app.openWindow(at: ChromeTests.url("keys"))
+            let otherField = try app.urlField(of: other)
+            try await app.closeWindow(of: other)
+            return (title, gone, try app.toolbarMenuTitle(of: page), try app.savedShowsToolbar(), otherField)
+        }
+        run.check(
+            name,
+            passed: hide.0 == "Hide Toolbar" && hide.1 && hide.2 == "Show Toolbar" && hide.3 == false
+                && !hide.4.isShown && !hide.4.isTopRowShown,
+            "menu-before=\(hide.0) hidden=\(hide.1) menu-after=\(hide.2) saved=\(hide.3.map(String.init) ?? "nil") "
+                + "new-window: \(hide.4)")
+
+        let location = try await run.step("Cmd+L while hidden", timeout: E2ETimeouts.step) {
+            try app.chooseMenuItem(key: "l", modifiers: .command, in: page)
+            let bar = try app.commandBar(of: page)
+            let opened = try await ChromeTests.until { bar.isShown && bar.hasKeyboard }
+            let text = bar.text
+            try bar.press(.escape)
+            _ = try await ChromeTests.until { !bar.isShown }
+            return (opened, text)
+        }
+        run.check(
+            "chrome.toolbar-hidden.cmd-l",
+            passed: location.0 && location.1 == ChromeTests.url("page").absoluteString,
+            "opened=\(location.0) text=\(location.1)")
+
+        let show = try await run.step("show the toolbar", timeout: E2ETimeouts.step) {
+            try toggle()
+            hidden = false
+            let back = try await ChromeTests.until {
+                let field = try app.urlField(of: page)
+                return field.isShown && field.isTopRowShown
+            }
+            return (back, try app.urlField(of: page), try app.toolbarMenuTitle(of: page), try app.savedShowsToolbar())
+        }
+        run.check(
+            "chrome.toolbar-hidden.show",
+            passed: show.0 && show.1.text == "bow.test" && show.1.isBelowTopRow
+                && show.1.size == CGSize(width: 238, height: 36) && show.2 == "Hide Toolbar"
+                && show.3 == true,
+            "shown=\(show.0) field: \(show.1) menu=\(show.2) saved=\(show.3.map(String.init) ?? "nil")")
     }
 }

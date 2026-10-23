@@ -12,6 +12,7 @@ Everyone who browses uses it, mostly through Cmd+T and Cmd+L.
   Pressing Enter on a result opens it in a new tab in the today section of the Space on screen, right after the shown tab when that is a today tab.
 - Cmd+L (View > Open Location) opens the bar filled with the current page's address, all selected, so typing replaces it.
   Pressing Enter on a result loads it in the current tab.
+- A click on the sidebar's URL field opens the bar exactly as Cmd+L does; in an empty Space, with no page to show the address of, it opens the bar as Cmd+T does.
 - Escape, a click anywhere outside the panel, or View > Close Command Bar closes the bar and changes nothing: no tab is opened, no page is loaded.
 - The shortcuts work even when the page has keyboard focus, and the page never sees them; Escape is taken from the page only while the bar is open.
 - Escape has no shortcut in the menu: a menu item takes its key even while it is disabled, which would take Escape from the find bar and from pages.

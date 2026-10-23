@@ -19,7 +19,7 @@ This spec covers what those hooks promise; the features that use them have their
   A new tab nobody takes is closed, so no page runs unseen.
 - Keys: every key press reaches the app before the page; a key the app claims never reaches the page, neither its press nor its release, and the keys after it reach the page as usual.
   With no claim the page gets the key.
-  The app shortcuts features claim (Cmd+T, Cmd+L, Cmd+Shift+C, Cmd+plus, Cmd+minus, Cmd+0, Ctrl+Tab) are listed in one place with the feature that claims each, and no key may have two owners.
+  The app shortcuts features claim (Cmd+T, Cmd+L, Cmd+Shift+C, Cmd+Shift+D, Cmd+plus, Cmd+minus, Cmd+0, Ctrl+Tab) are listed in one place with the feature that claims each, and no key may have two owners.
 - New Tab: choosing New Tab asks the features first (the command bar takes it once it exists); with no taker a new tab opens on the new tab page.
 - Page container: window chrome can inset the page area, round its corners and run the window's content under a transparent title bar without changing the window core; by default the page fills the window beside the sidebar with square corners.
 - Zoom: zooming a page zooms every tab on the same site in that profile, now and later.
