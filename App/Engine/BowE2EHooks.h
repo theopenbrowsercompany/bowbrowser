@@ -7,6 +7,10 @@
 
 #import <Foundation/Foundation.h>
 
+@class NSAlert;
+@class NSView;
+@class NSWindow;
+
 #include <cstdint>
 #include <functional>
 
@@ -37,6 +41,22 @@ void BowEngineParkPopups();
 
 /// True once BowEngineParkPopups has been called.
 bool BowEngineParksPopups();
+
+/// While `host` is set and returns a view, a popup the engine would park is created in that view instead (a view in
+/// an off screen window the harness owns), so its page runs in a real window: its dialogs come up as sheets on that
+/// window, and its close goes through the window (performClose:) as a popup window's does. nil (or `host`
+/// returning nil) parks popups again. Called on the main thread as each popup is created.
+void BowEngineHostPopups(NSView* (^host)(void));
+
+/// The view a new popup is created in once BowEngineParkPopups has been called: the hosted view, or the parking view.
+NSView* BowEnginePopupParentView();
+
+/// Asks the popup browser shown inside `view` to close with the same request quitting makes of every browser
+/// (CloseBrowser without forcing). Returns false when no popup browser is in `view`. Main thread only.
+bool BowEngineClosePopupInView(NSView* view);
+
+/// The alert, confirm or prompt sheet a hosted popup's page has up on `window`, or nil when none is. Main thread only.
+NSAlert* BowEnginePopupDialogOnWindow(NSWindow* window);
 
 /// From now on, a tab's own "leave this site?" prompt (shown when its UI delegate takes no JavaScript dialogs) is
 /// never put on screen: `answerer` is called instead, on a later main thread task, with the tab's ID and whether

@@ -138,9 +138,9 @@ bool BowTabClient::OnBeforePopup(CefRefPtr<CefBrowser> browser,
   // through it): in a window of the engine's own by default, or as a new tab when the app asks for one.
 #if BOW_E2E  // E2E seam: e2e runs keep popups (and their own popups) in the parking view, so none shows on screen.
   if (BowEngineParksPopups()) {
-    NSView* parkingView = BowEngineParkingView();
-    windowInfo.SetAsChild((__bridge void*)parkingView,
-                          CefRect(0, 0, parkingView.bounds.size.width, parkingView.bounds.size.height));
+    NSView* parentView = BowEnginePopupParentView();
+    windowInfo.SetAsChild((__bridge void*)parentView,
+                          CefRect(0, 0, parentView.bounds.size.width, parentView.bounds.size.height));
   }
 #endif
   // Popups opened by the engine's own popup windows are not the tab's. Saving a link (Alt+click) and ignored
