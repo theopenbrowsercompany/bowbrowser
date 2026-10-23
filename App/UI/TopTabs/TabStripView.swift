@@ -170,7 +170,7 @@ private final class PillScrollView: NSScrollView {
             return
         }
         let maximum = max(0, document.frame.width - contentView.bounds.width)
-        let step = event.hasPreciseScrollingDeltas ? 1 : 12
+        let step: CGFloat = event.hasPreciseScrollingDeltas ? 1 : 12
         let x = min(max(contentView.bounds.minX - event.scrollingDeltaY * step, 0), maximum)
         contentView.scroll(to: NSPoint(x: x, y: 0))
         reflectScrolledClipView(contentView)
