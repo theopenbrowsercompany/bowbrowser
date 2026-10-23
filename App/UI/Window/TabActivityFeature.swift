@@ -13,8 +13,7 @@ final class TabActivityFeature: NSResponder, BrowserWindowFeature {
         self.window = window
         log = window.appFeatures.require(TabActivityLog.self)
         super.init()
-        let features = window.appFeatures
-        log.setLiveItems { features.require(SidebarStores.self).main().map { Set($0.graph.items.keys) } }
+        log.pruneOnce(keeping: Set(window.store.graph.items.keys))
         if let nsWindow = window.window {
             _ = NotificationCenter.default.addObserver(
                 forName: NSWindow.didBecomeKeyNotification, object: nsWindow, queue: .main

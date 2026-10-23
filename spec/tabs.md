@@ -87,7 +87,7 @@ The list comes from the saved sidebar (see `sidebar-store.md`): a window's tabs 
   Opening or closing other tabs does not change it.
 - The times survive quitting and relaunching, are kept apart from the sidebar, and are forgotten for tabs that no longer exist.
   If the saved times cannot be read, Bow starts with none and keeps the unreadable file aside.
-- The command bar's open tabs list uses them to put the most recent tab first, and auto-archive uses them to tell how long a tab has sat idle.
+- They are the record the command bar's open tabs list will use to put the most recent tab first, and auto-archive will use to tell how long a tab has sat idle.
 
 ## Edge cases
 

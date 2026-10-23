@@ -5,16 +5,15 @@ import Foundation
 /// The app's record of when each sidebar tab was last active, kept in `TabActivity.json` beside the sidebar file.
 ///
 /// Windows report through `TabActivityFeature` when a tab is selected or its window becomes key. Saves are debounced
-/// (`saveDelay`) and the rest is written when the app quits; entries of tabs no longer in the app's sidebar are
-/// dropped at that point.
+/// (`saveDelay`) and flushed when the app quits; entries of tabs no longer in the app's sidebar are dropped once, when
+/// the first window opens.
 @MainActor
 final class TabActivityLog: AppFeature {
     static let saveDelay: TimeInterval = 1
 
     private let activity: TabActivity
     private var saveTimer: Timer?
-    /// The IDs of every tab still in the app's sidebar, set by the first window that opens. Nil: nothing is pruned.
-    private var liveItems: (@MainActor () -> Set<SidebarItemID>?)?
+    private var pruned = false
 
     init(dataDirectory: URL) {
         let url = TabActivity.fileURL(inApplicationSupportFolder: dataDirectory)
@@ -39,16 +38,19 @@ final class TabActivityLog: AppFeature {
         scheduleSave()
     }
 
-    /// Tells the log how to list the tabs that still exist, for pruning at quit. The first caller wins.
-    func setLiveItems(_ provider: @escaping @MainActor () -> Set<SidebarItemID>?) {
-        if liveItems == nil { liveItems = provider }
+    /// Drops the times of tabs not in `liveItems`. Only the first call does anything: the first window to open is on
+    /// the app's own sidebar, which holds every tab that still exists.
+    func pruneOnce(keeping liveItems: Set<SidebarItemID>) {
+        guard !pruned else { return }
+        pruned = true
+        activity.prune(keeping: liveItems)
+        if activity.hasUnsavedChanges { scheduleSave() }
     }
 
-    /// Writes any pending change now, after dropping the tabs that no longer exist. Called at quit.
+    /// Writes any pending change now. Called at quit.
     func flush() {
         saveTimer?.invalidate()
         saveTimer = nil
-        if let live = liveItems?() { activity.prune(keeping: live) }
         save()
     }
 
