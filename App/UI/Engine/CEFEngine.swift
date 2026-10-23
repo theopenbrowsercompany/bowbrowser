@@ -1,5 +1,5 @@
+import AppKit
 import BowCore
-import Foundation
 
 // The BowCore engine contract over the Objective-C bridge (BowEngine, BowProfile, BowTab). App code talks to the
 // engine through the BowCore protocols only; this file is where they meet the bridge. The one AppKit seam the
@@ -306,5 +306,26 @@ extension BowWebView {
     func isShowing(_ tab: any EngineTab) -> Bool {
         guard let attachedTab, let tab = tab as? CEFTab else { return false }
         return attachedTab === tab.tab
+    }
+}
+
+/// Site icons, the other AppKit seam: BowCore carries a tab's icon address, and the image is loaded here.
+@MainActor
+enum EngineFavicons {
+    /// Loads the icon at `url` for `tab` through the tab's own profile, at most `maxPixelSize` pixels on a side,
+    /// and calls `completion` on a later main thread task with the image, or nil when it could not be loaded.
+    static func load(
+        for tab: any EngineTab,
+        from url: URL,
+        maxPixelSize: Int,
+        completion: @escaping @MainActor (NSImage?) -> Void
+    ) {
+        guard let tab = tab as? CEFTab else {
+            assertionFailure("tab \(tab.tabID) did not come from CEFEngine")
+            return
+        }
+        tab.tab.loadFavicon(at: url, maxPixelSize: UInt(maxPixelSize)) { image in
+            MainActor.assumeIsolated { completion(image) }
+        }
     }
 }

@@ -16,6 +16,7 @@ enum E2ETests {
         AppTests.all + SandboxTests.all + InputTests.all + TabsTests.all + ProfilesTests.all + NavigationTests.all
         + FindTests.all
         + PermissionsTests.all
+        + SidebarTests.all
 }
 
 /// Step timeouts shared by tests.

@@ -66,6 +66,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     /// Called by the engine once Chromium is ready to create browsers.
     @objc func engineDidStart() {
+        // Tabs live in the sidebar, so AppKit's own window tabs (and their menu items) stay off.
+        NSWindow.allowsAutomaticWindowTabbing = false
         NSApp.mainMenu = MainMenu.make()
         #if BOW_E2E
             if let e2eRunner {  // E2E seam: an e2e run hands control to its runner.

@@ -6,6 +6,7 @@ enum MainMenu {
     static func make() -> NSMenu {
         let menu = NSMenu()
         menu.addItem(submenu(appMenu()))
+        menu.addItem(submenu(fileMenu()))
         menu.addItem(submenu(editMenu()))
         menu.addItem(submenu(viewMenu()))
         menu.addItem(submenu(historyMenu()))
@@ -25,6 +26,18 @@ enum MainMenu {
         menu.addItem(withTitle: "Hide Bow", action: #selector(NSApplication.hide(_:)), keyEquivalent: "h")
         menu.addItem(.separator())
         menu.addItem(withTitle: "Quit Bow", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+        return menu
+    }
+
+    /// Tab commands go to the key window's controller through the responder chain.
+    private static func fileMenu() -> NSMenu {
+        let menu = NSMenu(title: "File")
+        menu.addItem(
+            withTitle: "New Tab", action: #selector(BrowserWindowController.newTab(_:)), keyEquivalent: "t")
+        menu.addItem(.separator())
+        menu.addItem(
+            withTitle: "Close Tab", action: #selector(BrowserWindowController.closeActiveTab(_:)), keyEquivalent: "w")
+        menu.addItem(withTitle: "Close Window", action: #selector(NSWindow.performClose(_:)), keyEquivalent: "W")
         return menu
     }
 
@@ -74,7 +87,6 @@ enum MainMenu {
     private static func windowMenu() -> NSMenu {
         let menu = NSMenu(title: "Window")
         menu.addItem(withTitle: "Minimize", action: #selector(NSWindow.performMiniaturize(_:)), keyEquivalent: "m")
-        menu.addItem(withTitle: "Close", action: #selector(NSWindow.performClose(_:)), keyEquivalent: "w")
         NSApp.windowsMenu = menu
         return menu
     }
