@@ -53,15 +53,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
     func openTab(url: URL, select: Bool = true) -> BowTab {
         let tab = profile.createTab(url: url)
         tabs.append(tab)
-        tab.onStateChange = { [weak self, weak tab] _ in
-            guard let self, let tab, tab === self.selectedTab else { return }
-            self.updateTitle()
-        }
-        // A tab closes from this window, from quitting or from its page; the window follows its last tab.
-        tab.onClose = { [weak self, weak tab] in
-            guard let self, let tab else { return }
-            self.tabClosed(tab)
-        }
+        tab.uiDelegate = self
         if select || selectedTab == nil { self.select(tab) }
         return tab
     }
@@ -73,6 +65,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
         updateTitle()
     }
 
+    /// A tab closes from this window, from quitting or from its page; the window follows its last tab.
     private func tabClosed(_ tab: BowTab) {
         guard let index = tabs.firstIndex(where: { $0 === tab }) else { return }
         tabs.remove(at: index)
@@ -104,6 +97,16 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
 
     func windowWillClose(_ notification: Notification) {
         onClose?(self)
+    }
+}
+
+extension BrowserWindowController: BowTabUIDelegate {
+    func tab(_ tab: BowTab, didChangeState state: BowTabState) {
+        if tab === selectedTab { updateTitle() }
+    }
+
+    func tabDidClose(_ tab: BowTab) {
+        tabClosed(tab)
     }
 }
 

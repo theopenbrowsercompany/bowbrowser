@@ -23,4 +23,11 @@ bool BowEngineTabIsOpening(uint64_t tabID);
 /// context as it is created, before any of its tabs. The fixture server uses it to serve every profile.
 void BowEngineObserveProfileContexts(std::function<void(CefRefPtr<CefRequestContext>)> observer);
 
+/// From now on, popups the engine opens with windows of their own are created in the engine's parking view
+/// instead (a view in no window), so an e2e run never shows one. Their pages still run. Call on the main thread.
+void BowEngineParkPopups();
+
+/// True once BowEngineParkPopups has been called.
+bool BowEngineParksPopups();
+
 #endif  // BOW_E2E

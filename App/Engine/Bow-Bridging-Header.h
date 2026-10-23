@@ -4,7 +4,7 @@
 #import "BowEngineConfiguration.h"
 #import "BowNavigation.h"
 #import "BowProfile.h"
-#import "BowTab.h"
+#import "BowTab.h"  // Defines BowTab, which the delegate headers below use but only forward declare.
 #import "BowTabNavigationDelegate.h"
 #import "BowTabUIDelegate.h"
 #import "BowTabUIRequests.h"
@@ -14,4 +14,5 @@
 #import "BowDevToolsSession.h"  // E2E seam: the harness's engine helpers in E2E/Engine.
 #import "BowFixtureServer.h"    // E2E seam
 #import "BowChildProcess.h"     // E2E seam
+#import "BowPopupParking.h"     // E2E seam
 #endif

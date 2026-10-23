@@ -45,6 +45,7 @@ BowEngineConfiguration* gConfiguration = nil;
 
 #if BOW_E2E  // E2E seam
 std::vector<std::function<void(CefRefPtr<CefRequestContext>)>> gProfileContextObservers;
+bool gParkPopups = false;
 #endif
 
 void QuitMessageLoopIfDone() {
@@ -302,5 +303,13 @@ bool BowEngineTabIsOpening(uint64_t tabID) {
 void BowEngineObserveProfileContexts(std::function<void(CefRefPtr<CefRequestContext>)> observer) {
   for (BowProfile* profile in [BowEngine.shared allProfiles]) observer(profile.requestContext);
   gProfileContextObservers.push_back(std::move(observer));
+}
+
+void BowEngineParkPopups() {
+  gParkPopups = true;
+}
+
+bool BowEngineParksPopups() {
+  return gParkPopups;
 }
 #endif

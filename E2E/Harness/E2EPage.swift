@@ -49,6 +49,13 @@ protocol E2EPage: AnyObject {
     /// Returns at once when that load already finished; loads that finished before it never count.
     /// The window's first page is `waitForLoad(after: 0)`.
     func waitForLoad(after finishedLoads: Int) async throws -> Int
+    /// Starts loading `url` in the page's tab, the way the address bar does.
+    func load(_ url: URL)
+    /// Every main frame navigation event the page's tab reported, in order, starting when the window opens.
+    var navigationEvents: [E2ENavigationEvent] { get }
+    /// Asked before every main frame navigation and redirect, with its URL: false cancels it, and the canceled
+    /// navigation reports no events. Nil allows every navigation.
+    var navigationPolicy: ((URL) -> Bool)? { get set }
     /// Calls a Chrome DevTools protocol method and returns its result object.
     func devTools(_ method: String, _ params: [String: Any]) async throws -> [String: Any]
     /// The view that shows the page's web content, for screenshots; nil while another tab of its window is shown
@@ -79,6 +86,24 @@ extension E2EPage {
             throw E2EError("\(expression) is \(value.map { "\($0)" } ?? "null"), not a string")
         }
         return string
+    }
+}
+
+/// One main frame navigation event: a navigation started, was redirected, committed, finished or failed.
+struct E2ENavigationEvent: Equatable, CustomStringConvertible {
+    enum Kind: String {
+        case start, redirect, commit, finish, fail
+    }
+
+    var kind: Kind
+    /// The navigation's URL: for a redirect the URL redirected to, for a commit the URL committed.
+    var url: URL
+    /// The HTTP status for finish, the network error code for fail (negative), 0 otherwise.
+    var code: Int = 0
+
+    var description: String {
+        let path = url.host == "bow.test" ? url.path : url.absoluteString
+        return code == 0 ? "\(kind.rawValue) \(path)" : "\(kind.rawValue) \(path) \(code)"
     }
 }
 

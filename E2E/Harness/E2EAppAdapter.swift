@@ -110,47 +110,72 @@ final class E2EAppAdapter: E2EApp {
     }
 }
 
-/// E2EPage over one tab and a DevTools session on its browser.
+/// E2EPage over one tab, as its navigation delegate, and a DevTools session on its browser.
 @MainActor
-private final class TabPage: E2EPage {
+private final class TabPage: NSObject, E2EPage, BowTabNavigationDelegate {
     let tab: BowTab
     let controller: BrowserWindowController
     private let devToolsSession: BowDevToolsSession
     /// Every finished main frame load, in order; load number n is `loads[n - 1]`.
     private var loads: [Result<Int, E2EError>] = []
     private var loadWaiters: [(load: Int, continuation: CheckedContinuation<Int, Error>)] = []
-    /// The URL of the last failed load. Chromium then shows an error page at that URL and reports its load end
-    /// too, which belongs to the same failed load and must not count as another one.
-    private var failedURL: String?
+    private(set) var navigationEvents: [E2ENavigationEvent] = []
+    var navigationPolicy: ((URL) -> Bool)?
 
     init(tab: BowTab, controller: BrowserWindowController) {
         self.tab = tab
         self.controller = controller
         devToolsSession = BowDevToolsSession(tabID: tab.tabID)
-        tab.onLoadEnd = { [weak self, unowned tab] status in
-            guard let self else { return }
-            let isErrorPage = failedURL != nil && failedURL == tab.state.url?.absoluteString
-            failedURL = nil
-            if !isErrorPage { loadFinished(.success(status)) }
-        }
-        tab.onLoadError = { [weak self] code, text, url in
-            self?.failedURL = url
-            self?.loadFinished(.failure(E2EError("loading \(url) failed: \(code) \(text)")))
-        }
-        // Let go of a tab that closes during the run. At quit this comes too late (it runs after the engine may
-        // have shut down), so quit() also drops the last page, and with it the session, before quitting.
-        let onClose = tab.onClose
-        tab.onClose = { [weak devToolsSession] in
-            devToolsSession?.close()
-            onClose?()
+        super.init()
+        // The tab holds its delegate weakly; the test holds this page for as long as it uses it.
+        tab.navigationDelegate = self
+        // Let go of a tab that closes during the run, on a later main thread task as the UI delegate hears of it
+        // (the window controller is the tab's UI delegate). At quit this comes too late (it runs after the engine
+        // may have shut down), so quit() also drops the last page, and with it the session, before quitting.
+        closeObservation = tab.observe(\.isClosed, options: [.new]) { [weak devToolsSession] _, change in
+            guard change.newValue == true else { return }
+            DispatchQueue.main.async { devToolsSession?.close() }
         }
     }
+
+    private var closeObservation: NSKeyValueObservation?
 
     var isShown: Bool { controller.webView.attachedTab === tab }
     /// The window's web view while it shows this tab; nil while another tab is shown or once the window is gone.
     var contentView: NSView? { isShown && controller.window != nil ? controller.webView : nil }
     var isClosed: Bool { tab.isClosed }
     var finishedLoads: Int { loads.count }
+
+    func load(_ url: URL) {
+        tab.load(url)
+    }
+
+    func tab(_ tab: BowTab, decidePolicyFor navigation: BowNavigation) -> BowNavigation.Policy {
+        navigationPolicy?(navigation.url) == false ? .cancel : .allow
+    }
+
+    func tab(_ tab: BowTab, didStartNavigation navigation: BowNavigation) {
+        navigationEvents.append(E2ENavigationEvent(kind: .start, url: navigation.url))
+    }
+
+    func tab(_ tab: BowTab, didRedirect navigation: BowNavigation) {
+        navigationEvents.append(E2ENavigationEvent(kind: .redirect, url: navigation.url))
+    }
+
+    func tab(_ tab: BowTab, didCommit navigation: BowNavigation) {
+        navigationEvents.append(E2ENavigationEvent(kind: .commit, url: navigation.url))
+    }
+
+    func tab(_ tab: BowTab, didFinish navigation: BowNavigation, httpStatus: Int) {
+        navigationEvents.append(E2ENavigationEvent(kind: .finish, url: navigation.url, code: httpStatus))
+        loadFinished(.success(httpStatus))
+    }
+
+    func tab(_ tab: BowTab, didFail navigation: BowNavigation, error: BowNavigationError) {
+        navigationEvents.append(E2ENavigationEvent(kind: .fail, url: navigation.url, code: error.code))
+        let url = navigation.url.absoluteString
+        loadFinished(.failure(E2EError("loading \(url) failed: \(error.code) \(error.errorText)")))
+    }
 
     func waitForLoad(after finishedLoads: Int) async throws -> Int {
         let load = finishedLoads + 1

@@ -1,5 +1,8 @@
 #import <Foundation/Foundation.h>
 
+#import "BowTabNavigationDelegate.h"
+#import "BowTabUIDelegate.h"
+
 NS_ASSUME_NONNULL_BEGIN
 
 /// An immutable snapshot of a tab, as last pushed by the engine. Never computed on demand.
@@ -32,7 +35,7 @@ NS_SWIFT_UI_ACTOR
 @property(nonatomic, readonly) uint64_t tabID;
 @property(nonatomic, readonly, copy) NSString *profileID;
 
-/// The snapshot pushed last, also delivered to `onStateChange`.
+/// The snapshot pushed last, also delivered to the UI delegate's `tab(_:didChangeState:)`.
 @property(nonatomic, readonly) BowTabState *state;
 
 /// YES once the page has been destroyed. Navigation calls then do nothing.
@@ -45,18 +48,15 @@ NS_SWIFT_UI_ACTOR
 - (void)stop;
 
 /// Closes the tab after running the page's beforeunload handler. The completion runs on a later main thread task
-/// with YES once the page is destroyed, or NO when the person chose to stay on the page.
+/// with YES once the page is destroyed, or NO when the person chose to stay on the page (at the UI delegate's
+/// JavaScript dialog, or at the tab's own prompt when the delegate has none).
 - (void)closeWithCompletion:(void (^)(BOOL closed))completion NS_SWIFT_NAME(close(completion:));
 
-/// Called with each new snapshot.
-@property(nonatomic, copy, nullable) void (^onStateChange)(BowTabState *state);
-/// Called when the main frame finishes loading, with its HTTP status code.
-@property(nonatomic, copy, nullable) void (^onLoadEnd)(NSInteger httpStatusCode);
-/// Called when the main frame fails to load.
-@property(nonatomic, copy, nullable) void (^onLoadError)(NSInteger errorCode, NSString *errorText, NSString *failedURL);
-/// Called once, on a later main thread task, after the page has been destroyed, whoever closed it (the app,
-/// quitting, or the page itself).
-@property(nonatomic, copy, nullable) void (^onClose)(void);
+/// Receives the tab's main frame navigations and decides their policy. Held weakly.
+@property(nonatomic, weak, nullable) id<BowTabNavigationDelegate> navigationDelegate;
+/// Receives the tab's state, close and requests for UI (popups, dialogs, permissions, fullscreen, context menus,
+/// render process exits). Held weakly.
+@property(nonatomic, weak, nullable) id<BowTabUIDelegate> uiDelegate;
 
 @end
 

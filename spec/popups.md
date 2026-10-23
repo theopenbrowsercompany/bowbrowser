@@ -1,0 +1,30 @@
+# Pages that open pages
+
+## Summary
+
+When a page opens another page (a link that opens in a new tab, or a script that opens a new window), the new page opens in a popup window of its own and stays connected to the page that opened it.
+That connection is what sign in popups (for example Google or GitHub sign in) use to report back, so those flows keep working.
+
+## Behavior
+
+- A link meant to open in a new tab or window (for example `target="_blank"`) opens its page in a new popup window.
+- A script that opens a window (`window.open`), with or without a size, opens its page in a new popup window.
+- The new page can reach the page that opened it through `window.opener`, so a sign in popup can report back and close itself.
+- The new page uses the same profile as the page that opened it.
+
+## Edge cases
+
+- Bow cannot tell a plain link to a new tab from a script's `window.open`, so neither opens as a tab of the window yet.
+- Closing a popup window leaves the window that opened it open, and quitting closes popups with everything else.
+- A popup window has no Bow tab bar or address bar yet.
+
+## Acceptance checks
+
+1. Run `make e2e`: the `nav.popup` check opens a sized popup and a plain `window.open` page from a fixture, both report back through `window.opener`, and it prints `PASS nav.popup: opener=kept`.
+2. Open a page with a `target="_blank"` link and click it: the linked page opens in a new window.
+3. Sign in to a site with a "Sign in with Google" popup: the popup closes after signing in and the site shows you signed in.
+
+## Out of scope
+
+- Opening new tab links as tabs of the window, and showing popups inside Bow's own window with its controls.
+- Choosing which popups a page may open without a click.
