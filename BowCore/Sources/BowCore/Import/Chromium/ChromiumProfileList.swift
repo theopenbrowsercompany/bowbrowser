@@ -47,9 +47,10 @@ public enum ChromiumProfileList {
     }
 
     /// Reads `Local State` from a User Data folder.
-    public static func load(userDataFolder: URL) throws -> [ChromiumProfile] {
+    public static func load(userDataFolder: URL, log: ChromiumFileLog? = nil) throws -> [ChromiumProfile] {
         let url = userDataFolder.appendingPathComponent(fileName)
         guard FileManager.default.fileExists(atPath: url.path) else { throw ChromiumImportError.missingFile(fileName) }
+        log?.record(.read(url))
         guard let data = try? Data(contentsOf: url) else {
             throw ChromiumImportError.malformed(file: fileName, reason: "the file is not readable")
         }
