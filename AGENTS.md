@@ -48,8 +48,9 @@ Start every session in `~/code/GitHub/bowbrowser`: the maintainer's `.claude/set
 - `make verify`: lint, guards (`make guards`: the e2e seam check in `scripts/check-e2e-seams.sh` and the Swift header check in `scripts/check-swift-headers.sh`), tests and the Debug build.
   A change is done when this and its end-to-end check pass.
 - `make release`: a Release build that must carry no e2e harness code or fixtures. It is not part of `make verify`; the lead runs it once per branch before merging.
-- Builds take turns: every `xcodebuild` the Makefile runs goes through `scripts/build-lock.sh`, which leases one of `BOW_BUILD_SLOTS` slots (default 3) shared by all worktrees, queues waiting builds in arrival order, and frees a slot when its build ends, fails, is interrupted or dies.
+- Builds take turns: every `xcodebuild` the Makefile runs goes through `scripts/build-lock.sh`, which leases one of `BOW_BUILD_SLOTS` slots (default 3) shared by all worktrees, queues waiting builds in arrival order, and frees a slot when its build ends, fails or is interrupted (after a `kill -9` of the script, the orphaned build keeps the slot until it ends).
   The launch step of `make e2e` takes a slot from a separate pool, `BOW_E2E_SLOTS` (default 3), so Chromium launches do not pile up beside builds.
+  Xcode's compilation cache is shared too, in `~/Library/Caches/bowbrowser/compile-cache` (set in `project.yml`); it is not pruned, so delete the folder if it grows large.
   `BOW_BUILD_JOBS` caps the parallel compile jobs of each build (default 6).
   A waiting build prints one line saying so; just let it wait.
   Never run two `make e2e` at once in the same worktree: their build steps race in `package-cef.sh`.

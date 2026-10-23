@@ -26,17 +26,17 @@ fi
 case $pool in
   build) slots_var=BOW_BUILD_SLOTS ;;
   e2e) slots_var=BOW_E2E_SLOTS ;;
-  *) echo "build-lock: unknown pool '$pool' (use build or e2e)" >&2; exit 2 ;;
+  *) echo "build-lock: unknown pool '$pool' (use build or e2e)" >&2; exit 64 ;;
 esac
 slots=${!slots_var:-3}
 dir=${BOW_LOCK_DIR:-$HOME/Library/Caches/bowbrowser/build-lock}/$pool
 
-case $slots in '' | *[!0-9]* | 0)
+case $slots in '' | *[!0-9]* | 0 | 0[0-9]*)
   echo "build-lock: $slots_var must be a positive number, got '$slots'" >&2
-  exit 2
+  exit 64
   ;;
 esac
-[ $# -gt 0 ] || { echo "usage: build-lock.sh <command> [args...]" >&2; exit 2; }
+[ $# -gt 0 ] || { echo "usage: build-lock.sh [--pool build|e2e] <command> [args...]" >&2; exit 64; }
 
 mkdir -p "$dir/queue" "$dir/slots"
 
@@ -56,8 +56,8 @@ release() {
 # moment ago and has not filled in yet; only treat it as stale after 12 seconds.
 slot_stale() {
   local pid
-  if [ ! -f "$1/pids" ]; then
-    [ -n "$(find "$1" -maxdepth 0 -mmin +0.2 2>/dev/null)" ]
+  if [ ! -s "$1/pids" ]; then
+    [ $(($(date +%s) - $(stat -f %m "$1" 2>/dev/null || echo 0))) -gt 12 ]
     return
   fi
   for pid in $(cat "$1/pids" 2>/dev/null); do
@@ -67,9 +67,9 @@ slot_stale() {
 }
 
 running_count() {
-  local n=0 s
-  for s in "$dir"/slots/*; do
-    [ -d "$s" ] && n=$((n + 1))
+  local n=0 i
+  for i in $(seq 1 "$slots"); do
+    [ -d "$dir/slots/$i" ] && n=$((n + 1))
   done
   echo "$n"
 }
@@ -134,8 +134,9 @@ rm -f "$ticket"
 ticket=""
 [ "$told" = no ] || echo "build-lock: got a $pool slot after $((SECONDS - start))s" >&2
 
-"$@" &
+# Keep the command's stdin (a background job would get /dev/null).
+"$@" <&0 &
 child=$!
-echo "$$ $child" > "$slot/pids"
+echo "$$ $child" > "$slot/pids.new" && mv "$slot/pids.new" "$slot/pids"
 wait "$child"
 exit $?
