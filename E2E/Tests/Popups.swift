@@ -15,7 +15,22 @@ enum PopupsTests {
         PopupsBlockedTest(),
         PopupsOpenerTest(),
         PopupsStormTest(),
+        PopupsOAuthTest(),
+        PopupsPanelCloseTest(),
+        PopupsPanelWindowCloseTest(),
     ]
+
+    /// Clicks the sign in button, which opens login.html in a sized popup, and waits until it says it is ready
+    /// through `window.opener` (message number `count`).
+    static func openLogin(_ page: any E2EPage, count: Int = 1) async throws {
+        try await page.click("#login")
+        try await E2EWaits.until(page, "window.bowMessages.filter(m => m === 'login-ready').length >= \(count)")
+    }
+
+    /// The panels as "480x560".
+    static func sizes(_ panels: [E2EPopupPanel]) -> String {
+        panels.map { "\(Int($0.contentSize.width))x\(Int($0.contentSize.height))" }.joined(separator: ",")
+    }
 
     /// Opens a window on opener.html (A) and waits for it to load.
     static func openOpener(_ run: E2ERun) async throws -> (app: any E2EPopupsApp, page: any E2EPage) {
@@ -152,5 +167,101 @@ struct PopupsStormTest: E2ETest {
         let tabs = try app.popupTabTitles(besides: page)
         let passed = opened == 1 && tabs == ["A", "B"]
         run.check(name, passed: passed, "opened=\(opened) tabs=\(PopupsTests.list(tabs))")
+    }
+}
+
+/// A sign in flow: a click opens login.html with `window.open` and a size, which opens in a popup panel attached to
+/// the window at the size asked for, not as a tab; the panel's page reports back through `window.opener`, and when
+/// it calls `window.close()` the panel closes and the window still has only A.
+struct PopupsOAuthTest: E2ETest {
+    let name = "popups.oauth"
+
+    func run(_ run: E2ERun) async throws {
+        let (app, page) = try await PopupsTests.openOpener(run)
+        try await run.step("open the sign in popup", timeout: E2ETimeouts.firstLoad) {
+            try await PopupsTests.openLogin(page)
+        }
+        let panels = try app.popupPanels(besides: page)
+        let tabsWhileOpen = try app.popupTabTitles(besides: page)
+        let received = try await run.step("finish the sign in", timeout: E2ETimeouts.step) {
+            _ = try await page.evaluate("window.bowLogin.postMessage('finish', '*'); true")
+            try await E2EWaits.until(page, "window.bowMessages.includes('signed-in') && window.bowLogin.closed")
+            try await app.untilNoPopupPanels(besides: page)
+            return true
+        }
+        let tabs = try app.popupTabTitles(besides: page)
+        let panel = panels.first
+        let passed =
+            panels.count == 1 && panel?.contentSize == CGSize(width: 480, height: 560) && panel?.attached == true
+            && panel?.intrudes == false && tabsWhileOpen == ["A"] && received && tabs == ["A"]
+        run.check(
+            name, passed: passed,
+            "panel=\(PopupsTests.sizes(panels)) attached=\(panel?.attached == true ? "yes" : "no") "
+                + "postMessage=received closed=yes tabs=\(PopupsTests.list(tabs))"
+                + (passed
+                    ? ""
+                    : " panels=\(panels.count) intrudes=\(panel?.intrudes ?? false) "
+                        + "frame=\(panel.map { "\($0.frame)" } ?? "none") parent=\(panel.map { "\($0.parentFrame)" } ?? "none") "
+                        + "tabs-while-open=\(PopupsTests.list(tabsWhileOpen))"))
+    }
+}
+
+/// A sized popup without a click opens nothing; a panel the person closes with its close button goes, and its page
+/// closes (the opener sees it closed); a second panel closes when the tab that opened it closes.
+struct PopupsPanelCloseTest: E2ETest {
+    let name = "popups.panel_close"
+
+    func run(_ run: E2ERun) async throws {
+        let (app, page) = try await PopupsTests.openOpener(run)
+        let opened = try await run.step("open a sized popup without a click", timeout: E2ETimeouts.step) {
+            try await page.evaluate("window.open('login.html', 'quiet', 'width=400,height=400') !== null") as? Bool
+                ?? true
+        }
+        let blockedPanels = try app.popupPanels(besides: page).count
+        try await run.step("open the sign in popup", timeout: E2ETimeouts.firstLoad) {
+            try await PopupsTests.openLogin(page)
+        }
+        let panelsOpen = try app.popupPanels(besides: page).count
+        try await run.step("close the panel", timeout: E2ETimeouts.step) {
+            try app.closePopupPanel(besides: page)
+            try await app.untilNoPopupPanels(besides: page)
+            try await E2EWaits.until(page, "window.bowLogin.closed")
+        }
+        try await run.step("open the sign in popup again", timeout: E2ETimeouts.firstLoad) {
+            try await PopupsTests.openLogin(page, count: 2)
+        }
+        let reopened = try app.popupPanels(besides: page).count
+        let tabs = try app.popupTabTitles(besides: page)
+        // Closing the tab that opened the panel closes the panel; tab C keeps the window open.
+        try await run.step("close the opener tab", timeout: E2ETimeouts.step) {
+            _ = try run.app.openTab(at: E2EFixture.url("popups/other.html"), besides: page, select: false)
+            guard try await run.app.closeTab(page) else { throw E2EError("the opener tab stayed open") }
+            try await app.untilNoPopupPanels(besides: page)
+        }
+        let passed = !opened && blockedPanels == 0 && panelsOpen == 1 && reopened == 1 && tabs == ["A"]
+        run.check(
+            name, passed: passed,
+            "without-click=\(opened ? "opened" : "blocked") close-button=closed reopened=\(reopened) "
+                + "tabs=\(PopupsTests.list(tabs)) opener-closed=closed"
+                + (passed ? "" : " panels=\(panelsOpen) blocked-panels=\(blockedPanels)"))
+    }
+}
+
+/// Closing the window while a popup panel is open closes the panel and its page with it; `e2e.isolation` then
+/// checks that no browser was left open.
+struct PopupsPanelWindowCloseTest: E2ETest {
+    let name = "popups.panel_window_close"
+
+    func run(_ run: E2ERun) async throws {
+        let (app, page) = try await PopupsTests.openOpener(run)
+        try await run.step("open the sign in popup", timeout: E2ETimeouts.firstLoad) {
+            try await PopupsTests.openLogin(page)
+        }
+        let panels = try app.popupPanels(besides: page).count
+        try await run.step("close the window", timeout: E2ETimeouts.step) {
+            try await run.app.closeWindow(of: page)
+            try await app.untilNoPopupPanels(besides: page)
+        }
+        run.check(name, passed: panels == 1, "panels=\(panels) window-closed=panel-closed")
     }
 }

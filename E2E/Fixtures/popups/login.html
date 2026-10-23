@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Sign in</title>
+  <style>
+    body { margin: 0; font: 16px -apple-system, sans-serif; background: #fff; color: #111; }
+    h1 { margin: 0; padding: 24px; background: #8a3ffc; color: #fff; }
+    p { margin: 24px; }
+  </style>
+</head>
+<body>
+  <h1>Sign in</h1>
+  <p>A sign in popup, as an identity provider shows one.</p>
+  <script>
+    // Like a sign in popup: says it is ready through window.opener, and when its opener says the sign in is done,
+    // reports the result back and closes itself.
+    window.addEventListener("load", () => {
+      if (window.opener) window.opener.postMessage("login-ready", "*");
+    });
+    window.addEventListener("message", (event) => {
+      if (event.data !== "finish" || !window.opener) return;
+      window.opener.postMessage("signed-in", "*");
+      window.close();
+    });
+  </script>
+</body>
+</html>
