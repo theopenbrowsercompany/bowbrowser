@@ -53,6 +53,7 @@ Your working directory is your own git worktree of this repository.
 - Never open DevTools in an e2e run.
 - E2E type names share one namespace with the BowCore tests, so give harness additions an `e2e` prefix.
 - A plain `target="_blank"` link implies `noopener`, so a test that needs `window.opener` uses `rel="opener"`.
+- The pre-push hook refuses any commit that adds a path inside a macOS home directory (the Users folder), even in test data: use /tmp paths or relative paths in tests and fixtures (a URL field test was refused on 2026-10-23).
 - A "do not edit" list in a brief bars commits, not the temporary uncommitted stubs of the fails without check.
 
 ## Before you report
