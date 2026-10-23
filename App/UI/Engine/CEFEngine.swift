@@ -44,6 +44,15 @@ final class CEFEngine: BrowserEngine {
         }
     }
 
+    var keepsClosedTabsForDownloads: Bool { BowEngine.keepsClosedTabsForDownloads }
+
+    /// Never returns once the engine has stopped; the process exits then.
+    func closedTabsForDownloadsReleased() async {
+        await withCheckedContinuation { continuation in
+            BowEngine.whenClosedTabsForDownloadsReleased { continuation.resume() }
+        }
+    }
+
     private func adapter(for profile: BowProfile) -> CEFProfile {
         if let existing = profiles[profile.profileID] { return existing }
         let adapter = CEFProfile(profile)

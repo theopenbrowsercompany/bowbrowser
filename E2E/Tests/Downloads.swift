@@ -4,7 +4,9 @@ import Foundation
 /// and clearing from the downloads window. Fixtures in E2E/Fixtures/downloads/.
 @MainActor
 enum DownloadsTests {
-    static let all: [any E2ETest] = [DownloadsTest(), DownloadsTabClosedTest()]
+    static let all: [any E2ETest] = [
+        DownloadsTest(), DownloadsTabClosedTest(), DownloadsParkedPageTest(), DownloadsWindowClosedTest(),
+    ]
 }
 
 /// Opens a slow download of known size in a second tab and closes that tab mid download. The tab leaves at once,
@@ -27,7 +29,7 @@ struct DownloadsTabClosedTest: E2ETest {
         }
 
         let earlier = Set(try await run.app.downloads().map(\.id))
-        let atClose = try await run.step("start the download in a second tab and close it", timeout: E2ETimeouts.step) {
+        let closing = try await run.step("start the download in a second tab and close it", timeout: E2ETimeouts.step) {
             let tab = try run.app.openTab(
                 at: E2EFixture.url("_slow/\(Self.size)/tab-closed.bin"), besides: page, select: false)
             let row = try await waitFor(run) {
@@ -37,11 +39,17 @@ struct DownloadsTabClosedTest: E2ETest {
                 }
             }
             guard try await run.app.closeTab(tab) else { throw E2EError("the download's tab did not close") }
-            return row
+            // The tab closes for the app at once, while its download still runs: it does not wait for the end.
+            let afterClose = try await run.app.downloads().first { $0.id == row.id }
+            return (row, afterClose?.state ?? "none")
         }
-        guard atClose.receivedBytes < Self.size / 2 else {
-            run.check(name, passed: false, "the download got \(atClose.receivedBytes) bytes before its tab closed")
-            await cleanUp(run, except: earlier)
+        let (atClose, stateAfterClose) = closing
+        guard atClose.receivedBytes < Self.size / 2, stateAfterClose == "inProgress" || stateAfterClose == "paused"
+        else {
+            run.check(
+                name, passed: false,
+                "the download got \(atClose.receivedBytes) bytes before its tab closed, then was \(stateAfterClose)")
+            await DownloadRows.cleanUp(run, except: earlier)
             return
         }
 
@@ -78,21 +86,29 @@ struct DownloadsTabClosedTest: E2ETest {
                     name,
                     passed: passed,
                     passed
-                        ? "state=\(done.state) row=updated"
+                        ? "state=\(done.state) row=updated closed-while=\(stateAfterClose)"
                         : "state=\(done.state) row=updated status=\"\(done.status)\" size=\(size.map(String.init) ?? "none") file=\(done.fileName) next=\(next.fileName)"
                 )
             }
         } catch {
             if error is CancellationError { throw error }
             if let error = error as? E2EError, error.reason == .testEnded { throw error }
-            await cleanUp(run, except: earlier)
+            await DownloadRows.cleanUp(run, except: earlier)
             throw error
         }
     }
 
-    /// Cancels any download this test started that is still running, then clears every row it added, so a failure
+    private func waitFor<T>(_ run: E2ERun, _ match: ([E2EDownload]) -> T?) async throws -> T {
+        try await DownloadRows.waitFor(run, match)
+    }
+}
+
+/// Download row helpers shared by the tests of closed tabs' downloads.
+@MainActor
+enum DownloadRows {
+    /// Cancels any download the test started that is still running, then clears every row it added, so a failure
     /// leaves no row behind for later tests.
-    private func cleanUp(_ run: E2ERun, except earlier: Set<String>) async {
+    static func cleanUp(_ run: E2ERun, except earlier: Set<String>) async {
         guard let rows = try? await run.app.downloads() else { return }
         for row in rows where !earlier.contains(row.id) && (row.state == "inProgress" || row.state == "paused") {
             try? await run.app.press(.cancelOrClear, of: row)
@@ -109,10 +125,173 @@ struct DownloadsTabClosedTest: E2ETest {
     }
 
     /// Reads the downloads window until `match` returns a value, checking every 20 ms; the step's timeout bounds it.
-    private func waitFor<T>(_ run: E2ERun, _ match: ([E2EDownload]) -> T?) async throws -> T {
+    static func waitFor<T>(_ run: E2ERun, _ match: ([E2EDownload]) -> T?) async throws -> T {
         while true {
             if let value = match(try await run.app.downloads()) { return value }
             try await Task.sleep(nanoseconds: 20_000_000)
+        }
+    }
+
+    /// Starts a slow download from `path` in a new background tab beside `page`, and returns the tab and its row
+    /// once it runs.
+    static func startInTab(
+        _ run: E2ERun, _ path: String, fileName: String, besides page: any E2EPage, except earlier: Set<String>
+    ) async throws -> (any E2EPage, E2EDownload) {
+        let tab = try run.app.openTab(at: E2EFixture.url(path), besides: page, select: false)
+        let row = try await waitFor(run) {
+            $0.first {
+                !earlier.contains($0.id) && $0.fileName == fileName && $0.state == "inProgress" && $0.receivedBytes > 0
+            }
+        }
+        return (tab, row)
+    }
+
+    /// Checks `match` every 20 ms until it returns a value, giving up with an error naming `what` shortly before
+    /// the step's limit.
+    static func poll<T>(_ what: String, seen: () -> String = { "" }, _ match: () -> T?) async throws -> T {
+        let deadline = Date().addingTimeInterval(E2EWaits.budget())
+        while true {
+            if let value = match() { return value }
+            guard Date() < deadline else { throw E2EError("gave up waiting until \(what) \(seen())") }
+            try await Task.sleep(nanoseconds: 20_000_000)
+        }
+    }
+
+    /// Cancels the download `row` and clears it, waiting for each.
+    static func cancelAndClear(_ run: E2ERun, _ row: E2EDownload) async throws {
+        try await run.app.press(.cancelOrClear, of: row)
+        let ended = try await waitFor(run) { rows in
+            rows.first { $0.id == row.id && $0.state != "inProgress" && $0.state != "paused" }
+        }
+        try await run.app.press(.cancelOrClear, of: ended)
+        _ = try await waitFor(run) { rows in rows.contains { $0.id == row.id } ? nil : rows }
+    }
+}
+
+/// Closes a tab whose page goes on, once closed, to open a popup, call alert() and start another download on a
+/// timer. Its browser stays alive for its first download, but nothing it asks for may reach the screen or keep it
+/// alive: no popup browser or window comes of it, the dialog is refused without showing anything, and the download
+/// is refused.
+struct DownloadsParkedPageTest: E2ETest {
+    let name = "downloads.parked-page"
+    let checks = ["downloads.parked-popup", "downloads.parked-dialog", "downloads.parked-download"]
+
+    func run(_ run: E2ERun) async throws {
+        guard let app = run.app as? any E2EKeptTabsApp else { throw E2EError("the app has no kept tabs") }
+        let page = try await run.step("open window", timeout: E2ETimeouts.step) {
+            try await run.app.openWindow(at: E2EFixture.url("downloads/index.html"))
+        }
+        try await run.step("load the fixture", timeout: E2ETimeouts.firstLoad) {
+            let status = try await page.waitForLoad(after: 0)
+            guard status == 200 else { throw E2EError("the fixture loaded with status \(status)") }
+        }
+        let earlier = Set(try await run.app.downloads().map(\.id))
+        do {
+            let (tab, row) = try await run.step(
+                "start the download in the parked page's tab", timeout: E2ETimeouts.step
+            ) {
+                try await DownloadRows.startInTab(
+                    run, "downloads/parked.html", fileName: "parked.bin", besides: page, except: earlier)
+            }
+            let browsers = app.openBrowserCount
+            let windows = app.shownWindows
+            let kinds = ["popup", "dialog", "download"]
+            let before = Dictionary(uniqueKeysWithValues: kinds.map { ($0, app.refusedParkedRequests(of: $0)) })
+            try await run.step("close the tab", timeout: E2ETimeouts.step) {
+                guard try await run.app.closeTab(tab) else { throw E2EError("the parked page's tab did not close") }
+            }
+            // Each tick of the page calls window.open before alert(), so a refused dialog means it tried a popup too.
+            // Chromium itself refuses window.open from a page whose tab closed, so the popup may never reach the
+            // engine (which would refuse it); what counts is that no browser or window came of it.
+            _ = try await run.step("wait for the closed page's requests", timeout: E2ETimeouts.step * 2) {
+                try await DownloadRows.poll(
+                    "the closed page asked for a dialog and a download",
+                    seen: {
+                        "refused "
+                            + kinds.map { "\($0)=\(app.refusedParkedRequests(of: $0) - before[$0]!)" }.joined(
+                                separator: " ")
+                    }
+                ) {
+                    let counts = kinds.map { app.refusedParkedRequests(of: $0) - before[$0]! }
+                    return counts[1] > 0 && counts[2] > 0 ? counts : nil
+                }
+            }
+            // A few more of the page's ticks, so anything shown late is seen too.
+            try await Task.sleep(nanoseconds: 500_000_000)
+            let refused = kinds.map { app.refusedParkedRequests(of: $0) - before[$0]! }
+            let rows = try await run.app.downloads()
+            let current = rows.first { $0.id == row.id }
+            let again = rows.filter { !earlier.contains($0.id) && $0.fileName.hasPrefix("parked-again") }
+            let shown = app.shownWindows
+            let kept = current?.state == "inProgress" || current?.state == "paused"
+            run.check(
+                "downloads.parked-popup",
+                passed: kept && app.openBrowserCount == browsers && shown.visible == windows.visible,
+                "refused=\(refused[0]) browsers=\(browsers)->\(app.openBrowserCount) windows=\(windows.visible)->\(shown.visible) download=\(current?.state ?? "none")"
+            )
+            run.check(
+                "downloads.parked-dialog", passed: !shown.modal && shown.visible == windows.visible,
+                "refused=\(refused[1]) modal=\(shown.modal) windows=\(windows.visible)->\(shown.visible)")
+            run.check(
+                "downloads.parked-download", passed: again.isEmpty,
+                "refused=\(refused[2]) new-rows=\(again.count)")
+            try await run.step("cancel the download", timeout: E2ETimeouts.step) {
+                try await DownloadRows.cancelAndClear(run, row)
+            }
+        } catch {
+            if error is CancellationError { throw error }
+            if let error = error as? E2EError, error.reason == .testEnded { throw error }
+            await DownloadRows.cleanUp(run, except: earlier)
+            throw error
+        }
+    }
+}
+
+/// Closes a window whose only tab is downloading. The engine keeps the tab's page for its download, so the app does
+/// not quit after its last window closes (an e2e run never does, so this checks what that decision reads), and lets
+/// go of it once the download is cancelled.
+struct DownloadsWindowClosedTest: E2ETest {
+    let name = "downloads.window-closed"
+    let checks = ["downloads.window-closed"]
+
+    func run(_ run: E2ERun) async throws {
+        guard let app = run.app as? any E2EKeptTabsApp else { throw E2EError("the app has no kept tabs") }
+        let page = try await run.step("open window", timeout: E2ETimeouts.step) {
+            try await run.app.openWindow(at: E2EFixture.url("downloads/index.html"))
+        }
+        try await run.step("load the fixture", timeout: E2ETimeouts.firstLoad) {
+            let status = try await page.waitForLoad(after: 0)
+            guard status == 200 else { throw E2EError("the fixture loaded with status \(status)") }
+        }
+        let earlier = Set(try await run.app.downloads().map(\.id))
+        do {
+            let (tab, row) = try await run.step("start a download in a second tab", timeout: E2ETimeouts.step) {
+                try await DownloadRows.startInTab(
+                    run, "_slow/320000/window-closed.bin", fileName: "window-closed.bin", besides: page, except: earlier
+                )
+            }
+            let keptBefore = app.keepsClosedTabsForDownloads
+            try await run.step("close the window", timeout: E2ETimeouts.step) {
+                try await run.app.closeWindow(of: tab)
+            }
+            let keptAfterClose = app.keepsClosedTabsForDownloads
+            let state = try await run.app.downloads().first { $0.id == row.id }?.state ?? "none"
+            try await run.step("cancel the download", timeout: E2ETimeouts.step) {
+                try await DownloadRows.cancelAndClear(run, row)
+            }
+            let released = try await run.step("wait for the kept page to go", timeout: E2ETimeouts.step) {
+                try await DownloadRows.poll("the engine let go of the closed tab's page") {
+                    app.keepsClosedTabsForDownloads ? nil : true
+                }
+            }
+            run.check(
+                name, passed: !keptBefore && keptAfterClose && (state == "inProgress" || state == "paused") && released,
+                "kept before=\(keptBefore) after-close=\(keptAfterClose) download=\(state) released=\(released)")
+        } catch {
+            if error is CancellationError { throw error }
+            if let error = error as? E2EError, error.reason == .testEnded { throw error }
+            await DownloadRows.cleanUp(run, except: earlier)
+            throw error
         }
     }
 }

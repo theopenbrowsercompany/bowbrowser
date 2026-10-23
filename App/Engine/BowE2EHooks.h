@@ -47,4 +47,11 @@ bool BowEngineParksPopups();
 void BowEngineAnswerLeavePrompts(
     std::function<void(uint64_t tabID, bool isReload, std::function<void(bool leave)> answer)> answerer);
 
+/// Counts one UI request (`kind`: popup, dialog, download, permission, file dialog, context menu) that the page of
+/// a closed tab, kept alive for its downloads, made and was refused. Called by the engine. Main thread only.
+void BowEngineNoteParkedRequestRefused(const char* kind);
+
+/// How many UI requests of `kind` pages of closed tabs kept for their downloads were refused so far. Main thread only.
+size_t BowEngineParkedRequestsRefused(const char* kind);
+
 #endif  // BOW_E2E

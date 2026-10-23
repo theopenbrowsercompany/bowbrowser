@@ -10,6 +10,10 @@
 #include "BowEngine+Internal.h"
 #include "include/cef_download_handler.h"
 
+#if BOW_E2E
+#include "BowE2EHooks.h"  // E2E seam
+#endif
+
 namespace {
 
 NSString* ToNSString(const CefString& value) {
@@ -59,6 +63,20 @@ bool NeedsReading(BowDownloadState state) {
 
 // True once the engine's message loop has ended: downloads hold nothing of Chromium's and ignore its reports.
 bool gEngineStopped = false;
+
+// Blocks waiting for no closed tab's browser to be kept for its downloads (BowEngine
+// whenClosedTabsForDownloadsReleased:).
+NSMutableArray<dispatch_block_t>* gReleaseWaiters;
+
+bool AnyBrowserKept();
+
+// Runs the waiting blocks once no browser is kept any more.
+void RunReleaseWaitersIfNoneKept() {
+  if (gEngineStopped || gReleaseWaiters.count == 0 || AnyBrowserKept()) return;
+  NSArray<dispatch_block_t>* waiters = [gReleaseWaiters copy];
+  [gReleaseWaiters removeAllObjects];
+  for (dispatch_block_t waiter in waiters) waiter();
+}
 
 // What is known about a running download apart from its snapshot: the browser Chromium reports it through, and,
 // once that browser has closed (a crash, a quit, or a popup window closing), what its file on disk last looked like.
@@ -225,6 +243,13 @@ class BowDownloadHandler : public CefDownloadHandler {
   explicit BowDownloadHandler(BowDownloads* downloads) : downloads_(downloads) {}
 
   bool CanDownload(CefRefPtr<CefBrowser> browser, const CefString& url, const CefString& requestMethod) override {
+    // A closed tab's page kept for its downloads starts none, so it cannot keep itself alive.
+    if (browser && BowDownloadsKeepsBrowserAlive(browser->GetIdentifier())) {
+#if BOW_E2E  // E2E seam: counts what a closed tab's page was refused.
+      BowEngineNoteParkedRequestRefused("download");
+#endif
+      return false;
+    }
     return [downloads_ allowsDownloadFromURL:ToNSString(url)];
   }
 
@@ -340,6 +365,7 @@ class BowDownloadHandler : public CefDownloadHandler {
   } else {
     [delegate downloads:self didUpdateItem:item];
   }
+  [self followIfBrowserClosed:browser];
 
   __weak BowDownloads* weakSelf = self;
   BowDestinationAnswer* answer = [[BowDestinationAnswer alloc] initWithCallback:callback
@@ -401,6 +427,7 @@ class BowDownloadHandler : public CefDownloadHandler {
   } else {
     [delegate downloads:self didUpdateItem:item];
   }
+  if (!IsFinal(item.state)) [self followIfBrowserClosed:browser];
   [self releaseIdleBrowsers];
 }
 
@@ -510,7 +537,11 @@ class BowDownloadHandler : public CefDownloadHandler {
 
 - (BOOL)hasActiveDownloadsForBrowser:(int)browserID {
   for (const auto& [downloadID, watch] : _watches) {
-    if (watch.orphaned || !watch.browser || watch.browser->GetIdentifier() != browserID) continue;
+    // One whose save panel was answered Cancel is ending, so it keeps nothing alive.
+    if (watch.orphaned || !watch.browser || watch.browser->GetIdentifier() != browserID ||
+        _cancelled.count(downloadID)) {
+      continue;
+    }
     NSUInteger index = [self indexOf:downloadID];
     if (index != NSNotFound && IsActive(_items[index].state)) return YES;
   }
@@ -525,6 +556,10 @@ class BowDownloadHandler : public CefDownloadHandler {
 
 - (BOOL)keepsBrowserAlive:(int)browserID {
   return _keptBrowsers.count(browserID) > 0;
+}
+
+- (BOOL)keepsAnyBrowser {
+  return !_keptBrowsers.empty();
 }
 
 // Runs the block of every kept browser on a later main thread task, at once.
@@ -556,12 +591,12 @@ class BowDownloadHandler : public CefDownloadHandler {
   dispatch_block_t block = kept->second;
   _keptBrowsers.erase(kept);
   block();
+  RunReleaseWaitersIfNoneKept();
 }
 
 #pragma mark Downloads whose browser closed
 
-// Notes the browser reporting a running download. One reported through a browser that has closed already is
-// followed on disk at once.
+// Notes the browser reporting a running download.
 - (void)watch:(uint32_t)downloadID browser:(CefRefPtr<CefBrowser>)browser {
   if (gEngineStopped) return;
   Watch& watch = _watches[downloadID];
@@ -570,14 +605,20 @@ class BowDownloadHandler : public CefDownloadHandler {
     watch.browser = browser;
     watch.orphaned = false;
     watch.paused = false;
-    if (!browser->IsValid()) [self browserClosed:browser->GetIdentifier()];
   }
+}
+
+// A download reported through a browser that has closed already is followed on disk at once. Called once its
+// snapshot is stored, which reading it from disk needs.
+- (void)followIfBrowserClosed:(CefRefPtr<CefBrowser>)browser {
+  if (browser && !browser->IsValid()) [self browserClosed:browser->GetIdentifier()];
 }
 
 // The browser `browserID` closed: Chromium says nothing more about its downloads, which are read from disk now.
 - (void)browserClosed:(int)browserID {
   _keptBrowsers.erase(browserID);
   _releaseChecks.erase(browserID);
+  RunReleaseWaitersIfNoneKept();
   std::vector<uint32_t> orphans;
   for (const auto& [downloadID, watch] : _watches) {
     if (!watch.orphaned && watch.browser && watch.browser->GetIdentifier() == browserID) orphans.push_back(downloadID);
@@ -760,6 +801,31 @@ bool BowDownloadsKeepsBrowserAlive(int browserID) {
 
 void BowDownloadsReleaseKeptBrowsers() {
   for (BowDownloads* downloads in BowDownloads.allDownloads) [downloads releaseAllBrowsers];
+  RunReleaseWaitersIfNoneKept();
+}
+
+namespace {
+
+bool AnyBrowserKept() {
+  for (BowDownloads* downloads in BowDownloads.allDownloads) {
+    if ([downloads keepsAnyBrowser]) return true;
+  }
+  return false;
+}
+
+}  // namespace
+
+bool BowDownloadsKeepAnyBrowser() {
+  return !gEngineStopped && AnyBrowserKept();
+}
+
+void BowDownloadsWhenNoBrowserKept(dispatch_block_t block) {
+  if (gEngineStopped) return;
+  if (!gReleaseWaiters) gReleaseWaiters = [NSMutableArray array];
+  [gReleaseWaiters addObject:[block copy]];
+  dispatch_async(dispatch_get_main_queue(), ^{
+    RunReleaseWaitersIfNoneKept();
+  });
 }
 
 void BowDownloadsBrowserClosed(int browserID) {

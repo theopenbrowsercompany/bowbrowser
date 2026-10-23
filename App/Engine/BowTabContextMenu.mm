@@ -73,6 +73,10 @@ bool BowTabClient::RunContextMenu(CefRefPtr<CefBrowser> browser,
                                   CefRefPtr<CefContextMenuParams> params,
                                   CefRefPtr<CefMenuModel> model,
                                   CefRefPtr<CefRunContextMenuCallback> callback) {
+  if (RefusesUIRequest(browser, "context menu")) {
+    callback->Cancel();
+    return true;
+  }
   if (!IsOwn(browser) || ![tab_ takesUIRequest:@selector(tab:runContextMenu:completionHandler:)]) return false;
   // The params and model are valid only during this call, so everything is copied out now.
   BowContextMenuRequest* request =

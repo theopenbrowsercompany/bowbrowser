@@ -25,6 +25,11 @@ bool BowDownloadsKeepsBrowserAlive(int browserID);
 /// Runs every waiting whenDownloadsOfBrowserEnd:run: block now (on a later main thread task), so quitting closes the
 /// browsers they keep, which cancels their downloads.
 void BowDownloadsReleaseKeptBrowsers();
+/// YES while any profile's downloads keep a browser alive (BowEngine keepsClosedTabsForDownloads).
+bool BowDownloadsKeepAnyBrowser();
+/// Runs `block` once no profile's downloads keep a browser alive: on a later main thread task when none does now.
+/// Never runs once the engine has stopped.
+void BowDownloadsWhenNoBrowserKept(dispatch_block_t block);
 /// OnBeforeClose of any browser: its downloads that are still running are followed on disk from now on.
 void BowDownloadsBrowserClosed(int browserID);
 /// Called once when the engine's message loop has ended, before CefShutdown. Every profile's downloads stop

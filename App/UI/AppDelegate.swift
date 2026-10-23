@@ -210,7 +210,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
         // An e2e run quits when its tests are done, even if a test closes every window on the way.
-        !options.isE2E
+        if options.isE2E { return false }
+        // Quitting would cancel the downloads of closed tabs, whose pages stay alive until they end: the app stays
+        // open until then, and quits then unless a window has opened meanwhile.
+        guard engine.keepsClosedTabsForDownloads else { return true }
+        quitWhenClosedTabsReleased()
+        return false
+    }
+
+    /// True while the app waits for closed tabs' downloads to end before quitting after its last window closed.
+    private var waitsToQuitAfterDownloads = false
+
+    private func quitWhenClosedTabsReleased() {
+        guard !waitsToQuitAfterDownloads else { return }
+        waitsToQuitAfterDownloads = true
+        Task { [engine] in
+            await engine.closedTabsForDownloadsReleased()
+            waitsToQuitAfterDownloads = false
+            if !NSApp.windows.contains(where: \.isVisible) { NSApp.terminate(nil) }
+        }
     }
 
     /// Opens a browser window. With no `profile` it runs on the app's sidebar (saved in the data directory): it opens

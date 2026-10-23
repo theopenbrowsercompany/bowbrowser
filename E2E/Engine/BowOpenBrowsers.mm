@@ -8,4 +8,8 @@
   return static_cast<NSInteger>(BowEngineOpenBrowserCount());
 }
 
++ (NSInteger)refusedParkedRequestsOfKind:(NSString *)kind {
+  return static_cast<NSInteger>(BowEngineParkedRequestsRefused(kind.UTF8String));
+}
+
 @end

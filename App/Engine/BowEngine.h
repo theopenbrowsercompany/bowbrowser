@@ -62,6 +62,15 @@ NS_SWIFT_UI_ACTOR
 /// (by asking the person to stay) are asked again. A page the person chooses to stay on cancels the quit.
 + (void)quit;
 
+/// YES while the browsers of tabs that closed stay alive, out of sight, until their downloads end (destroying a
+/// browser cancels its downloads). Quitting closes them, which cancels the downloads.
+@property(class, nonatomic, readonly) BOOL keepsClosedTabsForDownloads;
+
+/// Runs `block` on the main thread once no closed tab's browser is kept for its downloads any more: on a later
+/// main thread task when none is now. Never runs once the engine has stopped.
++ (void)whenClosedTabsForDownloadsReleased:(dispatch_block_t)block
+    NS_SWIFT_NAME(whenClosedTabsForDownloadsReleased(_:));
+
 @end
 
 NS_ASSUME_NONNULL_END

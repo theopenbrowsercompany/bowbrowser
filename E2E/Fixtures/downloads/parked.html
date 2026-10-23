@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Parked page fixture</title>
+</head>
+<body>
+  <h1>Parked page fixture</h1>
+  <script>
+    // Starts a slow download in a hidden frame. Once its tab has closed (pagehide), and from then on on every tick,
+    // the page opens a popup, calls alert() and starts another download: all things the page of a closed tab must
+    // never get.
+    let closed = false;
+    addEventListener('pagehide', () => { closed = true; });
+
+    function download(path) {
+      const frame = document.createElement('iframe');
+      frame.hidden = true;
+      frame.src = path;
+      document.body.append(frame);
+    }
+
+    download('/_slow/320000/parked.bin');
+    setInterval(() => {
+      if (!closed) return;
+      window.open('/downloads/index.html', '_blank', 'width=300,height=200');
+      alert('A closed tab must not show this');
+      download('/_slow/320000/parked-again.bin');
+    }, 200);
+  </script>
+</body>
+</html>

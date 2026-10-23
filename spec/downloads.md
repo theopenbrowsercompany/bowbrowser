@@ -26,8 +26,12 @@ Each profile keeps its own downloads, and the window shows every profile's downl
 - A finished download never changes state again, even if a late progress report arrives.
 - The list lasts for the session: after a restart it starts empty, and files already saved stay on disk.
 - Downloads survive closing the tab that started them.
-  The tab leaves the sidebar and the window at once, as any closed tab does, but the engine keeps its page alive out of sight (the page has already run its unload handlers) until every download it started has completed, been cancelled, failed or been cleared; then the page closes for good.
+  The tab leaves the sidebar and the window at once, as any closed tab does, but the engine keeps its page alive out of sight until every download it started has completed, been cancelled, failed or been cleared; then the page closes for good.
   While it runs, such a download keeps its row, its controls and its name, and the same file downloaded again is numbered.
+- Such a kept page has run its unload handlers but still runs: its timers and network go on, slowed as in any hidden page, and it is muted.
+  Nothing it asks for reaches the person: popups and new windows are blocked, alerts and other page dialogs are dismissed unseen, permission requests are denied, and file choosers and context menus do not open.
+  It cannot start a new download either, so it cannot keep itself alive.
+- Closing the last window while such a page is kept does not quit the app, since quitting would cancel its downloads: the app stays open with no window until the last of them ends, then quits, unless a window has opened meanwhile.
 - Quitting does not wait for downloads: the closed tabs kept for their downloads close with the rest of the app, which cancels those downloads, and quitting stays as fast as without them.
   Staying on a page at its leave prompt cancels the quit and keeps them running.
 - A download whose page closes anyway (a popup in its own window closing, or the engine stopping) can no longer be reported by the engine, and the engine would cancel it with the page, deleting its partial file.
@@ -47,8 +51,12 @@ Each profile keeps its own downloads, and the window shows every profile's downl
 4. Click Clear on a finished download: the row goes away and the file stays in the Downloads folder.
 5. Turn on "Ask where to save each file" and click a download link: a save panel opens on the Downloads folder with the suggested name; Cancel there cancels the download.
 6. Start a slow download in a second tab and close that tab mid download: the tab goes at once, the download keeps running (the same file downloaded meanwhile is numbered) and completes with every byte saved, Clear removes the row, and the hidden page closes once the download has ended.
-   `make e2e E2E=downloads.tab-closed` prints `PASS downloads.tab-closed: state=complete row=updated`.
-7. `make e2e E2E=downloads` prints `PASS downloads: file=a.pdf state=complete`, saving into the run's own folder rather than the real Downloads folder.
+   `make e2e E2E=downloads.tab-closed` prints `PASS downloads.tab-closed: state=complete row=updated closed-while=inProgress`.
+7. Close a tab whose page, once closed, keeps trying to open a popup, show an alert and start another download: no window, popup or dialog appears and no new download is listed, while its first download keeps running.
+   `make e2e E2E=downloads.parked-page` prints `PASS downloads.parked-popup`, `PASS downloads.parked-dialog` and `PASS downloads.parked-download`.
+8. Close the window whose tab is downloading: the download keeps running and the engine reports the closed tab as kept until the download is cancelled.
+   `make e2e E2E=downloads.window-closed` prints `PASS downloads.window-closed: kept before=false after-close=true download=inProgress released=true`.
+9. `make e2e E2E=downloads` prints `PASS downloads: file=a.pdf state=complete`, saving into the run's own folder rather than the real Downloads folder.
 
 ## Out of scope
 

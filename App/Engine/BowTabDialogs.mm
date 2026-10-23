@@ -20,6 +20,12 @@ bool BowTabClient::OnJSDialog(CefRefPtr<CefBrowser> browser,
                               const CefString& defaultPromptText,
                               CefRefPtr<CefJSDialogCallback> callback,
                               bool& suppressMessage) {
+  // A closed tab's page kept for its downloads is never heard: suppressing (rather than answering) is how CEF
+  // expects an unwanted dialog to be refused.
+  if (RefusesUIRequest(browser, "dialog")) {
+    suppressMessage = true;
+    return false;
+  }
   if (!IsOwn(browser) || ![tab_ takesUIRequest:@selector(tab:runJavaScriptDialog:completionHandler:)]) {
     return false;
   }
@@ -41,6 +47,11 @@ bool BowTabClient::OnBeforeUnloadDialog(CefRefPtr<CefBrowser> browser,
                                         const CefString& messageText,
                                         bool isReload,
                                         CefRefPtr<CefJSDialogCallback> callback) {
+  // A closed tab's page kept for its downloads has nobody to ask; it leaves, as an unanswered prompt does.
+  if (RefusesUIRequest(browser, "dialog")) {
+    callback->Continue(true, CefString());
+    return true;
+  }
   if (!IsOwn(browser)) return false;
   BowJSDialogRequest* request = [[BowJSDialogRequest alloc] initWithKind:BowJSDialogKindBeforeUnload
                                                                originURL:nil
@@ -48,6 +59,20 @@ bool BowTabClient::OnBeforeUnloadDialog(CefRefPtr<CefBrowser> browser,
                                                        defaultPromptText:@""
                                                                 isReload:isReload];
   [tab_ runBeforeUnloadDialog:request callback:callback];
+  return true;
+}
+
+// File choosers keep CEF's own panel, except for a closed tab's page kept for its downloads, which gets none.
+bool BowTabClient::OnFileDialog(CefRefPtr<CefBrowser> browser,
+                                FileDialogMode mode,
+                                const CefString& title,
+                                const CefString& defaultFilePath,
+                                const std::vector<CefString>& acceptFilters,
+                                const std::vector<CefString>& acceptExtensions,
+                                const std::vector<CefString>& acceptDescriptions,
+                                CefRefPtr<CefFileDialogCallback> callback) {
+  if (!RefusesUIRequest(browser, "file dialog")) return false;
+  callback->Cancel();
   return true;
 }
 

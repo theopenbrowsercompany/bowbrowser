@@ -10,6 +10,7 @@
 #include "BowEngine+Internal.h"
 #include "include/cef_browser.h"
 #include "include/cef_client.h"
+#include "include/cef_dialog_handler.h"
 #include "include/cef_find_handler.h"
 #include "include/cef_keyboard_handler.h"
 
@@ -175,6 +176,7 @@ class BowTabClient : public CefClient,
                      public CefRequestHandler,
                      public CefPermissionHandler,
                      public CefContextMenuHandler,
+                     public CefDialogHandler,
                      public CefFindHandler,
                      public CefKeyboardHandler {
  public:
@@ -190,6 +192,7 @@ class BowTabClient : public CefClient,
   CefRefPtr<CefContextMenuHandler> GetContextMenuHandler() override { return this; }
   CefRefPtr<CefFindHandler> GetFindHandler() override { return this; }
   CefRefPtr<CefKeyboardHandler> GetKeyboardHandler() override { return this; }
+  CefRefPtr<CefDialogHandler> GetDialogHandler() override { return this; }
   CefRefPtr<CefDownloadHandler> GetDownloadHandler() override;
 
   // CefLifeSpanHandler (BowTabLifeSpan.mm)
@@ -273,6 +276,16 @@ class BowTabClient : public CefClient,
                             bool isReload,
                             CefRefPtr<CefJSDialogCallback> callback) override;
 
+  // CefDialogHandler (BowTabDialogs.mm)
+  bool OnFileDialog(CefRefPtr<CefBrowser> browser,
+                    FileDialogMode mode,
+                    const CefString& title,
+                    const CefString& defaultFilePath,
+                    const std::vector<CefString>& acceptFilters,
+                    const std::vector<CefString>& acceptExtensions,
+                    const std::vector<CefString>& acceptDescriptions,
+                    CefRefPtr<CefFileDialogCallback> callback) override;
+
   // CefPermissionHandler (BowTabPermissions.mm)
   bool OnRequestMediaAccessPermission(CefRefPtr<CefBrowser> browser,
                                       CefRefPtr<CefFrame> frame,
@@ -303,6 +316,12 @@ class BowTabClient : public CefClient,
   bool IsOwn(CefRefPtr<CefBrowser> browser) const {
     return ownBrowserID_ != 0 && browser->GetIdentifier() == ownBrowserID_;
   }
+
+  /// True for the tab's own browser once its tab has closed for the app while the browser stays alive, out of
+  /// sight, for its downloads (BowTabDownloads.mm). Its page still runs (its timers and network go on, throttled
+  /// and muted) but nobody can see it, so the caller refuses `kind` of UI request (a popup, a dialog, a permission,
+  /// a file dialog, a context menu) without showing anything, never leaving it to CEF's own UI.
+  bool RefusesUIRequest(CefRefPtr<CefBrowser> browser, const char* kind) const;
 
   __weak BowTab* tab_;
 

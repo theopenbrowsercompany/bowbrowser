@@ -11,6 +11,10 @@ NS_ASSUME_NONNULL_BEGIN
 /// How many browsers are open or being created, popups included. Call on the main thread.
 + (NSInteger)count;
 
+/// How many UI requests of `kind` (popup, dialog, download, permission, file dialog, context menu) pages of closed
+/// tabs kept alive for their downloads made and were refused so far. Call on the main thread.
++ (NSInteger)refusedParkedRequestsOfKind:(NSString *)kind NS_SWIFT_NAME(refusedParkedRequests(of:));
+
 @end
 
 NS_ASSUME_NONNULL_END

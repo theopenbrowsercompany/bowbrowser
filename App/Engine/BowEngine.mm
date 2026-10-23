@@ -5,6 +5,7 @@
 #include <cstdio>
 #include <functional>
 #include <map>
+#include <string>
 #include <vector>
 
 #include "BowDownloads+Internal.h"
@@ -48,6 +49,7 @@ BowEngineConfiguration* gConfiguration = nil;
 NSTimeInterval gQuitCloseDuration = 0;
 std::vector<std::function<void(CefRefPtr<CefRequestContext>)>> gProfileContextObservers;
 bool gParkPopups = false;
+std::map<std::string, size_t> gParkedRequestsRefused;
 #endif
 
 void QuitMessageLoopIfDone() {
@@ -335,6 +337,14 @@ void BowEngineDidShutDown() {
   QuitMessageLoopIfDone();
 }
 
++ (BOOL)keepsClosedTabsForDownloads {
+  return BowDownloadsKeepAnyBrowser();
+}
+
++ (void)whenClosedTabsForDownloadsReleased:(dispatch_block_t)block {
+  BowDownloadsWhenNoBrowserKept(block);
+}
+
 @end
 
 #if BOW_E2E  // E2E seam: the hooks declared in BowE2EHooks.h.
@@ -349,6 +359,15 @@ NSTimeInterval BowEngineQuitCloseDuration() {
 
 size_t BowEngineOpenBrowserCount() {
   return gBrowsers.size() + gOpeningTabs.count;
+}
+
+void BowEngineNoteParkedRequestRefused(const char* kind) {
+  gParkedRequestsRefused[kind] += 1;
+}
+
+size_t BowEngineParkedRequestsRefused(const char* kind) {
+  auto found = gParkedRequestsRefused.find(kind);
+  return found == gParkedRequestsRefused.end() ? 0 : found->second;
 }
 
 bool BowEngineTabIsOpening(uint64_t tabID) {

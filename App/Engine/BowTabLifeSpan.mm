@@ -67,6 +67,8 @@ bool BowTabClient::OnBeforePopup(CefRefPtr<CefBrowser> browser,
                                  CefBrowserSettings& settings,
                                  CefRefPtr<CefDictionaryValue>& extraInfo,
                                  bool* noJavaScriptAccess) {
+  // A closed tab's page kept for its downloads opens nothing: CEF would open a window of its own for it.
+  if (RefusesUIRequest(browser, "popup")) return true;
   // Either way the new page is created here, by CEF, so it keeps its window.opener (sign in popups report back
   // through it): in a window of the engine's own by default, or as a new tab when the app asks for one.
 #if BOW_E2E  // E2E seam: e2e runs keep popups (and their own popups) in the parking view, so none shows on screen.
@@ -165,7 +167,8 @@ bool BowTabClient::DoClose(CefRefPtr<CefBrowser> browser) {
   BowTab* tab = tab_;
   [tab browserWillClose];
   if ([tab keepClosingBrowserForDownloads:browser]) {
-    // The tab has closed for the app, so popups it was still waiting for end now, not when the downloads do.
+    // The tab has closed for the app, so popups it was still waiting for end now, not when the downloads do: CEF
+    // still creates their browsers, which arrive with no tab to show them and close as ownerless popups.
     FailPendingPopupTabs();
     return true;
   }
