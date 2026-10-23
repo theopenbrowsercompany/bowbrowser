@@ -19,7 +19,7 @@ final class RecentTabsFeature: NSResponder, BrowserWindowFeature {
     /// The session in progress, nil while the overlay is closed.
     private var switcher: RecencySwitch<SidebarItemID>?
     private var flagsMonitor: Any?
-    private var resignObserver: NSObjectProtocol?
+    private var windowObservers: [NSObjectProtocol] = []
 
     var isOpen: Bool { switcher != nil }
     /// Whether the Ctrl release monitor is installed: only while the overlay shows.
@@ -93,10 +93,13 @@ final class RecentTabsFeature: NSResponder, BrowserWindowFeature {
             return event
         }
         if let nsWindow = window.window {
-            resignObserver = NotificationCenter.default.addObserver(
-                forName: NSWindow.didResignKeyNotification, object: nsWindow, queue: .main
-            ) { [weak self] _ in
-                MainActor.assumeIsolated { self?.cancel() }
+            // Losing the keyboard or closing the window ends the session, so no monitor outlives the overlay.
+            for name in [NSWindow.didResignKeyNotification, NSWindow.willCloseNotification] {
+                windowObservers.append(
+                    NotificationCenter.default.addObserver(forName: name, object: nsWindow, queue: .main) {
+                        [weak self] _ in
+                        MainActor.assumeIsolated { self?.cancel() }
+                    })
             }
         }
         refreshOverlay()
@@ -131,8 +134,8 @@ final class RecentTabsFeature: NSResponder, BrowserWindowFeature {
         panel.show([], selected: 0)
         if let flagsMonitor { NSEvent.removeMonitor(flagsMonitor) }
         flagsMonitor = nil
-        if let resignObserver { NotificationCenter.default.removeObserver(resignObserver) }
-        resignObserver = nil
+        for observer in windowObservers { NotificationCenter.default.removeObserver(observer) }
+        windowObservers = []
     }
 
     /// Shows the tab of sidebar item `item`, first bringing its Space on screen when it lives in another.
@@ -178,7 +181,7 @@ final class RecentTabsFeature: NSResponder, BrowserWindowFeature {
         return RecentTabRow(item: item, title: title, space: space)
     }
 
-    /// The tabs the window can switch to: every tab item of the sidebar, in item order.
+    /// The tabs the window can switch to: every tab item of the sidebar, in a stable order (by ID).
     private static func tabItems(in graph: SidebarGraph) -> [SidebarItemID] {
         graph.items.compactMap { $0.value.tab == nil ? nil : $0.key }.sorted { $0.rawValue < $1.rawValue }
     }
