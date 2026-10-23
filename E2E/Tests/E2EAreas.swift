@@ -43,7 +43,6 @@ enum E2EAreas {
         PageDialogsTests.all,
         PanesTests.all,
         FullscreenTests.all,
-        LittleArcTests.all,
         LittleArcAreaTests.all,
     ]
 }
