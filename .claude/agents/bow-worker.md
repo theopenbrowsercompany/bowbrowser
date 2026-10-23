@@ -38,7 +38,7 @@ Your working directory is your own git worktree of this repository.
 
 - While building and fixing, run `make check` (only what your change touches).
 - At the end, rebase onto `origin/main`, then run `make done` once and paste its block in your report.
-  It refuses a branch that does not contain `origin/main`, runs `make bootstrap` when needed, then `make verify` and the full `make e2e`, and exits non zero when a step failed.
+  It fetches origin, warns and goes on when the branch is behind `origin/main` with no conflict (refusing only on a conflict, naming the files), runs `make bootstrap` when needed, then `make verify` and the full `make e2e` with `make release` beside it when the branch touches app sources, and exits non zero when a step failed.
   Commit first: its block names the tree it checked, and a dirty worktree is flagged.
 - If main moves afterwards with no conflict, report anyway: the landing reruns everything.
 - A failure or FLAKY outside your area is reported, not rerun.

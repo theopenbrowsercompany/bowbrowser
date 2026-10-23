@@ -1,7 +1,9 @@
 #!/bin/bash
-# Tests scripts/done.sh in a throwaway git repository with a fake make: the refusal on a branch behind origin/main
-# (and with no origin/main), the report block of a passing run, a failing verify (which skips the e2e) and a failing
-# e2e. Takes about a second and runs no build or app.
+# Tests scripts/done.sh in a throwaway git repository with a fake make: the report block of a passing run, a failed
+# fetch, a failing verify (which skips the e2e and the release build) and a failing e2e, a branch behind origin/main
+# (a warning with no conflict, a refusal naming the files with one, a refusal with no origin/main), the repeat of
+# changed e2e tests, and the release build (run beside the e2e for an App/, E2E/, BowCore/Sources/ or project.yml
+# change, skipped otherwise, failing the run when it fails). Takes a few seconds and runs no build or app.
 set -u
 cd "$(dirname "$0")/.." || exit 1
 
@@ -45,8 +47,23 @@ case "$*" in
       exit 1
     fi
     ;;
+  *release*)
+    # The Release build, run beside the e2e: logged apart from "ran:" so the e2e counts stay as they are.
+    echo "release: $*" >> "$FAKE_LOG"
+    : > "$FAKE_LOG.release-started"
+    echo "release build output"
+    if [ "${FAKE_RELEASE:-0}" = 0 ]; then echo "release: no e2e harness in Bow.app"; else
+      echo "error: Swift optimizer crashed"
+      exit 2
+    fi
+    ;;
   *e2e*)
     echo "ran: $*" >> "$FAKE_LOG"
+    if [ "${FAKE_BESIDE:-0}" = 1 ]; then
+      # Waits up to 5 s for the release build to start: it only can when done.sh runs it beside the e2e.
+      for _ in $(seq 50); do [ -e "$FAKE_LOG.release-started" ] && break; sleep 0.1; done
+      if [ -e "$FAKE_LOG.release-started" ]; then echo "e2e: release beside" >> "$FAKE_LOG"; fi
+    fi
     mkdir -p build/e2e/20260101-1
     ln -sfn 20260101-1 build/e2e/latest
     echo png > build/e2e/20260101-1/final.png
@@ -70,9 +87,11 @@ echo b > "$repo/b"
 g add b
 g commit -qm two
 
-run() { # run <fake verify> <fake e2e> [fake repeat]: the script's output and exit code
+run() { # run <fake verify> <fake e2e> [fake repeat] [fake release]: the script's output and exit code
   : > "$tmp/log"
-  (cd "$repo" && FAKE_REPEAT=${3:-0} FAKE_VERIFY=$1 FAKE_E2E=$2 FAKE_LOG=$tmp/log PATH="$tmp/bin:$PATH" ./scripts/done.sh 2>&1)
+  rm -f "$tmp/log.release-started"
+  (cd "$repo" && DONE_FETCH=${FETCH:-0} FAKE_RELEASE=${4:-0} FAKE_REPEAT=${3:-0} FAKE_VERIFY=$1 FAKE_E2E=$2 \
+    FAKE_LOG=$tmp/log PATH="$tmp/bin:$PATH" ./scripts/done.sh 2>&1)
   echo "exit=$?"
 }
 
@@ -88,6 +107,12 @@ has "the block has the diff stat" "$out" "b | 1 +"
 has "the block names a clean worktree" "$out" "worktree: clean"
 has "a passing run exits 0" "$out" "exit=0"
 has "the full e2e ran" "$(cat "$tmp/log")" "E2E=all"
+has "a branch touching no app source skips the release build" "$out" \
+  "make release: skip (no change to App/, E2E/, BowCore/Sources/ or project.yml)"
+check "a skipped release build runs no make release" "" "$(grep release: "$tmp/log")"
+out=$(FETCH=1 run 0 0)
+has "a failed fetch says so and goes on" "$out" "done: could not fetch origin (offline?)"
+has "a failed fetch still passes" "$out" "done: PASS"
 
 out=$(run 1 0)
 has "a failing verify fails the run" "$out" "done: FAIL"
@@ -115,9 +140,31 @@ g commit -qm upstream
 g update-ref refs/remotes/origin/main HEAD
 g checkout -q "$head_two"
 out=$(run 0 0)
-has "a branch behind origin/main is refused" "$out" "Rebase onto origin/main first."
+warning="done: behind origin/main by 1 commit with no conflict; the landing rebases and reruns the checks"
+has "a branch behind origin/main with no conflict warns" "$out" "$warning"
+has "a branch behind origin/main with no conflict passes" "$out" "done: PASS"
+has "a branch behind origin/main with no conflict exits 0" "$out" "exit=0"
+has "a branch behind origin/main still runs the full e2e" "$(cat "$tmp/log")" "E2E=all"
+check "the warning is the line before done: PASS" "$warning" "$(echo "$out" | grep -B1 '^done: PASS' | head -1)"
+has "behind, the diff stat is against the merge base" "$out" \
+  "git diff $(git -C "$repo" rev-parse --short HEAD~1) --stat (the merge base with origin/main):"
+check "behind, the diff stat leaves out origin/main's own commits" "" "$(echo "$out" | grep ' c | ')"
+
+# Behind with a conflict: origin/main and the branch both change b.
+g checkout -q -b conflict "$head_two"
+echo theirs > "$repo/b"
+g commit -qam "main changes b"
+g update-ref refs/remotes/origin/main HEAD
+g checkout -q "$head_two"
+echo ours > "$repo/b"
+g commit -qam "the branch changes b"
+out=$(run 0 0)
+has "a branch that conflicts with origin/main is refused" "$out" "done: this branch conflicts with origin/main in:"
+has "the refusal names the conflicted file" "$out" "  b"
+has "a conflict refusal says to rebase" "$out" "rebase onto origin/main first."
 has "a refusal exits 2" "$out" "exit=2"
 check "a refusal runs nothing" "" "$(cat "$tmp/log")"
+g checkout -q "$head_two"
 
 g update-ref -d refs/remotes/origin/main
 out=$(run 0 0)
@@ -146,6 +193,44 @@ has "a failing repeat shows its tally" "$out" "REPEAT x.one 4/5"
 has "a failing repeat exits 1" "$out" "exit=1"
 out=$(run 0 1)
 has "a failing e2e skips the repeat" "$out" "changed tests, repeated: skip (the e2e did not pass)"
+
+# The Release build: a branch touching App/ (or E2E/, BowCore/Sources/, project.yml) builds Release beside the e2e.
+g checkout -q -f "$head_two"
+g update-ref refs/remotes/origin/main HEAD
+mkdir -p "$repo/App/UI"
+echo x > "$repo/App/UI/View.swift"
+g add -A
+g commit -qm "changes the app"
+out=$(FAKE_BESIDE=1 run 0 0)
+has "an App/ change runs make release" "$(cat "$tmp/log")" "release: --no-print-directory release"
+has "the release build runs while the e2e runs" "$(cat "$tmp/log")" "e2e: release beside"
+has "the block says the release result" "$out" "make release: ok (App/UI/View.swift)"
+check "the release output follows the e2e's" "E2E: PASS 3/3|release build output" \
+  "$(echo "$out" | grep '^\(E2E: PASS 3/3\|release build output\)$' | paste -sd'|' -)"
+has "a passing release build passes" "$out" "done: PASS"
+out=$(run 0 0 0 1)
+has "a failing release build is in the block" "$out" "make release: FAIL (exit 2) (App/UI/View.swift)"
+has "a failing release build shows its output" "$out" "error: Swift optimizer crashed"
+has "a failing release build fails the run" "$out" "done: FAIL"
+has "a failing release build exits 1" "$out" "exit=1"
+has "a failing release build leaves the e2e result" "$out" "make e2e: ok"
+out=$(run 1 0)
+has "a failing verify skips the release build" "$out" "make release: skip (verify did not pass)"
+check "a failing verify runs no make release" "" "$(grep release: "$tmp/log")"
+for path in E2E/Harness/H.swift BowCore/Sources/BowCore/C.swift project.yml; do
+  g checkout -q -f "$head_two"
+  mkdir -p "$repo/$(dirname "$path")"
+  echo x > "$repo/$path"
+  out=$(run 0 0)
+  has "an uncommitted $path change runs make release" "$out" "make release: ok ($path)"
+  rm "$repo/$path"
+done
+g checkout -q -f "$head_two"
+mkdir -p "$repo/BowCore/Tests"
+echo x > "$repo/BowCore/Tests/T.swift"
+out=$(run 0 0)
+has "a BowCore test change alone skips the release build" "$out" "make release: skip"
+rm -rf "$repo/BowCore"
 
 if [ "$failed" = 0 ]; then echo "done self test: ok"; else
   echo "done self test: FAIL"
