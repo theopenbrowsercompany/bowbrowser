@@ -1,5 +1,5 @@
 #!/bin/sh
-# Builds Release and fails if the app lacks a license file or carries any of the e2e harness: a symbol for something E2E/ declares
+# Builds Release and fails if the app lacks a license file or carries any of the e2e harness: a symbol E2E/ declares
 # (scripts/e2e-names.sh --symbols) or the Fixtures folder. A successful build also proves the Release side of
 # every "E2E seam" (such as the AppDelegate #else branch) compiles.
 set -eu

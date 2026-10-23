@@ -15,7 +15,7 @@ copy() {
     exit 1
   fi
   mkdir -p "$dest"
-  cp -f "$1" "$dest/$2"
+  cmp -s "$1" "$dest/$2" || cp -f "$1" "$dest/$2"
 }
 
 copy "$root/Vendor/cef/LICENSE.txt" CEF-LICENSE.txt
