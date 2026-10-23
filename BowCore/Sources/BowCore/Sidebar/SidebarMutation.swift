@@ -70,7 +70,8 @@ public enum SidebarMutation: Equatable, Sendable {
     case setSavedPage(SidebarItemID, url: String, title: String)
     case setFolderExpanded(SidebarItemID, Bool)
     case setSplitOrientation(SidebarItemID, SidebarSplit.Orientation)
-    /// Adds a Space with new empty pinned and unpinned sections at `index` (nil appends). The title is trimmed.
+    /// Adds a Space with new empty pinned and unpinned sections at `index` (nil appends). The title is trimmed. A
+    /// profile that has no Favorites section yet gets one.
     case insertSpace(SidebarSpaceID, title: String, index: Int? = nil, profileID: SidebarProfileID = .default)
     /// Deletes a Space and everything in its sections.
     case deleteSpace(SidebarSpaceID)
@@ -161,6 +162,11 @@ extension SidebarGraph {
             let unpinned = SidebarItem(data: .container(SidebarContainer(kind: .unpinned)))
             items[pinned.id] = pinned
             items[unpinned.id] = unpinned
+            if favoritesContainerIDs[profileID] == nil {
+                let favorites = SidebarItem(data: .container(SidebarContainer(kind: .favorites)))
+                items[favorites.id] = favorites
+                favoritesContainerIDs[profileID] = favorites.id
+            }
             spaces.insert(
                 SidebarSpace(
                     id: id, title: title, pinnedContainerID: pinned.id, unpinnedContainerID: unpinned.id,

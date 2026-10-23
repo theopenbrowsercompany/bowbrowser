@@ -266,7 +266,9 @@ import Testing
             let store = try makeStore(in: folder)
             let personal = try id("personal", in: store)
             try store.apply([
-                .insert(.tab(id: "fav", url: "https://fav.example"), parent: store.graph.favoritesContainerID)
+                .insert(
+                    .tab(id: "fav", url: "https://fav.example"),
+                    parent: try #require(store.graph.favoritesContainerID(for: .default)))
             ])
             try store.selectTab("fav")
             try store.switchToSpace(personal)

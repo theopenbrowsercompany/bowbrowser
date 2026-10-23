@@ -30,7 +30,7 @@ extension SidebarGraph {
         return SidebarGraph(
             items: [favorites.id: favorites, pinned.id: pinned, unpinned.id: unpinned],
             spaces: [space],
-            favoritesContainerID: "favorites",
+            favoritesContainerIDs: [.default: "favorites"],
             activeSpaceID: "home")
     }
 

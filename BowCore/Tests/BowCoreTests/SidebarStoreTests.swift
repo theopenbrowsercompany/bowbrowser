@@ -199,7 +199,8 @@ import Testing
         try withTemporaryFolder { folder in
             let url = file(in: folder)
             try Data(versionZero.utf8).write(to: url)
-            let store = try SidebarStore(fileURL: url, migrations: [zeroToOne], writer: AtomicFileWriter())
+            let store = try SidebarStore(
+                fileURL: url, migrations: [zeroToOne] + SidebarFileFormat.migrations, writer: AtomicFileWriter())
             #expect(store.openReport.origin == .loaded)
             #expect(store.openReport.migratedFrom == 0)
             #expect(store.openReport.repairs == [])
@@ -212,8 +213,34 @@ import Testing
 
             try store.save()
             let saved = try JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any]
-            #expect(saved?["version"] as? Int == 1)
+            #expect(saved?["version"] as? Int == SidebarFileFormat.currentVersion)
             #expect(try SidebarStore(fileURL: url).graph == store.graph)
+        }
+    }
+
+    @Test func versionOneFileKeepsItsFavoritesForTheDefaultProfile() throws {
+        try withTemporaryFolder { folder in
+            let url = file(in: folder)
+            var object = try #require(
+                try JSONSerialization.jsonObject(with: SidebarFileFormat.encode(try .twelveItems())) as? [String: Any])
+            object["version"] = 1
+            object["favoritesContainerIDs"] = nil
+            object["favoritesContainerID"] = "favorites"
+            let original = try JSONSerialization.data(withJSONObject: object)
+            try original.write(to: url)
+
+            let store = try SidebarStore(fileURL: url)
+            #expect(store.openReport.migratedFrom == 1)
+            #expect(store.openReport.repairs.isEmpty)
+            #expect(store.graph.favoritesContainerIDs == [.default: "favorites"])
+            #expect(store.graph.favoriteIDs(for: .default) == ["fav-mail", "fav-cal"])
+            #expect(try Data(contentsOf: #require(store.openReport.backupURL)) == original)
+            try store.save()
+            let saved = try #require(
+                try JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any])
+            #expect(saved["version"] as? Int == SidebarFileFormat.currentVersion)
+            #expect(saved["favoritesContainerID"] == nil)
+            #expect(saved["favoritesContainerIDs"] as? [String: String] == ["default": "favorites"])
         }
     }
 
@@ -411,7 +438,7 @@ import Testing
             let index = try #require(items.firstIndex { $0["id"] as? String == "work" })
             items[index]["data"] = ["kind": "easel"]
             object["items"] = items
-            object["favoritesContainerID"] = nil
+            object["favoritesContainerIDs"] = nil
             let original = try JSONSerialization.data(withJSONObject: object)
             try original.write(to: url)
 

@@ -44,9 +44,6 @@ extension SidebarGraph {
         return nil
     }
 
-    /// Whether `id` is in the Favorites section, which every Space shows.
-    public func isInFavorites(_ id: SidebarItemID) -> Bool { isDescendant(id, of: favoritesContainerID) }
-
     /// The tabs a Space shows, in sidebar order: the pinned section, then the unpinned one, with tabs inside folders and
     /// splits included. Tabs of other Spaces never appear.
     public func tabIDs(in spaceID: SidebarSpaceID) -> [SidebarItemID] {
@@ -90,14 +87,16 @@ extension SidebarGraph {
         return tabIDs(in: spaceID).first
     }
 
-    /// Whether the selected tab is one the active Space shows: its own tab, or a Favorites tab.
+    /// Whether the selected tab is one the active Space shows: its own tab, or a Favorite of its profile.
     private var selectedTabBelongsOnScreen: Bool {
         guard let tab = activeTabID else { return true }
-        return isInFavorites(tab) || spaceID(containing: tab) == activeSpaceID
+        if let owner = activeSpaceID, isInFavorites(tab, shownBy: owner) { return true }
+        return spaceID(containing: tab) == activeSpaceID
     }
 
     /// Makes `id` the active Space. The tab selected in the Space being left is remembered for when it returns, and the
-    /// new Space selects its own remembered tab. A Favorites tab stays selected across the switch.
+    /// new Space selects its own remembered tab. A Favorite stays selected across a switch to a Space of the same profile,
+    /// which shows the same Favorites.
     mutating func activateSpace(_ id: SidebarSpaceID) {
         if let outgoing = activeSpaceID, outgoing != id, let tab = activeTabID, spaceID(containing: tab) == outgoing,
             let position = spaces.firstIndex(where: { $0.id == outgoing })
@@ -195,10 +194,20 @@ extension SidebarStore {
         }
     }
 
-    /// Selects a tab, first switching to the Space that holds it. A Favorites tab is selected without a switch.
+    /// Selects a tab, first switching to the Space that holds it. A Favorite is selected without a switch when the
+    /// Space on screen shows it; otherwise the first Space of its profile comes on screen.
     public func selectTab(_ id: SidebarItemID) throws {
         try transaction {
-            if let owner = transactionGraph?.spaceID(containing: id) { try mutate(.setActiveSpace(owner)) }
+            if let graph = transactionGraph {
+                if let owner = graph.spaceID(containing: id) {
+                    try mutate(.setActiveSpace(owner))
+                } else if let profile = graph.favoritesProfileID(containing: id),
+                    graph.activeSpace?.profileID != profile,
+                    let owner = graph.spaces.first(where: { $0.profileID == profile })
+                {
+                    try mutate(.setActiveSpace(owner.id))
+                }
+            }
             try mutate(.setActiveTab(id))
         }
     }

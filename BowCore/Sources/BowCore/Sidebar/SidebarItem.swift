@@ -67,7 +67,8 @@ public struct SidebarSplit: Codable, Hashable, Sendable {
     public init(orientation: Orientation = .horizontal) { self.orientation = orientation }
 }
 
-/// The root of one section of the sidebar. Containers have no parent and are owned by a Space or by Favorites.
+/// The root of one section of the sidebar. Containers have no parent and are owned by a Space or by a profile's
+/// Favorites.
 public struct SidebarContainer: Codable, Hashable, Sendable {
     public enum Kind: String, Codable, Sendable {
         case favorites
@@ -97,14 +98,16 @@ public enum SidebarItemData: Hashable, Sendable {
         return false
     }
 
-    /// Whether an item of this kind may hold `child`. Tabs hold nothing, splits hold only tabs, containers are roots.
+    /// Whether an item of this kind may hold `child`. Tabs hold nothing, splits hold only tabs, containers are roots,
+    /// and a Favorites section holds only tabs.
     public func canHold(_ child: SidebarItemData) -> Bool {
         switch (self, child) {
         case (_, .container): return false
         case (.tab, _): return false
         case (.split, .tab): return true
         case (.split, _): return false
-        case (.folder, _), (.container, _): return true
+        case (.container(let container), _): return container.kind != .favorites || child.isTab
+        case (.folder, _): return true
         }
     }
 }

@@ -2,13 +2,14 @@ import Foundation
 
 /// The sidebar file: versioned JSON holding the flat item graph and the Spaces.
 ///
-/// The top level object has `version`, `favoritesContainerID`, `activeSpaceID`, `activeTabID`, `spaces` (in order)
+/// The top level object has `version`, `favoritesContainerIDs` (profile ID to that profile's Favorites section),
+/// `activeSpaceID`, `activeTabID`, `spaces` (in order)
 /// and `items` (sorted by ID so saves are stable). Each item has `id`, `title`, `parentID`, `childrenIDs` and `data`,
 /// a tagged object whose `kind` is `tab`, `folder`, `split` or `container` with the matching payload beside it.
 /// History and favicons are kept out of this file.
 public enum SidebarFileFormat {
     /// The version this build writes. Raise it whenever the format changes, and add a migration from the old version.
-    public static let currentVersion = 1
+    public static let currentVersion = 2
 
     /// Upgrades the raw JSON object of a file at version `from` to version `from + 1`. The store sets `version`.
     public struct Migration: Sendable {
@@ -21,8 +22,15 @@ public enum SidebarFileFormat {
         }
     }
 
-    /// Every migration this build knows, one per older version. Version 1 is the first format, so none exist yet.
-    public static let migrations: [Migration] = []
+    /// Every migration this build knows, one per older version.
+    public static let migrations: [Migration] = [
+        // Version 1 had one Favorites section; version 2 keeps one per profile, and the old one belongs to the default.
+        Migration(from: 1) { object in
+            if let id = object.removeValue(forKey: "favoritesContainerID") as? String {
+                object["favoritesContainerIDs"] = [SidebarProfileID.default.rawValue: id]
+            }
+        }
+    ]
 
     /// Why a file could not be read. The store sets such a file aside and starts fresh.
     public enum ReadError: Error, Equatable, CustomStringConvertible {
@@ -60,19 +68,24 @@ public enum SidebarFileFormat {
     /// Reads the file forgivingly: one bad item or Space is skipped rather than costing the whole sidebar, and a
     /// missing Favorites section is left for the cleanup pass to recreate. Only `items` and `spaces` must be arrays.
     private struct ForgivingContents: Decodable {
-        var favoritesContainerID: SidebarItemID?
+        var favoritesContainerIDs: [SidebarProfileID: SidebarItemID]
         var activeSpaceID: SidebarSpaceID?
         var activeTabID: SidebarItemID?
         var spaces: [Forgiving<SidebarSpace>]
         var items: [Forgiving<SidebarItem>]
 
         private enum CodingKeys: String, CodingKey {
-            case favoritesContainerID, activeSpaceID, activeTabID, spaces, items
+            case favoritesContainerIDs, activeSpaceID, activeTabID, spaces, items
         }
 
         init(from decoder: any Decoder) throws {
             let values = try decoder.container(keyedBy: CodingKeys.self)
-            favoritesContainerID = try? values.decodeIfPresent(SidebarItemID.self, forKey: .favoritesContainerID)
+            // Entries that cannot be read are left out; the cleanup pass recreates their sections.
+            let stored =
+                (try? values.decodeIfPresent([String: Forgiving<SidebarItemID>].self, forKey: .favoritesContainerIDs))
+                ?? [:]
+            favoritesContainerIDs = Dictionary(
+                uniqueKeysWithValues: stored.compactMap { key, id in id.value.map { (SidebarProfileID(key), $0) } })
             activeSpaceID = try? values.decodeIfPresent(SidebarSpaceID.self, forKey: .activeSpaceID)
             activeTabID = try? values.decodeIfPresent(SidebarItemID.self, forKey: .activeTabID)
             spaces = try values.decode([Forgiving<SidebarSpace>].self, forKey: .spaces)
@@ -87,7 +100,8 @@ public enum SidebarFileFormat {
 
     private struct Contents: Encodable {
         var version: Int
-        var favoritesContainerID: SidebarItemID
+        /// Keyed by profile ID text, so the file holds a plain JSON object.
+        var favoritesContainerIDs: [String: SidebarItemID]
         var activeSpaceID: SidebarSpaceID?
         var activeTabID: SidebarItemID?
         var spaces: [SidebarSpace]
@@ -97,7 +111,8 @@ public enum SidebarFileFormat {
     public static func encode(_ graph: SidebarGraph) throws -> Data {
         let contents = Contents(
             version: currentVersion,
-            favoritesContainerID: graph.favoritesContainerID,
+            favoritesContainerIDs: Dictionary(
+                uniqueKeysWithValues: graph.favoritesContainerIDs.map { ($0.key.rawValue, $0.value) }),
             activeSpaceID: graph.activeSpaceID,
             activeTabID: graph.activeTabID,
             spaces: graph.spaces,
@@ -156,8 +171,8 @@ public enum SidebarFileFormat {
         let graph = SidebarGraph(
             items: items,
             spaces: spaces,
-            // A new ID names no item, so the cleanup pass creates a new Favorites section.
-            favoritesContainerID: contents.favoritesContainerID ?? .make(),
+            // A missing default profile entry names no item, so the cleanup pass creates its Favorites section.
+            favoritesContainerIDs: contents.favoritesContainerIDs,
             activeSpaceID: contents.activeSpaceID,
             activeTabID: contents.activeTabID)
         return Decoded(
