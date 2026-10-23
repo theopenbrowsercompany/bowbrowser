@@ -22,7 +22,7 @@ Pinned tabs are the sites a person keeps; today's tabs are the ones they opened 
 - Some drags are refused, and the sidebar shows no drop gap for them: a row dropped into itself, a tab taken alone out of a split view or dropped into one, and anything dragged into or out of Favorites (the Favorites grid brings its own drags).
 - Right-clicking a tab row shows its menu; for now that menu has Close Tab, which closes the tab as its close button does.
 - Closing the selected pinned tab unloads it and selects the next tab in sidebar order.
-- The bottom of the sidebar keeps room for footer controls (the archive), empty for now.
+- The bottom of the sidebar is a footer slot for controls such as the archive button, empty for now; empty, it takes no room.
 
 ### Extension points
 
@@ -30,10 +30,17 @@ The sidebar is built so later features each add one file plus one line in a list
 
 - Sections: a type conforming to `SidebarSection`, listed in `SidebarSections.all` (`SidebarSectionList.swift`) in top to bottom order.
   A section has a header row (a thin spacer, or a view such as the divider or the Favorites grid) and the items of one container of the Space on screen.
-- Context menu items: a type conforming to `SidebarMenuItems`, listed in `SidebarMenus.all` (`SidebarMenuList.swift`), naming the item kinds it serves (tab, folder, split, Favorite).
+  A header view is made once per window and handed the sidebar's fresh content each time the sidebar updates, so a header such as a Space switcher always matches the Space on screen; its height may follow the content too.
+- Accessories: a class conforming to `SidebarAccessory`, listed in `SidebarAccessories.all` (`SidebarAccessoryList.swift`), placed in the top slot (between the New Tab button and the list) or the footer slot (along the bottom), in list order, and handed fresh content on every update.
+- Tab row accessories: a type conforming to `SidebarRowAccessory`, listed in `SidebarRowAccessories.all` (`SidebarAccessoryList.swift`), giving a view shown before a tab row's close button (such as "Back to pinned URL"); it is asked again each time the row is drawn and whenever the sidebar updates, and the first provider with a view wins.
+- Context menu items: a type conforming to `SidebarMenuItems`, listed in `SidebarMenus.all` (`SidebarMenuList.swift`), naming the item kinds it serves (tab, folder, split, Favorite, or a section's header by zone, given the container that section lists).
   Each provider's items appear in list order, separated from the next provider's.
 - Drop rules: a type conforming to `SidebarDropValidator`, listed in `SidebarDropValidators.all` (`SidebarDropRuleList.swift`).
   A drop goes through when no rule refuses it; the store's own rules (what may hold what, repairing split views) still apply when it is made.
+  The rule that keeps drags out of Favorites lives alone in `FavoritesDropRule.swift`, so the Favorites grid can replace it.
+- Swipes: a `SidebarSwipeHandler` set as the sidebar's swipe handler gets each sideways two-finger trackpad swipe on the list, with its phase and the distance moved so far; without one, every scroll goes to the list.
+  The sidebar's slide helper swaps the list's content with a slide to the left or right, and skips the slide when Reduce Motion is on.
+- Actions: the context every menu item, drop, accessory and header gets can read the sidebar, select, close and load a tab at an address (a tab whose page has not loaded is shown and loaded, as selecting it does), and change the store.
 
 ## Edge cases
 
