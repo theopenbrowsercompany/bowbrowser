@@ -31,5 +31,7 @@ enum WindowFeatures {
         PageFullscreenFeature.self,
         ImportMenuFeature.self,
         SplitViewFeature.self,
+        AuthSheetFeature.self,
+        CertificateErrorFeature.self,
     ]
 }
