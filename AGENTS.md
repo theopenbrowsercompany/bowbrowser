@@ -13,17 +13,24 @@ Start every session in `~/code/GitHub/bowbrowser`: the maintainer's `.claude/set
 - `App/Engine/`: the Objective-C++ bridge to CEF and the app entry point. It and `E2E/Engine/` are the only code that includes CEF or C++ headers; everything else talks to the engine through the Objective-C API in their headers.
   Headers Swift sees (the bridging header and everything it imports) stay plain Objective-C, with browsers addressed by ID and never by pointer; C++ declarations go in `+Internal.h` headers, and `make verify` checks this.
 - `App/UI/`: Swift and AppKit windows, menus and the views that host web pages.
+  - `BrowserWindowController.swift` is the window core: the tab list, the shown tab and the window's lifecycle.
+    Never edit it for a feature.
+  - `App/UI/Window/`: one `BrowserWindowFeature` per window feature (navigation, find, permissions, sidebar).
+    A new window feature is a new file here plus one line in `WindowFeatures.swift`; it handles and validates its own menu items through the responder chain and adds them in `addMenuItems(to:)`.
+  - `App/UI/App/`: app-level services shared by every window (today the per-profile permission stores).
+    A new service is a new `AppFeature` file here plus one line in `AppFeatures.swift`.
 - `E2E/`: the `make e2e` harness, compiled into Debug builds only (Release leaves out its code and fixtures).
   - `E2E/Harness/`: the runner, waits, PASS and FAIL report, watchdog, off-screen window, the page protocol (`E2EApp`, `E2EPage`) and `E2EAppAdapter.swift`, the one file that knows the bridge.
     Page input (`E2EInput.swift`: click, type, keys) goes through the DevTools Input domain with focus emulation on; app shortcuts go through the app's menu, never DevTools.
   - `E2E/Engine/`: Objective-C++ helpers, the DevTools session and the `https://bow.test/` fixture server.
-  - `E2E/Tests/`: one Swift file per area holding its tests (`App.swift` holds `app.quit`); list each area in `E2ETests.all`, and give each test with more than one check its `checks`.
+  - `E2E/Tests/`: one Swift file per area holding its tests (`App.swift` holds `app.quit`); add each new area as one line in `E2E/Tests/E2EAreas.swift`, and give each test with more than one check its `checks`.
   - `E2E/Fixtures/`: one folder per area (`Fixtures/app/`), served at `https://bow.test/<area>/`.
 - `App/Engine/BowE2EHooks.h`: the single engine seam header, declaring what the harness needs from the engine and nothing the app uses, behind `BOW_E2E`.
   Harness code never holds app logic, and app code never depends on the harness: `App/` and `BowCore/` reach `E2E/` only through `BowE2EHooks.h` and lines marked `E2E seam` inside an `#if BOW_E2E` block, which `make guards` checks; `make release` checks that Release builds leave the harness out.
 - `App/Helper/`: the CEF helper process. It starts Chromium's macOS sandbox before loading CEF, and the build packages it as the ad hoc signed helper apps Chromium needs (GPU, renderer, plugin, alerts).
 - `BowCore/`: a Swift package for browser logic that needs no UI or engine (today: address and search input). Its tests run in seconds.
 - `cef.lock`: the pinned CEF version and checksum. `Vendor/cef` links to one shared copy outside the repository and is gitignored.
+- `.gitattributes` merges the one-entry-per-line lists (`WindowFeatures.swift`, `AppFeatures.swift`, `E2EAreas.swift`, the bridging header) by union, so two branches that each add a line do not conflict; `make guards` fails on a duplicate entry, a duplicate test name or a line that breaks the format.
 - `project.yml`: XcodeGen spec. `Bow.xcodeproj` is generated from it and not committed, so edit `project.yml`, never the project file.
 - `spec/`: behavior specs, one per feature area, following `spec/_template.md`.
 - `.claude/agents/`: subagent definitions the lead session uses: `bow-worker` builds one work item in its own worktree, and `bow-reviewer` reviews a branch read-only. Both are kept off Plane, and the reviewer cannot edit files.
@@ -64,7 +71,7 @@ Start every session in `~/code/GitHub/bowbrowser`: the maintainer's `.claude/set
   Lines still under investigation sit apart in its temporary list, counted as `temporary=` in the check's line, and come out once their cause is found.
 - `make smoke`: build, open the app in a background window on one page (`make smoke SMOKE_URL=https://example.org` picks it), print the load status and title, quit.
   The window appears on the maintainer's screen, so run it only when the maintainer asks; the lead runs it for agents working in parallel.
-- `make verify`: lint, guards (`make guards`: the e2e seam check in `scripts/check-e2e-seams.sh` and the Swift header check in `scripts/check-swift-headers.sh`), tests (BowCore and `make test-e2e-wrapper`) and the Debug build.
+- `make verify`: lint, guards (`make guards`: the e2e seam check in `scripts/check-e2e-seams.sh`, the Swift header check in `scripts/check-swift-headers.sh` and the list check in `scripts/check-lists.sh`), tests (BowCore and `make test-e2e-wrapper`) and the Debug build.
   A change is done when this and its end-to-end check pass.
 - `make release`: a Release build that must carry no e2e harness code or fixtures. It is not part of `make verify`; the lead runs it once per branch before merging.
 - Builds take turns: every `xcodebuild` the Makefile runs goes through `scripts/build-lock.sh`, which leases one of `BOW_BUILD_SLOTS` slots (default 6) shared by all worktrees, queues waiting builds in arrival order (unless the priority file below says otherwise), and frees a slot when its build ends, fails or is interrupted (after a `kill -9` of the script, the orphaned build keeps the slot until it ends).

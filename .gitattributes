@@ -1,0 +1,6 @@
+# Registration lists that every feature branch adds one line to. Union merges keep both sides' lines instead of
+# conflicting; `make guards` (scripts/check-lists.sh) then catches duplicates and broken one-entry-per-line format.
+App/UI/Window/WindowFeatures.swift merge=union
+App/UI/App/AppFeatures.swift merge=union
+E2E/Tests/E2EAreas.swift merge=union
+App/Engine/Bow-Bridging-Header.h merge=union

@@ -61,10 +61,11 @@ lint:
 	swift format lint --strict --recursive $(SWIFT_SOURCES)
 
 # Boundary checks: app code reaches the e2e harness only through its marked seams, and the headers Swift sees
-# carry no CEF or C++ and no raw browser pointers.
+# carry no CEF or C++ and no raw browser pointers, and the union-merged lists keep one entry per line, no duplicates.
 guards:
 	./scripts/check-e2e-seams.sh
 	./scripts/check-swift-headers.sh
+	./scripts/check-lists.sh
 
 # Release builds must leave out the e2e harness and its fixtures.
 release: project
