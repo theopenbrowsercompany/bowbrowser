@@ -43,8 +43,10 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
     /// their page has closed. A tab that closes any other way (its window closing, quitting, its page closing
     /// itself) keeps its place in the sidebar with its saved page.
     private var closingByRequest: Set<BrowserTabID> = []
-    /// True while the window is closing its tabs to close itself; a page that stays open clears it.
-    private var isClosingWindow = false
+    /// The tabs the window asked to close to close itself, each under the request that asked, so a page that stays
+    /// open withdraws only its own tab (a later close request asks it again under a new number).
+    private var closingWithWindow: [BrowserTabID: Int] = [:]
+    private var lastWindowCloseRequest = 0
     /// The Space the features were last told is on screen.
     private var shownSpaceID: SidebarSpaceID?
     /// What the New Tab button and New Tab menu item open.
@@ -82,6 +84,16 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
     /// The engine profile of the Space on screen, which new tabs open in. Nil when the engine has no profile for the
     /// Space, in which case no tab opens.
     var activeProfile: (any EngineProfile)? { activeSpace.flatMap { profiles($0.profileID) } }
+
+    /// True from the moment the window starts closing its tabs to close itself until it closes, or until every page
+    /// that was asked chose to stay. A closing window opens no new tab, so links go to another window.
+    var isClosing: Bool { !closingWithWindow.isEmpty }
+
+    /// The engine profile `tab` was created in, through the window's profile resolver, so a feature reaches the
+    /// tab's own profile (its permission store, for example) rather than the profile of the Space on screen.
+    func engineProfile(of tab: any EngineTab) -> (any EngineProfile)? {
+        profiles(SidebarStores.sidebarProfileID(of: tab.profileID))
+    }
 
     /// The active Space's tabs in sidebar order: its pinned section, then its today section.
     private var activeSpaceTabIDs: [SidebarItemID] {
@@ -210,6 +222,10 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
     @discardableResult
     func openTab(url: URL, select: Bool = true) -> (any EngineTab)? {
         let graph = store.graph
+        guard !isClosing else {
+            Self.report("the window is closing, so the tab was not opened")
+            return nil
+        }
         guard let space = graph.activeSpace, let profile = profiles(space.profileID) else {
             Self.report("the active Space has no profile, so the tab was not opened")
             return nil
@@ -463,11 +479,12 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
         guard let id = modelID(of: tab) else { return }
         engineTabs[id] = nil
         modelIDs[tab.tabID] = nil
+        let closedWithWindow = closingWithWindow.removeValue(forKey: id) != nil
         guard closingByRequest.remove(id) != nil, let item = itemIDs[id] else {
             // Closed with its window, by quitting or by its page: the tab keeps its place in the sidebar, unloaded.
             // A closing window follows its last open tab. Otherwise nothing else loads, since quitting must leave
             // the sidebar's active tab as it was; selecting a row loads it.
-            if isClosingWindow && engineTabs.isEmpty {
+            if (closedWithWindow || isClosing) && engineTabs.isEmpty {
                 for feature in features { feature.selectedTabChanged(nil) }
                 window?.close()
             } else {
@@ -516,10 +533,12 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
         // Close every open tab, each running its page's unload handlers; the window closes once the last one has, and
         // the tabs keep their place in the sidebar. A page the person chooses to stay on keeps its tab and the window
         // open. Each close request asks the pages again, as quitting again does.
-        isClosingWindow = true
-        for tab in engineTabs.values {
+        lastWindowCloseRequest += 1
+        let request = lastWindowCloseRequest
+        for (id, tab) in engineTabs {
+            closingWithWindow[id] = request
             Task {
-                if !(await tab.close()) { self.isClosingWindow = false }
+                if !(await tab.close()), self.closingWithWindow[id] == request { self.closingWithWindow[id] = nil }
             }
         }
         return false
