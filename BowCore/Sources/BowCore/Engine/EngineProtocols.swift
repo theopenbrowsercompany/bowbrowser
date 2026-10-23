@@ -29,6 +29,12 @@ import Foundation
     /// Creates a tab in this profile and starts loading `url`. The tab ID is assigned now; state
     /// and navigation events follow through the tab's delegate.
     func createTab(url: URL) -> any EngineTab
+
+    /// Stores a remembered permission answer in the engine's own settings for this profile (its content
+    /// settings), so the engine's permission checks agree with the app: a page querying its permission state sees
+    /// it, and the engine does not ask again for a kind already answered. The app's `SitePermissionStore` stays the
+    /// record the app reads.
+    func setPermission(_ setting: SitePermissionSetting, for kind: PermissionKind, on site: PermissionSite)
 }
 
 /// One web page for its whole life, independent of any view that shows it.
@@ -74,9 +80,18 @@ import Foundation
 
     /// Asked before every main frame navigation, synchronously. Defaults to `.allow`.
     func tab(_ tab: any EngineTab, decidePolicyFor navigation: EngineNavigation) -> NavigationPolicy
+
+    /// The page asked to use something that needs the person's permission (camera, microphone, location,
+    /// notifications, clipboard and others). The answer covers every kind in the request and may take as long as
+    /// the person needs. Defaults to `.dismiss`, which grants nothing.
+    func tab(_ tab: any EngineTab, decidePermission request: PermissionRequest) async -> PermissionDecision
 }
 
 extension EngineTabDelegate {
+    public func tab(_ tab: any EngineTab, decidePermission request: PermissionRequest) async -> PermissionDecision {
+        .dismiss
+    }
+
     public func tab(_ tab: any EngineTab, decidePolicyFor navigation: EngineNavigation) -> NavigationPolicy {
         .allow
     }
