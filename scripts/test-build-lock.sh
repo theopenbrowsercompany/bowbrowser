@@ -1,6 +1,6 @@
 #!/bin/bash
 # Tests scripts/build-lock.sh with fake builds (sleep) in a throwaway lock folder: queue order, the slot limit,
-# and slot release after kill -9, SIGINT, SIGTERM and a failing command. Takes about 50 seconds.
+# slot release after kill -9, SIGINT, SIGTERM and a failing command, and the priority file. Takes about 70 seconds.
 set -u
 cd "$(dirname "$0")/.."
 
@@ -118,6 +118,126 @@ sleep 0.5
 BOW_E2E_SLOTS=1 $lock --pool e2e true 2> "$BOW_LOCK_DIR/err8"
 check "second e2e run waits for the single e2e slot" grep -q "waiting for a e2e slot" "$BOW_LOCK_DIR/err8"
 wait
+
+# 8. Priority. Each case holds the single slot with a gated build, queues waiters from directories on given
+# branches, then opens the gate and records the order the waiters ran in. Waits poll for state, not time.
+abslock=$PWD/scripts/build-lock.sh
+prio=$BOW_LOCK_DIR/priority
+repos=$BOW_LOCK_DIR/repos
+plain=$BOW_LOCK_DIR/plain # not a git checkout
+mkdir -p "$repos" "$plain"
+until_true() { # until_true <condition command...>: poll for up to 10 seconds
+  local i=0
+  while ! "$@"; do
+    i=$((i + 1))
+    [ $i -lt 100 ] || return 1
+    sleep 0.1
+  done
+}
+repo() { # repo <branch>: print a checkout on that branch, creating it once
+  local d=$repos/$1
+  [ -d "$d" ] || git init -q -b "$1" "$d"
+  echo "$d"
+}
+detached=$repos/detached
+git init -q "$detached"
+git -C "$detached" -c user.name=t -c user.email=t@t commit -q --allow-empty -m t
+git -C "$detached" checkout -q --detach
+gate=""
+enqueue() { # enqueue <label> <directory>: queue a build that records its label when it runs
+  local before
+  before=$(queue_count)
+  (cd "$2" && BOW_BUILD_SLOTS=1 "$abslock" sh -c "echo $1 >> $BOW_LOCK_DIR/order" 2> "$BOW_LOCK_DIR/err.$1") &
+  until_true queued_more "$before"
+}
+queued_more() { [ "$(queue_count)" -gt "$1" ]; }
+release_gate() {
+  touch "$gate"
+  wait
+  order=$(tr '\n' ' ' < "$BOW_LOCK_DIR/order")
+  order=${order% }
+}
+wait_line() { grep -q "$1" "$2" 2> /dev/null; } # wait_line <text> <file>
+slot_is_one() { is "$(slot_count)" 1; }
+
+hold_one() { # take the one slot until release_gate
+  gate=$BOW_LOCK_DIR/gate.$RANDOM
+  BOW_BUILD_SLOTS=1 $lock sh -c "while [ ! -e $gate ]; do sleep 0.1; done" &
+  until_true slot_is_one
+  : > "$BOW_LOCK_DIR/order"
+}
+
+# 8a. A listed branch jumps ahead of earlier unlisted tickets: a branch not in the file, a directory outside any
+# checkout and a detached HEAD all count as unlisted and keep their arrival order.
+printf 'hot\n' > "$prio"
+hold_one
+enqueue cold "$(repo cold)"
+enqueue plain "$plain"
+enqueue detached "$detached"
+enqueue hot "$(repo hot)"
+until_true wait_line "waiting" "$BOW_LOCK_DIR/err.hot"
+release_gate
+check "listed branch jumps ahead of earlier unlisted ones" is "$order" "hot cold plain detached"
+check "waiting line says the priority rank" wait_line "0 waiting ahead of this one, priority 1 of 1)" "$BOW_LOCK_DIR/err.hot"
+check "waiting line says unlisted" wait_line "waiting ahead of this one, unlisted)" "$BOW_LOCK_DIR/err.cold"
+check "no checkout counts as unlisted" wait_line "unlisted)" "$BOW_LOCK_DIR/err.plain"
+check "detached HEAD counts as unlisted" wait_line "unlisted)" "$BOW_LOCK_DIR/err.detached"
+
+# 8b. Two listed branches follow file order; blank lines, comments and surrounding spaces are ignored.
+printf '# lead order\n\n  first  \n\nsecond\n' > "$prio"
+hold_one
+enqueue second "$(repo second)"
+enqueue first "$(repo first)"
+release_gate
+check "listed branches follow file order" is "$order" "first second"
+check "rank counts only listed branches" wait_line "priority 2 of 2)" "$BOW_LOCK_DIR/err.second"
+
+# 8c. The same rank stays first come, first served, ahead of an earlier unlisted build.
+printf 'hot\n' > "$prio"
+hold_one
+enqueue cold "$(repo cold)"
+enqueue hot1 "$(repo hot)"
+enqueue hot2 "$(repo hot)"
+enqueue hot3 "$(repo hot)"
+release_gate
+check "same rank stays first come, first served" is "$order" "hot1 hot2 hot3 cold"
+
+# 8d. A missing or empty file means first come, first served.
+for state in missing empty; do
+  rm -f "$prio"
+  [ $state = missing ] || : > "$prio"
+  hold_one
+  enqueue cold "$(repo cold)"
+  enqueue hot "$(repo hot)"
+  enqueue plain "$plain"
+  release_gate
+  check "$state priority file: first come, first served" is "$order" "cold hot plain"
+done
+
+# 8e. Reordering the file while builds wait takes effect.
+printf 'early\nlate\n' > "$prio"
+hold_one
+enqueue late "$(repo late)"
+enqueue early "$(repo early)"
+until_true wait_line "priority 2 of 2)" "$BOW_LOCK_DIR/err.late"
+printf 'late\nearly\n' > "$prio.new" && mv "$prio.new" "$prio"
+until_true wait_line "priority 1 of 2)" "$BOW_LOCK_DIR/err.late"
+check "waiting line updates after a reorder" wait_line "priority 1 of 2)" "$BOW_LOCK_DIR/err.late"
+release_gate
+check "reordered file takes effect while waiting" is "$order" "late early"
+
+# 8f. A dead ticket, even one for the top branch, is dropped and does not block the queue.
+printf 'hot\n' > "$prio"
+sh -c 'exit 0' &
+dead=$!
+wait $dead
+printf 'hot\n' > "$BOW_LOCK_DIR/build/queue/1000000000000000.$dead"
+hold_one
+enqueue cold "$(repo cold)"
+release_gate
+check "dead listed ticket does not block" is "$order" "cold"
+check "dead ticket dropped" test ! -e "$BOW_LOCK_DIR/build/queue/1000000000000000.$dead"
+check "queue empty after priority tests" is "$(slot_count)/$(queue_count)" 0/0
 
 rm -rf "$BOW_LOCK_DIR"
 [ $failed = 0 ] && echo "build-lock: all tests passed"
