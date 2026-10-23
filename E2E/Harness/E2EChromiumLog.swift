@@ -2,6 +2,7 @@ import Foundation
 
 /// Chromium log lines that are known to be harmless. The run drops them before the `chromium.errors` check; every
 /// other ERROR or FATAL line fails it. Each entry matches one log site's exact messages and says why they are benign.
+/// Add an entry only for a message shown to be harmless, with its cause and evidence in its comment.
 /// Regex literals, so a broken entry fails the build instead of the run.
 enum E2EKnownChromiumLines {
     static var patterns: [Regex<Substring>] {
