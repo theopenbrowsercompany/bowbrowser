@@ -16,6 +16,18 @@ enum E2EKnownChromiumLines {
             #/\[[^\]]*:ERROR:base/process/process_mac\.cc:\d+\] task_policy_set TASK_CATEGORY_POLICY: (?:\(os/kern\) invalid argument \(4\)|\(ipc/send\) invalid destination port \(0x10000003\))/#,
             // The second half of the same priority change (see the entry above).
             #/\[[^\]]*:ERROR:base/process/process_mac\.cc:\d+\] task_policy_set TASK_SUPPRESSION_POLICY: (?:\(os/kern\) invalid argument \(4\)|\(ipc/send\) invalid destination port \(0x10000003\))/#,
+            // Logged by the GPU process, together with the next entry, when a tab that was never shown closes
+            // (tabs.close-window closes two such tabs, opened in the background). CEF creates a windowed browser's
+            // page as visible, and Chromium ignores "hidden" until a page has been visible for real, in a window, so
+            // a tab created in the parking view stays visible and keeps drawing into a layer in no window until it
+            // is shown. Closing it destroys its page while its compositor still draws a frame, which then refers to
+            // an image that is gone: Chromium leaves that overlay out of the frame (GetOrCreateOverlayData returns
+            // no overlay) and draws the rest. That frame belongs to a browser being destroyed, in no window, so
+            // nothing on screen changes. It comes right before the first such tab's OnBeforeClose in about two
+            // runs of tabs.close-window in five, and never in 30 runs once each tab had been shown before closing.
+            #/\[[^\]]*:ERROR:gpu/command_buffer/service/shared_image/shared_image_manager\.cc:\d+\] SharedImageManager::ProduceOverlay: Trying to Produce a Overlay representation from a non-existent mailbox\./#,
+            // The second line of the same pair (see the entry above), from the compositor that asked for the image.
+            #/\[[^\]]*:ERROR:components/viz/service/display_embedder/skia_output_device_buffer_queue\.cc:\d+\] Invalid mailbox\./#,
         ]
     }
 
@@ -24,14 +36,7 @@ enum E2EKnownChromiumLines {
     /// visible. Remove each entry once its cause is found and fixed, or move it to `patterns` with evidence that
     /// it is harmless.
     static var temporaryPatterns: [Regex<Substring>] {
-        [
-            // TEMPORARY, under investigation: the GPU process logs this pair in about one full e2e run in three,
-            // shortly before quitting, after the last test and around the final screenshot. It needs the whole
-            // suite's many windows and popups (the popup test alone never shows it). The cause is unknown.
-            #/\[[^\]]*:ERROR:gpu/command_buffer/service/shared_image/shared_image_manager\.cc:376\] SharedImageManager::ProduceOverlay: Trying to Produce a Overlay representation from a non-existent mailbox\./#,
-            // TEMPORARY, under investigation: the second line of the same pair (see the entry above).
-            #/\[[^\]]*:ERROR:components/viz/service/display_embedder/skia_output_device_buffer_queue\.cc:258\] Invalid mailbox\./#,
-        ]
+        []
     }
 }
 
