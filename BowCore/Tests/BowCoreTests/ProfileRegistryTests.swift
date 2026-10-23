@@ -423,24 +423,52 @@ import Testing
         }
     }
 
-    @Test func aNewerFileIsSetAsideAndAnOlderOneMigrates() throws {
+    @Test func aFileFromANewerBuildIsRefusedAndLeftWhereItIs() throws {
         try withTemporaryFolder { folder in
             let url = folder.appendingPathComponent(ProfileRegistry.fileName)
-            try Data(#"{"version":99,"profiles":[]}"#.utf8).write(to: url)
-            let registry = try ProfileRegistry(fileURL: url, dataRoot: root(folder))
-            guard case .freshAfterSettingAside(_, let reason) = registry.openReport.origin else {
-                Issue.record("expected the file to be set aside")
-                return
+            let newer = Data(#"{"version":99,"profiles":[]}"#.utf8)
+            try newer.write(to: url)
+            let refused = ProfileRegistryError.fileFromNewerBuild(
+                version: 99, readable: ProfileFileFormat.currentVersion)
+            #expect(throws: refused) { try ProfileRegistry(fileURL: url, dataRoot: root(folder)) }
+            #expect(try Data(contentsOf: url) == newer)
+            #expect(try FileManager.default.contentsOfDirectory(atPath: folder.path) == [url.lastPathComponent])
+        }
+    }
+
+    @Test func aFileThatCannotBeReadIsRefusedAndNotSetAside() throws {
+        try withTemporaryFolder { folder in
+            let url = folder.appendingPathComponent(ProfileRegistry.fileName)
+            let contents = Data(#"{"version":99,"profiles":[]}"#.utf8)
+            try contents.write(to: url)
+            try FileManager.default.setAttributes([.posixPermissions: 0o000], ofItemAtPath: url.path)
+            defer { try? FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: url.path) }
+            #expect {
+                _ = try ProfileRegistry(fileURL: url, dataRoot: root(folder))
+            } throws: { error in
+                guard case .unreadableFileNotSetAside(let reason) = error as? ProfileRegistryError else { return false }
+                return reason.hasPrefix("reading failed")
             }
-            #expect(reason.contains("newer"))
+            #expect(try FileManager.default.contentsOfDirectory(atPath: folder.path) == [url.lastPathComponent])
+            try FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: url.path)
+            #expect(try Data(contentsOf: url) == contents)
         }
-        let migrate = ProfileFileFormat.Migration(from: 0) { object in
-            object["profiles"] = [["id": "old", "name": "Old", "isPersistent": true]]
+    }
+
+    @Test func anOlderFileMigratesWhenTheRegistryOpens() throws {
+        try withTemporaryFolder { folder in
+            let url = folder.appendingPathComponent(ProfileRegistry.fileName)
+            try Data(#"{"version":0}"#.utf8).write(to: url)
+            let migrate = ProfileFileFormat.Migration(from: 0) { object in
+                object["profiles"] = [["id": "old", "name": "Old", "isPersistent": true]]
+            }
+            // The store reads up to ProfileFileFormat.currentVersion, so a version 0 file needs the migration to 1.
+            let registry = try ProfileRegistry(
+                fileURL: url, dataRoot: root(folder), migrations: [migrate], writer: AtomicFileWriter())
+            #expect(registry.openReport.origin == .loaded)
+            #expect(registry.openReport.migratedFrom == 0)
+            #expect(registry.profile(for: "old")?.name == "Old")
         }
-        let data = Data(#"{"version":0}"#.utf8)
-        let state = try ProfileFileFormat.decode(data, currentVersion: 1, migrations: [migrate])
-        #expect(state.profiles.map(\.id.rawValue) == ["old"])
-        #expect(state.migratedFrom == 0)
     }
 
     @Test func unknownProfileIDsAreReportedOnceInOrder() throws {

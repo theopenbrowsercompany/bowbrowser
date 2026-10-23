@@ -157,6 +157,9 @@ public enum ArchiveError: Error, Equatable, CustomStringConvertible {
     /// risk overwriting it.
     case unreadableFileNotSetAside(String)
     case backupFailed(String)
+    /// The archive file was written by a newer Bow, in format `version`, while this build reads up to `readable`.
+    /// The store refuses to open it and leaves it where it is, so the newer Bow still finds it.
+    case fileFromNewerBuild(version: Int, readable: Int)
 
     public var description: String {
         switch self {
@@ -170,6 +173,8 @@ public enum ArchiveError: Error, Equatable, CustomStringConvertible {
         case .unreadableFileNotSetAside(let reason):
             return "the unreadable archive file could not be set aside: \(reason)"
         case .backupFailed(let reason): return "the archive file could not be copied before changing it: \(reason)"
+        case .fileFromNewerBuild(let version, let readable):
+            return "the archive file is format \(version), from a newer Bow; this build reads up to \(readable)"
         }
     }
 }

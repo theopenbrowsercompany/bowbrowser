@@ -11,6 +11,9 @@ public enum ProfileRegistryError: Error, Equatable, CustomStringConvertible {
     /// The registry is kept in memory and marked unsaved, but writing the file failed.
     case saveFailed(String)
     case unreadableFileNotSetAside(String)
+    /// The profiles file was written by a newer Bow, in format `version`, while this build reads up to `readable`.
+    /// The registry refuses to open it and leaves it where it is, so the newer Bow still finds it.
+    case fileFromNewerBuild(version: Int, readable: Int)
     /// The ID is empty, too long, or has characters other than `A-Z a-z 0-9 . _ -`.
     case invalidID(String)
     /// A different profile already has this ID, ignoring case.
@@ -25,6 +28,8 @@ public enum ProfileRegistryError: Error, Equatable, CustomStringConvertible {
         case .saveFailed(let reason): return "saving the profiles failed: \(reason)"
         case .unreadableFileNotSetAside(let reason):
             return "the unreadable profiles file could not be set aside: \(reason)"
+        case .fileFromNewerBuild(let version, let readable):
+            return "the profiles file is format \(version), from a newer Bow; this build reads up to \(readable)"
         case .invalidID(let id): return "\"\(id)\" cannot be a profile ID"
         case .idClash(let id): return "another profile already has the ID \(id), ignoring case"
         }
@@ -97,7 +102,10 @@ public final class ProfileRegistry {
     private let writer: AtomicFileWriter
 
     /// Opens the registry stored at `fileURL`, creating nothing on disk until the first save. A missing file starts
-    /// with the default profile. A file that cannot be read is moved aside under a new name and never overwritten.
+    /// with the default profile. A file written by a newer Bow is left where it is and this throws
+    /// `fileFromNewerBuild`. A file that cannot be read at all is left where it is and this throws
+    /// `unreadableFileNotSetAside`. A file that was read but cannot be decoded or migrated is moved aside under a new
+    /// name and never overwritten; if it cannot be moved, this also throws `unreadableFileNotSetAside`.
     public convenience init(fileURL: URL, dataRoot: URL) throws {
         try self.init(
             fileURL: fileURL, dataRoot: dataRoot, migrations: ProfileFileFormat.migrations, writer: AtomicFileWriter())
@@ -113,23 +121,34 @@ public final class ProfileRegistry {
         self.fileURL = fileURL
         self.dataRoot = dataRoot
         self.writer = writer
-        AtomicFileWriter.removeLeftovers(for: fileURL)
 
         var origin = Origin.loaded
         var state = ProfileFileFormat.State(profiles: [], pendingDeletions: [], retiredIDs: [])
         if !FileManager.default.fileExists(atPath: fileURL.path) {
             origin = .freshBecauseMissing
         } else {
+            // A file that cannot be read at all (permissions, a lock) is not known to be bad: refuse to start.
+            let data: Data
+            do {
+                data = try Data(contentsOf: fileURL)
+            } catch {
+                throw ProfileRegistryError.unreadableFileNotSetAside("reading failed: \(error)")
+            }
             do {
                 state = try ProfileFileFormat.decode(
-                    try Data(contentsOf: fileURL), currentVersion: ProfileFileFormat.currentVersion,
-                    migrations: migrations)
+                    data, currentVersion: ProfileFileFormat.currentVersion, migrations: migrations)
+            } catch ProfileFileFormat.ReadError.newerVersion(let version) {
+                // A newer Bow shares this folder; setting its file aside would cost it the profiles. Leave it alone.
+                throw ProfileRegistryError.fileFromNewerBuild(
+                    version: version, readable: ProfileFileFormat.currentVersion)
             } catch {
                 origin = .freshAfterSettingAside(
                     setAsideURL: try Self.setAside(fileURL), reason: String(describing: error))
             }
         }
 
+        // Only once the file is known to be this build's: a newer Bow's save in progress is not this build's to clear.
+        AtomicFileWriter.removeLeftovers(for: fileURL)
         let cleaned = Self.cleaned(state)
         profiles = cleaned.profiles
         pendingDeletions = cleaned.pendingDeletions

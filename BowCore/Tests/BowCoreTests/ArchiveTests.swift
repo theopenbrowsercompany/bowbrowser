@@ -347,25 +347,52 @@ import Testing
         }
     }
 
-    @Test func newerVersionAndUnreadableFilesAreSetAsideNotOverwritten() throws {
+    @Test func aFileFromANewerBuildIsRefusedAndLeftWhereItIs() throws {
         try withTemporaryFolder { folder in
             let url = ArchiveStore.fileURL(inApplicationSupportFolder: folder)
             let newer = Data(#"{"version":99,"items":[]}"#.utf8)
             try newer.write(to: url)
+            let refused = ArchiveError.fileFromNewerBuild(version: 99, readable: ArchiveFileFormat.currentVersion)
+            #expect(throws: refused) { try ArchiveStore(fileURL: url) }
+            #expect(try Data(contentsOf: url) == newer)
+            #expect(try FileManager.default.contentsOfDirectory(atPath: folder.path) == [url.lastPathComponent])
+        }
+    }
+
+    @Test func corruptBytesAreSetAsideNotOverwritten() throws {
+        try withTemporaryFolder { folder in
+            let url = ArchiveStore.fileURL(inApplicationSupportFolder: folder)
+            let corrupt = Data("not json".utf8)
+            try corrupt.write(to: url)
             let store = try ArchiveStore(fileURL: url)
             guard case .freshAfterSettingAside(let aside, _) = store.openReport.origin else {
                 Issue.record("expected the file to be set aside")
                 return
             }
-            #expect(try Data(contentsOf: aside) == newer)
+            #expect(try Data(contentsOf: aside) == corrupt)
             #expect(store.entries.isEmpty)
+            #expect(!FileManager.default.fileExists(atPath: url.path))
+        }
+    }
 
-            try Data("not json".utf8).write(to: url)
-            let again = try ArchiveStore(fileURL: url)
-            guard case .freshAfterSettingAside = again.openReport.origin else {
-                Issue.record("expected the file to be set aside")
-                return
-            }
+    @Test func anOlderFileMigratesWhenTheStoreOpens() throws {
+        try withTemporaryFolder { folder in
+            let url = ArchiveStore.fileURL(inApplicationSupportFolder: folder)
+            let graph = try SidebarGraph.sample().applying([
+                .insert(.tab(id: "t", url: "https://t.example.com"), parent: "unpinned")
+            ])
+            let entry = try ArchivedEntry.capture("t", from: graph, reason: .auto, at: start)
+            var object = try #require(
+                JSONSerialization.jsonObject(with: ArchiveFileFormat.encode([entry])) as? [String: Any])
+            object["version"] = 1
+            try JSONSerialization.data(withJSONObject: object).write(to: url)
+            let migration = SidebarFileFormat.Migration(from: 1) { _ in }
+            let store = try ArchiveStore(
+                fileURL: url, currentVersion: 2, migrations: [migration], writer: AtomicFileWriter())
+            #expect(store.openReport.origin == .loaded)
+            #expect(store.openReport.migratedFrom == 1)
+            #expect(store.entries == [entry])
+            #expect(store.openReport.backupURL != nil)
         }
     }
 
@@ -415,14 +442,19 @@ import Testing
         #expect(throws: ArchiveError.self) { try ArchivedEntry.capture("l", from: graph, reason: .manual, at: start) }
     }
 
-    @Test func aFileThatCannotBeReadIsNotSetAside() throws {
+    @Test func aFileThatCannotBeReadIsRefusedAndNotSetAside() throws {
         try withTemporaryFolder { folder in
             let url = ArchiveStore.fileURL(inApplicationSupportFolder: folder)
             try ArchiveFileFormat.encode([]).write(to: url)
             try FileManager.default.setAttributes([.posixPermissions: 0o000], ofItemAtPath: url.path)
-            #expect(throws: ArchiveError.self) { try ArchiveStore(fileURL: url) }
-            try FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: url.path)
-            #expect(FileManager.default.fileExists(atPath: url.path))
+            defer { try? FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: url.path) }
+            #expect {
+                try ArchiveStore(fileURL: url)
+            } throws: { error in
+                guard case .unreadableFileNotSetAside(let reason) = error as? ArchiveError else { return false }
+                return reason.hasPrefix("reading failed")
+            }
+            #expect(try FileManager.default.contentsOfDirectory(atPath: folder.path) == [url.lastPathComponent])
         }
     }
 

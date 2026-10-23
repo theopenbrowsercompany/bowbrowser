@@ -9,7 +9,7 @@ public final class ArchiveStore {
     public enum Origin: Equatable, Sendable {
         case loaded
         case freshBecauseMissing
-        /// The file could not be read. It was moved to `setAsideURL` untouched and the archive starts empty.
+        /// The file was read but could not be decoded. It was moved to `setAsideURL` untouched and the archive starts empty.
         case freshAfterSettingAside(setAsideURL: URL, reason: String)
     }
 
@@ -47,7 +47,6 @@ public final class ArchiveStore {
     ) throws {
         self.fileURL = fileURL
         self.writer = writer
-        AtomicFileWriter.removeLeftovers(for: fileURL)
 
         var origin = Origin.loaded
         var migratedFrom: Int?
@@ -70,11 +69,16 @@ public final class ArchiveStore {
                 entries = decoded.entries
                 migratedFrom = decoded.migratedFrom
                 skipped = decoded.skippedRecordCount
+            } catch ArchiveFileFormat.ReadError.newerVersion(let version) {
+                // A newer Bow shares this folder; setting its file aside would cost it the archive. Leave it alone.
+                throw ArchiveError.fileFromNewerBuild(version: version, readable: currentVersion)
             } catch {
                 let setAside = try Self.setAside(fileURL)
                 origin = .freshAfterSettingAside(setAsideURL: setAside, reason: String(describing: error))
             }
         }
+        // Only once the file is known to be this build's: a newer Bow's save in progress is not this build's to clear.
+        AtomicFileWriter.removeLeftovers(for: fileURL)
         // Before a later save replaces a file that had to change, keep it as it was.
         if origin == .loaded, migratedFrom != nil || skipped > 0 {
             backupURL = try Self.keepCopy(of: fileURL, suffix: migratedFrom.map { "version-\($0)" } ?? "repaired")
