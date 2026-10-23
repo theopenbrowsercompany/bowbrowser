@@ -24,6 +24,27 @@ Bow keeps it in one file of its own, separate from the engine's session data.
 - The sidebar file lives in Bow's Application Support folder (`~/Library/Application Support/Bow/Sidebar.json`).
   Browsing history and site icons are not stored in it.
 
+### Pinned tabs
+
+- Pinned tabs are the sites kept open all the time.
+  They sit in their own section at the top of a Space, above its other tabs, and each Space has its own pinned tabs.
+- Pinning a tab moves it, alone, to the end of its Space's pinned section (or to the position it was dropped at), even when it came out of a folder.
+  A Favorites tab pins into the Space on screen.
+  A tab inside a split view cannot be pinned on its own.
+- Pinning records the page the tab is showing as its saved address and title.
+  The saved address and title are stored on the tab, apart from the page it shows right now, and that page is never saved as the address.
+- Unpinning moves the tab to the top of its Space's tabs section (or to the position it was dropped at).
+  The page the tab is showing then becomes its saved page, so the tab stays on it after a relaunch.
+- Pinned tabs can be reordered within the pinned section and within a folder in it.
+- When a pinned tab shows a different page than its saved address, the sidebar offers "Back to pinned URL", which loads the saved address again and changes nothing in the sidebar.
+  A page counts as different unless its address differs only in letter case of the site name, a default port, an empty path versus "/", or a `#fragment`; a different path or query is a different page.
+  A tab with no page loaded has not navigated away.
+- "Replace pinned URL with current" makes the page the tab is showing its new saved address and title.
+  It is an explicit choice: browsing, going back to the pinned URL, closing and relaunching never change the saved address.
+- Closing a pinned tab unloads its page but keeps the tab in the sidebar with its saved address and title.
+  Selecting it loads its saved address, not the page it was last showing.
+  Closing any other tab removes it from the sidebar.
+
 ## Edge cases
 
 - First launch, or the file is missing: Bow starts with one empty Space and empty Favorites, and writes the file once there is something to save.
@@ -41,6 +62,8 @@ Bow keeps it in one file of its own, separate from the engine's session data.
 - Whenever launch had to repair the file, a copy of it as it was is kept beside it as `Sidebar.repaired-<date>-<time>.json` before Bow saves over it.
 - A Space's pinned and unpinned sections are removed only together with the Space, and the last Space cannot be deleted: there is always at least one Space.
 - Hundreds of tabs: only the selected one loads at launch, so startup stays quick.
+- Pinning a tab that is already pinned, or unpinning one that is not, changes nothing; in particular pinning again never overwrites the saved address.
+- A pinned tab with no usable saved address has nothing to go back to: it never shows "Back to pinned URL" and loads nothing when selected.
 
 ## Acceptance checks
 
@@ -56,6 +79,11 @@ Bow keeps it in one file of its own, separate from the engine's session data.
 10. Delete "project" keeping its contents: "phase" and its tab are now directly inside "client", where "project" was.
     Delete "client" with its contents: everything inside it is gone.
 11. Try to drag "client" into "phase": Bow refuses and the tree is unchanged.
+12. Pin tab A while it shows page A, browse inside it to page B: "Back to pinned URL" shows. Choose it: the tab shows page A and the button is gone.
+13. Browse the pinned tab to page B and choose "Replace pinned URL with current": the saved address is B and the button is gone. Quit and relaunch: the tab returns to B.
+14. Close a pinned tab that browsed away from its saved page, then select it: it loads the saved address.
+15. Drag a pinned tab above another one, then drag it to the tabs section: the order changes, then it leaves the pinned section and sits on top of the tabs.
+16. Run `make e2e`: `pinned.reset` prints `PASS pinned.reset: saved=A navigated=B reset=A`.
 
 ## Out of scope
 
