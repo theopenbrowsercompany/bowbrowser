@@ -10,11 +10,11 @@ That connection is what sign in popups (for example Google or GitHub sign in) us
 
 - A link meant to open in a new tab or window (for example `target="_blank"`) opens its page in a new tab of the window.
 - A script that opens a window (`window.open`) after a click opens its page in a new tab of the window; with a size it opens a popup panel.
-- A Cmd-click, Cmd-Shift-click, Shift-click or middle click on a link opens it in a new tab and leaves the clicked tab on its page.
+- A Cmd-click, Cmd-Shift-click or middle click on a link opens it in a new tab and leaves the clicked tab on its page; a Shift-click opens it in a Peek (see spec/peek.md).
 - The new page can reach the page that opened it through `window.opener`, so a sign in popup can report back and close itself.
 - The new page uses the same profile as the page that opened it.
 - The engine asks the app where each new page goes: a new tab, a tab in the background, a popup panel, a window of its own, or nowhere (blocked).
-  The window answers with the rules below, and new kinds of answer (Peek) come later.
+  The window answers with the rules below, or with a Peek (spec/peek.md).
 - A link opened with a modified click has no `window.opener`, as in other browsers.
 - A new page the app takes as a tab is still connected to the page that opened it through `window.opener`.
 - The app owns such a tab before its first navigation, so the app's rules for where pages may go apply to that first page too.
@@ -30,7 +30,7 @@ That connection is what sign in popups (for example Google or GitHub sign in) us
 - A `window.open` after a click opens in the foreground, right after the tab that opened it.
 - A Cmd-click opens in the background, right after the tab that opened it.
 - A Cmd-Shift-click opens in the foreground, right after the tab that opened it.
-- A Shift-click opens in the foreground for now; it becomes Peek later.
+- A Shift-click opens a Peek over the window (spec/peek.md); with that Peek setting off it opens in the foreground, right after the tab that opened it.
 - A link opened from a pinned tab or a Favorite puts the new tab at the top of Today instead, because those tabs sit above Today.
 
 ## Popup panels
@@ -72,5 +72,5 @@ Arc shows sign in popups in a small window of their own, over the browser window
 
 ## Out of scope
 
-- Address bar, back and forward controls in a popup panel, moving a panel's page into a tab, and Peek.
+- Address bar, back and forward controls in a popup panel, and moving a panel's page into a tab; Peek is in spec/peek.md.
 - Choosing which popups a page may open without a click.

@@ -13,7 +13,7 @@ import BowCore
 /// archived, another tab or Space showing, and the window closing or the app quitting take it away whatever its page
 /// answers (a page that stays at its leave prompt then becomes a background tab, so nothing runs unseen).
 ///
-/// While a Peek is open its page's alerts, confirms and prompts show as the window's page dialogs, its key presses go
+/// While a Peek is open its page's alerts, confirms and prompts show as sheets on the window (`PageDialogSheets`), its key presses go
 /// to the window's features (Escape closes the Peek, the other app shortcuts keep working), a sign in popup it opens
 /// goes to the popup panel, and any other page it opens becomes a tab of the window.
 @MainActor
@@ -21,16 +21,28 @@ final class PeekFeature: NSResponder, BrowserWindowFeature {
     private weak var window: BrowserWindowController?
     /// The Peek on screen.
     private(set) var peek: Peek?
-    /// True between an off-site link being cancelled and its Peek opening on the next main thread task, so a second
-    /// click in between counts as a Peek already open.
-    private var opening = false
+    /// An off-site link cancelled in a tab and not yet opened (on the next main thread task), in a Peek or a new tab: a
+    /// second ask about it opens nothing more, and a pending Peek counts as open.
+    private var pending: (id: Int, tab: TabID, url: URL, peek: Bool)?
+    private var lastPendingID = 0
     /// Peeks taken off the screen whose page has not closed yet, kept until it has.
     private var closing: [Peek] = []
     private var observers: [NSObjectProtocol] = []
 
     /// What the policy needs to know: the settings, read at each click, and whether a Peek is open.
     var context: PeekContext {
-        PeekContext(settings: AppSettings.peekSettings, isOpen: peek != nil || opening)
+        PeekContext(settings: AppSettings.peekSettings, isOpen: peek != nil || pending?.peek == true)
+    }
+
+    /// The context for a navigation of `tab`: also the link it already handed over, if any.
+    private func context(for tab: any EngineTab) -> PeekContext {
+        var context = self.context
+        if let pending, pending.tab == tab.tabID {
+            context.handledURL = pending.url
+        } else if let peek, peek.source === tab {
+            context.handledURL = peek.url
+        }
+        return context
     }
 
     init(window: BrowserWindowController) {
@@ -74,20 +86,26 @@ final class PeekFeature: NSResponder, BrowserWindowFeature {
         guard let window, !window.isClosing else { return nil }
         let zone = Self.zone(of: tab, in: window)
         let outcome = PeekPolicy.navigationOutcome(
-            navigation, currentURL: tab.state.url, openerZone: zone, context: context)
-        guard outcome != .navigate, let profile = window.engineProfile(of: tab) else { return nil }
+            navigation, currentURL: tab.state.url, openerZone: zone, context: context(for: tab))
+        switch outcome {
+        case .navigate: return nil
+        case .alreadyHandled: return .cancel
+        case .peek, .newTab: break
+        }
+        guard let profile = window.engineProfile(of: tab) else { return nil }
         let url = navigation.url
-        if outcome == .peek { opening = true }
+        lastPendingID += 1
+        let id = lastPendingID
+        pending = (id, tab.tabID, url, outcome == .peek)
         // The engine asks from inside its navigation callback, so the new page is created on the next turn.
         Task { @MainActor [weak self, weak tab] in
-            guard let self else { return }
-            let wasOpening = self.opening
-            self.opening = false
+            guard let self, self.pending?.id == id else { return }
+            self.pending = nil
             guard let window = self.window, let tab, !tab.isClosed, window.modelID(of: tab) != nil,
                 !window.isClosing
             else { return }
             let page = profile.createTab(url: url)
-            if outcome == .peek, wasOpening, self.peek == nil, self.open(page, source: tab, url: url) { return }
+            if outcome == .peek, self.peek == nil, self.open(page, source: tab, url: url) { return }
             // With the setting off (or a Peek already open) the link opens as a new tab where the source's new pages go.
             if !window.adoptTab(
                 page, after: tab, placement: PeekPolicy.promotedPlacement(openerZone: zone), select: true, url: url)
@@ -119,7 +137,6 @@ final class PeekFeature: NSResponder, BrowserWindowFeature {
         overlay.layoutSubtreeIfNeeded()
         overlay.webView.show(page)
         if window.window?.isKeyWindow == true { overlay.webView.focusAttachedTab() }
-        dialogs?.selectedTabChanged(page)
         return true
     }
 
@@ -128,7 +145,7 @@ final class PeekFeature: NSResponder, BrowserWindowFeature {
     /// Takes the Peek away for `cause`. A dismissed Peek asks its page first and stays open when the person stays;
     /// any other cause takes it off the screen at once (`PeekPolicy.pageMayStay`).
     func close(_ cause: PeekCloseCause) {
-        opening = false
+        if pending?.peek == true { pending = nil }
         guard let peek else { return }
         let page = peek.page
         if PeekPolicy.pageMayStay(cause) {
@@ -169,7 +186,8 @@ final class PeekFeature: NSResponder, BrowserWindowFeature {
             self.peek = peek
             return
         }
-        // The window shows the page now; only the empty card goes.
+        // The window shows the page now, and its page dialogs are the window's; only the empty card goes.
+        peek.dialogs.close()
         peek.overlay.onDismiss = nil
         peek.overlay.onPromote = nil
         peek.overlay.removeFromSuperview()
@@ -182,8 +200,7 @@ final class PeekFeature: NSResponder, BrowserWindowFeature {
         peek.overlay.onPromote = nil
         peek.overlay.webView.detach()
         peek.overlay.removeFromSuperview()
-        dialogs?.tabDidClose(peek.page)
-        dialogs?.selectedTabChanged(window?.selectedTab)
+        peek.dialogs.close()
         window.map { popupPanels(of: $0)?.tabDidClose(peek.page) }
     }
 
@@ -198,8 +215,6 @@ final class PeekFeature: NSResponder, BrowserWindowFeature {
     func selectedTabChanged(_ tab: (any EngineTab)?) {
         guard let peek else { return }
         guard let tab, tab === peek.source else { return close(.sourceHidden) }
-        // The window just told the page dialogs about its own tab; the Peek's page is the one in front.
-        dialogs?.selectedTabChanged(peek.page)
     }
 
     func activeSpaceChanged(_ space: SidebarSpace) {
@@ -235,8 +250,6 @@ final class PeekFeature: NSResponder, BrowserWindowFeature {
 
     // MARK: Helpers
 
-    fileprivate var dialogs: PageDialogsFeature? { window?.feature(PageDialogsFeature.self) }
-
     fileprivate func popupPanels(of window: BrowserWindowController) -> PopupPanelFeature? {
         window.feature(PopupPanelFeature.self)
     }
@@ -270,6 +283,9 @@ final class Peek: NSObject, EngineTabDelegate {
     var isClosing = false
     /// True once the page became a tab; the window is its delegate from then on.
     var isPromoted = false
+    /// The page's alerts, confirms and prompts, as sheets on the browser window while the Peek shows (the same rules
+    /// and sheet as a tab's). Closed when the Peek leaves the screen or becomes a tab.
+    let dialogs: PageDialogSheets
 
     init(
         page: any EngineTab, source: any EngineTab, sourceItem: SidebarItemID, url: URL?, overlay: PeekOverlayView,
@@ -282,6 +298,7 @@ final class Peek: NSObject, EngineTabDelegate {
         self.overlay = overlay
         self.feature = feature
         zone = feature.controller.map { PeekFeature.zone(of: source, in: $0) } ?? .today
+        dialogs = PageDialogSheets(window: feature.controller?.window, shownTab: page.tabID)
         super.init()
         page.delegate = self
     }
@@ -293,7 +310,7 @@ final class Peek: NSObject, EngineTabDelegate {
     func tab(_ tab: any EngineTab, didReceive event: TabEvent) {
         switch event {
         case .didStartNavigation, .renderProcessGone:
-            feature?.dialogs?.tab(tab, didReceive: event)
+            dialogs.navigated(tab.tabID)
         default:
             break
         }
@@ -339,7 +356,6 @@ final class Peek: NSObject, EngineTabDelegate {
     }
 
     func tab(_ tab: any EngineTab, runDialog dialog: PageDialog) async -> PageDialogAnswer {
-        guard let dialogs = feature?.dialogs else { return .cancelled }
-        return await dialogs.runDialog(dialog, for: tab) ?? .cancelled
+        await dialogs.run(dialog, for: tab.tabID)
     }
 }
