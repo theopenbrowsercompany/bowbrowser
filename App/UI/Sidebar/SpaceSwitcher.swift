@@ -384,7 +384,7 @@ private final class SpaceIconButton: NSButton {
     /// Shows or clears the hover ring: the dot's own ring, as the Space on screen has.
     private func showDropRing(_ on: Bool) {
         wantsLayer = true
-        layer?.cornerRadius = SpaceSwitcher.dotButtonSize / 2
+        layer?.cornerRadius = bounds.height / 2
         layer?.borderColor = BowBrand.ring.cgColor
         layer?.borderWidth = on ? SpaceSwitcher.ringWidth : restingRing
     }
@@ -394,7 +394,7 @@ private final class SpaceIconButton: NSButton {
     }
 
     override func draggingUpdated(_ sender: any NSDraggingInfo) -> NSDragOperation {
-        guard wouldMove(sender) else {
+        guard sender.draggingSourceOperationMask.contains(.move), wouldMove(sender) else {
             showDropRing(false)
             return []
         }
