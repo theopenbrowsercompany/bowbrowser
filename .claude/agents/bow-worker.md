@@ -47,13 +47,16 @@ Your working directory is your own git worktree of this repository.
 
 ## Known traps
 
-- In a worktree, Bash refuses heredocs, perl or python one-liners, `make -C <path>`, cd chains and pipelines that run a script: use the Edit tool and plain commands, and write helper scripts with Write.
+- In a worktree, Bash refuses any compound command with "too complex to verify that it stays inside the worktree" (about 590 refusals across the transcripts, each a wasted turn).
+  Run one plain command per call, from the worktree root: `git status --short`, `git fetch origin`, `make check`, `make done > /tmp/done.log 2>&1` (a plain redirect passes), and `bash /tmp/<name>.sh` for a script you wrote with Write.
+  Refused, most often first: a heredoc (`<<EOF`, `python3 - <<EOF`), a pipeline (`git log | tail`, `| head`, `| grep`), a chain (`a && b`, `a; b`, `||`), command substitution (`$(...)`), `cd <dir> && ...`, `git -C <path>`, `make -C <path>`, and a multiline `sed -i`.
+  Instead: read a result with Read (redirect to a file first), edit with Edit or Write, and put multi-step work in a script written with Write and run with `bash <path>`.
 - Run `make bootstrap` first in a fresh worktree.
 - Any new e2e input helper goes through `E2EInput`'s confirm and resend path.
 - Never open DevTools in an e2e run.
 - E2E type names share one namespace with the BowCore tests, so give harness additions an `e2e` prefix.
 - A plain `target="_blank"` link implies `noopener`, so a test that needs `window.opener` uses `rel="opener"`.
-- The pre-push hook refuses any commit that adds a path inside a macOS home directory (the Users folder), even in test data: use /tmp paths or relative paths in tests and fixtures (a URL field test was refused on 2026-10-23).
+- `make guards` checks private paths in every commit.
 - An e2e helper must call the same method the real handler calls (for example the method validateDrop calls), never the inner steps, or its check stays green when the handler breaks.
 - A brief's mockup measurements, text and colors are binding; do not replace them with an inference about Arc; say in the report if Arc's documented behavior differs.
 - A "do not edit" list in a brief bars commits, not the temporary uncommitted stubs of the fails without check.
