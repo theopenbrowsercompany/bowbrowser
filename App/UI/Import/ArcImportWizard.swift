@@ -60,6 +60,8 @@ final class ArcImportWizard: NSObject {
     /// Ends the sheet. Safe to call more than once.
     func close() {
         guard !ended else { return }
+        // The file picker is a sheet on this one and must go first.
+        if let child = sheet.attachedSheet { sheet.endSheet(child) }
         if let parent = sheet.sheetParent { parent.endSheet(sheet) } else { finish() }
     }
 
@@ -79,6 +81,7 @@ final class ArcImportWizard: NSObject {
     private func show(_ next: Step) {
         guard !ended else { return }
         step = next
+        sheet.defaultButtonCell = nil
         let content: NSView
         switch next {
         case .consent: content = consentView()
@@ -334,7 +337,8 @@ final class ArcImportWizard: NSObject {
                 refusal = error.description
             }
         }
-        self.applied = nil
+        // A refusal or a sidebar that would not change keeps the record, so Undo can be tried again.
+        if refusal == nil, went { self.applied = nil }
         if let refusal {
             doneText = "The import was not undone: \(refusal)."
         } else if went {
