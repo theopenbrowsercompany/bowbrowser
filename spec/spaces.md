@@ -13,7 +13,7 @@ Each Space has its own pinned tabs and tabs, and one window shows one Space at a
 - A new Space is empty, goes at the end of the list and comes on screen right away.
   It is called "Space 2" when it is the second Space, "Space 3" when it is the third, and so on, until the person renames it.
   Its name is trimmed and cannot be empty; two Spaces may share a name.
-- View > Spaces > Rename Space, double-clicking the Space name at the top of the sidebar, or Rename Space in the context menu of a Space's name or icon asks for the new name in a sheet with the current name filled in.
+- View > Spaces > Rename Space, double-clicking the Space name above its tabs, or Rename Space in the context menu of a Space's name or icon asks for the new name in a sheet with the current name filled in.
   Rename saves it; Cancel, or an empty name, keeps the old one.
 - Renaming a Space changes only its name.
   Its tabs stay where they are.
@@ -22,7 +22,7 @@ Each Space has its own pinned tabs and tabs, and one window shows one Space at a
   An empty Space goes at once.
 - Deleting a Space closes its pinned tabs and tabs together with it.
   If it was on screen, its neighbour comes on screen (the next Space, or the previous one when it was last).
-- The top of the sidebar shows the name of the Space on screen, with its emoji in front when it has one.
+- The sidebar shows the name of the Space on screen below the Favorites and above its tabs, with its emoji in front when it has one.
 - The footer of the sidebar is the Space switcher: one icon per Space in order, with the Space on screen highlighted, and the "+" button at its end.
   A Space's icon is its emoji or symbol; a Space with no icon shows a small dot.
   Hovering an icon shows the Space's name, and clicking it shows that Space.
@@ -86,8 +86,8 @@ Each Space has its own pinned tabs and tabs, and one window shows one Space at a
 9. Try the icon "ab" or "1", the symbol "Bad Name" and the color "blue": each is refused and the Space is unchanged.
 10. Quit and relaunch: the icon and theme come back. A sidebar saved without them opens with none.
 11. Run `make e2e`: `spaces.switch` prints `PASS spaces.switch: windows=1 active=personal tabs=[C]`.
-12. With one Space "work" holding tab A, click "+": "Space 2" is on screen, empty, named at the top of the sidebar and highlighted in the footer. Choose View > Spaces > New Space: "Space 3" is on screen.
-13. Rename "Space 3" to " personal " in the sheet: it reads "personal" in the list and at the top of the sidebar.
+12. With one Space "work" holding tab A, click "+": "Space 2" is on screen, empty, named above its tabs and highlighted in the footer. Choose View > Spaces > New Space: "Space 3" is on screen.
+13. Rename "Space 3" to " personal " in the sheet: it reads "personal" in the list and above its tabs.
 14. Delete the empty "Space 2": no question is asked. Delete "work": the sheet asks first, Cancel keeps it, and Delete removes it with its tab. With only "personal" left, Delete Space is greyed out.
 15. With "work" on screen, press Cmd+Option+Right twice and Cmd+Option+Left twice: personal, personal (the second press is greyed out), work, work.
 16. Swipe towards the next Space, again on the last Space, a short swipe back, then a full swipe back: personal, personal, personal, work, in one window.

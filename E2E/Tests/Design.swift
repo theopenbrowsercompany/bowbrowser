@@ -16,6 +16,7 @@ enum DesignTests {
     static let textDark = "#FFF3E6"
     static let activeLight = "#FFFFFF"
     static let activeDark = "#3D2519"
+    static let apricot = "#FFC08A"
 
     static func design(_ run: E2ERun) throws -> any E2EDesignApp {
         guard let app = run.app as? any E2EDesignApp else { throw E2EError("the app has no design hooks") }
@@ -46,24 +47,64 @@ enum DesignTests {
         }
         return try condition()
     }
+
+    /// The state the checks and screenshots look at: a Space with a pinned tab, a pinned folder of two tabs and a
+    /// today tab, one Favorite, and "Notes" open as the active tab. Returns the Notes page.
+    static func openBrowsing(_ run: E2ERun) async throws -> any E2EPage {
+        guard let favorites = run.app as? any E2EFavoritesApp, let seeds = run.app as? any E2EStoreSeedApp else {
+            throw E2EError("the app lacks the Favorites or seed hooks")
+        }
+        let seed = E2ESeed(spaces: [
+            E2ESeedSpace(
+                "Home",
+                pinned: [
+                    .tab("Docs", url: url("Docs")),
+                    .folder("Projects", [.tab("Plan", url: url("Plan")), .tab("Roadmap", url: url("Roadmap"))]),
+                ],
+                today: [.tab("Reading", url: url("Reading"))])
+        ])
+        let home = try await run.step("open the seeded window", timeout: E2ETimeouts.firstLoad) {
+            let window = try await seeds.openWindow(seeded: seed)
+            _ = try await window.page.waitForLoad(after: 0)
+            return window.page
+        }
+        let mail = try await openTab(run, "Mail", besides: home, select: true)
+        try await run.step("make a Favorite", timeout: E2ETimeouts.step) { try favorites.dragToFavorites(mail, at: 0) }
+        return try await openTab(run, "Notes", besides: home, select: true)
+    }
+
+    /// Opens the command bar over `page` with Command-T and waits until it shows.
+    static func openCommandBar(_ run: E2ERun, over page: any E2EPage) async throws -> any E2ECommandBar {
+        guard let menus = run.app as? any E2EMenuApp, let bars = run.app as? any E2ECommandBarApp else {
+            throw E2EError("the app lacks the menu or command bar hooks")
+        }
+        try menus.chooseMenuItem(key: "t", modifiers: [.command], in: page)
+        let bar = try bars.commandBar(of: page)
+        _ = try await until { bar.isShown }
+        guard bar.isShown else { throw E2EError("the command bar did not open") }
+        return bar
+    }
 }
 
-/// Reads the window's look with a page on screen, resizes the window, and switches to an empty Space.
+/// Reads the window's look with a Favorite, a pinned folder and the active tab on screen, then with the command bar
+/// open, resizes the window, and switches to an empty Space.
 struct DesignLookTest: E2ETest {
     let name = "design.look"
     let checks = [
         "design.app_icon", "design.title_bar", "design.sidebar_top_row", "design.page_card", "design.page_shadow",
-        "design.frame_color", "design.selected_row", "design.shadow_follows_resize", "design.empty_mark",
+        "design.frame_color", "design.selected_row", "design.favorites", "design.folder_indent",
+        "design.space_label", "design.space_dot", "design.command_bar", "design.shadow_follows_resize",
+        "design.empty_mark",
     ]
+
+    /// Where a tab directly in a section puts its icon, from the sidebar's leading edge: where it was before rows in
+    /// folders stepped in 22 points, which must not move it.
+    static let topIconX = 43.0
 
     func run(_ run: E2ERun) async throws {
         let design = try DesignTests.design(run)
         guard let edges = run.app as? any E2EWindowEdgesApp else { throw E2EError("the app has no window edges") }
-        let page = try await run.step("open a window", timeout: E2ETimeouts.firstLoad) {
-            let page = try await run.app.openWindow(at: DesignTests.url("Home"))
-            _ = try await page.waitForLoad(after: 0)
-            return page
-        }
+        let page = try await DesignTests.openBrowsing(run)
         let look = try await run.step("read the look", timeout: E2ETimeouts.step) { try design.look(of: page) }
         run.check(
             "design.app_icon", passed: look.iconName == "AppIcon" && look.iconFileExists,
@@ -101,6 +142,42 @@ struct DesignLookTest: E2ETest {
             "background=\(look.selectedRowBackground ?? "none") text=\(look.selectedRowText ?? "none")"
                 + " bold=\(look.selectedRowBold) height=\(look.selectedRowHeight)"
                 + " radius=\(look.selectedRowCornerRadius) shadow=\(look.selectedRowShadowOpacity)")
+        // Four equal columns 8 apart fill the sidebar between its 14 point leading and 12 point trailing padding.
+        let tile = look.favoriteTileFrame
+        let columns = ((look.sidebarWidth - 12 - tile.minX + 8) / (tile.width + 8)).rounded()
+        run.check(
+            "design.favorites",
+            passed: tile.minX == 14 && tile.width == (look.sidebarWidth - 14 - 12 - 3 * 8) / 4 && tile.height == 44
+                && columns == 4,
+            "tile=\(tile) columns=\(columns)")
+        run.check(
+            "design.folder_indent",
+            passed: look.childIconX - look.topIconX == 22 && look.topIconX == Self.topIconX
+                && look.childRowHeight == 32,
+            "top_icon=\(look.topIconX) child_icon=\(look.childIconX) child_row=\(look.childRowHeight)")
+        run.check(
+            "design.space_label",
+            passed: look.spaceNameFrame.height > 0 && look.spaceNameFrame.minY >= look.favoritesFrame.maxY
+                && look.spaceNameFrame.maxY <= look.firstTabRowFrame.minY,
+            "favorites=\(look.favoritesFrame) name=\(look.spaceNameFrame) first_row=\(look.firstTabRowFrame)")
+        run.check(
+            "design.space_dot",
+            passed: look.spaceDotSize == 14 && look.spaceRingWidth == 2 && look.spaceRingGap == 2
+                && look.spaceRingColor == DesignTests.apricot,
+            "dot=\(look.spaceDotSize) ring=\(look.spaceRingWidth) gap=\(look.spaceRingGap)"
+                + " ring_color=\(look.spaceRingColor ?? "none")")
+
+        let bar = try await run.step("open the command bar", timeout: E2ETimeouts.step) {
+            let bar = try await DesignTests.openCommandBar(run, over: page)
+            let look = try design.look(of: page)
+            try bar.press(.escape)
+            _ = try await DesignTests.until { !bar.isShown }
+            return look
+        }
+        run.check(
+            "design.command_bar",
+            passed: bar.commandBarRadius == 14 && bar.commandBarClips && bar.commandBarShadowHasPath,
+            "radius=\(bar.commandBarRadius) clips=\(bar.commandBarClips) shadow_path=\(bar.commandBarShadowHasPath)")
 
         let resized = try await run.step("resize the window", timeout: E2ETimeouts.step) {
             try design.resizeWindow(of: page, width: 900, height: 600)
@@ -136,10 +213,7 @@ struct DesignScreensTest: E2ETest {
 
     func run(_ run: E2ERun) async throws {
         let design = try DesignTests.design(run)
-        guard let edges = run.app as? any E2EWindowEdgesApp, let favorites = run.app as? any E2EFavoritesApp,
-            let menus = run.app as? any E2EMenuApp, let bars = run.app as? any E2ECommandBarApp,
-            let seeds = run.app as? any E2EStoreSeedApp
-        else { throw E2EError("the app lacks the window, Favorites, menu, command bar or seed hooks") }
+        guard let edges = run.app as? any E2EWindowEdgesApp else { throw E2EError("the app has no window edges") }
         let folder = run.dataDirectory.deletingLastPathComponent().appendingPathComponent("design", isDirectory: true)
         var written: [String] = []
         func shoot(_ page: any E2EPage, _ name: String) async throws {
@@ -148,28 +222,7 @@ struct DesignScreensTest: E2ETest {
             written.append(url.lastPathComponent)
         }
 
-        let seed = E2ESeed(spaces: [
-            E2ESeedSpace(
-                "Home",
-                pinned: [
-                    .tab("Docs", url: DesignTests.url("Docs")),
-                    .folder(
-                        "Projects",
-                        [
-                            .tab("Plan", url: DesignTests.url("Plan")),
-                            .tab("Roadmap", url: DesignTests.url("Roadmap")),
-                        ]),
-                ],
-                today: [.tab("Reading", url: DesignTests.url("Reading"))])
-        ])
-        let home = try await run.step("open the seeded window", timeout: E2ETimeouts.firstLoad) {
-            let window = try await seeds.openWindow(seeded: seed)
-            _ = try await window.page.waitForLoad(after: 0)
-            return window.page
-        }
-        let mail = try await DesignTests.openTab(run, "Mail", besides: home, select: true)
-        try await run.step("make a Favorite", timeout: E2ETimeouts.step) { try favorites.dragToFavorites(mail, at: 0) }
-        let notes = try await DesignTests.openTab(run, "Notes", besides: home, select: true)
+        let notes = try await DesignTests.openBrowsing(run)
         try await run.step("browsing", timeout: E2ETimeouts.step) { try await shoot(notes, "1-browsing") }
 
         let dark = try await run.step("dark", timeout: E2ETimeouts.step) {
@@ -188,10 +241,7 @@ struct DesignScreensTest: E2ETest {
                 + " text=\(dark.selectedRowText ?? "none") navigation_dark=\(dark.navigationDark)")
 
         try await run.step("command bar", timeout: E2ETimeouts.step) {
-            try menus.chooseMenuItem(key: "t", modifiers: [.command], in: notes)
-            let bar = try bars.commandBar(of: notes)
-            _ = try await DesignTests.until { bar.isShown }
-            guard bar.isShown else { throw E2EError("the command bar did not open") }
+            let bar = try await DesignTests.openCommandBar(run, over: notes)
             try await shoot(notes, "3-command-bar")
             try bar.press(.escape)
             _ = try await DesignTests.until { !bar.isShown }

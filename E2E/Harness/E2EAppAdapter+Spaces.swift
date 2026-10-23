@@ -1,15 +1,16 @@
 import AppKit
 import BowCore
 
-// The Spaces area of the adapter: E2ESpacesApp over the window's sidebar store, the Space switcher accessories in
-// its SidebarView (found by their views' identifiers), sheets on its window, and the sidebar's swipe handler.
+// The Spaces area of the adapter: E2ESpacesApp over the window's sidebar store, the Space name in its SidebarView's
+// outline and the Space switcher in its footer (found by their views' identifiers), sheets on its window, and the
+// sidebar's swipe handler.
 
 extension E2EAppAdapter {
     func spaces(of page: any E2EPage) throws -> E2ESpacesState {
         let controller = try Self.tabPage(page).controller
         let graph = controller.store.graph
         let sidebar = controller.e2eSidebar
-        let header = Self.views(in: sidebar.topSlot, NSTextField.self).first {
+        let header = Self.views(in: sidebar.outlineView, NSTextField.self).first {
             $0.identifier?.rawValue == "space-name"
         }
         let footer = Self.views(in: sidebar.footer, NSButton.self).filter { $0.identifier?.rawValue == "space-icon" }
@@ -83,7 +84,7 @@ extension E2EAppAdapter {
     }
 
     /// Every view of type `type` inside `root`, depth first, `root` included.
-    private static func views<View: NSView>(in root: NSView, _ type: View.Type) -> [View] {
+    static func views<View: NSView>(in root: NSView, _ type: View.Type) -> [View] {
         ([root as? View].compactMap { $0 }) + root.subviews.flatMap { views(in: $0, type) }
     }
 }

@@ -61,4 +61,25 @@ struct E2EDesignLook {
     /// The empty state: shown, and its Bow mark's point size (0 without one).
     var showsEmptyState: Bool
     var emptyStateMarkSize: Double
+    /// Frames in the sidebar's outline (top left origin, x from the sidebar's leading edge), zero when not shown: the
+    /// first Favorite tile, the Favorites grid, the Space name and the first row of the Space's tabs.
+    var favoriteTileFrame: CGRect
+    var favoritesFrame: CGRect
+    var spaceNameFrame: CGRect
+    var firstTabRowFrame: CGRect
+    /// The leading x of the icon of the first tab directly in a section and of the first tab inside a folder, in the
+    /// outline, and that second row's height; 0 without such a row.
+    var topIconX: Double
+    var childIconX: Double
+    var childRowHeight: Double
+    /// The active Space's dot in the footer: its size, its ring's width and color, and the gap between them.
+    var spaceDotSize: Double
+    var spaceRingWidth: Double
+    var spaceRingGap: Double
+    var spaceRingColor: String?
+    /// The command bar's panel: the corner radius its content is clipped to, whether it is clipped, and whether the
+    /// panel's shadow has a path the size of the panel (read while the bar shows).
+    var commandBarRadius: Double
+    var commandBarClips: Bool
+    var commandBarShadowHasPath: Bool
 }

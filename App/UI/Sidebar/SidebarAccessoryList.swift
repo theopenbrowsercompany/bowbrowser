@@ -8,7 +8,6 @@
 @MainActor
 enum SidebarAccessories {
     static let all: [any SidebarAccessory.Type] = [
-        SpaceNameHeader.self,
         SpaceSwitcher.self,
     ]
 }

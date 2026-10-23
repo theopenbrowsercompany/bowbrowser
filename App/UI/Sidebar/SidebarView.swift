@@ -63,7 +63,7 @@ final class SidebarView: NSView, NSOutlineViewDataSource, NSOutlineViewDelegate,
     /// The row at the top of the sidebar, level with the window's close, minimize and zoom buttons, which the
     /// window fills from the trailing edge (the back, forward and reload buttons).
     let topRow = NSStackView()
-    let outlineView = NSOutlineView()
+    let outlineView: NSOutlineView = SidebarOutlineView()
     /// The top accessory slot, between the New Tab button and the outline; empty, it takes no room.
     let topSlot = NSStackView()
     /// The footer accessory slot along the bottom edge (the archive button); empty, it takes no room.

@@ -12,14 +12,14 @@ It uses Bow's brand colors as light and dark tokens, soft radii and one soft sha
 - The sidebar's top row, level with the window buttons, holds Back, Forward and Reload as plain 17 point icons in Soft, right aligned.
 - The page is a White card inset 8 points from the frame at the top, trailing and bottom edges (the sidebar side meets the sidebar), with 10 point continuous rounded corners and one soft shadow (1 point down, 3 point blur, 14 percent Night).
 - A click near the card's top edge reaches the page.
-- Favorites are 44 point tall tiles, 4 to a row, 8 points apart, with 10 point corners in Pin; site icons are 20 points.
-- The Space name is a group label: 11 point bold uppercase in Soft, with letter spacing.
-- Tab rows are 34 points tall with 15 point site icons and 10 points between icon and title; rows inside a folder are 32 points tall.
+- Favorites are tiles 44 points tall in 4 equal columns 8 points apart, filling the sidebar between its padding (about 53.5 points wide at 264), with 10 point corners in Pin; site icons are 20 points.
+- The Space name is a group label below the Favorites and above the Space's tabs, as in Arc: 11 point bold uppercase in Soft, with letter spacing, inset 10 points within the sidebar's padding.
+- Tab rows are 34 points tall with 15 point site icons and 10 points between icon and title; rows inside a folder are 32 points tall and step in 22 points per level, so their icons sit under the folder's name, while rows directly under the Space name keep their place.
 - The active tab's row is lifted: Active fill, 9 point corners, the soft shadow and a bold title; a hovered row is tinted Pin; other rows have no background.
 - Folder rows show a chevron and a semibold name.
-- The line between pinned and today tabs is a short Line colored rule.
-- The Space switcher shows one 14 point dot per Space, the one on screen in Jam with an Apricot ring (a 2 point gap, then a 4 point ring), the others in Soft, and a "+" for a new Space.
-- The command bar is a White panel with 14 point corners and the soft shadow, centered over the card.
+- The line between pinned and today tabs is a Line colored rule inset 10 points within the sidebar's padding.
+- The Space switcher shows one 14 point dot per Space, the one on screen in Jam with an Apricot ring (a 2 point gap in the frame color, then a 2 point ring), the others in Soft, and a "+" for a new Space.
+- The command bar is a White panel with 14 point corners, which clip its field and results, and the soft shadow, centered over the card.
 - The empty Space and unloaded tab states show the Bow mark at 64 points above their line in Soft and a Jam Deep pill button with white text.
 - The app icon is Bow's light app tile; the About panel shows it, since it shows the app icon.
 - In dark mode the frame is Night, the active row and Favorites take their dark tokens, and text is Cream; the card and the command bar stay White and draw light.
@@ -40,9 +40,11 @@ It uses Bow's brand colors as light and dark tokens, soft radii and one soft sha
 3. The frame is #FFF3E6; the active row is #FFFFFF, 34 points tall with a 9 point radius, a shadow and a bold #3A1F14 title.
 4. Resize the window: the shadow stays exactly behind the card.
 5. Switch to an empty Space: the empty state shows the Bow mark at 24 points or more.
-6. Switch the window to dark: the frame is #2A1710, the active row #3D2519 and its title #FFF3E6, and the navigation buttons draw dark.
-7. The app bundle names its icon (CFBundleIconName AppIcon) and carries AppIcon.icns.
-8. `make e2e E2E=design` runs these checks and writes screenshots to `build/e2e/<run>/design/`.
+6. With a Favorite and a pinned folder of two tabs: the first tile starts 14 points in and is 53.5 by 44 points (4 columns), a tab inside the folder has its icon 22 points right of a tab directly in the Space with that tab's icon where it was (43 points in), and its row is 32 points tall; the Space name sits below the Favorites and above the first tab row; the active Space's dot is 14 points with a 2 point gap and a 2 point #FFC08A ring.
+7. Open the command bar: its panel's content is clipped to 14 point corners, and its shadow has a path the size of the panel.
+8. Switch the window to dark: the frame is #2A1710, the active row #3D2519 and its title #FFF3E6, and the navigation buttons draw dark.
+9. The app bundle names its icon (CFBundleIconName AppIcon) and carries AppIcon.icns.
+10. `make e2e E2E=design` runs these checks and writes screenshots to `build/e2e/<run>/design/`.
 
 ## Out of scope
 
