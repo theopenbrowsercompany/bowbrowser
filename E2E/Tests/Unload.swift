@@ -228,8 +228,9 @@ struct UnloadPressureTest: E2ETest {
     }
 }
 
-/// A background tab's alert shows as a sheet on its window: a pass while it is up unloads nothing and leaves the
-/// alert for the person to answer; once it is answered, the next pass unloads the tab.
+/// A background tab's alert shows as the engine's own app modal panel (the app takes no page dialogs): a pass while
+/// it is up unloads nothing and leaves the alert for the person to answer; once it is answered, the next pass unloads
+/// the tab.
 struct UnloadDialogTest: E2ETest {
     let name = "unload.dialog"
 
@@ -245,7 +246,7 @@ struct UnloadDialogTest: E2ETest {
                 throw E2EError("the alert never showed")
             }
         }
-        let (during, duringState, sheetKept) = try await run.step("pass with the alert up", timeout: E2ETimeouts.step) {
+        let (during, duringState, alertKept) = try await run.step("pass with the alert up", timeout: E2ETimeouts.step) {
             try app.setUnloadEnabled(true)
             try app.useManualUnloadClock()
             try app.advanceUnloadClock(by: UnloadTests.longIdle)
@@ -261,9 +262,9 @@ struct UnloadDialogTest: E2ETest {
         }
         run.check(
             name,
-            passed: during == 0 && duringState.isLoaded && sheetKept && after == 1 && !afterState.isLoaded
+            passed: during == 0 && duringState.isLoaded && alertKept && after == 1 && !afterState.isLoaded
                 && afterState.isListed,
-            "with-alert=\(during) tab=\(UnloadTests.describe(duringState)) alert=\(sheetKept ? "kept" : "gone")"
+            "with-alert=\(during) tab=\(UnloadTests.describe(duringState)) alert=\(alertKept ? "kept" : "gone")"
                 + " answered=\(after) tab=\(UnloadTests.describe(afterState))")
     }
 }

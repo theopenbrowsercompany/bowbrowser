@@ -35,7 +35,7 @@ An unloaded tab stays in the sidebar and loads again when you open it.
   - any tab of a profile with a download under way, since destroying the page that started it would cancel it;
   - a tab using the camera or microphone;
   - a tab playing sound, once the engine reports audio (the current engine does not, so this does not apply yet);
-  - every tab of a window that is closing, and every tab while a page's dialog (an alert or a leave prompt) waits for an answer, so a dialog never vanishes unanswered; the next look tries again.
+  - every tab of a window that is closing or asking a question on its own (a leave prompt), and every tab in every window while a page's alert waits for an answer, so a dialog never vanishes unanswered; the next look tries again.
 - Pinned tabs and Favorites are spared longer than other tabs.
 - The idle times, loaded tab limits and how often Bow looks are named in one place, so measurements can tune them without touching the rest.
 - An unloaded tab keeps its row, address, title and icon, and loads again from its address when chosen, without its back and forward history.
