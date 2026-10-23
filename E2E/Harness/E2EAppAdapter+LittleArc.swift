@@ -226,7 +226,7 @@ extension E2ETestApp: E2ELittleArcApp {
     func littleArcPermissionPrompt(in window: E2ELittleArcWindow) throws -> E2EPermissionPrompt? {
         try adapter.requireActive(token, "read Little Arc's permission prompt")
         let panel = try adapter.littleArcPanel(window)
-        guard let prompt = panel.prompts.visiblePrompt else { return nil }
+        guard let tab = panel.tab, let prompt = panel.prompts.visiblePrompt(for: tab) else { return nil }
         let token = token
         return E2EPermissionPrompt(
             kinds: Set(prompt.request.kinds.map(\.rawValue)), message: prompt.message, frame: prompt.frame
