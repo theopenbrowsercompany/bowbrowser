@@ -222,6 +222,8 @@ struct SidebarMenuShortcutsTest: E2ETest {
             ("{", .command, nil),
             (E2EMenuKey.upArrow, .command, nil),
             (E2EMenuKey.function(5), [], nil),
+            // AppKit's Emoji & Symbols item is Fn-E, which E2EKeyModifiers cannot name: never the bare key.
+            ("e", [], nil),
         ]
         var problems: [String] = []
         for lookup in lookups {
