@@ -429,7 +429,8 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
     /// closed, and false when the person chose to stay at the page's leave prompt, which keeps the tab and its
     /// page as they were. The closed tab leaves the sidebar (a pinned tab only unloads and stays); the window shows a
     /// neighbor when the shown tab closes, and closes with its last tab. A tab that is not in this window (another
-    /// window's, or one already closed) is left alone, and the result is whether it is closed.
+    /// window's, or one already closed) is left alone, and the result is whether it is closed. A tab the engine
+    /// unloads instead keeps its row, address and title, and loads again when chosen.
     @discardableResult
     func closeTab(_ tab: any EngineTab) async -> Bool {
         guard let id = modelID(of: tab) else { return tab.isClosed }
@@ -619,8 +620,9 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
             if item == activeItemID { updateTitle() }
         }
         for feature in features { feature.tab(tab, didReceive: event) }
-        // A tab closes from this window, from quitting or from its page; the window follows its last tab.
-        if event == .closed { tabClosed(tab) }
+        // A tab closes from this window, from quitting or from its page, or the engine unloads it; the window
+        // follows its last tab.
+        if event == .closed || event == .unloaded { tabClosed(tab) }
         onTabEvent?(tab, event)
     }
 
@@ -716,6 +718,9 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
         return .cancel
     }
 
+    /// Lets go of `tab` once its page has closed or the engine unloaded it. A tab the person or its page closed leaves
+    /// the sidebar (a pinned tab only unloads and stays); any other keeps its row. An unload is never requested and
+    /// has no close reason, so it keeps the row, address and title, and the tab loads again when chosen.
     private func tabClosed(_ tab: any EngineTab) {
         for feature in features { feature.tabDidClose(tab) }
         let closedItself = selfClosedPages.closedItself(tab)
