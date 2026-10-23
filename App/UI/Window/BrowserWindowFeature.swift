@@ -48,6 +48,11 @@ protocol BrowserWindowFeature: NSResponder {
     // The engine hooks below reach a feature only for the window's own tabs. For each, the first feature (in
     // `WindowFeatures.all` order) that answers decides, and with none the window keeps the engine contract's default.
 
+    /// Whether `tab`'s main frame may go to `navigation`, or nil to leave it to another feature. Asked synchronously
+    /// before every main frame navigation, after the window's own `navigationPolicy` (whose `.cancel` wins). With no
+    /// answer the navigation goes ahead. A feature that cancels may open the address elsewhere (a Peek).
+    func decideNavigation(_ navigation: EngineNavigation, for tab: any EngineTab) -> NavigationPolicy?
+
     /// Where a new page `tab` opens goes (`request` carries the click modifiers), or nil to leave it to another
     /// feature. Asked synchronously. With no answer the engine opens its own popup window.
     func decidePopup(_ request: PopupRequest, from tab: any EngineTab) -> PopupDecision?
@@ -98,6 +103,7 @@ extension BrowserWindowFeature {
     func activeSpaceChanged(_ space: SidebarSpace) {}
     func storeChanged(_ graph: SidebarGraph) {}
     func decidePermission(_ request: PermissionRequest, for tab: any EngineTab) async -> PermissionDecision? { nil }
+    func decideNavigation(_ navigation: EngineNavigation, for tab: any EngineTab) -> NavigationPolicy? { nil }
     func decidePopup(_ request: PopupRequest, from tab: any EngineTab) -> PopupDecision? { nil }
     func didOpenPopup(_ newTab: any EngineTab, from tab: any EngineTab, request: PopupRequest) -> Bool { false }
     func handleKeyBeforePage(_ event: EngineKeyEvent, in tab: any EngineTab) -> Bool { false }

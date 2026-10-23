@@ -36,8 +36,8 @@ final class PopupsFeature: NSResponder, BrowserWindowFeature {
         switch outcome.decision {
         case .foregroundTab: select = true
         case .backgroundTab: select = false
-        // PopupPanelFeature takes a panel's page.
-        case .popupPanel, .window, .block: return false
+        // PopupPanelFeature takes a panel's page, PeekFeature a Peek's.
+        case .popupPanel, .peek, .window, .block: return false
         }
         return window.adoptTab(
             newTab, after: tab, placement: outcome.placement ?? PopupPolicy.todayPlacement, select: select,

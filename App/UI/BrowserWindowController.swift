@@ -905,7 +905,10 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
     }
 
     func tab(_ tab: any EngineTab, decidePolicyFor navigation: EngineNavigation) -> NavigationPolicy {
-        navigationPolicy?(tab, navigation) ?? .allow
+        if navigationPolicy?(tab, navigation) == .cancel { return .cancel }
+        // The features decide only for the window's own tabs, the first that answers deciding.
+        guard modelID(of: tab) != nil else { return .allow }
+        return features.lazy.compactMap { $0.decideNavigation(navigation, for: tab) }.first ?? .allow
     }
 
     func tab(_ tab: any EngineTab, decidePermission request: PermissionRequest) async -> PermissionDecision {
