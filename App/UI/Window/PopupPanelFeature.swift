@@ -242,8 +242,27 @@ final class PopupPanelWindow: NSWindow {
 
     override func setFrameOrigin(_ point: NSPoint) {
         guard !holdsOrigin else { return }
+        #if BOW_E2E  // E2E seam: AppKit moves a panel with setFrameOrigin(_:) to attach a sheet to it.
+            if let keep = Self.e2eKeepFrame {
+                return super.setFrameOrigin(keep(NSRect(origin: point, size: frame.size), self).origin)
+            }
+        #endif
         super.setFrameOrigin(point)
     }
+
+    #if BOW_E2E  // E2E seam: e2e runs keep panels off every screen, where AppKit moves one to show a sheet on it.
+        /// Given the frame asked for and the window, the frame to take.
+        static var e2eKeepFrame: ((NSRect, NSWindow) -> NSRect)?
+
+        override func setFrame(_ frameRect: NSRect, display flag: Bool) {
+            super.setFrame(Self.e2eKeepFrame?(frameRect, self) ?? frameRect, display: flag)
+        }
+
+        override func setFrame(_ frameRect: NSRect, display displayFlag: Bool, animate animateFlag: Bool) {
+            super.setFrame(
+                Self.e2eKeepFrame?(frameRect, self) ?? frameRect, display: displayFlag, animate: animateFlag)
+        }
+    #endif
 
     override func performClose(_ sender: Any?) {
         if delegate?.windowShouldClose?(self) ?? true {

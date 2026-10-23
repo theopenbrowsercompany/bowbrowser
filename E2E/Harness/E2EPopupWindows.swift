@@ -46,15 +46,15 @@ final class E2EPopupHostWindow: NSWindow, NSWindowDelegate {
 
     // AppKit also moves a window onto a screen to show a sheet on it; keep it off every screen.
     override func setFrame(_ frameRect: NSRect, display flag: Bool) {
-        super.setFrame(E2EOffscreenFrame.kept(frameRect), display: flag)
+        super.setFrame(E2EOffscreenFrame.kept(frameRect, for: self), display: flag)
     }
 
     override func setFrame(_ frameRect: NSRect, display displayFlag: Bool, animate animateFlag: Bool) {
-        super.setFrame(E2EOffscreenFrame.kept(frameRect), display: displayFlag, animate: animateFlag)
+        super.setFrame(E2EOffscreenFrame.kept(frameRect, for: self), display: displayFlag, animate: animateFlag)
     }
 
     override func setFrameOrigin(_ point: NSPoint) {
-        super.setFrameOrigin(E2EOffscreenFrame.kept(NSRect(origin: point, size: frame.size)).origin)
+        super.setFrameOrigin(E2EOffscreenFrame.kept(NSRect(origin: point, size: frame.size), for: self).origin)
     }
 
     init(frame: NSRect) {

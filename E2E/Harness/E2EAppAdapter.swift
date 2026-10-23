@@ -39,6 +39,8 @@ final class E2EAppAdapter {
         // Windows write recorded pages 0.2 s after the first instead of the app's 1 s, so tabs.record_debounced
         // proves the debounce in a fraction of a second (the same timer, only shorter).
         BrowserWindowController.recordSaveDelay = 0.2
+        // Popup panels stay off every screen too, where AppKit would move one to show a sheet on it.
+        PopupPanelWindow.e2eKeepFrame = { E2EOffscreenFrame.kept($0, for: $1) }
         delegate.appFeatures.require(SidebarStores.self).presentNotice = { [weak self] notice, _ in
             self?.appSidebarNotices.append(E2ESidebarNotice(notice))
         }
