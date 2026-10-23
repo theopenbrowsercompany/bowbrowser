@@ -43,6 +43,7 @@ final class TabSidebarRow: NSTableCellView {
 
         titleField.lineBreakMode = .byTruncatingTail
         titleField.font = .systemFont(ofSize: 13)
+        titleField.textColor = BowBrand.text
         titleField.cell?.usesSingleLineMode = true
         titleField.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         textField = titleField
@@ -56,7 +57,7 @@ final class TabSidebarRow: NSTableCellView {
 
         closeButton.isBordered = false
         closeButton.bezelStyle = .regularSquare
-        closeButton.contentTintColor = .secondaryLabelColor
+        closeButton.contentTintColor = BowBrand.secondaryText
         closeButton.target = self
         closeButton.action = #selector(closeClicked(_:))
         closeButton.toolTip = "Close Tab"
@@ -110,7 +111,7 @@ final class TabSidebarRow: NSTableCellView {
         toolTip = titleField.stringValue
         iconView.image =
             favicon ?? NSImage(systemSymbolName: "globe", accessibilityDescription: nil)
-        iconView.contentTintColor = favicon == nil ? .secondaryLabelColor : nil
+        iconView.contentTintColor = favicon == nil ? BowBrand.secondaryText : nil
         hasFavicon = favicon != nil
         if tab.isLoading {
             iconView.isHidden = true
@@ -196,10 +197,11 @@ final class SidebarGroupRow: NSTableCellView, NSTextFieldDelegate {
         identifier = Self.identifier
         titleField.lineBreakMode = .byTruncatingTail
         titleField.font = .systemFont(ofSize: 13)
+        titleField.textColor = BowBrand.text
         titleField.cell?.usesSingleLineMode = true
         titleField.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         textField = titleField
-        iconView.contentTintColor = .secondaryLabelColor
+        iconView.contentTintColor = BowBrand.secondaryText
         imageView = iconView
         for view in [iconView, titleField] as [NSView] {
             view.translatesAutoresizingMaskIntoConstraints = false

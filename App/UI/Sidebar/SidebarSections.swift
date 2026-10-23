@@ -75,14 +75,18 @@ struct DividerSection: SidebarSection {
 
     func makeHeaderView() -> NSView? {
         let view = NSView()
+        // A short Line colored rule, inset from both sides.
         let line = NSBox()
-        line.boxType = .separator
+        line.boxType = .custom
+        line.borderWidth = 0
+        line.fillColor = BowBrand.line
         line.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(line)
         NSLayoutConstraint.activate([
-            line.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 10),
-            line.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -10),
+            line.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: BowBrand.space16),
+            line.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -BowBrand.space16),
             line.centerYAnchor.constraint(equalTo: view.centerYAnchor),
+            line.heightAnchor.constraint(equalToConstant: 1),
         ])
         view.setAccessibilityElement(true)
         view.setAccessibilityRole(.splitter)

@@ -109,17 +109,12 @@ final class SidebarView: NSView, NSOutlineViewDataSource, NSOutlineViewDelegate,
             target: nil, action: nil)
         super.init(frame: frame)
 
-        let background = NSVisualEffectView()
-        background.material = .sidebar
-        background.blendingMode = .behindWindow
-        background.state = .followsWindowActiveState
-
         newTabButton.target = self
         newTabButton.action = #selector(newTabClicked(_:))
         newTabButton.isBordered = false
         newTabButton.imagePosition = .imageLeading
         newTabButton.alignment = .left
-        newTabButton.contentTintColor = .secondaryLabelColor
+        newTabButton.contentTintColor = BowBrand.secondaryText
         newTabButton.font = .systemFont(ofSize: 13)
         newTabButton.setAccessibilityLabel("New Tab")
 
@@ -158,7 +153,7 @@ final class SidebarView: NSView, NSOutlineViewDataSource, NSOutlineViewDelegate,
         emptyHeight.priority = .defaultLow
         emptyHeight.isActive = true
         footer.orientation = .horizontal
-        footer.edgeInsets = NSEdgeInsets(top: 0, left: 10, bottom: 0, right: 10)
+        footer.edgeInsets = NSEdgeInsets(top: 0, left: BowBrand.space12, bottom: 0, right: BowBrand.space12)
         for accessory in accessories {
             switch type(of: accessory).placement {
             case .top: topSlot.addArrangedSubview(accessory.view)
@@ -168,24 +163,22 @@ final class SidebarView: NSView, NSOutlineViewDataSource, NSOutlineViewDelegate,
         swipeHandler = accessories.lazy.compactMap(\.swipeHandler).first
         connectSwipes()
 
-        for view in [background, newTabButton, topSlot, scrollView, footer] as [NSView] {
+        // The sidebar draws no background of its own: it is part of the window's one Frame colored surface.
+        for view in [newTabButton, topSlot, scrollView, footer] as [NSView] {
             view.translatesAutoresizingMaskIntoConstraints = false
             addSubview(view)
         }
         NSLayoutConstraint.activate([
-            background.leadingAnchor.constraint(equalTo: leadingAnchor),
-            background.trailingAnchor.constraint(equalTo: trailingAnchor),
-            background.topAnchor.constraint(equalTo: topAnchor),
-            background.bottomAnchor.constraint(equalTo: bottomAnchor),
-            newTabButton.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 18),
-            newTabButton.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -10),
-            newTabButton.topAnchor.constraint(equalTo: topAnchor, constant: 10),
+            newTabButton.leadingAnchor.constraint(equalTo: leadingAnchor, constant: BowBrand.space16),
+            newTabButton.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -BowBrand.space8),
+            // Below the title bar, which the sidebar runs under when the window uses full size content.
+            newTabButton.topAnchor.constraint(equalTo: safeAreaLayoutGuide.topAnchor, constant: BowBrand.space8),
             newTabButton.heightAnchor.constraint(equalToConstant: 28),
             scrollView.leadingAnchor.constraint(equalTo: leadingAnchor),
             scrollView.trailingAnchor.constraint(equalTo: trailingAnchor),
             topSlot.leadingAnchor.constraint(equalTo: leadingAnchor),
             topSlot.trailingAnchor.constraint(equalTo: trailingAnchor),
-            topSlot.topAnchor.constraint(equalTo: newTabButton.bottomAnchor, constant: 6),
+            topSlot.topAnchor.constraint(equalTo: newTabButton.bottomAnchor, constant: BowBrand.space4),
             scrollView.topAnchor.constraint(equalTo: topSlot.bottomAnchor),
             scrollView.bottomAnchor.constraint(equalTo: footer.topAnchor),
             footer.leadingAnchor.constraint(equalTo: leadingAnchor),
@@ -698,6 +691,13 @@ final class SidebarView: NSView, NSOutlineViewDataSource, NSOutlineViewDelegate,
             if !isShowing { updatingSlots { updateAccessory(of: view, for: id) } }
             return view
         }
+    }
+
+    /// Item rows get Bow's row view (a lifted card for the active tab, a tint on hover); section headers keep the
+    /// outline's plain row.
+    func outlineView(_ outlineView: NSOutlineView, rowViewForItem item: Any) -> NSTableRowView? {
+        guard case .item? = (item as? SidebarNode)?.key else { return nil }
+        return SidebarRowView()
     }
 
     /// The outline never changes its highlight on its own: pressing on a row may start a drag, which must not make
