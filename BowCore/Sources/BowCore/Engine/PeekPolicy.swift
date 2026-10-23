@@ -28,10 +28,14 @@ public struct PeekContext: Equatable, Sendable {
     public var settings: PeekSettings
     /// True while the window shows a Peek. A window shows one Peek at a time.
     public var isOpen: Bool
+    /// The link the asking tab already handed to Peek or to a new tab and that has not opened yet, or the address its
+    /// open Peek was opened on. Chromium can ask about one click twice, and the second ask must open nothing more.
+    public var handledURL: URL?
 
-    public init(settings: PeekSettings = .arcDefault, isOpen: Bool = false) {
+    public init(settings: PeekSettings = .arcDefault, isOpen: Bool = false, handledURL: URL? = nil) {
         self.settings = settings
         self.isOpen = isOpen
+        self.handledURL = handledURL
     }
 
     public static let arcDefault = PeekContext()
@@ -57,6 +61,8 @@ public enum PeekNavigationOutcome: Equatable, Sendable {
     case peek
     /// The navigation is cancelled and the address opens in a new tab, in the foreground, where the tab's new pages go.
     case newTab
+    /// The navigation is cancelled and nothing opens: the same link was already handled (`PeekContext.handledURL`).
+    case alreadyHandled
 }
 
 public enum PeekPolicy {
@@ -83,6 +89,7 @@ public enum PeekPolicy {
         guard openerZone != .today, navigation.transition == .link, navigation.isUserGesture,
             isWeb(navigation.url), let currentURL, isWeb(currentURL), !isSameSite(currentURL, navigation.url)
         else { return .navigate }
+        if context.handledURL == navigation.url { return .alreadyHandled }
         return context.settings.offSiteLinksOpenPeek && !context.isOpen ? .peek : .newTab
     }
 

@@ -50,7 +50,7 @@ Each Favorite is its own tab: it opens in place, and there is never a copy of it
 
 ## Out of scope
 
-- Peeking at links that leave a Favorite's site, a "Back to saved address" control on a Favorite's tile, and a keyboard shortcut or command to favorite a tab.
+- A "Back to saved address" control on a Favorite's tile, and a keyboard shortcut or command to favorite a tab.
 - Moving a tab to Favorites from its context menu ("Move To").
 - Keeping site icons for Favorites across relaunches and windows; until then a Favorite shows its letter tile after a relaunch.
 - The sidebar's zones and drags between pinned and today, covered in `sidebar.md`; how Favorites are saved, in `sidebar-store.md`.

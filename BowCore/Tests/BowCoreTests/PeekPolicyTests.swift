@@ -76,6 +76,19 @@ import Testing
                 click("https://other.test/"), currentURL: nil, openerZone: .pinned, context: .arcDefault) == .navigate)
     }
 
+    @Test func aSecondAskAboutTheSameLinkOpensNothing() {
+        let link = click("https://other.test/story")
+        let handled = PeekContext(isOpen: true, handledURL: link.url)
+        #expect(outcome(link, from: .pinned, context: handled) == .alreadyHandled)
+        let pendingTab = PeekContext(settings: PeekSettings(offSiteLinksOpenPeek: false), handledURL: link.url)
+        #expect(outcome(link, from: .favorite, context: pendingTab) == .alreadyHandled)
+        // Another link is not the one handled, and a same-site link still navigates.
+        #expect(outcome(click("https://other.test/else"), from: .pinned, context: handled) == .newTab)
+        #expect(
+            outcome(click("https://news.example.com/x"), from: .pinned, context: PeekContext(handledURL: page))
+                == .navigate)
+    }
+
     @Test func noSecondPeekWhileOneIsOpen() {
         #expect(outcome(click("https://other.test/"), from: .pinned, context: PeekContext(isOpen: true)) == .newTab)
         #expect(PeekPolicy.shiftClickDecision(context: PeekContext(isOpen: true)) == .block)

@@ -20,7 +20,7 @@ protocol E2EPeekApp: E2EPopupsApp {
     /// Puts both Peek settings back to Arc's defaults, also once the test has ended.
     func resetPeekSettings()
     /// How many browsers the engine has open or is creating, popups and Peeks included.
-    var openBrowsers: Int { get }
+    var peekOpenBrowsers: Int { get }
 }
 
 /// A Peek's card buttons.
@@ -36,6 +36,10 @@ struct E2EPeekState: Equatable {
     /// True when the card sits above every pane of the page area, under a dimmed backdrop.
     var overPanes: Bool
     var dimmed: Bool
+    /// True while the Peek's page is loading.
+    var isLoading: Bool
+    /// The card's size in points, which the Peek's page fills.
+    var cardSize: CGSize
     /// True when the card's host view shows the Peek's page.
     var showsPage: Bool
 }

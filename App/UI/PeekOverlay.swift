@@ -47,8 +47,6 @@ final class PeekOverlayView: NSView {
         clip.layer?.cornerCurve = .continuous
         clip.layer?.masksToBounds = true
         clip.layer?.backgroundColor = BowBrand.page.cgColor
-        clip.autoresizingMask = [.width, .height]
-        webView.autoresizingMask = [.width, .height]
         clip.addSubview(webView)
         card.addSubview(clip)
         addSubview(card)
@@ -94,6 +92,7 @@ final class PeekOverlayView: NSView {
         let frame = PeekLayout.cardFrame(width: bounds.width, height: bounds.height)
         card.frame = NSRect(x: frame.x, y: frame.y, width: frame.width, height: frame.height)
         clip.frame = card.bounds
+        webView.frame = clip.bounds
         card.layer?.shadowPath = CGPath(
             roundedRect: card.bounds, cornerWidth: BowBrand.radiusCard, cornerHeight: BowBrand.radiusCard,
             transform: nil)
