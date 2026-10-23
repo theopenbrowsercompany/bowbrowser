@@ -72,11 +72,17 @@ extension E2ETestApp: E2EUnloadApp {
     }
 
     func resetUnloader() {
-        AppSettings.defaults.removeObject(forKey: TabUnloader.enabledKey)
+        AppSettings.defaults.set(false, forKey: TabUnloader.enabledKey)
         adapter.unloader.e2eReset()
     }
 }
 
 extension E2EAppAdapter {
     var unloader: TabUnloader { delegate.appFeatures.require(TabUnloader.self) }
+
+    /// Turns unloading off for the run before the app starts, unless a test turns it on: the app unloads by default,
+    /// and the machine's own memory pressure must never unload another test's tabs.
+    static func prepareUnload() {
+        AppSettings.defaults.set(false, forKey: TabUnloader.enabledKey)
+    }
 }
