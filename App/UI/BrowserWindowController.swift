@@ -494,6 +494,9 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
         modelIDs[tab.tabID].flatMap { engineTabs[$0] === tab ? $0 : nil }
     }
 
+    /// The runtime IDs of every loaded tab, in every Space.
+    var loadedTabIDs: [BrowserTabID] { Array(engineTabs.keys) }
+
     /// The engine tab behind runtime ID `id`, nil while its saved page has not loaded.
     func engineTab(for id: BrowserTabID) -> (any EngineTab)? {
         engineTabs[id]

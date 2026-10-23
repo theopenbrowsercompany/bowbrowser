@@ -6,7 +6,7 @@ import Foundation
 @MainActor
 enum ArchiveAreaTests {
     static let all: [any E2ETest] = [
-        ArchiveExpiryTest(), ArchiveDamagedFileTest(),
+        ArchiveExpiryTest(), ArchiveDamagedFileTest(), ArchiveBackgroundSpaceTest(),
     ]
 
     static func app(_ run: E2ERun) throws -> any E2EArchiveApp {
@@ -114,5 +114,55 @@ struct ArchiveDamagedFileTest: E2ETest {
             name, passed: passed,
             "skipped=\(skipped.map(String.init) ?? "unopened") archived=\(ArchiveAreaTests.names(archived, in: window)) "
                 + "copies=\(copies)")
+    }
+}
+
+/// A tab keeping the camera on in a Space that is not on screen stays through a pass at 13 hours, while an idle tab
+/// in that same Space archives.
+struct ArchiveBackgroundSpaceTest: E2ETest {
+    let name = "archive.background-space"
+
+    func run(_ run: E2ERun) async throws {
+        let app = try ArchiveAreaTests.app(run)
+        guard let edges = run.app as? any E2EWindowEdgesApp else { throw E2EError("the app has no Space switching") }
+        defer { app.resetArchive() }
+        let window = try await run.step(
+            "open a window on Space Other with idle tab Idle", timeout: E2ETimeouts.firstLoad
+        ) {
+            let seed = E2ESeed(
+                spaces: [
+                    E2ESeedSpace("Home", pinned: [.tab("A", url: StoreTests.url("A"))]),
+                    E2ESeedSpace("Other", today: [.tab("Idle", url: StoreTests.url("Idle"))]),
+                ], activeSpace: "Other")
+            let window = try await app.openWindow(seeded: seed)
+            _ = try await window.page.waitForLoad(after: 0)
+            return window
+        }
+        guard let idle = window.itemIDs["Idle"], let home = window.spaceIDs["Home"] else {
+            throw E2EError("the seed has no Idle tab or Home Space")
+        }
+        let page = window.page
+        let live = try await run.step("start the camera in a tab of Other", timeout: E2ETimeouts.firstLoad) {
+            let live = try run.app.openTab(at: E2EFixture.url("unload/capture.html"), besides: page, select: true)
+            _ = try await live.waitForLoad(after: 0)
+            _ = try await live.evaluate("startCamera()")
+            try await live.waitForPermissionPrompt().answer(true)
+            let result = try await live.string("window.cameraResult")
+            guard result == "live" else { throw E2EError("the camera ended as \(result)") }
+            return live
+        }
+        let liveItem = try app.archiveItem(of: live)
+        let archived = try await run.step("switch to Home, pass at clock+13h", timeout: E2ETimeouts.step) {
+            try edges.switchToSpace(home, besides: page)
+            try app.useManualArchiveClock()
+            _ = try app.runArchivePass()
+            try app.advanceArchiveClock(by: 13 * 3_600)
+            _ = try app.runArchivePass()
+            return try app.archivedItems(besides: page)
+        }
+        run.check(
+            name, passed: archived == [idle],
+            "clock+13h in Home: archived=\(ArchiveAreaTests.names(archived, in: window)) "
+                + "camera tab \(archived.contains(liveItem) ? "archived" : "kept")")
     }
 }

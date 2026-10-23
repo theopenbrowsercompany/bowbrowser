@@ -27,7 +27,7 @@ This spec covers the archive store, the rules that decide what archives, and the
 - While Bow runs, it checks every open window's sidebar for expired tabs about once a minute and right after the Mac wakes, and archives them with the reason auto.
   Two windows on one sidebar are checked once, and both follow the change.
 - A Today tab whose last use is unknown (restored from the sidebar file and not selected since) counts as used when Bow first sees it, so it archives once it has sat unused for the threshold from then.
-- The tab a window shows, and a tab playing sound or using the camera or microphone, stays, and counts as used for as long as it does, so its idle time starts once it no longer does.
+- The tab a window shows, and a tab playing sound or using the camera or microphone in any of its Spaces, on screen or not, stays, and counts as used for as long as it does, so its idle time starts once it no longer does.
 - Reopening an archived tab puts it back in its Space's Today (or the folder it was in), at its old position, counts it as used, and shows it when its Space is on screen.
 - No check runs while a menu or a drag is open, so the row they act on stays.
 - Each sidebar has its own archive file: `ArchivedItems.json` beside the app's `Sidebar.json`, and `<name>.ArchivedItems.json` beside any other sidebar file (a window's own sidebar).

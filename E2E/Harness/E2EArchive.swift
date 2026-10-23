@@ -20,6 +20,8 @@ protocol E2EArchiveApp: E2EStoreSeedApp {
     func archivedItems(besides page: any E2EPage) throws -> [String]
     /// Puts archived item `id` back, as the archive list's Reopen does. Returns whether it is back in the sidebar.
     func reopenArchived(_ id: String, besides page: any E2EPage) throws -> Bool
+    /// The sidebar item of tab `page`.
+    func archiveItem(of page: any E2EPage) throws -> String
     /// The sidebar item of the tab `page`'s window shows, nil when it shows none.
     func archiveShownItem(besides page: any E2EPage) throws -> String?
     /// The archive file of `page`'s window's sidebar.
