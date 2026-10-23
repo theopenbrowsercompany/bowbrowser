@@ -81,6 +81,14 @@ The list comes from the saved sidebar (see `sidebar-store.md`): a window's tabs 
 - File > New Tab (Command-T) opens a new tab, File > Close Tab (Command-W) closes the active tab, and File > Close Window (Shift-Command-W) closes the window with all its tabs.
   In a window without tabs (a page's popup), Command-W closes that window.
 
+### Last active
+
+- Bow remembers when each tab was last active: a tab counts as active when it becomes the tab a window shows, and again when its window becomes the front window.
+  Opening or closing other tabs does not change it.
+- The times survive quitting and relaunching, are kept apart from the sidebar, and are forgotten for tabs that no longer exist.
+  If the saved times cannot be read, Bow starts with none and keeps the unreadable file aside.
+- The command bar's open tabs list uses them to put the most recent tab first, and auto-archive uses them to tell how long a tab has sat idle.
+
 ## Edge cases
 
 - A tab still opening when it is closed closes as soon as its page exists.
@@ -118,6 +126,7 @@ The list comes from the saved sidebar (see `sidebar-store.md`): a window's tabs 
 17. Run `make e2e`: `PASS store.roundtrip: items=12 after_relaunch=12` shows twelve tabs saved, their window closed and the sidebar read back from its file into a new window, which lists all twelve with the same active tab and loads only that one.
 18. Run `make e2e`: `PASS link.profile: opened_in=work cookie=1` shows a link from another app opening in the most recent window, created in its Space's profile (work), and seeing the cookie that profile set.
 19. By hand: open a few tabs, select one, quit and relaunch; the same tabs come back in order with the selected one loaded and the others loading only when clicked.
+20. Run `make e2e`: `PASS activity: last=B` shows two tabs A and B with A selected and then B, B recorded as the more recently active.
 
 ## Out of scope
 
