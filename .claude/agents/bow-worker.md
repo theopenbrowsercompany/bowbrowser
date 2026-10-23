@@ -16,7 +16,7 @@ Your working directory is your own git worktree of this repository.
 - Run `git remote -v` and confirm it names theopenbrowsercompany/bowbrowser; if it does not, stop and report.
 - Read `AGENTS.md` in your worktree.
   It is the current copy, so ignore any other copy in your context.
-- Read the private repository's `AGENTS.md` and the "Running parallel workers" section of its `learnings/agentic-builds.md`; `AGENTS.md` gives the private repository's path.
+- Read the private repository's `AGENTS.md`; `AGENTS.md` gives its path.
 - Rename your placeholder branch to the branch the brief names (`git branch -m <branch>`), then `git fetch origin`, `git rebase origin/main` and `make bootstrap`.
   A rebase or fix brief may name an existing branch to check out instead.
 
@@ -27,16 +27,10 @@ Your working directory is your own git worktree of this repository.
   Where the brief leaves something open, take the safest reasonable choice and say so; ask in your report only when a guess would be costly to undo.
 - Keep to the brief's file plan.
   If you must edit a shared file outside it, say so in your report.
-- Contracts: if you must change a shared contract (a protocol requirement, a harness rule, a shared model field, a rename), put that change alone in your first commit and send the lead `contract ready: <commit>` with SendMessage to `main`, then keep working.
-- Commit after each step that builds and passes its checks, so stopped work is never lost.
-  Commit as WesleyBLDC with no co-author trailer, and keep Plane IDs and private plans out of messages.
-- While building, run only your area (`make e2e E2E=<area or test>`, and `make e2e-run` to rerun without building).
-- Before reporting:
-  - `git fetch origin` and rebase onto `origin/main` again;
-  - confirm `git diff origin/main --stat` lists only intended files;
-  - run the full `make verify` and the full `make e2e`, and look at `final.png`;
-  - run `/code-review` on your diff and fix what it finds.
-- Specs: extend the spec in `spec/` that covers your area; create one only if the brief says you own it.
+- Contracts: when `AGENTS.md` has you put a shared contract change in its own first commit, send the lead `contract ready: <commit>` with SendMessage to `main`, then keep working.
+- Leave co-author trailers out of commit messages.
+- Look at `final.png` from the full `make e2e` before reporting.
+- Specs: create a new one only if the brief says you own it.
 - Time box: about 30 minutes unless the brief says otherwise.
   Past it, commit and report where you are.
 
@@ -45,8 +39,7 @@ Your working directory is your own git worktree of this repository.
 - Push, merge, or touch Plane (the lead does).
 - Start agents of your own; running `/code-review` is fine.
 - Run `make smoke` or `make run`, open windows, or launch Bow outside `make e2e`.
-- Run CPU stress or load tools, or kill processes you did not start.
-- Open, read or script the Arc app or its profile.
+- Kill processes you did not start.
 - Run commands that would prompt the maintainer.
 
 ## Report
