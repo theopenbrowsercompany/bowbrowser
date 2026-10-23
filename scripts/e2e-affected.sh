@@ -23,7 +23,7 @@
 #   anything else (App/, E2E/Harness/, E2E/Engine/, project.yml, scripts/, the Makefile, cef.lock, ...)   all
 # smoke is added to every selection that is neither all nor empty.
 set -u
-cd "$(dirname "$0")/.."
+cd "$(dirname "$0")/.." || exit 1
 
 # Files and folders whose e2e tests are known, as "<path prefix> <areas, comma separated>". sidebar is in every
 # entry because its menu shortcut test (sidebar.menu-shortcuts) looks up every feature's menu items; unload is in
@@ -102,7 +102,7 @@ while IFS= read -r f; do
     E2E/Tests/*.swift)
       found=$(areas_in "$f")
       [ -n "$found" ] || all "$f (no test names)"
-      say "$f: $(echo $found | tr ' ' ',')"
+      say "$f: $(echo "$found" | paste -sd, -)"
       add "$found"
       continue
       ;;
@@ -117,7 +117,7 @@ while IFS= read -r f; do
       done
       found=$(echo "$found" | grep -v '^$' | sort -u)
       [ -n "$found" ] || all "$f (no tests use $folder/)"
-      say "$f: $(echo $found | tr ' ' ',')"
+      say "$f: $(echo "$found" | paste -sd, -)"
       add "$found"
       continue
       ;;

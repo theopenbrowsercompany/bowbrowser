@@ -14,7 +14,7 @@
 # "check: PASS <parts> in <seconds>s (e2e: <selection>)" or "check: FAIL <parts> (<seconds>s)".
 # Ctrl-C, TERM or HUP stops the running part (its whole process group) and ends with "check: FAIL interrupted".
 set -u
-cd "$(dirname "$0")/.."
+cd "$(dirname "$0")/.." || exit 1
 
 start=$SECONDS
 ran=() failed=()

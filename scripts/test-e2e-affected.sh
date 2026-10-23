@@ -4,7 +4,7 @@
 # and untracked files, a rename, a deletion, a branch behind origin/main, a detached HEAD, no origin/main).
 # Takes about a second and launches no app.
 set -u
-cd "$(dirname "$0")/.."
+cd "$(dirname "$0")/.." || exit 1
 
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
