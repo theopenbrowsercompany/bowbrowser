@@ -30,7 +30,6 @@ Your working directory is your own git worktree of this repository.
 - Contracts: when `AGENTS.md` has you put a shared contract change in its own first commit, send the lead `contract ready: <commit>` with SendMessage to `main`, then keep working.
 - Leave co-author trailers out of commit messages.
 - Look at `final.png` from the full `make e2e` before reporting.
-- Specs: create a new one only if the brief says you own it.
 - Time box: about 30 minutes unless the brief says otherwise.
   Past it, commit and report where you are.
 
@@ -39,6 +38,7 @@ Your working directory is your own git worktree of this repository.
 - Push, merge, or touch Plane (the lead does).
 - Start agents of your own; running `/code-review` is fine.
 - Run `make smoke` or `make run`, open windows, or launch Bow outside `make e2e`.
+- Break the `AGENTS.md` working rules (no stress tools, no Arc app or profile).
 - Kill processes you did not start.
 - Run commands that would prompt the maintainer.
 
