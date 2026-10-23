@@ -154,7 +154,7 @@ final class ArcImportWizard: NSObject {
         // The boxes' closures hold refresh, so refresh holds the boxes and the controller weakly: a strong hold
         // would keep this view, the wizard and its sheet window alive after the sheet ends.
         let spaceBoxes = NSHashTable<WizardButton>.weakObjects()
-        weak var controller = controller
+        weak let controller = controller
         let continueButton = button("Continue", isDefault: true) { [weak self] in self?.showPreview() }
         func refresh() {
             for box in spaceBoxes.allObjects { box.isEnabled = choices.choosesSpaces }
