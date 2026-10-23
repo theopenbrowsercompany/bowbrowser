@@ -18,6 +18,7 @@ protocol E2EHistoryApp: E2EApp {
     func historyFile(of page: any E2EPage) throws -> URL?
     /// The history read back from `file` by a store of its own, as a relaunch would read it, oldest visit first.
     func historyEntries(inFile file: URL) throws -> [E2EHistoryEntry]
-    /// The folder that holds every persistent profile's history folder.
-    func historyDirectory(of page: any E2EPage) throws -> URL
+    /// Whether the app's data folder holds a history folder for the profile `page`'s tab was created in. Other
+    /// profiles may have one.
+    func hasHistoryFolder(of page: any E2EPage) throws -> Bool
 }
