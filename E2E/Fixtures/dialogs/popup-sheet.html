@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Dialogs popup sheet</title>
+</head>
+<body>
+  <h1>Popup sheet</h1>
+  <script>
+    // Opened in a real window. Tells its opener it is ready, and once the opener posts "go" (so nothing the test
+    // still does in the opener waits behind a dialog) asks an alert, two confirms and a prompt in turn, telling the
+    // opener each answer it got back. With ?wait it asks one alert and waits on it (the window is closed under it).
+    const post = (message) => window.opener.postMessage(message, "*");
+    window.addEventListener("message", (event) => {
+      if (event.data !== "go") return;
+      if (location.search === "?wait") {
+        alert("waiting in the popup");
+        post("sheet-wait:answered");
+        return;
+      }
+      post("sheet-alert:" + String(alert("popup alert")));
+      post("sheet-confirm-ok:" + String(confirm("popup confirm one")));
+      post("sheet-confirm-cancel:" + String(confirm("popup confirm two")));
+      post("sheet-prompt:" + String(prompt("popup prompt", "default text")));
+    });
+    post("sheet-ready");
+  </script>
+</body>
+</html>

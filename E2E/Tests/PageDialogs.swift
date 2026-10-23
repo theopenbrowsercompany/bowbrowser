@@ -5,7 +5,9 @@ import Foundation
 /// answered at once and shown when the tab is, and its confirm and prompt cancelled; switching away, navigating,
 /// closing the tab or the window take the sheet down; a popup window's dialog never blocks the app. No dialog is ever
 /// an app modal panel. Fixtures in E2E/Fixtures/dialogs/: page.html asks through `bowAsk(kind, message, value)` and
-/// records what it got back in `bowResults`; popup.html, opened as a sized popup window, asks as it loads.
+/// records what it got back in `bowResults`; popup.html, opened as a sized popup window, asks as it loads;
+/// popup-sheet.html, opened in a real off screen popup window (`E2EPopupWindowsApp`), asks once its opener posts "go"
+/// and tells the opener each answer.
 @MainActor
 enum PageDialogsTests {
     static let all: [any E2ETest] = [
@@ -16,6 +18,8 @@ enum PageDialogsTests {
         PageDialogsSwitchTest(),
         PageDialogsCloseTest(),
         PageDialogsPopupTest(),
+        PageDialogsPopupSheetTest(),
+        PageDialogsPopupSheetQuitTest(),
     ]
 
     static func url(_ name: String) -> URL { E2EFixture.url("dialogs/page.html?name=\(name)") }
@@ -303,5 +307,141 @@ struct PageDialogsPopupTest: E2ETest {
         run.check(
             name, passed: message == "popup:undefined:false" && !modal && sheet == nil,
             "popup=\(message) app-modal=\(modal) sheet=\(PageDialogsTests.describe(sheet))")
+    }
+}
+
+extension PageDialogsTests {
+    static func popupWindowsApp(_ run: E2ERun) throws -> any E2EPopupWindowsApp {
+        guard let app = run.app as? any E2EPopupWindowsApp else { throw E2EError("the app has no popup windows") }
+        return app
+    }
+
+    /// Clicks `button` in `page` to open popup-sheet.html in a hosted popup window, waits until it is ready, and
+    /// posts it "go". Returns how many hosted popup windows are open then.
+    static func openAskingPopup(
+        _ run: E2ERun, _ popups: any E2EPopupWindowsApp, page: any E2EPage, button: String
+    ) async throws -> Int {
+        try await run.step("open a popup window that asks", timeout: E2ETimeouts.firstLoad) {
+            try await page.click(button)
+            _ = try await E2EWaits.until(page, "window.bowMessages.includes('sheet-ready')")
+            let windows = try popups.openPopupWindowCount()
+            // After this the popup's dialogs hold the opener too (they share one page group), so nothing more is
+            // asked of the opener until every dialog is answered.
+            _ = try await page.evaluate("window.bowPopup.postMessage('go', '*'); true")
+            return windows
+        }
+    }
+
+    /// Waits for the popup window's sheet showing `message`.
+    static func untilPopupDialog(_ popups: any E2EPopupWindowsApp, message: String) async throws -> E2EPageDialog {
+        var dialog: E2EPageDialog?
+        guard
+            try await TabEdgesTests.until({
+                dialog = try popups.popupWindowDialog()
+                return dialog?.message == message
+            }), let dialog
+        else {
+            throw E2EError("no popup window sheet showed \"\(message)\" (last: \(describe(dialog)))")
+        }
+        return dialog
+    }
+}
+
+/// A popup window of the engine's own, here in a real window off screen, asks on that window: its alert, confirm and
+/// prompt come up one at a time as sheets on the popup's window titled with its origin, never app modal, and the page
+/// gets back OK on the alert, true for OK and false for Cancel on a confirm, and the text typed into a prompt.
+struct PageDialogsPopupSheetTest: E2ETest {
+    let name = "dialogs.popup_sheet"
+    let checks = [
+        "dialogs.popup_sheet.alert", "dialogs.popup_sheet.confirm", "dialogs.popup_sheet.prompt",
+        "dialogs.popup_sheet.answers",
+    ]
+
+    func run(_ run: E2ERun) async throws {
+        let app = try PageDialogsTests.dialogsApp(run)
+        let popups = try PageDialogsTests.popupWindowsApp(run)
+        try popups.hostPopupWindows()
+        defer { popups.stopHostingPopupWindows() }
+        let page = try await PageDialogsTests.openWindow(run)
+        let windows = try await PageDialogsTests.openAskingPopup(run, popups, page: page, button: "#popup-sheet")
+
+        let (alert, alertModal) = try await run.step("press OK on the popup's alert", timeout: E2ETimeouts.step) {
+            let dialog = try await PageDialogsTests.untilPopupDialog(popups, message: "popup alert")
+            let modal = app.appModalPanelShown
+            try popups.answerPopupWindowDialog(accept: true, text: nil)
+            return (dialog, modal)
+        }
+        let expectedAlert = E2EPageDialog(
+            title: "bow.test says", message: "popup alert", buttons: ["OK"], field: nil, isAttached: true)
+        run.check(
+            "dialogs.popup_sheet.alert", passed: windows == 1 && alert == expectedAlert && !alertModal,
+            "windows=\(windows) \(alert) app-modal=\(alertModal)")
+
+        var confirms: [E2EPageDialog] = []
+        for (message, accept) in [("popup confirm one", true), ("popup confirm two", false)] {
+            try await run.step("press \(accept ? "OK" : "Cancel") on a popup confirm", timeout: E2ETimeouts.step) {
+                confirms.append(try await PageDialogsTests.untilPopupDialog(popups, message: message))
+                try popups.answerPopupWindowDialog(accept: accept, text: nil)
+            }
+        }
+        let expectedConfirms = ["popup confirm one", "popup confirm two"].map {
+            E2EPageDialog(title: "bow.test says", message: $0, buttons: ["OK", "Cancel"], field: nil, isAttached: true)
+        }
+        run.check(
+            "dialogs.popup_sheet.confirm", passed: confirms == expectedConfirms,
+            confirms.map(\.description).joined(separator: "; "))
+
+        let prompt = try await run.step("type into the popup's prompt and press OK", timeout: E2ETimeouts.step) {
+            let dialog = try await PageDialogsTests.untilPopupDialog(popups, message: "popup prompt")
+            try popups.answerPopupWindowDialog(accept: true, text: "typed in the popup")
+            return dialog
+        }
+        let expectedPrompt = E2EPageDialog(
+            title: "bow.test says", message: "popup prompt", buttons: ["OK", "Cancel"], field: "default text",
+            isAttached: true)
+        run.check("dialogs.popup_sheet.prompt", passed: prompt == expectedPrompt, prompt.description)
+
+        let (answers, after) = try await run.step("read what the popup got back", timeout: E2ETimeouts.step) {
+            _ = try await E2EWaits.until(page, "window.bowMessages.some((m) => m.startsWith('sheet-prompt:'))")
+            let answers = try await page.string(
+                "window.bowMessages.filter((m) => m.startsWith('sheet-') && m !== 'sheet-ready').join(',')")
+            return (answers, try popups.popupWindowDialog())
+        }
+        let expectedAnswers =
+            "sheet-alert:undefined,sheet-confirm-ok:true,sheet-confirm-cancel:false,sheet-prompt:typed in the popup"
+        run.check(
+            "dialogs.popup_sheet.answers", passed: answers == expectedAnswers && after == nil,
+            "page=\(answers) sheet-after=\(PageDialogsTests.describe(after))")
+    }
+}
+
+/// Quitting asks every page to close, popups included: a popup window with its alert up as a sheet closes on that
+/// request (its sheet goes, its window closes and its page ends), so a sheet never refuses or holds up a quit.
+struct PageDialogsPopupSheetQuitTest: E2ETest {
+    let name = "dialogs.popup_sheet_quit"
+
+    func run(_ run: E2ERun) async throws {
+        let app = try PageDialogsTests.dialogsApp(run)
+        let popups = try PageDialogsTests.popupWindowsApp(run)
+        try popups.hostPopupWindows()
+        defer { popups.stopHostingPopupWindows() }
+        let page = try await PageDialogsTests.openWindow(run)
+        _ = try await PageDialogsTests.openAskingPopup(run, popups, page: page, button: "#popup-wait")
+        let dialog = try await run.step("wait for the popup's alert", timeout: E2ETimeouts.step) {
+            try await PageDialogsTests.untilPopupDialog(popups, message: "waiting in the popup")
+        }
+        let (closed, windows, modal) = try await run.step(
+            "close the popup as quitting does", timeout: E2ETimeouts.step
+        ) {
+            try popups.closePopupWindowAsQuitDoes()
+            let closed = try await TabEdgesTests.until({ try popups.openPopupWindowCount() == 0 })
+            let modal = app.appModalPanelShown
+            // The page ends with its window, so the opener sees its popup closed.
+            if closed { _ = try await E2EWaits.until(page, "window.bowPopup.closed") }
+            return (closed, try popups.openPopupWindowCount(), modal)
+        }
+        run.check(
+            name, passed: dialog.isAttached && closed && windows == 0 && !modal,
+            "sheet=\(dialog) windows-after=\(windows) app-modal=\(modal)")
     }
 }
