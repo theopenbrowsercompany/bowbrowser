@@ -61,6 +61,9 @@ final class EmptySpaceView: NSView {
         fatalError("init(coder:) is not supported")
     }
 
+    override var wantsUpdateLayer: Bool { true }
+
+    /// Follows light and dark mode.
     override func updateLayer() {
         layer?.backgroundColor = NSColor.windowBackgroundColor.cgColor
     }

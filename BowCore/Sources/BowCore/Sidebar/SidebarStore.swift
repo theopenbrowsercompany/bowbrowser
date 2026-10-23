@@ -188,7 +188,8 @@ public final class SidebarStore {
     }
 
     /// Runs `body` in a transaction and commits it, or rolls everything back if `body` or the commit's check throws.
-    public func transaction(_ body: () throws -> Void) throws {
+    /// With `saving` false the change is committed without writing the file (see `commitTransaction(saving:)`).
+    public func transaction(saving: Bool = true, _ body: () throws -> Void) throws {
         try beginTransaction()
         do {
             try body()
@@ -196,20 +197,14 @@ public final class SidebarStore {
             rollbackTransaction()
             throw error
         }
-        try commitTransaction()
+        try commitTransaction(saving: saving)
     }
 
-    /// Applies `mutations` in one transaction. With `saving` false the change is committed without writing the file
-    /// (see `commitTransaction(saving:)`).
+    /// Applies `mutations` in one transaction, written unless `saving` is false (see `commitTransaction(saving:)`).
     public func apply(_ mutations: [SidebarMutation], saving: Bool = true) throws {
-        try beginTransaction()
-        do {
+        try transaction(saving: saving) {
             for mutation in mutations { try mutate(mutation) }
-        } catch {
-            rollbackTransaction()
-            throw error
         }
-        try commitTransaction(saving: saving)
     }
 
     // MARK: Saving and repair
