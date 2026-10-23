@@ -31,7 +31,8 @@ struct E2EFontsLook {
     /// The tokens: BowBrand.ui() and BowBrand.display().
     var uiToken: E2EFontInfo
     var displayToken: E2EFontInfo
-    /// The active tab row's title, the Space name label, the command bar's field and the empty state's line.
+    /// The active tab row's title, the Space name label, the command bar's field and the empty state's line
+    /// (the start screen's hint for an empty Space, the unloaded tab state's line otherwise).
     var activeRow: E2EFontInfo?
     var spaceName: E2EFontInfo?
     var commandBarField: E2EFontInfo?

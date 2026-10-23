@@ -20,13 +20,14 @@ It uses Bow's brand colors as light and dark tokens, soft radii and one soft sha
 - The line between pinned and today tabs is a Line colored rule inset 10 points within the sidebar's padding.
 - The Space switcher shows one 14 point dot per Space, the one on screen in Jam with an Apricot ring (a 2 point gap in the frame color, then a 2 point ring), the others in Soft, and a "+" for a new Space.
 - The command bar is a White panel with 14 point corners, which clip its field and results, and the soft shadow, centered over the card.
-- The empty Space and unloaded tab states show the Bow mark at 64 points above their line in Soft and a Jam Deep pill button with white text.
+- An empty Space shows the start screen (`start-screen.md`): the Bow mark at 64 points, the greeting, the search pill, the quick links and the hint, 26 points apart.
+- The unloaded tab state shows the Bow mark at 64 points above its line in Soft and a Jam Deep pill button with white text.
 - The app icon is Bow's light app tile; the About panel shows it, since it shows the app icon.
 - In dark mode the frame is Night, the active row and Favorites take their dark tokens, and text is Cream; the card and the command bar stay White and draw light.
 - Sidebar, command bar and empty state text use Nunito Sans: 13.5 points for UI text (tab and folder rows, New Tab, the empty state's button), the group label 11 points bold with letter spacing 0.8, the active row bold (700), folder rows semibold (600), and the command bar's own sizes unchanged.
   The fonts are the brand kit's variable TTFs, bundled in Resources/Fonts and registered at launch by `ATSApplicationFontsPath` in Info.plist; their SIL Open Font Licenses are in the About panel's licenses.
   A font that fails to load falls back to the system font in the same size and weight.
-- Fredoka 600 at 40 points is the start screen greeting's font; it has a token (`BowBrand.display()`) and no surface uses it yet. JetBrains Mono is not bundled.
+- Fredoka 600 at 40 points (`BowBrand.display()`) is the start screen greeting's font, its only use; the start screen's hint is 13 points and its placeholder 16 points in Nunito Sans. JetBrains Mono is not bundled.
 - Other windows (downloads, permission prompts, find bar, About panel) keep the system font.
 - The tokens, radii, shadow and sidebar spacing come from one file of named values.
 
@@ -43,7 +44,7 @@ It uses Bow's brand colors as light and dark tokens, soft radii and one soft sha
 2. The page card's insets are 8, 0, 8 and 8 (top, sidebar, bottom, trailing), its radius 10 and continuous, a click 4 points below its top reaches the page, and its shadow is about 14 percent.
 3. The frame is #FFF3E6; the active row is #FFFFFF, 34 points tall with a 9 point radius, a shadow and a bold #3A1F14 title.
 4. Resize the window: the shadow stays exactly behind the card.
-5. Switch to an empty Space: the empty state shows the Bow mark at 24 points or more.
+5. Switch to an empty Space: the start screen shows the Bow mark at 24 points or more.
 6. With a Favorite and a pinned folder of two tabs: the first tile starts 14 points in and is 53.5 by 44 points (4 columns), a tab inside the folder has its icon 22 points right of a tab directly in the Space with that tab's icon where it was (43 points in), and its row is 32 points tall; the Space name sits below the Favorites and above the first tab row; the active Space's dot is 14 points with a 2 point gap and a 2 point #FFC08A ring.
 7. Open the command bar: its panel's content is clipped to 14 point corners, and its shadow has a path the size of the panel.
 8. Switch the window to dark: the frame is #2A1710, the active row #3D2519 and its title #FFF3E6, and the navigation buttons draw dark.
@@ -53,7 +54,7 @@ It uses Bow's brand colors as light and dark tokens, soft radii and one soft sha
 
 ## Out of scope
 
-- A URL field in the sidebar, a downloads button in the footer, a start screen with a greeting, search field and quick links, and moving New Tab to the end of the tab list: each is later work.
+- A URL field in the sidebar, a downloads button in the footer, and moving New Tab to the end of the tab list: each is later work.
 - Hiding the sidebar or the navigation buttons, per Space colors, themes, animations and settings.
 - A dark app tile as an icon appearance variant: on macOS it needs an Icon Composer icon, not an asset catalog app icon set.
 
