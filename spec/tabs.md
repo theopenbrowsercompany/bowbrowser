@@ -49,7 +49,7 @@ The list comes from the saved sidebar (see `sidebar-store.md`): a window's tabs 
 - Opening a tab adds it to the Space on screen's tabs section (below the pinned tabs): right after the active tab when that tab is in the tabs section itself, otherwise at the end.
   When nothing is active, "after the active tab" means the end.
 - Every tab is created in the profile of the Space that holds it, decided before its first request, so it never starts in another profile's cookies.
-  This holds for every way a tab opens: the New Tab button and menu, a link from another app, and a saved tab loading after a relaunch.
+  This holds for every way a tab opens: the New Tab row and menu, a link from another app, and a saved tab loading after a relaunch.
   A tab whose Space names a profile Bow does not have does not open.
 - A link from another app (for example one clicked in Mail) opens in a new tab of the most recently used window that is not closing, in the profile of its Space on screen, or in a new window when there is none.
   Rules that send links to a chosen Space come later.
@@ -93,7 +93,7 @@ The list comes from the saved sidebar (see `sidebar-store.md`): a window's tabs 
 - The active tab's row is highlighted.
 - Clicking a row makes that tab active and shows its page, as it was left.
 - The active row, and any row under the pointer, shows a close button; clicking it closes that tab the same way as any other close (the page's beforeunload handler runs first).
-- A New Tab button above the list opens a new tab right after the active tab and shows it.
+- A New Tab row ends the list, after today's tabs (see the sidebar spec). Clicking it opens the command bar for a new tab, as Command-T does; no tab opens until the person chooses an address, and the tab then opens right after the active tab and is shown. Escape or a click outside the bar opens nothing.
 - Dragging a row to another position moves that tab there; the active tab stays the same, even when the dragged row was not active.
 - File > New Tab (Command-T) opens a new tab, File > Close Tab (Command-W) closes the active tab, and File > Close Window (Shift-Command-W) closes the window with all its tabs.
   In a window without tabs (a page's popup), Command-W closes that window.
@@ -137,7 +137,7 @@ The list comes from the saved sidebar (see `sidebar-store.md`): a window's tabs 
 11. Tab list, starting with tabs A, B, C and B active: move B to the first position. Expected order B, A, C with B still active.
 12. Tab list, starting with tabs A, B: open X in the background. Expected order A, B, X with the active tab unchanged.
 13. Run `make e2e`: `PASS tabs.model: open,close,select,move` shows the app's window following the tab list: New Tab opens after the active tab, Command-W on the active tab activates the one after it, a sidebar click selects, and a moved tab stays active, with the sidebar's order and highlight matching after each step.
-14. Run `make e2e`: `PASS sidebar.tabs: tabs=[A,B] active=B` shows a window with tab A and tab B (opened with the New Tab button) listed with their icons and titles and B highlighted, B's row showing a spinner while it loaded and then its title, a title change reaching the row, and clicking each row showing its page without reloading it.
+14. Run `make e2e`: `PASS sidebar.tabs: tabs=[A,B] active=B` shows a window with tab A and tab B (opened through the New Tab row's command bar) listed with their icons and titles and B highlighted, B's row showing a spinner while it loaded and then its title, a title change reaching the row, and clicking each row showing its page without reloading it.
 15. Run `make e2e`: `PASS sidebar.close: button=closed cmd-w=closed` shows one tab closed with its row's close button and another with Command-W, each leaving A and B with B active.
 16. By hand: drag a row to another position in the sidebar; the tab moves there and the highlighted tab stays the same.
 17. Run `make e2e`: `PASS tabs.last_closed: windows=1 empty_state=shown page=none` shows closing a window's only tab keeping the window on the empty state, and `PASS tabs.empty_space` shows switching to an empty Space hiding the previous Space's page.

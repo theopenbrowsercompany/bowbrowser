@@ -35,12 +35,12 @@ final class SidebarNode: NSObject {
     }
 }
 
-/// The vertical sidebar on the left of a window: a New Tab button above an outline of sections (`SidebarSections`):
-/// the Favorites area, the pinned tabs with their folders, a divider and today's tabs. Each tab row shows its site
+/// The vertical sidebar on the left of a window: an outline of sections (`SidebarSections`): the Favorites area, the
+/// pinned tabs with their folders, a divider, today's tabs and the New Tab row that ends the list. Each tab row shows its site
 /// icon (a spinner while it loads), its title and, on hover or when active, a close button; the active tab's row is
 /// highlighted. Rows can be dragged within and across pinned and today (`SidebarDrop`), and right-clicking a row
 /// shows its kind's menu items (`SidebarMenus`), a section header's its zone's. Accessories (`SidebarAccessories`)
-/// sit in a slot between the New Tab button and the outline and in the footer below it, tab rows can carry an
+/// sit in a slot between the top row and the outline and in the footer below it, tab rows can carry an
 /// accessory (`SidebarRowAccessories`), a sideways two-finger swipe goes to `swipeHandler`, and
 /// `slideOutline(_:change:)` slides the outline's content out for new content.
 @MainActor
@@ -56,12 +56,11 @@ final class SidebarView: NSView, NSOutlineViewDataSource, NSOutlineViewDelegate,
     static let dragType = NSPasteboard.PasteboardType("dev.bowbrowser.sidebar-item")
 
     weak var delegate: (any SidebarViewDelegate)?
-    let newTabButton: NSButton
     /// The row at the top of the sidebar, level with the window's close, minimize and zoom buttons, which the
     /// window fills from the trailing edge (the back, forward and reload buttons).
     let topRow = NSStackView()
     let outlineView: NSOutlineView = SidebarOutlineView()
-    /// The top accessory slot, between the New Tab button and the outline; empty, it takes no room.
+    /// The top accessory slot, between the top row and the outline; empty, it takes no room.
     let topSlot = NSStackView()
     /// The footer accessory slot along the bottom edge (the archive button); empty, it takes no room.
     let footer = NSStackView()
@@ -108,20 +107,9 @@ final class SidebarView: NSView, NSOutlineViewDataSource, NSOutlineViewDelegate,
     private var isDragging = false
 
     override init(frame: NSRect) {
-        newTabButton = NSButton(
-            title: "New Tab", image: NSImage(systemSymbolName: "plus", accessibilityDescription: nil) ?? NSImage(),
-            target: nil, action: nil)
         super.init(frame: frame)
 
-        newTabButton.target = self
-        newTabButton.action = #selector(newTabClicked(_:))
-        newTabButton.isBordered = false
-        newTabButton.imagePosition = .imageLeading
-        newTabButton.alignment = .left
-        newTabButton.contentTintColor = BowBrand.soft
         topRow.orientation = .horizontal
-        newTabButton.font = BowBrand.ui()
-        newTabButton.setAccessibilityLabel("New Tab")
 
         let column = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("item"))
         outlineView.addTableColumn(column)
@@ -172,7 +160,7 @@ final class SidebarView: NSView, NSOutlineViewDataSource, NSOutlineViewDelegate,
         connectSwipes()
 
         // The sidebar draws no background of its own: it is part of the window's one Frame colored surface.
-        for view in [topRow, newTabButton, topSlot, scrollView, footer] as [NSView] {
+        for view in [topRow, topSlot, scrollView, footer] as [NSView] {
             view.translatesAutoresizingMaskIntoConstraints = false
             addSubview(view)
         }
@@ -187,15 +175,11 @@ final class SidebarView: NSView, NSOutlineViewDataSource, NSOutlineViewDelegate,
             topRow.topAnchor.constraint(greaterThanOrEqualTo: topAnchor, constant: 4),
             topRow.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -BowBrand.sidebarTrailing),
             topRow.heightAnchor.constraint(equalToConstant: Self.topRowHeight),
-            newTabButton.leadingAnchor.constraint(equalTo: leadingAnchor, constant: BowBrand.sidebarLeading),
-            newTabButton.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -BowBrand.sidebarTrailing),
-            newTabButton.topAnchor.constraint(equalTo: topRow.bottomAnchor, constant: BowBrand.sidebarGap),
-            newTabButton.heightAnchor.constraint(equalToConstant: 28),
             scrollView.leadingAnchor.constraint(equalTo: leadingAnchor),
             scrollView.trailingAnchor.constraint(equalTo: trailingAnchor),
             topSlot.leadingAnchor.constraint(equalTo: leadingAnchor),
             topSlot.trailingAnchor.constraint(equalTo: trailingAnchor),
-            topSlot.topAnchor.constraint(equalTo: newTabButton.bottomAnchor, constant: 4),
+            topSlot.topAnchor.constraint(equalTo: topRow.bottomAnchor, constant: BowBrand.sidebarGap),
             scrollView.topAnchor.constraint(equalTo: topSlot.bottomAnchor),
             scrollView.bottomAnchor.constraint(equalTo: footer.topAnchor),
             footer.leadingAnchor.constraint(equalTo: leadingAnchor),
@@ -394,6 +378,15 @@ final class SidebarView: NSView, NSOutlineViewDataSource, NSOutlineViewDelegate,
         return outlineView.view(atColumn: 0, row: row, makeIfNecessary: false) as? TabSidebarRow
     }
 
+    /// The header view of the section of type `type`, made if need be; nil while the outline has no row for it.
+    func headerView(of type: any SidebarSection.Type) -> NSView? {
+        guard let index = sections.firstIndex(where: { Swift.type(of: $0) == type }), roots.indices.contains(index)
+        else { return nil }
+        let row = outlineView.row(forItem: roots[index])
+        guard row >= 0 else { return nil }
+        return outlineView.view(atColumn: 0, row: row, makeIfNecessary: true)
+    }
+
     /// What each row is, top to bottom: a section header (with its zone, nil for the divider) or an item.
     func rowKinds() -> [(section: (any SidebarSection)?, item: SidebarItemID?)] {
         (0..<outlineView.numberOfRows).map { row in
@@ -502,10 +495,6 @@ final class SidebarView: NSView, NSOutlineViewDataSource, NSOutlineViewDelegate,
             }.first
     }
 
-    @objc private func newTabClicked(_ sender: Any?) {
-        delegate?.openNewTab()
-    }
-
     // MARK: Clicks and drops
 
     @objc private func outlineClicked(_ sender: Any?) {
@@ -600,7 +589,14 @@ final class SidebarView: NSView, NSOutlineViewDataSource, NSOutlineViewDelegate,
             if index > 0, let above = container(ofSection: index - 1) {
                 candidates.append((above, graph[above]?.childrenIDs.count ?? 0))
             }
-            if roots.indices.contains(index) { candidates += dropCandidates(on: roots[index], index: 0) }
+            if roots.indices.contains(index) {
+                candidates += dropCandidates(on: roots[index], index: 0)
+            } else if let last = sectionContainers.lastIndex(where: { $0 != nil }),
+                let container = sectionContainers[last]
+            {
+                // Past the last row (the New Tab row ends the list): the end of the last section with items.
+                candidates.append((container, graph[container]?.childrenIDs.count ?? 0))
+            }
             return candidates
         }
         switch node.key {

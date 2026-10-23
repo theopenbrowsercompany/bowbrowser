@@ -1,7 +1,7 @@
 import AppKit
 import BowCore
 
-/// Where a sidebar accessory sits: above the outline (under the New Tab button) or in the footer along the bottom
+/// Where a sidebar accessory sits: above the outline (under the top row) or in the footer along the bottom
 /// edge. Each slot lists its accessories in `SidebarAccessories.all` order, and an empty slot takes no room.
 enum SidebarAccessoryPlacement: Sendable {
     case top
