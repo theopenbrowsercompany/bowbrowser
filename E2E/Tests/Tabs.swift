@@ -5,8 +5,65 @@ import Foundation
 @MainActor
 enum TabsTests {
     static let all: [any E2ETest] = [
-        TabsSwitchTest(), TabsBeforeUnloadTest(), TabsCloseWindowTest(), TabsModelTest(),
+        TabsSwitchTest(), TabsBackgroundHiddenTest(), TabsBeforeUnloadTest(), TabsCloseWindowTest(), TabsModelTest(),
     ]
+}
+
+/// Opens a tab in the background and checks that its page counts as hidden from its first script on and paints no
+/// animation frames until it is shown, then that showing it makes it visible and painting. Chromium ignores hidden
+/// for a page that was never visible, so this covers what `tabs.hidden` (a tab hidden after being shown) cannot.
+struct TabsBackgroundHiddenTest: E2ETest {
+    let name = "tabs.background-hidden"
+
+    func run(_ run: E2ERun) async throws {
+        let first = try await run.step("open window", timeout: E2ETimeouts.firstLoad) {
+            let page = try await run.app.openWindow(at: E2EFixture.url("tabs/counter.html?name=a"))
+            _ = try await page.waitForLoad(after: 0)
+            return page
+        }
+        let background = try await run.step("open background tab", timeout: E2ETimeouts.firstLoad) {
+            let page = try run.app.openTab(at: E2EFixture.url("tabs/background.html"), besides: first, select: false)
+            let status = try await page.waitForLoad(after: 0)
+            guard status == 200 else { throw E2EError("the background tab loaded with status \(status)") }
+            guard !page.isShown, first.isShown else { throw E2EError("the background tab is the one shown") }
+            return page
+        }
+        let parked = try await run.step("read background state", timeout: E2ETimeouts.step) {
+            // Long enough for a visible page to paint dozens of animation frames.
+            try await Task.sleep(nanoseconds: 500_000_000)
+            return try await Self.state(of: background)
+        }
+        let shown = try await run.step("show background tab", timeout: E2ETimeouts.step) {
+            try run.app.select(background)
+            let visible = try await E2EWaits.visibility(of: background, becoming: "visible", limit: 1.5)
+            if visible == "visible" { try await E2EWaits.untilRendering(background) }
+            return visible
+        }
+        let passed =
+            parked.visibility == "hidden" && parked.initial == "hidden" && parked.changes.isEmpty
+            && parked.frames == 0 && shown == "visible"
+        let changes = parked.changes.isEmpty ? "none" : parked.changes.joined(separator: ",")
+        run.check(
+            name,
+            passed: passed,
+            "visibility=\(parked.visibility) initial=\(parked.initial) changes=\(changes) frames=\(parked.frames)"
+                + " shown=\(shown)"
+        )
+    }
+
+    private struct State: Decodable {
+        let visibility: String
+        let initial: String
+        let changes: [String]
+        let frames: Int
+    }
+
+    /// The page's visibility now, and what the fixture recorded since its first script ran.
+    private static func state(of page: any E2EPage) async throws -> State {
+        let json = try await page.string(
+            "JSON.stringify({visibility: document.visibilityState, ...window.bowBackground})")
+        return try JSONDecoder().decode(State.self, from: Data(json.utf8))
+    }
 }
 
 /// Drives the window's tab list through the app and checks the order and active tab the sidebar shows after each

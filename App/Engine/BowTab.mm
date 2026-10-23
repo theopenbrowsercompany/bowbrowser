@@ -790,9 +790,14 @@ class BowTabClient : public CefClient,
   // Size Chromium's view without keeping a reference to it: its lifetime decides the browser's.
   NSView* browserView = (__bridge NSView*)browser->GetHost()->GetWindowHandle();
   browserView.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
-  // A host view may have attached the tab while the browser was being created.
+  // A host view may have attached the tab while the browser was being created. A tab opened in the background
+  // stays parked, hidden from the start.
   NSView* hostView = self.hostView;
-  if (hostView) [hostView addSubview:browserView];
+  if (hostView) {
+    [hostView addSubview:browserView];
+  } else {
+    BowEngineParkNewBrowserView(browserView);
+  }
   browserView.frame = browserView.superview.bounds;
 
   if (_closeWhenCreated) {

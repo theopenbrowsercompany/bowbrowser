@@ -20,6 +20,9 @@ BowEngineConfiguration* BowEngineCurrentConfiguration();
 
 /// Where detached tabs keep their browser view: a view in no window, so their pages count as hidden.
 NSView* BowEngineParkingView();
+/// Moves a new browser's view into the parking view so its page counts as hidden from the start, as a parked tab's
+/// does. Chromium needs this for a page that was never shown; later parking only needs the view moved.
+void BowEngineParkNewBrowserView(NSView* browserView);
 
 // The engine tracks every browser from creation to destruction, tabs and the popups their pages open, so quitting
 // waits for each one to close and ends the message loop exactly once, after the last OnBeforeClose.
