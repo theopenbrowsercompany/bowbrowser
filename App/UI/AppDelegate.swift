@@ -34,6 +34,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         typealias E2EWindowOpen = (BrowserWindow) throws -> BrowserWindowController  // E2E seam
         var e2eOpenWindow: ((E2EWindowOpen) throws -> BrowserWindowController)?  // E2E seam
     #endif
+    /// True once the engine has started (also in an e2e run) and windows can open.
+    private var engineReady = false
     /// True once the engine has started and windows can open.
     private var engineStarted = false
     /// Links from other apps: kept until the engine has started and the first window is open, dropped once launch
@@ -107,6 +109,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Tabs live in the sidebar, so AppKit's own window tabs (and their menu items) stay off.
         NSWindow.allowsAutomaticWindowTabbing = false
         NSApp.mainMenu = MainMenu.make()
+        engineReady = true
         #if BOW_E2E
             if let e2eRunner {  // E2E seam: an e2e run hands control to its runner.
                 e2eRunner.start(delegate: self)
@@ -142,6 +145,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 // Bow refuses to start rather than run on a sidebar that would not be saved. Links kept until now
                 // and links that arrive while the alert is open are dropped, so no second alert stacks on it.
                 linkIntake.refuse()
+                engineReady = false  // a reopen must not open a window on the sidebar that failed
                 appFeatures.require(SidebarStores.self).present(error, in: nil)
                 BowEngine.exitCode = 1
                 NSApp.terminate(nil)
@@ -407,6 +411,52 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// window. A browser window takes the command first and closes its active tab.
     @objc func closeActiveTab(_ sender: Any?) {
         NSApp.keyWindow?.performClose(sender)
+    }
+
+    /// The browser windows that are not closing, the most recently used last. Little Arc and panels are not browser
+    /// windows.
+    var openBrowserWindows: [BrowserWindowController] { windowControllers.filter { !$0.isClosing } }
+
+    /// A click on the Dock icon, or launching the app again while it runs (`DockReopen.decide`): with no browser
+    /// window open a new one opens on the app's sidebar, so on the Space shown last (even when only Little Arc is
+    /// open, as in Arc); a minimized window comes back from the Dock instead of another opening; with a window on
+    /// screen the system brings it forward. Nothing opens while quitting or before the engine has started. A window
+    /// opened while the app waits for closed tabs' downloads keeps it from quitting afterwards.
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        // A smoke run is a throwaway that opens its one window itself.
+        guard engineReady, !options.isSmokeTest else { return false }
+        let windows = openBrowserWindows
+        let states = windows.map {
+            DockReopen.WindowState(
+                isVisible: $0.window?.isVisible == true, isMiniaturized: $0.window?.isMiniaturized == true)
+        }
+        switch DockReopen.decide(windows: states, isQuitting: BowEngine.isQuitting) {
+        case .none:
+            return true
+        case .restore(let index):
+            // An e2e window never goes to the Dock: it stays off screen.
+            if !options.isE2E { windows[index].window?.deminiaturize(nil) }
+            return false
+        case .openWindow:
+            // The sidebar shown last (a window's own sidebar when that closed last), restored as launch does.
+            let store = lastShownSidebar
+            #if BOW_E2E
+                // E2E seam: the harness opens the window off screen.
+                if let e2eOpenWindow {
+                    _ = try? e2eOpenWindow { try openWindow(url: nil, store: store, window: $0) }
+                    return false
+                }
+            #endif
+            guard !options.isE2E else { return false }
+            do {
+                let controller = try openWindow(url: nil, store: store)
+                controller.showWindow(nil)
+                NSApp.activate()
+            } catch {
+                appFeatures.require(SidebarStores.self).present(error, in: nil)
+            }
+            return false
+        }
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {

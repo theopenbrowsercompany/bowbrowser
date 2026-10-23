@@ -4,7 +4,52 @@ import Foundation
 /// Tests of the app as a whole: starting, loading a page, quitting. Fixtures in E2E/Fixtures/app/.
 @MainActor
 enum AppTests {
-    static let all: [any E2ETest] = [AppLicensesTest(), AppQuitTest()]
+    static let all: [any E2ETest] = [AppLicensesTest(), AppReopenTest(), AppQuitTest()]
+}
+
+/// Clicking the Dock icon (the delegate's reopen method) with no browser window open opens one on the Space shown
+/// last; with a window open it opens no second one. Windows stay off screen. Fixtures in E2E/Fixtures/app/.
+struct AppReopenTest: E2ETest {
+    let name = "app.reopen"
+    let checks = ["app.reopen", "app.reopen.space", "app.reopen.one"]
+
+    func run(_ run: E2ERun) async throws {
+        guard let app = run.app as? any E2EReopenApp else { throw E2EError("the app has no reopen check") }
+        try await run.step("seed the app's sidebar", timeout: E2ETimeouts.step) {
+            try app.seedAppSidebar(url: E2EFixture.url("app/index.html"))
+            let open = try app.appWindowCount()
+            guard open == 0 else { throw E2EError("\(open) windows are open before the reopen") }
+        }
+        let first = try await run.step("reopen with no window", timeout: E2ETimeouts.firstLoad) {
+            let reopened = try await app.reopenApp()
+            run.check(
+                "app.reopen", passed: reopened.page != nil && reopened.windowCount == 1 && !reopened.leftToSystem,
+                "opened=\(reopened.page != nil) windows=\(reopened.windowCount) leftToSystem=\(reopened.leftToSystem)")
+            return reopened
+        }
+        guard let page = first.page else {
+            run.check("app.reopen.space", passed: false, "no window opened")
+            run.check("app.reopen.one", passed: false, "no window opened")
+            return
+        }
+        try await run.step("reopen with a window open", timeout: E2ETimeouts.step) {
+            let again = try await app.reopenApp()
+            run.check(
+                "app.reopen.one", passed: again.page == nil && again.windowCount == 1 && again.leftToSystem,
+                "opened=\(again.page != nil) windows=\(again.windowCount) leftToSystem=\(again.leftToSystem)")
+        }
+        try await run.step("show Reopen B, close the window, reopen", timeout: E2ETimeouts.firstLoad) {
+            try app.showSpace(titled: "Reopen B", in: page)
+            try await run.app.closeWindow(of: page)
+            let reopened = try await app.reopenApp()
+            run.check(
+                "app.reopen.space",
+                passed: first.spaceTitle == "Reopen A" && reopened.spaceTitle == "Reopen B"
+                    && reopened.windowCount == 1,
+                "first=\(first.spaceTitle ?? "none") reopened=\(reopened.spaceTitle ?? "none") windows=\(reopened.windowCount)"
+            )
+        }
+    }
 }
 
 /// Loads a fixture page in an off-screen window, checks that the page renders, and quits: every page and window
