@@ -19,4 +19,5 @@
 #import "BowLeavePrompts.h"     // E2E seam
 #import "BowOpenBrowsers.h"     // E2E seam
 #import "BowQuitTiming.h"       // E2E seam
+#import "BowLoopbackFixtures.h"  // E2E seam
 #endif

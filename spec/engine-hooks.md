@@ -33,7 +33,12 @@ This spec covers what those hooks promise; the features that use them have their
 - Why a tab closed: once a tab has closed, the app can tell whether it closed it, the page closed itself (`window.close()`, or a page that could not be created at all), or quitting closed it, so a window drops a tab that closed itself from its sidebar.
 - Sound: a tab never reports playing sound yet, because the engine version Bow uses gives no signal for it.
 - Camera and microphone: a tab reports while its page uses a camera or a microphone (or captures the screen).
-- Sign in and certificates: a site asking for a user name and password, or a page whose certificate fails to verify, asks the app; with no answer the sign in is cancelled and the page fails with the engine's error page.
+- Sign in and certificates: a site asking for a user name and password, or a page whose certificate fails to verify, asks the app.
+  With no answer the sign in is cancelled, so the page shows the site's own 401 page, and a certificate error fails the page with the engine's error page.
+  Chrome's own sign in prompt is turned off, so every sign in request reaches the app.
+  Only a top level page's certificate error asks the app; the engine blocks a frame's or a subresource's on its own.
+  A way past a certificate error may be offered only for errors that do not prove the certificate bad (an untrusted authority, a name or date mismatch and the like, never a revoked, invalid or pinned key error) and never for a site that requires HTTPS (HSTS); going past lasts for that host and error in the current session only and is never saved.
+  The engine version Bow uses does not say whether a site requires HTTPS, so no way past is offered until something else can tell.
 - Context menus: a right click (or Control-click) in a page asks the app what to show, with what is under the pointer: the link and its address, an image's address, the selected text, whether it is a field the person can type in and what that field can do now (undo, cut, copy, paste and so on), the frame's address, the position and the tab's profile.
   The app answers with its own items, the engine's own menu, or nothing; either menu shows as a native macOS menu at the pointer.
   With no feature answering, a window shows Bow's own menu, built the way Chromium based browsers and Arc build theirs: Open Link in New Tab and Copy Link Address on a link, Copy Image and Copy Image Address on an image, editing items in a field, Copy on a selection, Back, Forward and Reload on a bare page, and Inspect last.
@@ -66,10 +71,13 @@ This spec covers what those hooks promise; the features that use them have their
 5. Run `make e2e E2E=window`: right clicking a link reaches the app with its address, and choosing Open Link in New Tab opens it as the next tab, printing `PASS window.context-menu: link=opened.html tabs=[A,B]` followed by the items shown; choosing Inspect asks the tab's DevTools to inspect the element under the pointer with nothing shown on screen, printing `PASS window.inspect: requests=1 at-element=true`.
 6. `make test` checks Bow's menu for links, images, fields, selections and bare pages.
 7. Run `make e2e E2E=page`: `PASS page.zoom.keys`, `PASS page.zoom.menu` and `PASS page.zoom.site` for zoom by key and menu with another site keeping its own level; `PASS page.crash.overlay` and `PASS page.crash.reload` for a crashed page and its Reload button; `PASS page.copy-image` for the copied image's data.
+8. Run `make e2e E2E=engine.challenges`: a page answering 401 with a Basic challenge asks the window, which cancels, printing `PASS engine.auth_hook: questions=[basic auth.bow.test:80 realm=bow answer=cancel] ended=finish http://auth.bow.test/ 401`; a page with a self-signed certificate asks the window, which cancels, printing `PASS engine.cert_hook: questions=[https://badcert.bow.test/ -202 answer=cancel] ended=fail https://badcert.bow.test/ -202`.
+9. `make test` checks when a way past a certificate error may be offered and remembered (`CertificateAllowancesTests`).
 
 ## Out of scope
 
-- Sign in, certificate errors and camera or microphone state have no `make e2e` check yet: the test server serves neither a password protected page nor a bad certificate, and no fixture captures media.
+- Camera or microphone state has no `make e2e` check yet: no fixture captures media.
+- The sign in sheet and the certificate error page themselves are later work; until then the window answers both questions with cancel.
 - The keys still held when a script opens a page from a click (`window.open` in a click handler) have no `make e2e` check: test clicks come through DevTools, which holds no real keys; modified link clicks are checked in `popups.md`.
 - DevTools opening and closing with its tab has no `make e2e` check: e2e runs record the request instead, because the DevTools window would show on screen and take focus.
 - Docking DevTools inside the window is later work.
