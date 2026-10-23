@@ -98,7 +98,8 @@ enum SpaceProfileMenuItems: SidebarMenuItems {
     static func change(_ id: SidebarSpaceID, to profile: SidebarProfileID, context: any SidebarActionContext) {
         guard let owner = controller(of: context), case .reload? = owner.store.graph.spaceProfileChange(id, to: profile)
         else { return }
-        guard changing.insert(id).inserted else {
+        // Only the Space on screen has its open pages listed, so only it can change (its menu is the one shown).
+        guard owner.store.graph.activeSpaceID == id, changing.insert(id).inserted else {
             NSSound.beep()
             return
         }
@@ -130,7 +131,7 @@ enum SpaceProfileMenuItems: SidebarMenuItems {
     private static func openPage(of id: SidebarSpaceID, store: SidebarStore) -> (any EngineTab)? {
         let graph = store.graph
         for window in windows(on: store) {
-            for tab in window.tabs {
+            for tab in window.tabs where !tab.isClosed {
                 guard let item = window.modelID(of: tab).flatMap(window.sidebarItemID(for:)) else { continue }
                 if graph.spaceID(containing: item) == id { return tab }
             }
