@@ -16,5 +16,6 @@ enum AppFeatures {
         ArchiveCenter.self,
         ProfileRegistryStore.self,
         ProfileMoves.self,
+        ArcImportFeature.self,
     ]
 }

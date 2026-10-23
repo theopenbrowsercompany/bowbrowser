@@ -29,5 +29,6 @@ enum WindowFeatures {
         RecentTabsFeature.self,
         PageDialogsFeature.self,
         PageFullscreenFeature.self,
+        ImportMenuFeature.self,
     ]
 }
