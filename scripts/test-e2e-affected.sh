@@ -1,7 +1,8 @@
 #!/bin/bash
 # Tests scripts/e2e-affected.sh (the e2e selection make check runs) in a throwaway git repository with fake test
 # files: each mapping rule on fake changed file lists, then the change listing itself (committed, staged, unstaged
-# and untracked files, a rename, a deletion, a branch behind origin/main, a detached HEAD, no origin/main).
+# and untracked files, a rename, a deletion, a branch behind origin/main, a detached HEAD, no origin/main), then
+# how scripts/check.sh treats a selection that fails or comes back empty, with a fake make.
 # Takes about a second and launches no app.
 set -u
 cd "$(dirname "$0")/.." || exit 1
@@ -36,7 +37,52 @@ struct LinkTest: E2ETest {
     let name = "link.open"
 }
 EOF
-echo 'enum E2EAreas { static let all = [TabsTests.all] }' > "$repo/E2E/Tests/E2EAreas.swift"
+# Helpers other files call: Sidebar.swift declares SidebarWaits, which Zones.swift uses; Zones.swift declares
+# ZonesSeed, which Fav.swift uses; Sidebar.swift's private Helper is its own, though Lone.swift names it.
+cat > "$repo/E2E/Tests/Sidebar.swift" << 'EOF'
+enum SidebarTests {
+    struct RowsTest: E2ETest {
+        let name = "sidebar.rows"
+        func run() { open(E2EFixture.url("sidebar/a.html")) }
+    }
+}
+enum SidebarWaits {
+    static func rows() {}
+}
+private struct Helper {}
+EOF
+cat > "$repo/E2E/Tests/Zones.swift" << 'EOF'
+enum ZonesTests {
+    struct PinTest: E2ETest {
+        let name = "zones.pin"
+        func run() { SidebarWaits.rows() }
+    }
+}
+enum ZonesSeed {}
+EOF
+cat > "$repo/E2E/Tests/Fav.swift" << 'EOF'
+struct FavGridTest: E2ETest {
+    let name = "fav.grid"
+    func run() { _ = ZonesSeed.self }
+}
+EOF
+cat > "$repo/E2E/Tests/Lone.swift" << 'EOF'
+struct LoneTest: E2ETest {
+    let name = "lone.a"
+    struct Helper {}
+}
+EOF
+cat > "$repo/E2E/Tests/Ext.swift" << 'EOF'
+extension E2EApp {
+    func waitForThing() {}
+}
+struct ExtTest: E2ETest {
+    let name = "ext.a"
+}
+EOF
+mkdir -p "$repo/E2E/Fixtures/sidebar"
+echo x > "$repo/E2E/Fixtures/sidebar/a.html"
+echo 'enum E2EAreas { static let all = [TabsTests.all, SidebarTests.all] }' > "$repo/E2E/Tests/E2EAreas.swift"
 for f in E2E/Fixtures/tabs/a.html E2E/Fixtures/navigation/a.html E2E/Fixtures/orphan/a.html \
   BowCore/Sources/A.swift App/UI/Downloads/D.swift App/UI/AppDelegate.swift spec/tabs.md README.md Makefile; do
   echo "$f" > "$repo/$f"
@@ -68,6 +114,13 @@ for f in E2E/Harness/E2ERun.swift E2E/Engine/E2EServer.mm project.yml scripts/e2
 done
 check "areas and BowCore: sorted, smoke once at the end" "link,nav,tabs,smoke" \
   "$(map BowCore/A.swift E2E/Tests/Navigation.swift E2E/Tests/Tabs.swift E2E/Tests/Tabs.swift)"
+check "a helper file: also the areas of the files using it and their users, not of a private name" \
+  "fav,sidebar,zones,smoke" "$(map E2E/Tests/Sidebar.swift)"
+check "a file using a helper: its users, not the helper's file" "fav,zones,smoke" "$(map E2E/Tests/Zones.swift)"
+check "a file whose declarations nobody else uses: only its own areas" "fav,smoke" "$(map E2E/Tests/Fav.swift)"
+check "a test file with a top level extension: all" "all" "$(map E2E/Tests/Ext.swift)"
+check "a fixture a helper file loads: the areas of that file's users too" "fav,sidebar,zones,smoke" \
+  "$(map E2E/Fixtures/sidebar/a.html)"
 
 # 2. The change listing in the fake repository.
 g() { git -C "$repo" -c user.name=t -c user.email=t@t -c commit.gpgsign=false "$@" > /dev/null 2>&1; }
@@ -108,6 +161,46 @@ check "a detached HEAD: its changes against the merge base" "tabs,smoke" "$(run)
 check "CHECK_BASE compares with another ref" "" "$(CHECK_BASE=work run)"
 check "an unknown CHECK_BASE: all" "all" "$(CHECK_BASE=nope run)"
 check "an unknown argument: exit 64" "64" "$(run --nope > /dev/null; echo $?)"
+
+# 3. scripts/check.sh with a fake e2e-affected.sh and a fake make that only logs what it is asked to run.
+crepo=$tmp/check
+mkdir -p "$crepo/scripts" "$tmp/bin"
+cp scripts/check.sh "$crepo/scripts/"
+cat > "$crepo/scripts/e2e-affected.sh" << 'EOF'
+#!/bin/bash
+if [ "${1:-}" = --changed ]; then
+  [ -z "$FAKE_CHANGED" ] || echo "$FAKE_CHANGED"
+  exit 0
+fi
+[ -z "$FAKE_SELECTION" ] || echo "$FAKE_SELECTION"
+exit "$FAKE_STATUS"
+EOF
+cat > "$tmp/bin/make" << 'EOF'
+#!/bin/bash
+echo "$*" >> "$FAKE_MAKE_LOG"
+EOF
+chmod +x "$crepo/scripts/e2e-affected.sh" "$tmp/bin/make"
+# check_run <changed> <selection> <status>: prints check's last line, then the e2e-run it asked make for (or "no e2e").
+check_run() {
+  local log=$tmp/make.log
+  : > "$log"
+  local last
+  last=$(FAKE_CHANGED=$1 FAKE_SELECTION=$2 FAKE_STATUS=$3 FAKE_MAKE_LOG=$log PATH="$tmp/bin:$PATH" \
+    "$crepo/scripts/check.sh" 2> /dev/null | tail -1)
+  echo "${last##*(}"
+  grep -o 'e2e-run E2E=.*' "$log" || echo "no e2e"
+}
+two=$'App/UI/A.swift\nREADME.md'
+check "check: a selection that fails runs everything" $'e2e: all)\ne2e-run E2E=all' "$(check_run "$two" "" 1)"
+check "check: a selection that fails after printing runs everything" $'e2e: all)\ne2e-run E2E=all' \
+  "$(check_run "$two" "tabs,smoke" 2)"
+check "check: a selection that fails on docs only runs everything" $'e2e: all)\ne2e-run E2E=all' \
+  "$(check_run README.md "" 1)"
+check "check: an empty selection with a changed app file runs everything" $'e2e: all)\ne2e-run E2E=all' \
+  "$(check_run "$two" "" 0)"
+check "check: an empty selection on docs only runs no e2e" $'e2e: none)\nno e2e' \
+  "$(check_run $'README.md\nspec/tabs.md' "" 0)"
+check "check: a selection runs it" $'e2e: tabs,smoke)\ne2e-run E2E=tabs,smoke' "$(check_run "$two" "tabs,smoke" 0)"
 
 if [ "$failed" = 0 ]; then echo "e2e-affected self test: ok"; else
   echo "e2e-affected self test: FAIL"

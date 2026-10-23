@@ -15,10 +15,14 @@
 # The mapping, kept simple: when unsure, all.
 #   docs (*.md anywhere, spec/)                     nothing
 #   BowCore/                                        smoke (make check also runs the BowCore unit tests)
-#   E2E/Tests/<File>.swift                          the areas of the tests the file names (`let name = "<area>.x"`);
-#                                                   all when the file is gone or names no test (E2EAreas.swift)
+#   E2E/Tests/<File>.swift                          the areas of the tests the file names (`let name = "<area>.x"`),
+#                                                   and those of every test file using a top level name it declares
+#                                                   (a helper such as SidebarWaits), followed through their users;
+#                                                   all when the file is gone or names no test (E2EAreas.swift), or
+#                                                   one of them declares a top level extension
 #   E2E/Fixtures/<folder>/                          the area named <folder>, and the areas of every test file that
-#                                                   loads "<folder>/..." fixtures; all when there is none
+#                                                   loads "<folder>/..." fixtures and of their users as above; all
+#                                                   when there is none
 #   a file or folder in the table below             its areas
 #   anything else (App/, E2E/Harness/, E2E/Engine/, project.yml, scripts/, the Makefile, cef.lock, ...)   all
 # smoke is added to every selection that is neither all nor empty.
@@ -53,6 +57,49 @@ say() { [ "$why" = 1 ] && echo "e2e-affected: $*" >&2; return 0; }
 
 # The areas of the tests a Swift file names, one per line.
 areas_in() { [ -f "$1" ] && sed -n 's/.*let name = "\([^".]*\).*/\1/p' "$1" | sort -u; }
+
+# The names a Swift file declares at the top level (column 0, not private or fileprivate), one per line: the types,
+# functions and constants other test files can call, such as SidebarWaits or TabEdgesTests.until.
+declared_in() {
+  sed -nE 's/^((public|internal|final|nonisolated|@[A-Za-z]+) +)*(struct|enum|class|actor|protocol|typealias|func|let|var) +([A-Za-z_][A-Za-z0-9_]*).*/\4/p' "$1" | sort -u
+}
+
+# The given test files (one per line) and every test file that uses a name one of them declares, followed through
+# the files that use those, one per line; or "all" when one of them declares a top level extension, whose members
+# cannot be traced by name.
+users_of() {
+  local set=$1 todo=$1 f n u
+  while [ -n "$todo" ]; do
+    f=$(echo "$todo" | head -1)
+    todo=$(echo "$todo" | sed 1d)
+    [ -n "$f" ] || continue
+    if grep -qE '^((public|internal|nonisolated|@[A-Za-z]+) +)*extension ' "$f"; then
+      echo all
+      return
+    fi
+    for n in $(declared_in "$f"); do
+      for u in E2E/Tests/*.swift; do
+        echo "$set" | grep -qxF "$u" && continue
+        grep -qw -- "$n" "$u" || continue
+        set=$(printf '%s\n%s' "$set" "$u")
+        todo=$(printf '%s\n%s' "$todo" "$u")
+      done
+    done
+  done
+  echo "$set"
+}
+
+# The areas of the tests in the given test files and in every test file that uses their declarations, one per line;
+# or "all" when that cannot be traced.
+areas_with_users() {
+  local files
+  files=$(users_of "$1")
+  if [ "$files" = all ]; then
+    echo all
+    return
+  fi
+  for u in $files; do areas_in "$u"; done | sort -u
+}
 
 all() {
   say "$1: all"
@@ -100,8 +147,9 @@ while IFS= read -r f; do
       ;;
     E2E/Tests/*/*) all "$f" ;;
     E2E/Tests/*.swift)
-      found=$(areas_in "$f")
-      [ -n "$found" ] || all "$f (no test names)"
+      [ -n "$(areas_in "$f")" ] || all "$f (no test names)"
+      found=$(areas_with_users "$f")
+      [ "$found" != all ] || all "$f (a top level extension it or a file using it declares)"
       say "$f: $(echo "$found" | paste -sd, -)"
       add "$found"
       continue
@@ -109,13 +157,16 @@ while IFS= read -r f; do
     E2E/Fixtures/*/*)
       folder=${f#E2E/Fixtures/}
       folder=${folder%%/*}
-      found=""
+      loaders=""
       for t in E2E/Tests/*.swift; do
         if areas_in "$t" | grep -qx "$folder" || grep -q "\"$folder/" "$t"; then
-          found=$(printf '%s\n%s' "$found" "$(areas_in "$t")")
+          loaders=$(printf '%s\n%s' "$loaders" "$t")
         fi
       done
-      found=$(echo "$found" | grep -v '^$' | sort -u)
+      loaders=$(echo "$loaders" | grep -v '^$')
+      [ -n "$loaders" ] || all "$f (no tests use $folder/)"
+      found=$(areas_with_users "$loaders")
+      [ "$found" != all ] || all "$f (a top level extension in a test file using $folder/)"
       [ -n "$found" ] || all "$f (no tests use $folder/)"
       say "$f: $(echo "$found" | paste -sd, -)"
       add "$found"
