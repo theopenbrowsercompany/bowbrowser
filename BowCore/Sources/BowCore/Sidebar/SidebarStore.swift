@@ -52,8 +52,9 @@ public final class SidebarStore {
     /// Opens the sidebar stored at `fileURL`, creating nothing on disk until the first save.
     ///
     /// A missing file starts an empty sidebar. A file written by a newer Bow is left where it is and this throws
-    /// `fileFromNewerBuild`. Any other file that cannot be read, decoded or migrated is moved aside under a new name
-    /// and never overwritten; if it cannot be moved, this throws `unreadableFileNotSetAside`. A readable file is
+    /// `fileFromNewerBuild`. A file that cannot be read at all is left where it is and this throws
+    /// `unreadableFileNotSetAside`. A file that was read but cannot be decoded or migrated is moved aside under a new
+    /// name and never overwritten; if it cannot be moved, this also throws `unreadableFileNotSetAside`. A readable file is
     /// migrated to the current version (keeping a copy of the original) and repaired.
     public convenience init(fileURL: URL) throws {
         try self.init(fileURL: fileURL, migrations: SidebarFileFormat.migrations, writer: AtomicFileWriter())
@@ -83,8 +84,15 @@ public final class SidebarStore {
             graph = .fresh()
             origin = .freshBecauseMissing
         } else {
+            // A file that cannot be read at all (permissions, a disk error, a file another tool holds or one not
+            // downloaded yet) is not known to be bad, and may be a newer Bow's: refuse to start, moving nothing.
+            let data: Data
             do {
-                let data = try Self.read(fileURL)
+                data = try Self.read(fileURL)
+            } catch {
+                throw SidebarStoreError.unreadableFileNotSetAside("reading failed: \(error)")
+            }
+            do {
                 let decoded = try SidebarFileFormat.decode(data, currentVersion: currentVersion, migrations: migrations)
                 graph = decoded.graph
                 repairs = decoded.duplicateItemIDs.map { .droppedDuplicateItem($0) }
