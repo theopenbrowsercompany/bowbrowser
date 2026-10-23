@@ -21,6 +21,7 @@ Pinned tabs are the sites a person keeps; today's tabs are the ones they opened 
 - A drag never changes the active tab.
 - Some drags are refused, and the sidebar shows no drop gap for them: a row dropped into itself, a tab taken alone out of a split view or dropped into one, and anything dragged into or out of Favorites (the Favorites grid brings its own drags).
 - Right-clicking a tab row shows its menu; for now that menu has Close Tab, which closes the tab as its close button does.
+- Folder actions (New Folder, Rename Folder, the delete items, renaming by double-clicking a folder's row) are in `folders.md`.
 - Closing the selected pinned tab unloads it and selects the next tab in sidebar order.
 - The bottom of the sidebar is a footer slot for controls such as the archive button, empty for now; empty, it takes no room.
 
@@ -71,5 +72,5 @@ The sidebar is built so later features each add one file plus one line in a list
 
 ## Out of scope
 
-- The Favorites icon grid, the Space switcher, pinned tab actions (back to pinned URL, replace pinned URL), folder actions, collapse all and the archive popover; each plugs into the extension points above.
+- The Favorites icon grid, the Space switcher, pinned tab actions (back to pinned URL, replace pinned URL), collapse all and the archive popover; each plugs into the extension points above.
 - Saving the sidebar and the store's rules, covered in `sidebar-store.md`; tab behavior in `tabs.md`.
