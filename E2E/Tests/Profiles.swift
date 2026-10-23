@@ -185,7 +185,8 @@ struct ProfilesSpacesTest: E2ETest {
             let page = try await shown(in: workID)
             let closed = try await until({ (first: first.isClosed, draft: draft.isClosed) }, { $0.first && $0.draft })
             guard closed.first && closed.draft else {
-                throw E2EError("Work A's pages did not close (first closed: \(closed.first), draft closed: \(closed.draft))")
+                throw E2EError(
+                    "Work A's pages did not close (first closed: \(closed.first), draft closed: \(closed.draft))")
             }
             return page
         }
