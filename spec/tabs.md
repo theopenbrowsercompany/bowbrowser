@@ -90,8 +90,11 @@ The list comes from the saved sidebar (see `sidebar-store.md`): a window's tabs 
 - Saved tab lists are plain data.
   A saved list that is inconsistent (repeated identities, an active tab that is not in the list, an active tab in an empty list, or no active tab in a non-empty list) is rejected as a whole instead of being repaired silently.
 - Tab identities are separate from the engine's page identities, which do not survive a restart.
-- Known limit: a page that closes itself (`window.close()`) keeps its tab in the sidebar, unloaded, because Bow cannot yet tell that close from one made by quitting; selecting the tab loads its saved page again.
-- Moving a tab in the flat list puts it in the place of the tab it lands on, in that tab's section or folder; past the last tab it goes to the end of the tabs section.
+- Known limit: a page that closes itself (`window.close()`) keeps its tab in the sidebar, unloaded, because Bow cannot yet tell that close from one made by quitting; its row stays selected with an empty page area until a row is chosen, and selecting it loads its saved page again.
+- A saved tab that has not loaded yet closes at once from its close button or Close Tab, since it has no page to ask.
+- Moving a tab in the flat list puts it in the place of the tab it lands on, in that tab's section or folder; past the last tab it goes to the end of its own section.
+  Dragging never pins or unpins: a tab dropped across the line between pinned tabs and the tabs section stays in its own section, at the edge nearest the drop.
+- If the sidebar file can be neither read nor moved aside, Bow still opens with an empty sidebar for that launch, saved nowhere, and leaves the file alone.
 - A window opened for a smoke run or an e2e test runs on a sidebar of its own, so it never adds tabs to the person's sidebar.
 
 ## Acceptance checks

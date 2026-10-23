@@ -50,10 +50,9 @@ final class SidebarFeature: NSResponder, BrowserWindowFeature, TabSidebarDelegat
     }
 
     func sidebar(_ sidebar: TabSidebarView, close id: BrowserTabID) {
-        guard let tab = window.engineTab(for: id) else { return }
-        // Held strongly, as a close can free the window before the task runs.
+        // Held strongly, as a close can free the window before the task runs. A saved tab that has not loaded closes too.
         let window = window
-        Task { await window.closeTab(tab) }
+        Task { await window.closeTab(id: id) }
     }
 
     func sidebar(_ sidebar: TabSidebarView, move id: BrowserTabID, to index: Int) {

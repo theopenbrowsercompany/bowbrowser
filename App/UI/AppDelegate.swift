@@ -128,7 +128,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @discardableResult
     func openLink(_ url: URL) -> BrowserWindowController? {
         if let controller = windowControllers.last {
-            return controller.openTab(url: url) != nil ? controller : nil
+            guard controller.openTab(url: url) != nil else { return nil }
+            // Brought forward (out of the Dock too), so the link is seen; e2e windows stay off screen and never key.
+            if !options.isE2E {
+                controller.window?.deminiaturize(nil)
+                controller.showWindow(nil)
+                NSApp.activate()
+            }
+            return controller
         }
         guard !options.isE2E else { return nil }
         let controller = openWindow(url: url)
