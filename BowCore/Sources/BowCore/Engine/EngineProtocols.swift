@@ -199,6 +199,10 @@ extension EngineTab {
     /// engine's error page.
     func tab(_ tab: any EngineTab, decideCertificateError error: CertificateError) async -> CertificateErrorDecision
 
+    /// The page asked for an alert, confirm or prompt (never its "leave this site?" prompt, which the engine asks
+    /// itself). The answer may take as long as the person needs; the page waits for it. Defaults to `.cancelled`.
+    func tab(_ tab: any EngineTab, runDialog dialog: PageDialog) async -> PageDialogAnswer
+
     /// The person asked for a context menu in the page: what to show (see `ContextMenus.swift`). Asked on a later
     /// main thread task than the engine's callback, synchronously. Defaults to `.engineDefault`, the engine's own
     /// menu.
