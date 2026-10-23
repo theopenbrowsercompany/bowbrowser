@@ -26,7 +26,7 @@ Your working directory is your own git worktree of this repository.
   Taking it approves it: put your plan in your report instead of waiting for a yes.
   Where the brief leaves something open, take the safest reasonable choice and say so; ask in your report only when a guess would be costly to undo.
 - Follow the browser decisions rule in `AGENTS.md` Working rules: decisions in `BowCore` with unit tests, thin wiring in the app and engine, e2e for each Done when item's wiring.
-- Add an e2e check only as `E2E/README.md` "Keeping the suite fast" says: one check per Done when item's wiring, merged into an existing test that drives the same wiring, and report the checks you add, merge or drop.
+- Add an e2e check only as `E2E/README.md` "Keeping the suite fast" says: one check per Done when item's wiring, merged into an existing test that drives the same wiring, and list the checks you add, merge or drop in your report.
 - Keep to the brief's file plan.
   If you must edit a shared file outside it, say so in your report.
 - Contracts: when `AGENTS.md` has you put a shared contract change in its own first commit, send the lead `contract ready: <commit>` with SendMessage to `main`, then keep working.
