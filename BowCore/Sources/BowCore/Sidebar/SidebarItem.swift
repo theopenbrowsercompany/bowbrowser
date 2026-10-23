@@ -199,12 +199,39 @@ public struct SidebarSpace: Codable, Hashable, Sendable {
     public var title: String
     public var pinnedContainerID: SidebarItemID
     public var unpinnedContainerID: SidebarItemID
+    /// The profile this Space shows. Spaces from files written before profiles existed use the default profile.
+    public var profileID: SidebarProfileID
+    /// The tab that was selected when the Space was last left, so coming back selects it again. It may name a tab
+    /// that has since moved or closed; readers check it before use.
+    public var lastSelectedTabID: SidebarItemID?
 
-    public init(id: SidebarSpaceID, title: String, pinnedContainerID: SidebarItemID, unpinnedContainerID: SidebarItemID)
-    {
+    public init(
+        id: SidebarSpaceID,
+        title: String,
+        pinnedContainerID: SidebarItemID,
+        unpinnedContainerID: SidebarItemID,
+        profileID: SidebarProfileID = .default,
+        lastSelectedTabID: SidebarItemID? = nil
+    ) {
         self.id = id
         self.title = title
         self.pinnedContainerID = pinnedContainerID
         self.unpinnedContainerID = unpinnedContainerID
+        self.profileID = profileID
+        self.lastSelectedTabID = lastSelectedTabID
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id, title, pinnedContainerID, unpinnedContainerID, profileID, lastSelectedTabID
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        id = try values.decode(SidebarSpaceID.self, forKey: .id)
+        title = try values.decode(String.self, forKey: .title)
+        pinnedContainerID = try values.decode(SidebarItemID.self, forKey: .pinnedContainerID)
+        unpinnedContainerID = try values.decode(SidebarItemID.self, forKey: .unpinnedContainerID)
+        profileID = (try? values.decodeIfPresent(SidebarProfileID.self, forKey: .profileID)) ?? .default
+        lastSelectedTabID = try? values.decodeIfPresent(SidebarItemID.self, forKey: .lastSelectedTabID)
     }
 }

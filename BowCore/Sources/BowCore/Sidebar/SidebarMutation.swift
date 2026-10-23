@@ -12,6 +12,8 @@ public enum SidebarStoreError: Error, Equatable, CustomStringConvertible {
     case itemAlreadyExists(SidebarItemID)
     case spaceNotFound(SidebarSpaceID)
     case spaceAlreadyExists(SidebarSpaceID)
+    /// A Space name must have at least one character that is not whitespace.
+    case emptySpaceTitle
     case invalidIndex(Int)
     case invalidHierarchy(String)
     /// The last Space cannot be deleted: the sidebar always has one.
@@ -36,6 +38,7 @@ public enum SidebarStoreError: Error, Equatable, CustomStringConvertible {
         case .itemAlreadyExists(let id): return "item \(id) already exists"
         case .spaceNotFound(let id): return "space \(id) not found"
         case .spaceAlreadyExists(let id): return "space \(id) already exists"
+        case .emptySpaceTitle: return "a space needs a name"
         case .invalidIndex(let index): return "index \(index) is out of range"
         case .invalidHierarchy(let reason): return "invalid hierarchy: \(reason)"
         case .lastSpace: return "the last space cannot be deleted"
@@ -67,13 +70,16 @@ public enum SidebarMutation: Equatable, Sendable {
     case setSavedPage(SidebarItemID, url: String, title: String)
     case setFolderExpanded(SidebarItemID, Bool)
     case setSplitOrientation(SidebarItemID, SidebarSplit.Orientation)
-    /// Adds a Space with new empty pinned and unpinned sections at `index` (nil appends).
-    case insertSpace(SidebarSpaceID, title: String, index: Int? = nil)
+    /// Adds a Space with new empty pinned and unpinned sections at `index` (nil appends). The title is trimmed.
+    case insertSpace(SidebarSpaceID, title: String, index: Int? = nil, profileID: SidebarProfileID = .default)
     /// Deletes a Space and everything in its sections.
     case deleteSpace(SidebarSpaceID)
     case moveSpace(SidebarSpaceID, index: Int)
     case renameSpace(SidebarSpaceID, title: String)
+    /// Brings a Space on screen, remembering the tab selected in the one it replaces and selecting its own.
     case setActiveSpace(SidebarSpaceID)
+    /// Selects the active Space's own tab when the selected one no longer belongs on screen (after tabs moved).
+    case reconcileSelectedTab
     case setActiveTab(SidebarItemID?)
 }
 
@@ -146,7 +152,8 @@ extension SidebarGraph {
             guard case .split = try existing(id).data else { throw .invalidHierarchy("\(id) is not a split") }
             items[id]?.data = .split(SidebarSplit(orientation: orientation))
 
-        case .insertSpace(let id, let title, let index):
+        case .insertSpace(let id, let rawTitle, let index, let profileID):
+            let title = try Self.validSpaceTitle(rawTitle)
             guard space(id) == nil else { throw .spaceAlreadyExists(id) }
             let position = index ?? spaces.count
             guard (0...spaces.count).contains(position) else { throw .invalidIndex(position) }
@@ -155,7 +162,9 @@ extension SidebarGraph {
             items[pinned.id] = pinned
             items[unpinned.id] = unpinned
             spaces.insert(
-                SidebarSpace(id: id, title: title, pinnedContainerID: pinned.id, unpinnedContainerID: unpinned.id),
+                SidebarSpace(
+                    id: id, title: title, pinnedContainerID: pinned.id, unpinnedContainerID: unpinned.id,
+                    profileID: profileID),
                 at: position)
 
         case .deleteSpace(let id):
@@ -164,7 +173,7 @@ extension SidebarGraph {
             let removed = spaces.remove(at: position)
             removeSubtree(removed.pinnedContainerID)
             removeSubtree(removed.unpinnedContainerID)
-            if activeSpaceID == id { activeSpaceID = spaces[min(position, spaces.count - 1)].id }
+            if activeSpaceID == id { activateSpace(spaces[min(position, spaces.count - 1)].id) }
 
         case .moveSpace(let id, let index):
             guard let position = spaces.firstIndex(where: { $0.id == id }) else { throw .spaceNotFound(id) }
@@ -173,11 +182,14 @@ extension SidebarGraph {
 
         case .renameSpace(let id, let title):
             guard let position = spaces.firstIndex(where: { $0.id == id }) else { throw .spaceNotFound(id) }
-            spaces[position].title = title
+            spaces[position].title = try Self.validSpaceTitle(title)
 
         case .setActiveSpace(let id):
             guard space(id) != nil else { throw .spaceNotFound(id) }
-            activeSpaceID = id
+            activateSpace(id)
+
+        case .reconcileSelectedTab:
+            reconcileSelectedTab()
 
         case .setActiveTab(let id):
             if let id, try !existing(id).data.isTab { throw .invalidHierarchy("\(id) is not a tab") }
