@@ -464,7 +464,8 @@ final class E2ERunner {
             let tags = test.tags.isEmpty ? "-" : test.tags.joined(separator: ",")
             let byName = test.selectedByNameOnly ? " by-name-only" : ""
             print(
-                "TEST \(test.name) area=\(test.area) tags=\(tags) checks=\(test.checks.joined(separator: ","))\(byName)")
+                "TEST \(test.name) area=\(test.area) tags=\(tags) checks=\(test.checks.joined(separator: ","))\(byName)"
+            )
         }
         fflush(stdout)
     }
