@@ -32,6 +32,13 @@ extension E2EPage {
     /// Clicks the center of the first element matching `selector` with the left mouse button,
     /// scrolling it into view first. Throws when no element matches, it has no size, or something else covers
     /// its center (so the click would land elsewhere).
+    ///
+    /// Chromium's renderer drops every input but moves while a page's main frame updates are deferred or its
+    /// commits are held for its first contentful paint (WidgetInputHandlerManager), and the DevTools call still
+    /// succeeds, so under load a click right after a load can vanish with no error. The click is therefore confirmed: capturing `pointerdown` and `click` listeners record
+    /// what reached the page, and a press or click the page never saw is sent again, a short moment later, until it
+    /// lands or the step's wait budget runs out. Each resend is logged to stderr (chromium.log). A click into a
+    /// frame is not confirmed, since the frame's own document receives it.
     func click(_ selector: String) async throws {
         try await emulateFocus()
         let center = try await evaluate(
@@ -43,21 +50,65 @@ extension E2EPage {
               const rect = element.getBoundingClientRect();
               if (rect.width === 0 || rect.height === 0) return 'the element has no size';
               const x = rect.left + rect.width / 2, y = rect.top + rect.height / 2;
-              if (!element.contains(document.elementFromPoint(x, y))) return 'another element covers its center';
-              return [x, y];
+              const hit = document.elementFromPoint(x, y);
+              if (!element.contains(hit)) return 'another element covers its center';
+              return [x, y, ['IFRAME', 'FRAME', 'EMBED', 'OBJECT'].includes(hit.tagName) ? 0 : 1];
             })()
             """
         )
-        guard let point = center as? [Double], point.count == 2 else {
+        guard let point = center as? [Double], point.count == 3 else {
             throw E2EError("cannot click \(selector): \(center as? String ?? "no position")")
         }
+        let confirms = point[2] == 1
         // `buttons` is the buttons held after the event: the left one while pressed, none once released.
-        for (type, buttons) in [("mousePressed", 1), ("mouseReleased", 0)] {
+        func send(_ type: String, buttons: Int) async throws {
             _ = try await devTools(
                 "Input.dispatchMouseEvent",
                 ["type": type, "x": point[0], "y": point[1], "button": "left", "buttons": buttons, "clickCount": 1]
             )
         }
+        // Whether the page saw `event` since it was armed. The DevTools call returns once the renderer handled
+        // the event, so its listener has run by then. No record at all means a new document replaced the page,
+        // which only input that landed can do, so that counts as seen.
+        func missed(_ event: String) async throws -> Bool {
+            try await evaluate("window.\(Self.clickRecord)?.\(event)") as? Bool == false
+        }
+        let deadline = Date().addingTimeInterval(E2EWaits.budget())
+        var resends = 0
+        while true {
+            if confirms { _ = try await evaluate(Self.armClickRecord) }
+            try await send("mousePressed", buttons: 1)
+            var lost: String?
+            if confirms, try await missed("pressed") {
+                lost = "press"
+            } else {
+                try await send("mouseReleased", buttons: 0)
+                if confirms, try await missed("clicked") { lost = "click" }
+            }
+            guard let lost else { return }
+            resends += 1
+            let note = "E2E click \(selector): the page missed the \(lost), resend \(resends)\n"
+            FileHandle.standardError.write(Data(note.utf8))
+            guard Date() < deadline else {
+                throw E2EError("cannot click \(selector): the page missed the \(lost) \(resends) times")
+            }
+            try await Task.sleep(nanoseconds: 50_000_000)
+        }
+    }
+
+    /// The page global in which `click(_:)` records the press and click that reached the page.
+    private static var clickRecord: String { "__bowE2EClick" }
+
+    /// Starts a fresh record for one press and click. Listeners left from an earlier arming write to their own
+    /// old record, which nothing reads.
+    private static var armClickRecord: String {
+        """
+        (() => {
+          const record = window.\(clickRecord) = { pressed: false, clicked: false };
+          addEventListener('pointerdown', () => { record.pressed = true; }, { capture: true, once: true });
+          addEventListener('click', () => { record.clicked = true; }, { capture: true, once: true });
+        })()
+        """
     }
 
     /// Types `text` into the focused element, the way text arrives from a keyboard or an input method.
