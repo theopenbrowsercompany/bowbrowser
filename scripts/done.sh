@@ -117,7 +117,7 @@ repeat_gate() {
   case $summary in
     "") echo "fail no summary line"; return ;;
     "E2E: PASS"*) echo pass; return ;;
-    *CRASH* | *TIMEOUT* | *ERROR* | *FLAKY*) echo "fail ${summary#E2E: }"; return ;;
+    "E2E: CRASH"* | "E2E: TIMEOUT"* | "E2E: ERROR"* | "E2E: FLAKY"* | *"(CRASH"* | *"(TIMEOUT"* | *"(ERROR"* | *"(FLAKY"*) echo "fail ${summary#E2E: }"; return ;;
   esac
   awk -v changed="$changed" -v n="$n" '
     BEGIN { k = split(changed, c, ","); for (i = 1; i <= k; i++) mine[c[i]] = 1 }
