@@ -17,7 +17,8 @@ protocol E2ETest {
     var quitsApp: Bool { get }
     /// True for a harness self test that ends its run on purpose (for example by getting the main thread stuck to
     /// prove the watchdog fires). Only a selection part that is exactly its name runs it: `all`, areas, globs and
-    /// tags skip it, and `--e2e=list` leaves it out, so normal runs never pay for it. Defaults to false.
+    /// tags skip it, so normal runs never pay for it, and `--e2e=list` marks its line `by-name-only`. Defaults to
+    /// false.
     var selectedByNameOnly: Bool { get }
     func run(_ run: E2ERun) async throws
 }

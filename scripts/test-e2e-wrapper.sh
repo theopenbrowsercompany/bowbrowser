@@ -34,6 +34,8 @@ if [ "$sel" = list ]; then
   echo "TEST a.one area=a tags=- checks=a.one"
   echo "TEST a.two area=a tags=smoke,slow${FAKE_LISTTAG:+,$FAKE_LISTTAG} checks=a.two"
   echo "TEST a.three area=a tags=- checks=a.three"
+  # FAKE_BYNAME=1 adds a self test that only its exact name selects (the app never runs it here).
+  [ "${FAKE_BYNAME:-0}" = 1 ] && echo "TEST a.self area=a tags=smoke checks=a.self by-name-only"
   exit 0
 fi
 # FAKE_MODE shard: runs the tests its selection names (all or a.* is every test) like the real runner, a.three last
@@ -730,6 +732,14 @@ FAKE_LISTTAG=a.one E2E_SHARDS=2 run shard
 check "plan: a test named like a tag or area goes as a glob of just its name" \
   is "$(cat "$BOW_E2E_ROOT"/latest/shard-*/args | grep -c 'a\.on\[e\]')/$last" "1/E2E: PASS 5/5"
 check "plan: that test runs once" is "$(grep -c '^RESULT a.one ' "$(latest report.txt)")" 1
+for sel in all a 'a.*' smoke,a.one; do
+  FAKE_BYNAME=1 E2E_SHARDS=2 run shard "$sel"
+  check "plan: $sel leaves out a test selected by name only" \
+    is "$(cat "$BOW_E2E_ROOT"/latest/shard-*/args | grep -c 'a\.self')/$(shard_dirs)" "0/2"
+done
+FAKE_BYNAME=1 E2E_SHARDS=2 run shard 'a.one,a.self'
+check "plan: the exact name selects a test selected by name only" \
+  is "$(cat "$BOW_E2E_ROOT"/latest/shard-*/args | grep -c 'a\.self')/$(shard_dirs)" "1/2"
 FAKE_GREEDY=1 E2E_SHARDS=2 run shard
 check "a shard that runs tests outside its plan stops the run" \
   is "$code/$last" "64/E2E: ERROR shard 1/2: it ran tests outside its plan: a.two, a.three"

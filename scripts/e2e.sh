@@ -571,11 +571,12 @@ analyze() {
 }
 
 # E2E_SHARDS. resolve_selection <TEST lines file>: prints the selected test names in test order, matching each
-# comma separated part as the app does (a name, an area, a tag or a glob of names); fails when a part matches no
-# test or nothing is selected, so the app itself refuses the selection.
+# comma separated part as the app does (a name, an area, a tag or a glob of names, and only the exact name for a
+# test whose line ends in by-name-only); fails when a part matches no test or nothing is selected, so the app
+# itself refuses the selection.
 resolve_selection() {
   local kw name area tags rest i part matched parts
-  local names=() areas=() tagsets=() chosen=()
+  local names=() areas=() tagsets=() byname=() chosen=()
   while read -r kw name area tags rest; do
     [ "$kw" = TEST ] && [ -n "$name" ] || continue
     names+=("$name")
@@ -583,10 +584,14 @@ resolve_selection() {
     tags=${tags#tags=}
     [ "$tags" != - ] || tags=""
     tagsets+=(",$tags,")
+    case " $rest " in *" by-name-only "*) byname+=(1) ;; *) byname+=(0) ;; esac
     chosen+=(0)
   done < "$1"
   [ "${#names[@]}" -gt 0 ] || return 1
-  if [ "$selection" = all ]; then printf '%s\n' "${names[@]}"; return 0; fi
+  if [ "$selection" = all ]; then
+    for i in "${!names[@]}"; do [ "${byname[i]}" = 1 ] || echo "${names[i]}"; done
+    return 0
+  fi
   IFS=, read -ra parts <<< "$selection"
   [ "${#parts[@]}" -gt 0 ] || return 1
   for part in "${parts[@]}"; do
@@ -596,8 +601,8 @@ resolve_selection() {
     matched=0
     for i in "${!names[@]}"; do
       # The last test is fnmatch with no flags, as the app's: an unquoted pattern.
-      if [ "${names[i]}" = "$part" ] || [ "${areas[i]}" = "$part" ] || [[ ${tagsets[i]} == *",$part,"* ]] \
-        || [[ ${names[i]} == $part ]]; then
+      if [ "${names[i]}" = "$part" ] || { [ "${byname[i]}" = 0 ] && { [ "${areas[i]}" = "$part" ] \
+        || [[ ${tagsets[i]} == *",$part,"* ]] || [[ ${names[i]} == $part ]]; }; }; then
         chosen[i]=1 matched=1
       fi
     done
