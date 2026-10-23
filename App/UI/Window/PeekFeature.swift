@@ -10,8 +10,9 @@ import BowCore
 /// Escape, Close and a press on the dimmed page dismiss it, asking the page's leave prompt first (Stay keeps it open).
 /// Open as Tab moves the same page into a tab right after its source (`adoptTab`), which reparents the browser view, so
 /// nothing reloads. The Peek belongs to the sidebar item it was opened from: that tab closing, unloading or being
-/// archived, another tab or Space showing, and the window closing or the app quitting take it away whatever its page
-/// answers (a page that stays at its leave prompt then becomes a background tab, so nothing runs unseen).
+/// archived, another tab or Space showing, and the app quitting take it away whatever its page answers (a page that
+/// stays at its leave prompt then becomes a background tab, so nothing runs unseen). Closing the window asks the Peek's
+/// page first and waits (`closeBeforeWindow`): Stay keeps the window and the Peek open, Leave lets the window close.
 ///
 /// While a Peek is open its page's alerts, confirms and prompts show as sheets on the window (`PageDialogSheets`), its key presses go
 /// to the window's features (Escape closes the Peek, the other app shortcuts keep working), a sign in popup it opens
@@ -149,11 +150,7 @@ final class PeekFeature: NSResponder, BrowserWindowFeature {
         guard let peek else { return }
         let page = peek.page
         if PeekPolicy.pageMayStay(cause) {
-            guard !peek.isClosing else { return }
-            peek.isClosing = true
-            Task { [weak peek] in
-                if !(await page.close()) { peek?.isClosing = false }
-            }
+            _ = askToClose(peek)
             return
         }
         takeOffScreen(peek)
@@ -172,6 +169,30 @@ final class PeekFeature: NSResponder, BrowserWindowFeature {
             }
             _ = await page.unload()
         }
+    }
+
+    /// Asks the Peek's page to close, running its leave prompt, and returns whether it closed. A close already waiting
+    /// for the person's answer is shared, so a second dismiss or a window close asks once. Once the page has closed the
+    /// card leaves the screen; when the person stays, the Peek stays as it was.
+    private func askToClose(_ peek: Peek) -> Task<Bool, Never> {
+        if let task = peek.closeTask { return task }
+        let page = peek.page
+        let task = Task { [weak self, weak peek] in
+            let closed = await page.close()
+            peek?.closeTask = nil
+            if closed, let self, let peek { self.pageDidClose(peek) }
+            return closed
+        }
+        peek.closeTask = task
+        return task
+    }
+
+    /// The window is closing: the Peek's page answers first, and the window closes its tabs only once it has left
+    /// (Stay keeps the window and the Peek open). With no Peek there is nothing to ask.
+    func closeBeforeWindow() -> Task<Bool, Never>? {
+        if pending?.peek == true { pending = nil }
+        guard let peek, !peek.page.isClosed else { return nil }
+        return askToClose(peek)
     }
 
     /// Open as Tab: the Peek's page becomes a tab right after its source (at the top of Today for a pinned tab or a
@@ -279,8 +300,8 @@ final class Peek: NSObject, EngineTabDelegate {
     let url: URL?
     let overlay: PeekOverlayView
     private weak var feature: PeekFeature?
-    /// True while a dismiss waits for the page's leave prompt.
-    var isClosing = false
+    /// The page's close while it waits for the leave prompt's answer (a dismiss or the window closing).
+    var closeTask: Task<Bool, Never>?
     /// True once the page became a tab; the window is its delegate from then on.
     var isPromoted = false
     /// The page's alerts, confirms and prompts, as sheets on the browser window while the Peek shows (the same rules

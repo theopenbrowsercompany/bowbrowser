@@ -82,11 +82,13 @@ public enum PeekPolicy {
     /// or https, to another site than the page it is on, never takes the tab away from its site: it opens in a Peek
     /// with the setting on, and as a new tab with it off (or while a Peek is already open), as Arc's help describes.
     /// Typed addresses, reloads, back and forward, form posts, script navigations without a click and same-site links
-    /// navigate the tab as usual, and so does every navigation of a Today tab.
+    /// navigate the tab as usual, and so does every navigation of a Today tab. Only a navigation's first ask may open
+    /// a Peek: a server redirect of a link the tab already followed (a same-site "Sign in with Google" link that
+    /// redirects to the provider) stays in the tab, so the flow finishes where it started.
     public static func navigationOutcome(
         _ navigation: EngineNavigation, currentURL: URL?, openerZone: PopupOpenerZone, context: PeekContext
     ) -> PeekNavigationOutcome {
-        guard openerZone != .today, navigation.transition == .link, navigation.isUserGesture,
+        guard openerZone != .today, !navigation.isRedirect, navigation.transition == .link, navigation.isUserGesture,
             isWeb(navigation.url), let currentURL, isWeb(currentURL), !isSameSite(currentURL, navigation.url)
         else { return .navigate }
         if context.handledURL == navigation.url { return .alreadyHandled }

@@ -13,7 +13,26 @@ enum PeekTests {
         PeekSourceCloseTest(),
         PeekSwitchTest(),
         PeekStayTest(),
+        PeekRedirectTest(),
+        PeekWindowCloseTest(),
     ]
+
+    /// Opens a window on a pinned tab on source.html (A) and waits for it to load.
+    static func openPinnedSource(_ run: E2ERun) async throws -> (app: any E2EPeekApp, page: any E2EPage) {
+        guard let seeder = run.app as? any E2EStoreSeedApp, let app = run.app as? any E2EPeekApp else {
+            throw E2EError("the app cannot seed a sidebar or has no Peek")
+        }
+        let page = try await run.step("open a window on a pinned tab", timeout: E2ETimeouts.firstLoad) {
+            let seed = E2ESeed(spaces: [
+                E2ESeedSpace("Home", pinned: [.tab("A", url: E2EFixture.url("peek/source.html"))])
+            ])
+            let page = try await seeder.openWindow(seeded: seed).page
+            let status = try await page.waitForLoad(after: 0)
+            guard status == 200 else { throw E2EError("the pinned tab loaded with status \(status)") }
+            return page
+        }
+        return (app, page)
+    }
 
     /// Opens a window on source.html (A) and waits for it to load.
     static func openSource(_ run: E2ERun) async throws -> (app: any E2EPeekApp, page: any E2EPage) {
@@ -254,5 +273,85 @@ struct PeekStayTest: E2ETest {
         run.check(
             "peek.backdrop", passed: leave.0 && leave.1 == 2 && shown == "A",
             "closed=\(leave.0) prompts=\(leave.1) shown=\(shown)")
+    }
+}
+
+/// A same-site link on a pinned tab that the server redirects to another site (a "Sign in with Google" link) stays in
+/// the pinned tab: only a navigation's first ask may open a Peek, never its redirect.
+struct PeekRedirectTest: E2ETest {
+    let name = "peek.redirect"
+
+    func run(_ run: E2ERun) async throws {
+        let (app, page) = try await PeekTests.openPinnedSource(run)
+        let before = app.peekOpenBrowsers
+        let result = try await run.step("click a same-site link that redirects off the site", timeout: E2ETimeouts.firstLoad)
+        {
+            try await page.click("#redirect")
+            // The tab shows B once it followed the redirect; with the redirect taken for a click, a Peek opens on B
+            // instead and the tab stays on A.
+            _ = try await E2EWaits.until {
+                try app.popupTabTitles(besides: page) == ["B"] || app.peek(besides: page) != nil
+            }
+            let peek = try app.peek(besides: page) == nil ? "none" : "open"
+            let host = try await page.string("location.host")
+            return (peek: peek, host: host, tabs: try app.popupTabTitles(besides: page))
+        }
+        let browsers = app.peekOpenBrowsers - before
+        let passed = result.peek == "none" && result.host == "other.bow.test" && result.tabs == ["B"] && browsers == 0
+        run.check(
+            name, passed: passed,
+            "peek=\(result.peek) pinned=\(result.host) tabs=\(PeekTests.list(result.tabs)) new_browsers=\(browsers)")
+    }
+}
+
+/// Closing the window while its Peek's page has unsaved changes asks that page too and waits for its answer: Stay
+/// keeps the window and the Peek open on the same page, and Leave closes the Peek and the window, leaving no browser.
+struct PeekWindowCloseTest: E2ETest {
+    let name = "peek.window_close"
+    var checks: [String] { ["peek.window_close", "peek.window_close_leave"] }
+
+    func run(_ run: E2ERun) async throws {
+        let edges = try TabEdgesTests.edges(run)
+        guard let peekApp = run.app as? any E2EPeekApp else { throw E2EError("the app has no Peek") }
+        let start = peekApp.peekOpenBrowsers
+        let (app, page) = try await PeekTests.openSource(run)
+        let peekPage = try await PeekTests.openPeek(run, app: app, page: page)
+        try await run.step("type a draft", timeout: E2ETimeouts.step) { try await peekPage.typeLeaveDraft() }
+        let baseline = app.peekOpenBrowsers
+        let stay = try await run.step("close the window and stay", timeout: E2ETimeouts.step) {
+            peekPage.leavePromptAnswer = false
+            try edges.requestWindowClose(of: page)
+            _ = try await E2EWaits.until { peekPage.leavePrompts == 1 || page.isClosed }
+            // A round trip through both pages, after the answer reached the Peek's page: by then a window that went on
+            // closing has closed its tab.
+            let sourceTitle = page.isClosed ? nil : try? await page.string("document.title")
+            let peekTitle = peekPage.isClosed ? nil : try? await peekPage.string("document.title")
+            let sourceAlive = !page.isClosed && sourceTitle == "A"
+            let peekAlive = !peekPage.isClosed && peekTitle == "B"
+            let window = page.isClosed ? false : try edges.windowState(of: page).isOpen
+            let card = page.isClosed ? nil : try app.peek(besides: page)
+            return (
+                window: window, card: card?.showsPage == true, source: sourceAlive, peek: peekAlive,
+                prompts: peekPage.leavePrompts, browsers: app.peekOpenBrowsers - baseline
+            )
+        }
+        run.check(
+            name,
+            passed: stay.window && stay.card && stay.source && stay.peek && stay.prompts == 1 && stay.browsers == 0,
+            "window=\(stay.window ? "open" : "closed") card=\(stay.card ? "shown" : "none") source=\(stay.source) "
+                + "peek_page=\(stay.peek) prompts=\(stay.prompts) browsers_left=\(stay.browsers)")
+
+        let leave = try await run.step("close the window again and leave", timeout: E2ETimeouts.step) {
+            peekPage.leavePromptAnswer = true
+            if !page.isClosed { try edges.requestWindowClose(of: page) }
+            let closed = try await E2EWaits.until {
+                page.isClosed && peekPage.isClosed && app.peekOpenBrowsers == start
+            }
+            return (closed, page.isClosed, peekPage.isClosed, peekPage.leavePrompts, app.peekOpenBrowsers - start)
+        }
+        run.check(
+            "peek.window_close_leave", passed: leave.0 && leave.3 == 2,
+            "window=\(leave.1 ? "closed" : "open") peek_page=\(leave.2 ? "closed" : "open") prompts=\(leave.3) "
+                + "browsers_left=\(leave.4)")
     }
 }
