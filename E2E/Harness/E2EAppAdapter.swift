@@ -54,25 +54,33 @@ final class E2EAppAdapter: E2EApp {
 @MainActor
 private final class WebViewPage: E2EPage {
     private let devToolsSession: BowDevToolsSession
-    private var finishedLoad: Result<Int, E2EError>?
-    private var loadWaiters: [CheckedContinuation<Int, Error>] = []
+    /// Every finished main frame load, in order; load number n is `loads[n - 1]`.
+    private var loads: [Result<Int, E2EError>] = []
+    private var loadWaiters: [(load: Int, continuation: CheckedContinuation<Int, Error>)] = []
+    /// The URL of the last failed load. Chromium then shows an error page at that URL and reports its load end
+    /// too, which belongs to the same failed load and must not count as another one.
+    private var failedURL: String?
 
     init(webView: BowWebView) {
         devToolsSession = BowDevToolsSession(hostView: webView)
-        webView.onLoadEnd = { [weak self] status in
-            self?.loadFinished(.success(status))
+        webView.onLoadEnd = { [weak self, unowned webView] status in
+            guard let self else { return }
+            let isErrorPage = failedURL == webView.currentURL
+            failedURL = nil
+            if !isErrorPage { loadFinished(.success(status)) }
         }
         webView.onLoadError = { [weak self] code, text, url in
+            self?.failedURL = url
             self?.loadFinished(.failure(E2EError("loading \(url) failed: \(code) \(text)")))
         }
     }
 
-    func waitForLoad() async throws -> Int {
-        if let finishedLoad {
-            self.finishedLoad = nil
-            return try finishedLoad.get()
-        }
-        return try await withCheckedThrowingContinuation { loadWaiters.append($0) }
+    var finishedLoads: Int { loads.count }
+
+    func waitForLoad(after finishedLoads: Int) async throws -> Int {
+        let load = finishedLoads + 1
+        if load <= loads.count { return try loads[load - 1].get() }
+        return try await withCheckedThrowingContinuation { loadWaiters.append((load, $0)) }
     }
 
     func devTools(_ method: String, _ params: [String: Any]) async throws -> [String: Any] {
@@ -90,13 +98,10 @@ private final class WebViewPage: E2EPage {
     }
 
     private func loadFinished(_ result: Result<Int, E2EError>) {
-        guard !loadWaiters.isEmpty else {
-            finishedLoad = result
-            return
-        }
-        let waiters = loadWaiters
-        loadWaiters = []
-        for waiter in waiters { waiter.resume(with: result.mapError { $0 as Error }) }
+        loads.append(result)
+        let ready = loadWaiters.filter { $0.load == loads.count }
+        loadWaiters.removeAll { $0.load == loads.count }
+        for waiter in ready { waiter.continuation.resume(with: result.mapError { $0 as Error }) }
     }
 }
 

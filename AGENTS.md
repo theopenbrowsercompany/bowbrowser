@@ -18,7 +18,7 @@ Start every session in `~/code/GitHub/bowbrowser`: the maintainer's `.claude/set
   - `E2E/Tests/`: one Swift file per area holding its tests (`App.swift` holds `app.quit`); list each area in `E2ETests.all`.
   - `E2E/Fixtures/`: one folder per area (`Fixtures/app/`), served at `https://bow.test/<area>/`.
 - `App/Engine/BowE2EHooks.h`: the single engine seam header, declaring what the harness needs from the engine and nothing the app uses, behind `BOW_E2E`.
-  Harness code never holds app logic, and app code never depends on the harness: `App/` and `BowCore/` reach `E2E/` only through `BowE2EHooks.h` and lines marked `E2E seam` under `#if BOW_E2E`, which `make verify` checks.
+  Harness code never holds app logic, and app code never depends on the harness: `App/` and `BowCore/` reach `E2E/` only through `BowE2EHooks.h` and lines marked `E2E seam` inside an `#if BOW_E2E` block, which `make guards` checks; `make release` checks that Release builds leave the harness out.
 - `App/Helper/`: the CEF helper process. The build packages it as the helper apps Chromium needs (GPU, renderer, plugin, alerts).
 - `BowCore/`: a Swift package for browser logic that needs no UI or engine (today: address and search input). Its tests run in seconds.
 - `cef.lock`: the pinned CEF version and checksum. `Vendor/cef` links to one shared copy outside the repository and is gitignored.
@@ -37,7 +37,7 @@ Start every session in `~/code/GitHub/bowbrowser`: the maintainer's `.claude/set
   Exit code 0 means every check passed, 1 a check failed, 2 a step timed out (`E2E: TIMEOUT <step>`); a failed run keeps its profile in the run folder.
 - `make smoke`: build, open the app in a background window on one page (`make smoke SMOKE_URL=https://example.org` picks it), print the load status and title, quit.
   The window appears on the maintainer's screen, so run it only when the maintainer asks; the lead runs it for agents working in parallel.
-- `make verify`: lint, the e2e seam check (`scripts/check-e2e-seams.sh`), tests and build.
+- `make verify`: lint, guards (`make guards`, the e2e seam check in `scripts/check-e2e-seams.sh`), tests, the Debug build, and a Release build that must carry no e2e harness code or fixtures (`make release`).
   A change is done when this and its end-to-end check pass.
 - `make format`: format Swift sources.
 

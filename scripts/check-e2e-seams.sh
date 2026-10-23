@@ -1,49 +1,44 @@
 #!/bin/sh
 # Fails when app code (App/, BowCore/) reaches into the e2e harness outside its declared seams.
 #
-# Harness names are the E2E/ folder, every type and Objective-C class declared under E2E/, any E2E-prefixed
-# name, the seam header BowE2EHooks.h and the hooks it declares. App code may use one only on a line inside
-# an `#if BOW_E2E` block where that line, or the block's `#if` line, is marked "E2E seam". BowE2EHooks.h itself
-# is exempt. A use anywhere else would break Release builds, which leave the harness out.
+# Harness names are the E2E/ folder, any E2E-prefixed name and everything scripts/e2e-names.sh lists.
+# App code may use one only on a line inside a harness block, which opens with exactly `#if BOW_E2E` or
+# `#ifdef BOW_E2E` (any other conditional that mentions BOW_E2E, such as `#ifndef BOW_E2E`, does not count),
+# where the line or the block's opening line is marked "E2E seam". App/Engine/BowE2EHooks.h itself is exempt.
+# A use anywhere else would break Release builds, which leave the harness out.
 set -eu
 
 cd "$(dirname "$0")/.."
 
 hooks=App/Engine/BowE2EHooks.h
-
-# Names declared by the harness and by the seam header.
-names=$(
-  {
-    sed -nE 's/^[[:space:]]*((public|internal|private|fileprivate|final|@MainActor)[[:space:]]+)*(class|struct|enum|protocol|actor)[[:space:]]+([A-Za-z_][A-Za-z0-9_]*).*/\4/p' \
-      $(find E2E -name '*.swift')
-    sed -nE 's/^@interface[[:space:]]+([A-Za-z_][A-Za-z0-9_]*).*/\1/p' $(find E2E -name '*.h')
-    cat $(find E2E -name '*.h') "$hooks" | grep -vE '^[[:space:]]*//' | grep -oE 'Bow[A-Za-z0-9_]+' | grep -vE '^Bow(Engine|WebView)$|^BowEngineConfiguration$'
-    echo BowE2EHooks
-  } | sort -u | paste -sd '|' -
-)
+names=$(./scripts/e2e-names.sh | paste -sd '|' -)
 pattern="(^|[^A-Za-z0-9_])(E2E/|E2E[A-Z][A-Za-z0-9_]*|$names)([^A-Za-z0-9_]|\$)"
 
 violations=$(
-  find App BowCore -path BowCore/.build -prune -o \
-    \( -name '*.swift' -o -name '*.h' -o -name '*.m' -o -name '*.mm' \) -type f -print |
+  find App BowCore -path BowCore/.build -prune -o -type f \( -name '*.swift' -o -name '*.h' -o -name '*.m' \
+    -o -name '*.mm' -o -name '*.c' -o -name '*.cc' -o -name '*.cpp' \) -print |
     grep -v "^$hooks\$" |
     while read -r file; do
       awk -v pattern="$pattern" -v file="$file" '
-        # Each open #if: 0 not about BOW_E2E, 1 inside #if BOW_E2E, 2 inside a marked #if BOW_E2E, 3 its #else.
-        /^[[:space:]]*#if/ {
+        # Each open conditional: 0 not a harness block, 1 a harness block, 2 a marked harness block,
+        # 3 the #else part of a harness block.
+        /^[[:space:]]*#[[:space:]]*if/ {
           kind = 0
-          if ($0 ~ /BOW_E2E/ && $0 !~ /!/) kind = ($0 ~ /E2E seam/) ? 2 : 1
+          if ($0 ~ /^[[:space:]]*#[[:space:]]*(if|ifdef)[[:space:]]+BOW_E2E[[:space:]]*($|\/\/)/) {
+            kind = ($0 ~ /E2E seam/) ? 2 : 1
+          }
           stack[++depth] = kind
+          next
         }
-        /^[[:space:]]*#(else|elseif|elif)/ { if (stack[depth] > 0) stack[depth] = 3 }
-        /^[[:space:]]*#endif/ { depth--; next }
-        $0 ~ pattern && $0 !~ /^[[:space:]]*#(if|else|elseif|elif|endif)/ {
+        /^[[:space:]]*#[[:space:]]*(else|elseif|elif)/ { if (stack[depth] > 0) stack[depth] = 3; next }
+        /^[[:space:]]*#[[:space:]]*endif/ { depth--; next }
+        $0 ~ pattern {
           inside = 0; marked = ($0 ~ /E2E seam/)
           for (i = 1; i <= depth; i++) {
             if (stack[i] == 1 || stack[i] == 2) inside = 1
             if (stack[i] == 2) marked = 1
           }
-          if (!inside) print file ":" FNR ": outside #if BOW_E2E: " $0
+          if (!inside) print file ":" FNR ": outside an #if BOW_E2E block: " $0
           else if (!marked) print file ":" FNR ": not marked \"E2E seam\": " $0
         }
       ' "$file"

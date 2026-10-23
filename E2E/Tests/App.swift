@@ -15,7 +15,7 @@ struct AppQuitTest: E2ETest {
             try run.app.openWindow(at: E2EFixture.url("app/index.html"))
         }
         try await run.step("load fixture", timeout: E2ETimeouts.firstLoad) {
-            let status = try await page.waitForLoad()
+            let status = try await page.waitForLoad(after: 0)
             guard status == 200 else { throw E2EError("the fixture loaded with status \(status)") }
             let heading = try await page.string("document.querySelector('h1')?.textContent ?? ''")
             guard heading == "Bow fixture" else { throw E2EError("the fixture heading is \"\(heading)\"") }
