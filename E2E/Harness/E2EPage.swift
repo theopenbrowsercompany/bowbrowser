@@ -59,10 +59,11 @@ protocol E2EPage: AnyObject {
     /// Asked before every main frame navigation and redirect, with its URL: false cancels it, and the canceled
     /// navigation reports no events. Nil allows every navigation.
     var navigationPolicy: ((URL) -> Bool)? { get set }
-    /// How the page's "leave this site?" prompt is answered when its beforeunload handler asks: true leaves (the
-    /// default, so quitting never waits on a prompt), false stays. The prompt never shows on screen.
+    /// How the page's "leave this site?" prompt is answered when its beforeunload handler asks on close: true
+    /// leaves (the default, so quitting never waits on a prompt), false stays. Reload prompts always go ahead.
+    /// No prompt ever shows on screen.
     var leavePromptAnswer: Bool { get set }
-    /// How many leave prompts the page's tab has asked so far.
+    /// How many leave prompts (not counting reload prompts) the page's tab has asked so far.
     var leavePrompts: Int { get }
     /// Calls a Chrome DevTools protocol method and returns its result object.
     func devTools(_ method: String, _ params: [String: Any]) async throws -> [String: Any]
