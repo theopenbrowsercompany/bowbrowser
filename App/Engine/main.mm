@@ -53,6 +53,11 @@ class BowCefApp : public CefApp, public CefBrowserProcessHandler {
     // Chrome's own login prompt instead, which never calls the handler, fails the load with
     // ERR_INVALID_AUTH_CREDENTIALS and leaves a Chrome window behind that crashes the app when it quits.
     commandLine->AppendSwitch("disable-chrome-login-prompt");
+    // Bow has no on-device AI. Chromium's optimization guide still classifies the device 3 minutes after startup by
+    // launching the on-device model service, which probes the GPU (logging "Unable to get gpu adapter" as an ERROR
+    // when it cannot) and then exits. Pinning the performance class (8 is kGpuBlocked, the value Chrome for Testing
+    // assumes) makes the classifier skip that launch, so nothing starts the utility process.
+    commandLine->AppendSwitchWithValue("optimization-guide-performance-class", "8");
     [configuration_.extraSwitches enumerateKeysAndObjectsUsingBlock:^(NSString* name, NSString* value, BOOL*) {
       if (value.length == 0) {
         commandLine->AppendSwitch(name.UTF8String);
