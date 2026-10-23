@@ -86,7 +86,7 @@ final class E2EAppAdapter {
         try await show(try open(Self.makeWindow()), token: token)
     }
 
-    private static func makeWindow() -> BrowserWindow {
+    static func makeWindow() -> BrowserWindow {
         OffscreenBrowserWindow(
             contentRect: Self.windowFrame,
             styleMask: BrowserWindowController.styleMask,
@@ -97,7 +97,7 @@ final class E2EAppAdapter {
 
     /// Tracks the window of `controller` and its shown tab for the test, and orders it in once it is known to stay
     /// invisible. Returns the page of its shown tab.
-    private func show(_ controller: BrowserWindowController, token: Int) async throws -> E2ETabPage {
+    func show(_ controller: BrowserWindowController, token: Int) async throws -> E2ETabPage {
         testControllers.append(controller)
         controller.onTabEvent = { [weak self, unowned controller] tab, event in
             if case .stateChanged = event, let row = Self.sidebarRow(of: tab, in: controller) {
