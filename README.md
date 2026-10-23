@@ -38,7 +38,7 @@ Missing something you love? Please [open an issue](https://github.com/theopenbro
 ## Requirements
 
 - macOS 14 or later on Apple Silicon (the app targets macOS 14 and builds for arm64 only)
-- Xcode 16 or later for Swift 6 (tested with Xcode 26.6)
+- Xcode 26 (tested with Xcode 26.6)
 - Homebrew `cmake` and `xcodegen`
 
 ## Build
