@@ -87,7 +87,7 @@ struct LinkProfileTest: E2ETest {
         let cookie = try await run.step("read the cookie", timeout: E2ETimeouts.step) {
             try await link.string("document.cookie.split('; ').includes('bow=1') ? '1' : '0'")
         }
-        let profile = try app.profileID(of: link)
+        let profile = try app.tabProfileID(of: link)
         run.check(name, passed: profile == "work" && cookie == "1", "opened_in=\(profile) cookie=\(cookie)")
     }
 }
