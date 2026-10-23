@@ -1,8 +1,8 @@
 import Foundation
 
 /// What the sidebar's URL field shows for the shown tab. Like Arc's sidebar URL bar, it shows the site, not the whole
-/// address: the host without the scheme, a leading `www.`, the path, the query or the fragment, keeping a port that
-/// is not the scheme's default (`localhost:3000`). A local file shows its file name. A tab with no address worth
+/// address: the host without the scheme or a leading `www.`, then the path unless it is just `/` (no query, no
+/// fragment, no trailing slash), keeping a port that is not the scheme's default (`localhost:3000`). A local file shows its file name. A tab with no address worth
 /// showing (a blank tab, an internal page, a `data:` address, none at all) shows the placeholder instead, the same
 /// tabs Copy Current URL copies nothing for (`CopyableURL`). The full address is one click away in the command bar.
 public enum AddressDisplay {
@@ -22,7 +22,9 @@ public enum AddressDisplay {
         // An IPv6 address keeps the brackets it needs beside a port.
         if host.contains(":") { host = "[\(host)]" }
         if let port = url.port, port != defaultPorts[scheme] { host += ":\(port)" }
-        return host
+        // The path follows without its trailing slash (`URL.path` drops it); no query or fragment.
+        let path = url.path
+        return path.isEmpty || path == "/" ? host : host + path
     }
 
     private static let defaultPorts = ["http": 80, "https": 443, "ftp": 21]
