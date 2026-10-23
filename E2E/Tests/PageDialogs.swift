@@ -157,7 +157,9 @@ struct PageDialogsBackgroundTest: E2ETest {
         let app = try PageDialogsTests.dialogsApp(run)
         let page = try await PageDialogsTests.openWindow(run)
         let other = try await PageDialogsTests.openTab(run, "B", besides: page)
-        let (returned, upWhileHidden, waits) = try await run.step("alert from the background", timeout: E2ETimeouts.step) {
+        let (returned, upWhileHidden, waits) = try await run.step(
+            "alert from the background", timeout: E2ETimeouts.step
+        ) {
             try await PageDialogsTests.ask(other, "alert", "While you were away")
             let returned = try await PageDialogsTests.results(other, count: 1)
             return (returned, try app.pageDialog(besides: page), try app.pageDialogWaits(for: other))
@@ -170,8 +172,10 @@ struct PageDialogsBackgroundTest: E2ETest {
         }
         run.check(
             "dialogs.background_alert",
-            passed: returned == "alert:undefined" && upWhileHidden == nil && waits && shown.message
-                == "While you were away" && shown.isAttached && !after,
+            passed: returned == "alert:undefined" && upWhileHidden == nil && waits
+                && shown.message
+                    == "While you were away"
+                && shown.isAttached && !after,
             "page=\(returned) hidden-sheet=\(PageDialogsTests.describe(upWhileHidden)) waits=\(waits)"
                 + " shown=\(shown) after-answer-waits=\(after)")
         let (results, up, waitsAfter, upOnShow) = try await run.step(
@@ -205,7 +209,8 @@ struct PageDialogsSwitchTest: E2ETest {
         let app = try PageDialogsTests.dialogsApp(run)
         let page = try await PageDialogsTests.openWindow(run)
         let other = try await PageDialogsTests.openTab(run, "B", besides: page)
-        let (confirmResult, confirmAfter) = try await run.step("switch away from a confirm", timeout: E2ETimeouts.step) {
+        let (confirmResult, confirmAfter) = try await run.step("switch away from a confirm", timeout: E2ETimeouts.step)
+        {
             try await PageDialogsTests.ask(page, "confirm", "Stay?")
             _ = try await PageDialogsTests.untilDialog(app, besides: page)
             try run.app.select(other)
@@ -243,7 +248,9 @@ struct PageDialogsCloseTest: E2ETest {
     func run(_ run: E2ERun) async throws {
         let app = try PageDialogsTests.dialogsApp(run)
         let page = try await PageDialogsTests.openWindow(run)
-        let (navigated, afterNavigation) = try await run.step("navigate with a confirm up", timeout: E2ETimeouts.firstLoad) {
+        let (navigated, afterNavigation) = try await run.step(
+            "navigate with a confirm up", timeout: E2ETimeouts.firstLoad
+        ) {
             try await PageDialogsTests.ask(page, "confirm", "Leave?")
             _ = try await PageDialogsTests.untilDialog(app, besides: page)
             let loads = page.finishedLoads
@@ -286,7 +293,9 @@ struct PageDialogsPopupTest: E2ETest {
     func run(_ run: E2ERun) async throws {
         let app = try PageDialogsTests.dialogsApp(run)
         let page = try await PageDialogsTests.openWindow(run)
-        let (message, modal, sheet) = try await run.step("open a popup window that asks", timeout: E2ETimeouts.firstLoad) {
+        let (message, modal, sheet) = try await run.step(
+            "open a popup window that asks", timeout: E2ETimeouts.firstLoad
+        ) {
             try await page.click("#popup")
             let message = try await E2EWaits.until(page, "window.bowMessages.find((m) => m.startsWith('popup:'))")
             return (message as? String ?? "", app.appModalPanelShown, try app.pageDialog(besides: page))
