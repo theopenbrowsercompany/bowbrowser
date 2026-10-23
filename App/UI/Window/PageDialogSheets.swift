@@ -127,12 +127,13 @@ final class PageDialogSheets {
         }
         sheet = Sheet(id: id, dialog: dialog, alert: alert, field: field)
         // Putting a sheet up can bring a window that sits where no screen shows (an e2e window kept off every screen)
-        // onto the main screen, so the window goes back where it was. A window on a screen does not move.
+        // onto the main screen, so such a window goes back where it was. A window on a screen is left alone.
         let frame = parent.frame
+        let offScreen = !NSScreen.screens.contains { $0.frame.intersects(frame) }
         alert.beginSheetModal(for: parent) { [weak self] response in
             MainActor.assumeIsolated { self?.sheetEnded(id, response: response) }
         }
-        if parent.frame != frame { parent.setFrame(frame, display: false) }
+        if offScreen, parent.frame != frame { parent.setFrame(frame, display: false) }
     }
 
     /// The person answered the sheet (OK, Cancel, or Escape for Cancel).
