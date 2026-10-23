@@ -20,11 +20,12 @@ public enum LittleArc {
     }
 
     /// Where a link from another app opens: in Little Arc when the setting is on (`setting` is nil when the person
-    /// never set it, which means `opensExternalLinksByDefault`) and a browser window is open, whose Space on screen
-    /// gives the page its profile and the Spaces it can move into; otherwise in a browser window as before, which
-    /// opens a new window when none is open.
-    public static func opening(setting: Bool?, hasBrowserWindow: Bool) -> Opening {
-        guard setting ?? opensExternalLinksByDefault, hasBrowserWindow else { return .browserWindow }
+    /// never set it, which means `opensExternalLinksByDefault`) and a Space can give the page its profile
+    /// (`hasSpace`): the Space on screen in a browser window, or with no browser window open the Space shown last, as
+    /// Arc opens Little Arc with no window open. Otherwise in a browser window as before, which opens a new window
+    /// when none is open.
+    public static func opening(setting: Bool?, hasSpace: Bool) -> Opening {
+        guard setting ?? opensExternalLinksByDefault, hasSpace else { return .browserWindow }
         return .littleArc
     }
 
@@ -67,6 +68,48 @@ public enum LittleArc {
     /// The Space Open in Bow (Cmd+O) moves the page into: the Space on screen when it can take the page, else none.
     public static func openTarget(in targets: [MoveTarget]) -> MoveTarget? {
         targets.first { $0.isOnScreen && $0.isEnabled }
+    }
+
+    /// Whether Open in Bow can act: with a browser window open, when the Space on screen can take the page
+    /// (`openTarget`); with none, always, because it opens a new window on a Space of the page's profile.
+    public static func canOpenInBow(hasBrowserWindow: Bool, targets: [MoveTarget]) -> Bool {
+        !hasBrowserWindow || openTarget(in: targets) != nil
+    }
+
+    /// The Space of `graph` (the sidebar shown last) a new browser window shows when Open in Bow runs with no browser
+    /// window open, so the page of profile `profileID` can move into it: the Space on screen when it has that
+    /// profile, else the first Space of that profile in sidebar order, else none (Open in Bow then does nothing).
+    public static func newWindowSpace(in graph: SidebarGraph, profileID: SidebarProfileID) -> SidebarSpaceID? {
+        LinkRouting.spaceID(forProfile: profileID, in: graph)
+    }
+
+    /// A main menu command that acts on a page, as Little Arc answers it while it is the key window.
+    public enum MenuCommand: Equatable, Sendable, CaseIterable {
+        case reload, stop, back, forward
+        /// Open Location (Cmd+L): focuses Little Arc's address.
+        case openLocation
+        /// Find, Find Next and Find Previous.
+        case find
+    }
+
+    /// Whether a main menu command is enabled while Little Arc is key, for its page's `controls`. Little Arc takes
+    /// every one of them, so none reaches the browser window behind it: reload, stop, back, forward and Open Location
+    /// act on Little Arc's page (as Arc's Cmd+R and Cmd+L do), and find stays disabled, because Arc's documentation
+    /// gives Little Arc no find bar.
+    public static func isEnabled(_ command: MenuCommand, controls: NavigationControls) -> Bool {
+        switch command {
+        case .reload, .openLocation: controls.canReload
+        case .stop: controls.canStop
+        case .back: controls.canGoBack
+        case .forward: controls.canGoForward
+        case .find: false
+        }
+    }
+
+    /// Whether the app keeps running when its last browser window closes: an open Little Arc window counts as a
+    /// window, so Bow stays open while one is (as Arc does).
+    public static func keepsAppRunning(openLittleArcWindows: Int) -> Bool {
+        openLittleArcWindows > 0
     }
 
     /// The Space Ctrl and `number` moves the page into, or nil when that number names no Space or a Space that cannot

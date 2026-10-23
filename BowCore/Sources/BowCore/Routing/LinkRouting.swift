@@ -21,9 +21,9 @@ public enum LinkRouting {
     /// Where the app opens `decision`'s link. A rule (or the "no source" fallback) naming Little Arc opens it there
     /// whatever the Little Arc setting says, because the person asked for it in that rule. The default naming Little
     /// Arc follows the setting (`setting` is nil when never set), as Arc does without rules: Little Arc while it is on,
-    /// else the browser window. Little Arc needs a browser window for its page's profile, so with none the link opens
-    /// in a browser window.
-    public static func opening(for decision: RoutingDecision, littleArcSetting setting: Bool?, hasBrowserWindow: Bool)
+    /// else the browser window. Little Arc needs a Space for its page's profile (`hasSpace`: a browser window's Space
+    /// on screen, or the Space shown last when no window is open), so with none the link opens in a browser window.
+    public static func opening(for decision: RoutingDecision, littleArcSetting setting: Bool?, hasSpace: Bool)
         -> Opening
     {
         switch decision.destination {
@@ -33,9 +33,9 @@ public enum LinkRouting {
         case .littleArc:
             let open: Bool
             if case .defaultDestination = decision.basis {
-                open = LittleArc.opening(setting: setting, hasBrowserWindow: hasBrowserWindow) == .littleArc
+                open = LittleArc.opening(setting: setting, hasSpace: hasSpace) == .littleArc
             } else {
-                open = hasBrowserWindow
+                open = hasSpace
             }
             return open ? .littleArc : .browserWindow
         }

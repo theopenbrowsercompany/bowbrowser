@@ -192,7 +192,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let window = linkWindow()
         let decision = appFeatures.require(AirTrafficControl.self).decide(link, isAvailable: routingDestinationExists)
         let opening = LinkRouting.opening(
-            for: decision, littleArcSetting: LittleArcCenter.opensExternalLinks, hasBrowserWindow: window != nil)
+            for: decision, littleArcSetting: LittleArcCenter.opensExternalLinks, hasSpace: window != nil)
         switch opening {
         case .space(let id):
             openRoutedLink(link) { $0.space(id) != nil ? id : nil }
