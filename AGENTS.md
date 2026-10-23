@@ -75,12 +75,14 @@ Start every session in `~/code/GitHub/bowbrowser`: the maintainer's `.claude/set
   After quitting (or timing out), the run echoes the lines that are not Chromium log lines and every Chromium ERROR or FATAL line; `chromium.errors` fails on any not listed as harmless in `E2E/Harness/E2EChromiumLog.swift`, whose header says what may be added.
   When a run ends any other way than PASS or FAIL (a timeout, a crash, a failed engine start), `make e2e` prints the end of `chromium.log`.
 - `make smoke`: opens a window on the maintainer's screen; never run it unless the maintainer asks.
-- `make verify`: lint, guards (`make guards`: e2e seams, Swift headers, list format), tests (BowCore and `make test-e2e-wrapper`) and the Debug build.
+- `make verify`: lint, guards (`make guards`: e2e seams, Swift headers, list format), BowCore tests, the script self tests (`make test-scripts`: `make test-e2e-wrapper` and `make test-prune`) and the Debug build, side by side, each part's output printed whole with a `verify: <part> ok|FAIL <seconds>s` line.
+  The script self tests run only when `scripts/` or the `Makefile` differ from `origin/main` (committed or not); `VERIFY_ALL=1 make verify` runs every part.
   A change is done when this and its end-to-end check pass.
 - `make release`: a Release build that must carry no e2e harness code or fixtures. It is not part of `make verify`; the lead runs it once per branch before merging.
-- Builds take turns through `scripts/build-lock.sh`, whose header documents the slots, the settings and the lead's priority file; a waiting build prints its rank, so let it wait; `BOW_BUILD_JOBS` caps each build's compile jobs (default 8).
+- Builds take turns through `scripts/build-lock.sh`, whose header documents the slots, the settings and the lead's priority file; a waiting build prints its rank, so let it wait; each build gets the machine's cores divided by the build slots as compile jobs (at least 2), and `BOW_BUILD_JOBS` overrides that.
+  Every build and e2e run that got a slot appends a line (pool, branch, seconds waited, seconds run, exit code, date) to `~/Library/Caches/bowbrowser/timings/timings.tsv`.
   Never run two `make e2e` at once in the same worktree: their build steps race in `package-cef.sh`.
-  Xcode's compilation cache is shared in `~/Library/Caches/bowbrowser/compile-cache`; delete the folder if it grows large.
+  Xcode's compilation cache is shared in `~/Library/Caches/bowbrowser/compile-cache`; after each build `scripts/prune-compile-cache.sh` keeps it under 7 GB (`BOW_COMPILE_CACHE_CAP`), and its header says how.
 - `make format`: format Swift sources.
 
 ## Working rules
