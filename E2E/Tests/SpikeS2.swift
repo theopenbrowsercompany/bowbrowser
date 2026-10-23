@@ -81,7 +81,9 @@ struct SpikeS2ContextsTest: E2ETest {
             for page in pages { try await E2EWaits.untilRendering(page) }
         }
         let windows = Set(pages.compactMap { $0.contentView?.window.map(ObjectIdentifier.init) })
-        run.check("s2.one-window", passed: windows.count == 1 && pages.count == 3, "pages=\(pages.count) windows=\(windows.count)")
+        run.check(
+            "s2.one-window", passed: windows.count == 1 && pages.count == 3,
+            "pages=\(pages.count) windows=\(windows.count)")
 
         try await run.step("cookie in one profile", timeout: E2ETimeouts.step) {
             try await SpikeS2Tests.setCookie(pages[0], "A")
@@ -181,7 +183,8 @@ struct SpikeS2SharedHandlersTest: E2ETest {
             let mine = urls.filter { $0.contains("space=\(id)") }.count
             let others = urls.filter { $0.contains("space=") && !$0.contains("space=\(id)") }.count
             if mine == 0 || others > 0 { own = false }
-            details.append("\(id): own=\(mine) others=\(others) init=\(BowSpikeContexts.initializationSeconds(forProfile: id))")
+            details.append(
+                "\(id): own=\(mine) others=\(others) init=\(BowSpikeContexts.initializationSeconds(forProfile: id))")
         }
         run.check("s2.per-space-handlers", passed: own, details.joined(separator: " ; "))
     }
