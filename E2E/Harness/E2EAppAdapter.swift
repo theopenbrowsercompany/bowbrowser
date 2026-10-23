@@ -929,37 +929,40 @@ extension TestApp: E2EActivityApp {
 // Opening the app's own sidebar from a folder of the test's, the way launch does, and links from other apps.
 extension E2EAppAdapter {
     func openSavedSidebar(
-        dataFolder: URL, windowFolder: URL, url: URL, ownSidebar: Bool, token: Int
+        session: E2ESidebarSession, url: URL, ownSidebar: Bool, token: Int
     ) async throws -> E2ESidebarOpening {
-        let stores = SidebarStores(dataDirectory: dataFolder, windowFolderParent: windowFolder)
-        let log = NoticeLog()
-        stores.presentNotice = { notice, _ in
-            log.notices.append(E2ESidebarNotice(notice))
+        // One SidebarStores per session, so a second opening asks the same stores again, as the app does.
+        let stores: SidebarStores
+        if let existing = session.stores as? SidebarStores {
+            stores = existing
+        } else {
+            stores = SidebarStores(dataDirectory: session.dataFolder, windowFolderParent: session.windowFolder)
+            stores.presentNotice = { [weak session] notice, _ in session?.notices.append(E2ESidebarNotice(notice)) }
+            session.stores = stores
+        }
+        let first = session.notices.count
+        func opening(_ page: (any E2EPage)?, opened: Bool) -> E2ESidebarOpening {
+            E2ESidebarOpening(page: page, opened: opened, notices: Array(session.notices[first...]))
         }
         let profile = ownSidebar ? delegate.engine.profile(id: .default) : nil
         guard
             let controller = delegate.openWindowOrExplain(
                 url: url, profile: profile, window: Self.makeWindow(), sidebarStores: stores)
         else {
-            return E2ESidebarOpening(page: nil, opened: false, notices: log.notices)
+            return opening(nil, opened: false)
         }
         guard controller.selectedTab != nil else {
             // A window with no tab has no browser; closed the way its close button does.
             controller.window?.performClose(nil)
-            return E2ESidebarOpening(page: nil, opened: true, notices: log.notices)
+            return opening(nil, opened: true)
         }
         let page = try await show(controller, token: token)
-        return E2ESidebarOpening(page: page, opened: true, notices: log.notices)
+        return opening(page, opened: true)
     }
 
     func deliverLinkFromOtherApp(_ url: URL) {
         delegate.application(NSApp, open: [url])
     }
-}
-
-@MainActor
-private final class NoticeLog {
-    var notices: [E2ESidebarNotice] = []
 }
 
 extension E2ESidebarNotice {
@@ -969,12 +972,9 @@ extension E2ESidebarNotice {
 }
 
 extension TestApp: E2EStoreApp {
-    func openSavedSidebar(inDataFolder dataFolder: URL, windowFolder: URL, url: URL, ownSidebar: Bool)
-        async throws -> E2ESidebarOpening
-    {
+    func openSavedSidebar(in session: E2ESidebarSession, url: URL, ownSidebar: Bool) async throws -> E2ESidebarOpening {
         try adapter.requireActive(token, "open a saved sidebar")
-        return try await adapter.openSavedSidebar(
-            dataFolder: dataFolder, windowFolder: windowFolder, url: url, ownSidebar: ownSidebar, token: token)
+        return try await adapter.openSavedSidebar(session: session, url: url, ownSidebar: ownSidebar, token: token)
     }
 
     func deliverLinkFromOtherApp(_ url: URL) throws {

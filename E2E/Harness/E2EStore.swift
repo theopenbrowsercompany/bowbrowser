@@ -21,6 +21,24 @@ struct E2ESidebarNotice: Equatable {
     var detail: String
 }
 
+/// The app's sidebar stores a test opens windows on, with the sidebar file in `dataFolder` and window sidebars in
+/// `windowFolder`. Every opening in one session asks the same stores, as the app asks its own stores again, and
+/// every notice they show is kept, also one shown after a window opened (a save that failed).
+@MainActor
+final class E2ESidebarSession {
+    let dataFolder: URL
+    let windowFolder: URL
+    /// Every notice the stores showed, in order.
+    var notices: [E2ESidebarNotice] = []
+    /// The stores, made by the app adapter on the first opening.
+    var stores: AnyObject?
+
+    init(dataFolder: URL, windowFolder: URL) {
+        self.dataFolder = dataFolder
+        self.windowFolder = windowFolder
+    }
+}
+
 /// What opening a window on a saved sidebar did: `E2EStoreApp.openSavedSidebar(...)`.
 @MainActor
 struct E2ESidebarOpening {
@@ -45,12 +63,11 @@ protocol E2EStoreApp: E2EApp {
     func openExternalLink(_ url: URL) throws -> any E2EPage
     /// The ID of the engine profile `page`'s tab was created in.
     func tabProfileID(of page: any E2EPage) throws -> String
-    /// Opens a window the way the app opens one on its saved sidebar, opening `url`, but with the sidebar file in
-    /// `dataFolder` (read afresh on every call) and window sidebars in `windowFolder`. With `ownSidebar` the window
-    /// gets a sidebar of its own on the app's default profile instead, as a smoke window does. Notices are recorded,
-    /// never shown.
-    func openSavedSidebar(inDataFolder dataFolder: URL, windowFolder: URL, url: URL, ownSidebar: Bool)
-        async throws -> E2ESidebarOpening
+    /// Opens a window the way the app opens one on its saved sidebar, opening `url`, on `session`'s stores (the
+    /// sidebar file is read on the first opening that gets it, and again after a refusal). With `ownSidebar` the
+    /// window gets a sidebar of its own on the app's default profile instead, as a smoke window does. Notices are
+    /// recorded in the session, never shown.
+    func openSavedSidebar(in session: E2ESidebarSession, url: URL, ownSidebar: Bool) async throws -> E2ESidebarOpening
     /// Hands the app `url` the way the system delivers a link clicked in another app.
     func deliverLinkFromOtherApp(_ url: URL) throws
     /// The sidebar notices the app showed outside `openSavedSidebar`, since the run started.
