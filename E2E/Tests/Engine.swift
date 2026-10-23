@@ -225,6 +225,7 @@ struct EngineChallengesTest: E2ETest {
                 + "unauthorized=\(fixtures.unauthorizedRequests) authorized=\(fixtures.authorizedRequests)")
 
         let certificate = try await run.step("load a page with a bad certificate", timeout: E2ETimeouts.firstLoad) {
+            _ = try E2ELoopback.runningWithCertificate()
             let ended = try await Self.load(E2ELoopback.badCertificateURL, in: page)
             return (ended: ended, questions: try challenges.certificateErrors(of: page))
         }

@@ -16,7 +16,7 @@ public enum CertificateEnforcement: Equatable, Sendable {
     case unknown
 }
 
-/// The certificate errors a person chose to go past this session, per host. Kept in memory only and never saved: it
+/// The certificate errors a person chose to go past this session, per host and certificate. Kept in memory only and never saved: it
 /// is deliberately not `Codable`, and a new session starts with none.
 public struct CertificateAllowances: Equatable, Sendable {
     /// The engine's certificate error codes Chrome lets a person go past when the host is not strict: an untrusted
@@ -38,8 +38,15 @@ public struct CertificateAllowances: Equatable, Sendable {
         -219,  // ERR_CERT_SELF_SIGNED_LOCAL_NETWORK
     ]
 
-    /// Error codes allowed so far, by host.
-    private var allowed: [String: Set<Int>] = [:]
+    /// One allowance: an error code for one certificate, which the caller names by its bytes (for example the DER
+    /// encoding of the server's certificate or its SHA-256 fingerprint).
+    private struct Allowance: Hashable, Sendable {
+        var code: Int
+        var certificate: Data
+    }
+
+    /// Allowances so far, by host.
+    private var allowed: [String: Set<Allowance>] = [:]
 
     public init() {}
 
@@ -49,22 +56,28 @@ public struct CertificateAllowances: Equatable, Sendable {
         enforcement == .standard && overridableCodes.contains(error.code) && host(of: error) != nil
     }
 
-    /// Remembers, for this session, that the person chose to go on past `error` on its host. Remembers nothing and
-    /// returns false when going on may not be offered (`mayOffer`).
+    /// Remembers, for this session, that the person chose to go on past `error` on its host with the server's
+    /// `certificate`, as Chrome binds a decision to the certificate and the error: another certificate with the same
+    /// error, or the same certificate with another error, is asked about again. Remembers nothing and returns false
+    /// when going on may not be offered (`mayOffer`) or the certificate is unknown (empty).
     @discardableResult
-    public mutating func allow(_ error: CertificateError, enforcement: CertificateEnforcement) -> Bool {
-        guard Self.mayOffer(error, enforcement: enforcement), let host = Self.host(of: error) else { return false }
-        allowed[host, default: []].insert(error.code)
+    public mutating func allow(
+        _ error: CertificateError, certificate: Data, enforcement: CertificateEnforcement
+    ) -> Bool {
+        guard Self.mayOffer(error, enforcement: enforcement), !certificate.isEmpty, let host = Self.host(of: error)
+        else { return false }
+        allowed[host, default: []].insert(Allowance(code: error.code, certificate: certificate))
         return true
     }
 
-    /// What to do with `error` without asking: `.proceed` when the person already went past the same error on the
-    /// same host this session and going on may still be offered (a host that turned strict since is asked again),
-    /// nil to show the error page.
-    public func decision(for error: CertificateError, enforcement: CertificateEnforcement) -> CertificateErrorDecision?
-    {
+    /// What to do with `error` from a server presenting `certificate`, without asking: `.proceed` when the person
+    /// already went past the same error with the same certificate on the same host this session and going on may
+    /// still be offered (a host that turned strict since is asked again), nil to show the error page.
+    public func decision(
+        for error: CertificateError, certificate: Data, enforcement: CertificateEnforcement
+    ) -> CertificateErrorDecision? {
         guard Self.mayOffer(error, enforcement: enforcement), let host = Self.host(of: error),
-            allowed[host]?.contains(error.code) == true
+            allowed[host]?.contains(Allowance(code: error.code, certificate: certificate)) == true
         else { return nil }
         return .proceed
     }

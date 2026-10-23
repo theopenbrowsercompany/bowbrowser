@@ -139,6 +139,9 @@ final class E2ERunner {
         Self.removeStaleDefaultsSuites()
         defaultsSuiteName = Self.defaultsSuitePrefix + String(ProcessInfo.processInfo.processIdentifier)
 
+        // Started for every selection: they cost a few milliseconds, and the engine's switches cannot change later.
+        // engineDidStop stops them.
+        let loopbackRules = E2ELoopback.start()
         let configuration = BowEngineConfiguration(rootDataDirectory: profileDirectory.path)
         configuration.keychainServiceName = "Bow E2E Safe Storage"
         configuration.reportsQuitTime = true
@@ -155,7 +158,7 @@ final class E2ERunner {
             "disable-background-networking": "",
             "no-first-run": "",
             "no-proxy-server": "",
-            "host-resolver-rules": E2ELoopback.start() + "MAP * ~NOTFOUND",
+            "host-resolver-rules": loopbackRules + "MAP * ~NOTFOUND",
             // The same colors and language on every machine.
             "force-color-profile": "srgb",
             "lang": "en-US",

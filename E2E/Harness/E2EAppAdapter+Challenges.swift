@@ -26,6 +26,8 @@ extension E2ETestApp: E2EChallengesApp {
 }
 
 /// A tab's delegate while a test records its challenges. Answers nothing itself: the window answers everything.
+/// It stays tied to the window the tab was in when recording began, so a test that records must not move the tab
+/// to another window (attaching it there makes that window its delegate again, which ends the recording).
 @MainActor
 final class E2EChallengeRecorder: EngineTabDelegate {
     /// Each recorded tab's recorder, held here since tabs hold their delegate weakly; dropped when the tab closes.

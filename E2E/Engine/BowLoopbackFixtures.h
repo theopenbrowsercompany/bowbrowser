@@ -10,7 +10,7 @@ NS_ASSUME_NONNULL_BEGIN
 /// Two listeners on free loopback ports, started for one e2e run and stopped at its end. The runner maps host names
 /// to them with Chromium's host resolver rules, so tests load `http://auth.bow.test/` and `https://badcert.bow.test/`.
 ///
-/// - The sign in listener speaks plain HTTP. Every path answers 401 with `WWW-Authenticate: Basic realm="bow"`
+/// - The sign in listener speaks plain HTTP. Every path but `/favicon.ico` (404) answers 401 with `WWW-Authenticate: Basic realm="bow"`
 ///   until a request carries the Basic credentials `authUser` and `authPassword`, which get a 200 page titled
 ///   "Signed in". (Plain HTTP, since over TLS the self-signed certificate would fail first.)
 /// - The certificate listener speaks TLS with a self-signed certificate for `badcert.bow.test`, which no keychain
@@ -24,9 +24,11 @@ NS_ASSUME_NONNULL_BEGIN
 @property(class, nonatomic, readonly, copy) NSString *authUser;
 @property(class, nonatomic, readonly, copy) NSString *authPassword;
 
-/// Starts both listeners and waits until they listen (or failed), at most a few seconds. Returns nil and sets
-/// `error` when either could not start; nothing is left listening then. Call from any thread: the listeners' work
-/// runs on a queue of their own, so waiting on the main thread is safe.
+/// Starts both listeners and waits until they listen (or failed), at most a few seconds each. Returns nil and sets
+/// `error` when the sign in listener could not start; nothing is left listening then. The certificate listener is
+/// optional: when it cannot start (its identity needs macOS 15 to stay out of keychains), `certificateFailure` says
+/// why and the sign in listener still serves. Call from any thread: the listeners' work runs on a queue of their
+/// own, so waiting on the main thread is safe.
 + (nullable instancetype)startWithError:(NSError **)error;
 
 - (instancetype)init NS_UNAVAILABLE;
@@ -34,8 +36,10 @@ NS_ASSUME_NONNULL_BEGIN
 
 /// The sign in listener's port on 127.0.0.1.
 @property(nonatomic, readonly) uint16_t authPort;
-/// The certificate listener's port on 127.0.0.1.
+/// The certificate listener's port on 127.0.0.1, or 0 when it did not start.
 @property(nonatomic, readonly) uint16_t certificatePort;
+/// Why the certificate listener did not start, or nil when it runs.
+@property(nonatomic, readonly, copy, nullable) NSString *certificateFailure;
 
 /// Requests the sign in listener answered with 401, and with 200 (they carried the right credentials).
 @property(nonatomic, readonly) NSInteger unauthorizedRequests;
