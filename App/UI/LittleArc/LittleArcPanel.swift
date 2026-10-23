@@ -241,6 +241,11 @@ final class LittleArcPanel: NSObject, NSWindowDelegate, EngineTabDelegate, NSMen
 
     // MARK: NSWindowDelegate
 
+    /// The browser window may have switched Spaces or closed meanwhile: Open in Bow follows.
+    func windowDidBecomeKey(_ notification: Notification) {
+        rebuildMoveMenu()
+    }
+
     func windowShouldClose(_ sender: NSWindow) -> Bool {
         // The close button and Close Window ask the page first; the panel follows once it has closed.
         close()
