@@ -43,8 +43,10 @@ final class FindFeature: NSResponder, BrowserWindowFeature {
     }
 
     func selectedTabChanged(_ tab: (any EngineTab)?) {
-        // Called after the window shows the tab, so the keyboard the find bar gives back goes to the page now shown.
-        if let tab, let findTab, findTab !== tab { closeFindBar() }
+        // The bar closes once the tab list's active tab is another one. This runs after the window shows that tab, so
+        // the keyboard the bar gives back goes to the page now shown.
+        guard let findTab, let active = window.tabList.activeID.flatMap(window.engineTab(for:)) else { return }
+        if findTab !== active { closeFindBar() }
     }
 
     func tab(_ tab: any EngineTab, didReceive event: TabEvent) {

@@ -85,7 +85,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
             shouldCascadeWindows = false
         }
         window.delegate = self
-        installFeatures(in: window)
+        installFeatures()
         openTab(url: url)
     }
 
@@ -129,9 +129,9 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
 
     /// Creates the window's features and puts them in the responder chain right after this controller: window,
     /// controller, the features in list order, then whatever followed the controller.
-    private func installFeatures(in window: NSWindow) {
+    private func installFeatures() {
         features = WindowFeatures.all.map { $0.init(window: self) }
-        if window.nextResponder !== self { window.nextResponder = self }
+        // AppKit already put this controller right after its window.
         let next = nextResponder
         var last: NSResponder = self
         for feature in features {

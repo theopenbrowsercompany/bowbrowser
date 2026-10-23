@@ -5,7 +5,8 @@
 #     that is not exactly one `Name.self,` or `Name.all,` entry, or the same entry twice;
 #   - the bridging header: an #import line that is not one `#import "File.h"` (with an optional // comment), or
 #     the same header imported twice;
-#   - the e2e tests: two tests with the same `let name = "..."` in E2E/Tests.
+#   - the e2e tests: two tests with the same `let name = "..."` in E2E/Tests (the form every test uses; the runner's
+#     E2ETests.checkUnique catches any other duplicate when a run starts).
 set -eu
 
 cd "$(dirname "$0")/.."

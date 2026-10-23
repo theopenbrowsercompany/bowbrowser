@@ -3,8 +3,8 @@ import BowCore
 
 /// The window toolbar's back, forward and reload buttons. The reload button turns into a stop button while the
 /// page loads, which is how the toolbar shows the loading state. The window's `NavigationFeature` pushes every
-/// change of its `NavigationControls` through `show(_:)`; the buttons never validate themselves, so they change exactly when
-/// the selected tab's state does.
+/// change of its `NavigationControls` through `show(_:)`; the buttons never validate themselves, so they change
+/// exactly when the selected tab's state does.
 @MainActor
 final class NavigationToolbar: NSObject, NSToolbarDelegate {
     enum Item: String, CaseIterable {
