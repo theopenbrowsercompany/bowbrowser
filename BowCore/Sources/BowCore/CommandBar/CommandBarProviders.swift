@@ -32,7 +32,8 @@ public struct OpenTabsProvider: CommandBarProvider {
 
     public func candidates(for query: String) async -> [CommandBarCandidate] {
         await source.openTabs().map {
-            CommandBarCandidate(kind: .openTab($0.id), title: $0.title, url: $0.url, lastUsed: $0.lastActive, space: $0.space)
+            CommandBarCandidate(
+                kind: .openTab($0.id), title: $0.title, url: $0.url, lastUsed: $0.lastActive, space: $0.space)
         }
     }
 }
