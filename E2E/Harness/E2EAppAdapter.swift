@@ -6,7 +6,7 @@ import BowCore
 // to keep E2EApp and E2EPage working; tests stay as they are.
 
 @MainActor
-final class E2EAppAdapter: E2EApp {
+final class E2EAppAdapter {
     /// Far from every screen. The window subclass keeps AppKit from moving it back on screen.
     static let windowFrame = NSRect(x: -20_000, y: -20_000, width: 1280, height: 800)
 
@@ -19,6 +19,10 @@ final class E2EAppAdapter: E2EApp {
     private var testPages: [TabPage] = []
     private var testProfile: (any EngineProfile)?
     private var testProfileID = ""
+    /// The token of the running test, nil between tests. Every app and page action a test takes carries its test's
+    /// token and is refused unless it matches, so work left running by a test that ended (a timed-out step) cannot
+    /// drive the app any further: a window it opened then would miss the cleanup and stay into later tests.
+    private var activeToken: Int?
 
     init(delegate: AppDelegate) {
         self.delegate = delegate
@@ -32,7 +36,7 @@ final class E2EAppAdapter: E2EApp {
         }
     }
 
-    func openWindow(at url: URL, profile: E2EWindowProfile) async throws -> any E2EPage {
+    func openWindow(at url: URL, profile: E2EWindowProfile, token: Int) async throws -> any E2EPage {
         let engineProfile: (any EngineProfile)?
         switch profile {
         case .appDefault:
@@ -64,11 +68,17 @@ final class E2EAppAdapter: E2EApp {
         guard let window = controller.window else { throw E2EError("the window controller has no window") }
         guard let tab = controller.selectedTab else { throw E2EError("the window opened without a tab") }
         // Made before the checks below wait, so the page hears every load event.
-        let page = track(tab, in: controller)
+        let page = track(tab, in: controller, token: token)
         // Creating a titled window moves it onto a screen; put it back where it belongs.
         window.setFrame(window.frameRect(forContentRect: Self.windowFrame), display: false)
         // Check before ordering the window in, so a broken setup fails instead of showing a window.
         try await Self.checkInvisible(window)
+        // The test may have ended while the check waited, and the cleanup only closes windows that show.
+        guard activeToken == token else {
+            // Closed the way the close button does, so the window's tabs and browsers close too.
+            window.performClose(nil)
+            throw E2EError("refused to show a window: its test had already ended", reason: .testEnded)
+        }
         // Ordered in without activating the app or becoming key, so it composites like a visible window.
         window.orderFrontRegardless()
         try await Self.checkInvisible(window)
@@ -87,13 +97,28 @@ final class E2EAppAdapter: E2EApp {
 
     // MARK: The runner's side: one test at a time
 
-    /// Starts a test: its windows and pages are tracked from now on, and its first `.test` window creates a fresh
-    /// in-memory profile named after `index`.
-    func beginTest(index: Int) {
+    /// Starts a test and returns the app as that test sees it: its windows and pages are tracked from now on, and
+    /// its first `.test` window creates a fresh in-memory profile named after `index`. What the returned app and
+    /// its pages do is refused with an error once `endTest()` is called.
+    func beginTest(index: Int) -> any E2EApp {
         testControllers.removeAll()
         testPages.removeAll()
         testProfile = nil
         testProfileID = "e2e-test-\(index)"
+        activeToken = index
+        return TestApp(adapter: self, token: index)
+    }
+
+    /// Ends the running test: from now on its app and pages refuse every action.
+    func endTest() {
+        activeToken = nil
+    }
+
+    /// Throws unless `token` is the running test's.
+    fileprivate func requireActive(_ token: Int, _ action: String) throws {
+        guard activeToken == token else {
+            throw E2EError("refused to \(action): its test had already ended", reason: .testEnded)
+        }
     }
 
     /// How many browsers the engine has open or is creating, popups included.
@@ -135,16 +160,16 @@ final class E2EAppAdapter: E2EApp {
         }
     }
 
-    func openTab(at url: URL, besides page: any E2EPage, select: Bool) throws -> any E2EPage {
+    func openTab(at url: URL, besides page: any E2EPage, select: Bool, token: Int) throws -> any E2EPage {
         let controller = try Self.tabPage(page).controller
         let tab = controller.openTab(url: url, select: select)
-        return track(tab, in: controller)
+        return track(tab, in: controller, token: token)
     }
 
     /// Creates the page for `tab` before the engine can report anything about it, which it does on later main
     /// thread tasks.
-    private func track(_ tab: any EngineTab, in controller: BrowserWindowController) -> TabPage {
-        let page = TabPage(tab: tab, controller: controller)
+    private func track(_ tab: any EngineTab, in controller: BrowserWindowController, token: Int) -> TabPage {
+        let page = TabPage(tab: tab, controller: controller, adapter: self, token: token)
         pages[tab.tabID] = page
         testPages.append(page)
         return page
@@ -278,11 +303,72 @@ final class E2EAppAdapter: E2EApp {
     }
 }
 
+/// The app as one test sees it: every action carries the test's token, so the adapter refuses it once the test has
+/// ended.
+@MainActor
+private final class TestApp: E2EApp {
+    private unowned let adapter: E2EAppAdapter
+    private let token: Int
+
+    init(adapter: E2EAppAdapter, token: Int) {
+        self.adapter = adapter
+        self.token = token
+    }
+
+    func openWindow(at url: URL, profile: E2EWindowProfile) async throws -> any E2EPage {
+        try adapter.requireActive(token, "open a window")
+        return try await adapter.openWindow(at: url, profile: profile, token: token)
+    }
+
+    func openTab(at url: URL, besides page: any E2EPage, select: Bool) throws -> any E2EPage {
+        try adapter.requireActive(token, "open a tab")
+        return try adapter.openTab(at: url, besides: page, select: select, token: token)
+    }
+
+    func select(_ page: any E2EPage) throws {
+        try adapter.requireActive(token, "select a tab")
+        try adapter.select(page)
+    }
+
+    func closeTab(_ page: any E2EPage) async throws -> Bool {
+        try adapter.requireActive(token, "close a tab")
+        return try await adapter.closeTab(page)
+    }
+
+    func closeWindow(of page: any E2EPage) async throws {
+        try adapter.requireActive(token, "close a window")
+        try await adapter.closeWindow(of: page)
+    }
+
+    func click(_ button: E2EToolbarButton, in page: any E2EPage) throws {
+        try adapter.requireActive(token, "click \(button.rawValue)")
+        try adapter.click(button, in: page)
+    }
+
+    func toolbarButton(_ button: E2EToolbarButton, in page: any E2EPage) throws -> E2EToolbarButtonState {
+        try adapter.toolbarButton(button, in: page)
+    }
+
+    func press(_ shortcut: E2EShortcut, in page: any E2EPage) throws {
+        try adapter.requireActive(token, "press Cmd+\(shortcut.key)")
+        try adapter.press(shortcut, in: page)
+    }
+
+    func quit() {
+        // The runner quits once every test has ended; a test that has ended must not quit early.
+        guard (try? adapter.requireActive(token, "quit")) != nil else { return }
+        adapter.quit()
+    }
+}
+
 /// E2EPage over one tab, fed its events and policy questions by the adapter, and a DevTools session on its browser.
 @MainActor
 private final class TabPage: E2EPage {
     let tab: any EngineTab
     let controller: BrowserWindowController
+    /// The adapter and the token of the test that opened the page, which page actions must still match.
+    private unowned let adapter: E2EAppAdapter
+    private let token: Int
     private let devToolsSession: BowDevToolsSession
     /// Every finished main frame load, in order; load number n is `loads[n - 1]`.
     private var loads: [Result<Int, E2EError>] = []
@@ -302,9 +388,11 @@ private final class TabPage: E2EPage {
         return leavePromptAnswer
     }
 
-    init(tab: any EngineTab, controller: BrowserWindowController) {
+    init(tab: any EngineTab, controller: BrowserWindowController, adapter: E2EAppAdapter, token: Int) {
         self.tab = tab
         self.controller = controller
+        self.adapter = adapter
+        self.token = token
         devToolsSession = BowDevToolsSession(tabID: tab.tabID.rawValue)
     }
 
@@ -320,12 +408,19 @@ private final class TabPage: E2EPage {
             kinds: Set(prompt.request.kinds.map(\.rawValue)),
             message: prompt.message,
             frame: prompt.frame
-        ) { [weak prompt] allow in
+        ) { [weak self, weak prompt] allow in
+            try self?.requireActive(allow ? "allow a permission" : "block a permission")
             (allow ? prompt?.allowButton : prompt?.blockButton)?.performClick(nil)
         }
     }
 
-    func load(_ url: URL) {
+    /// Throws unless the test that opened the page is still running.
+    func requireActive(_ action: String) throws {
+        try adapter.requireActive(token, action)
+    }
+
+    func load(_ url: URL) throws {
+        try requireActive("load \(url.absoluteString)")
         tab.load(url)
     }
 
@@ -365,6 +460,7 @@ private final class TabPage: E2EPage {
     }
 
     func openFindBar() throws -> any E2EFindBar {
+        try requireActive("open the find bar")
         guard let window = controller.window else { throw E2EError("the page has no window") }
         guard let item = Self.menuItem(keyEquivalent: "f", in: NSApp.mainMenu) else {
             throw E2EError("no menu item has the key equivalent Cmd+F")
@@ -396,7 +492,12 @@ private final class TabPage: E2EPage {
         return try await withCheckedThrowingContinuation { loadWaiters.append((load, $0)) }
     }
 
+    /// DevTools methods that only read the page, which the runner still calls after a test ended (for its
+    /// fail.png), so they are not refused like the rest.
+    private static let readOnlyDevToolsMethods: Set<String> = ["Page.captureScreenshot"]
+
     func devTools(_ method: String, _ params: [String: Any]) async throws -> [String: Any] {
+        if !Self.readOnlyDevToolsMethods.contains(method) { try requireActive("call \(method)") }
         let response = try await withCheckedThrowingContinuation { continuation in
             devToolsSession.callMethod(method, params: params) { result, error in
                 if let result {
@@ -455,6 +556,7 @@ private final class WindowFindBar: E2EFindBar {
     }
 
     private func send(_ characters: String, keyCode: UInt16, modifiers: NSEvent.ModifierFlags) throws {
+        try page.requireActive("press keys in the find bar")
         guard hasKeyboard, let responder = window.firstResponder else {
             throw E2EError("the keyboard is not in the find bar's field")
         }

@@ -10,6 +10,8 @@ protocol E2EApp: AnyObject {
     /// first tab). Throws when the window would be visible on a screen or the app could take focus, and throws an
     /// error with reason `.profileTaken` when a new profile's ID is taken.
     /// The runner closes every window a test opened once the test ends, so tests need not close their own.
+    /// Once a test has ended, every action of its app and pages (except reading state) throws, so work a timed-out
+    /// step left running cannot drive the app any further.
     func openWindow(at url: URL, profile: E2EWindowProfile) async throws -> any E2EPage
     /// Opens `url` in a new tab of the window `page` is in, selected unless `select` is false.
     func openTab(at url: URL, besides page: any E2EPage, select: Bool) throws -> any E2EPage
@@ -101,8 +103,8 @@ protocol E2EPage: AnyObject {
     /// Returns at once when that load already finished; loads that finished before it never count.
     /// The window's first page is `waitForLoad(after: 0)`.
     func waitForLoad(after finishedLoads: Int) async throws -> Int
-    /// Starts loading `url` in the page's tab, the way the address bar does.
-    func load(_ url: URL)
+    /// Starts loading `url` in the page's tab, the way the address bar does. Throws once the page's test has ended.
+    func load(_ url: URL) throws
     /// Every main frame navigation event the page's tab reported, in order, starting when the window opens.
     var navigationEvents: [E2ENavigationEvent] { get }
     /// Asked before every main frame navigation and redirect, with its URL: false cancels it, and the canceled
@@ -161,8 +163,8 @@ struct E2EPermissionPrompt {
     var message: String
     /// The prompt's frame in screen coordinates.
     var frame: NSRect
-    /// Presses Allow (true) or Block (false), as a click on the button does.
-    var answer: (Bool) -> Void
+    /// Presses Allow (true) or Block (false), as a click on the button does. Throws once the page's test has ended.
+    var answer: (Bool) throws -> Void
 }
 
 extension E2EPage {
@@ -201,6 +203,8 @@ struct E2EError: Error, CustomStringConvertible {
         case profileTaken
         /// A step or test ran past its limit.
         case timeout
+        /// An app or page action came from a test that had already ended (work a timed-out step left running).
+        case testEnded
     }
 
     let description: String

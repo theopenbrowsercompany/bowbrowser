@@ -14,6 +14,7 @@ enum PermissionsTests {
 /// then asks in a new in-memory profile, which prompts again, blocks it and checks the page is refused.
 struct PermissionsPromptTest: E2ETest {
     let name = "permissions.prompt"
+    let checks = ["permissions.prompt", "permissions.remembered", "permissions.block"]
 
     func run(_ run: E2ERun) async throws {
         let url = E2EFixture.url("permissions/index.html")
@@ -30,7 +31,7 @@ struct PermissionsPromptTest: E2ETest {
         try Self.checkOffScreen(prompt)
         let asked = prompt.kinds == ["camera"] && prompt.message == "bow.test wants to use your camera"
         let granted = try await run.step("allow", timeout: E2ETimeouts.step) {
-            prompt.answer(true)
+            try prompt.answer(true)
             return try await page.string("window.cameraResult")
         }
         run.check(
@@ -65,7 +66,7 @@ struct PermissionsPromptTest: E2ETest {
         }
         try Self.checkOffScreen(otherPrompt)
         try await run.step("block", timeout: E2ETimeouts.step) {
-            otherPrompt.answer(false)
+            try otherPrompt.answer(false)
             let blocked = try await other.string("window.cameraResult")
             let again = try await other.string("requestCamera()")
             run.check(

@@ -39,7 +39,10 @@ Start every session in `~/code/GitHub/bowbrowser`: the maintainer's `.claude/set
   Agents use it, not `make smoke`, for "Done when" checks: the window stays off screen, the app never takes focus or shows in the Dock, the profile and settings are throwaway, the network is blocked, and it runs from any worktree, beside a normal Bow and while other worktrees build.
   It prints one `PASS <check>` or `FAIL <check>: <reason>` line per check, one `RESULT <test> pass|fail|timeout seconds=<s> checks=<passed>/<n>` line per test, and a final `E2E: PASS n/n` (or `E2E: FAIL passed/n`) line, also saved in `build/e2e/<run>/report.txt`.
   Each test declares its checks (`checks` in `E2ETest`, default its name), and a test that stops early still prints `FAIL <check>: not run` for the rest, so the total never depends on how far tests got; a check a test does not declare fails.
-  A FAIL line names the step that failed.
+  Record each check once per test: a check recorded again fails once, printing a FAIL line that overrides its PASS without changing the total, and so does the last recorded check when the test throws after recording every check (the RESULT line then carries `error="<step>: <reason>"`).
+  `e2e.isolation` and `chromium.errors` belong to the runner, and a test may not declare them.
+  A FAIL line names the step that failed, also for a test's own failed check.
+  Once a test ends, its app and pages refuse every action with an error, so work a timed-out step left running cannot drive the app; never swallow `CancellationError` or an `E2EError` with reason `.testEnded` in a test (rethrow both before a bare `catch`).
   A step that runs past its limit fails its test with `TIMEOUT` in the reason, and the run goes on; waits (`E2EWaits`) give up shortly before the step's limit with what they saw last, and also work in hidden tabs.
   Each test gets a fresh in-memory profile (`openWindow(at:)`; `profile: .appDefault` asks for the shared default profile), and afterwards the runner closes its windows and the `e2e.isolation` check fails if any browser, popups included, is left open.
   `app.quit` (the test with `quitsApp`) always runs last and keeps its window, so quitting is timed with only that window open.
