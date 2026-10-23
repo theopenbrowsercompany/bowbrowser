@@ -15,8 +15,13 @@
 #    does. Release builds into its own derived data (build/release), and verify has already generated the project
 #    and built Debug, so the two share nothing; its output is printed after the e2e's, so the two never interleave.
 #    Any other branch skips it.
-# 6. Reruns the e2e tests the branch adds or changes (the names in each changed E2E/Tests file) 5 times with the retry
-#    off (E2E_REPEAT=5 make e2e-run), after the full e2e passed; any failed repeat fails it. No such tests, no step.
+# 6. Reruns the e2e tests the branch adds or changes (the names in each changed E2E/Tests file) DONE_REPEAT times
+#    (default 20) in DONE_REPEAT_SHARDS shards (default 3, so the repeats also run under load, which exposes waits on
+#    time) with the retry off (E2E_REPEAT=<n> E2E_SHARDS=<k> make e2e-run), after the full e2e passed. A selection of
+#    fewer tests than shards gets the smoke tests as load filler. The gate reads the changed tests' own
+#    `REPEAT <test> <passes>/<n>` lines: a changed test below n/n, a crash, timeout or error, or a failing check that
+#    no filler test owns fails it; a filler test that fails prints a `note:` line and never fails make done. No such
+#    tests, no step. The block says the count and shards used.
 # Then it prints the block: each step's result line, the e2e summary line and run folder, the path to final.png,
 # the diff stat against the merge base with origin/main (origin/main itself unless the branch is behind), the tree
 # hash and whether the worktree is dirty (a dirty tree is not what was checked). It exits 1 when any step failed
@@ -86,6 +91,53 @@ step() {
 }
 step_status=0
 
+# The repeat step's size: DONE_REPEAT repeats (default 20) in DONE_REPEAT_SHARDS shards (default 3) of the tests the
+# branch adds or changes. Lower them to test or to check by hand; both must be whole numbers of 1 or more.
+repeat_count=${DONE_REPEAT:-20}
+repeat_shards=${DONE_REPEAT_SHARDS:-3}
+case $repeat_count$repeat_shards in *[!0-9]* | "")
+  echo "done: DONE_REPEAT and DONE_REPEAT_SHARDS must be whole numbers of 1 or more"
+  exit 2
+  ;;
+esac
+if [ "$repeat_count" -lt 1 ] || [ "$repeat_shards" -lt 1 ]; then
+  echo "done: DONE_REPEAT and DONE_REPEAT_SHARDS must be whole numbers of 1 or more"
+  exit 2
+fi
+
+# repeat_gate <changed tests, comma list> <repeats> <e2e summary line> <repeat log>: prints the verdict on one line:
+#   pass                     every repeat passed;
+#   filler <note>            only filler tests (the smoke padding) failed, which never fails make done;
+#   fail <reason>            anything else, including a crash, timeout or error, a changed test below N/N, and a
+#                            failing check no test owns (chromium.errors, e2e.isolation): when in doubt, fail.
+# It reads the log's `REPEAT <test> <passes>/<N>` lines (short output prints only the tests below N) and its
+# `FAIL <check>: ...` lines, a check belonging to the longest test name it equals or continues with a dot.
+repeat_gate() {
+  local changed=$1 n=$2 summary=$3 log=$4
+  case $summary in
+    "") echo "fail no summary line"; return ;;
+    "E2E: PASS"*) echo pass; return ;;
+    *CRASH* | *TIMEOUT* | *ERROR* | *FLAKY*) echo "fail ${summary#E2E: }"; return ;;
+  esac
+  awk -v changed="$changed" -v n="$n" '
+    BEGIN { k = split(changed, c, ","); for (i = 1; i <= k; i++) mine[c[i]] = 1 }
+    /^REPEAT [^ ]+ [0-9]+\/[0-9]+$/ { split($3, p, "/"); if (p[1] + 0 < n) low[$2] = $3 }
+    /^FAIL [^ ]+/ { chk = $2; sub(/:$/, "", chk); checks[++nc] = chk }
+    END {
+      for (t in low) if (t in mine) { print "fail changed test " t " passed " low[t] " repeats"; exit }
+      if (nc == 0) { print "fail repeats failed with no FAIL line to attribute"; exit }
+      for (i = 1; i <= nc; i++) {
+        owner = ""
+        for (t in low) if ((checks[i] == t || index(checks[i], t ".") == 1) && length(t) > length(owner)) owner = t
+        for (t in mine) if ((checks[i] == t || index(checks[i], t ".") == 1) && length(t) >= length(owner)) owner = t
+        if (owner == "" || owner in mine) { print "fail check " checks[i] " is a changed test'"'"'s or no test'"'"'s"; exit }
+      }
+      list = ""
+      for (t in low) list = list (list == "" ? "" : ", ") t " " low[t]
+      print "filler filler test failed (not part of the gate): " list
+    }' "$log"
+}
+
 if [ -e Vendor/cef ]; then
   bootstrap="skip (Vendor/cef is there)"
 else
@@ -147,7 +199,7 @@ fi
 
 full_run=$(readlink build/e2e/latest 2> /dev/null || true) # the full run, before the repeats move latest
 # The tests the branch adds or changes (the names in each changed E2E/Tests file, found with
-# scripts/e2e-affected.sh --changed), rerun 5 times with the retry off: a new test that flakes shows here.
+# scripts/e2e-affected.sh --changed), rerun DONE_REPEAT times in shards with the retry off: a new test that flakes shows here.
 repeat="skip (the e2e did not pass)"
 repeat_lines=""
 if [ "$failed" = 0 ]; then
@@ -160,12 +212,34 @@ if [ "$failed" = 0 ]; then
   if [ -z "$changed_tests" ]; then
     repeat="skip (no e2e test added or changed)"
   else
-    step repeat env E2E_REPEAT=5 make --no-print-directory e2e-run "E2E=$changed_tests"
-    repeat_lines=$(grep '^\(REPEAT \|E2E: \)' "$out/repeat.log")
-    if [ "$step_status" = 0 ]; then repeat="ok (5 repeats of $changed_tests)"; else
-      repeat="FAIL (exit $step_status) (5 repeats of $changed_tests)"
-      failed=1
-    fi
+    # Fewer changed tests than shards would run as one shard per test, so a lone test would get no load: the smoke
+    # tests pad the selection as filler (e2e.sh drops a name listed twice).
+    selection=$changed_tests
+    n_changed=$(echo "$changed_tests" | tr ',' '\n' | grep -c .)
+    [ "$n_changed" -ge "$repeat_shards" ] || selection="$changed_tests,smoke"
+    desc="$repeat_count repeats in $repeat_shards shards of $changed_tests"
+    step repeat env E2E_REPEAT="$repeat_count" E2E_SHARDS="$repeat_shards" make --no-print-directory e2e-run "E2E=$selection"
+    repeat_lines=$(grep '^\(REPEAT \|E2E: \|note: \)' "$out/repeat.log")
+    # make exits 2 for any failure, so the summary line decides: PASS is the only pass, and a failure counts only
+    # when every failing check belongs to a filler test (see repeat_gate).
+    summary=$(grep '^E2E: ' "$out/repeat.log" | tail -1)
+    verdict=$(repeat_gate "$changed_tests" "$repeat_count" "$summary" "$out/repeat.log")
+    case $verdict in
+      pass)
+        if [ "$step_status" = 0 ]; then repeat="ok ($desc)"; else
+          repeat="FAIL (exit $step_status) ($desc)"
+          failed=1
+        fi
+        ;;
+      "filler "*)
+        repeat="ok ($desc)"
+        repeat_lines="$repeat_lines"$'\n'"note: ${verdict#filler }"
+        ;;
+      *)
+        repeat="FAIL (${verdict#fail }) ($desc)"
+        failed=1
+        ;;
+    esac
   fi
 fi
 
