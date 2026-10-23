@@ -35,9 +35,7 @@ enum TabEdgesTests {
         try await run.step("open a draft", timeout: E2ETimeouts.firstLoad) {
             let draft = try run.app.openTab(at: E2EFixture.url("tabs/leave.html"), besides: page, select: true)
             _ = try await draft.waitForLoad(after: 0)
-            // Chromium asks before leaving only a page the person has interacted with.
-            try await draft.click("textarea")
-            try await draft.type("unsaved words")
+            try await draft.typeLeaveDraft()
             return draft
         }
     }
@@ -286,7 +284,7 @@ struct TabsOrphanAskedOnceTest: E2ETest {
             draft.leavePromptAnswer = false
             try edges.deleteSpace(space, besides: page)
             guard try await TabEdgesTests.until({ draft.leavePrompts == 1 }) else {
-                throw E2EError("the orphan was not asked")
+                throw E2EError("the orphan was not asked (\(draft.isClosed ? "it closed" : "it is still open"))")
             }
             // Later changes: a saved tab, another Space, a switch back.
             _ = try edges.insertSavedTab(TabEdgesTests.url("later"), besides: page, title: "later")
