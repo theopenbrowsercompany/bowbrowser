@@ -72,7 +72,6 @@ public final class SidebarStore {
     ) throws {
         self.fileURL = fileURL
         self.writer = writer
-        AtomicFileWriter.removeLeftovers(for: fileURL)
 
         var origin = Origin.loaded
         var migratedFrom: Int?
@@ -103,6 +102,8 @@ public final class SidebarStore {
             }
         }
 
+        // Only once the file is known to be this build's: a newer Bow's save in progress is not this build's to clear.
+        AtomicFileWriter.removeLeftovers(for: fileURL)
         repairs += graph.repair()
         // Before the first save replaces a file that had to change, keep it as it was.
         if origin == .loaded, let version = migratedFrom {

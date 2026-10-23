@@ -95,18 +95,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         } else {
             // The saved sidebar comes back with only its active tab loading; an empty one opens the home page.
-            do {
-                let controller = try openWindow(url: nil)
-                controller.showWindow(nil)
-                NSApp.activate()
-            } catch {
+            NSApp.activate()
+            guard let controller = openWindowOrExplain(url: nil) else {
                 // Bow refuses to start rather than run on a sidebar that would not be saved.
-                NSApp.activate()
-                appFeatures.require(SidebarStores.self).present(error, in: nil)
                 BowEngine.exitCode = 1
                 NSApp.terminate(nil)
                 return
             }
+            controller.showWindow(nil)
         }
         let links = pendingLinks
         pendingLinks.removeAll()
@@ -126,8 +122,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// used browser window, in the profile of its Space on screen, or in a new window when none is open. Links that
     /// arrive before the engine has started open once it has.
     func application(_ application: NSApplication, open urls: [URL]) {
-        // An e2e run is a throwaway profile beside the person's own Bow: a link meant for them never opens in it.
-        guard !options.isE2E else { return }
+        // An e2e or smoke run is a throwaway beside the person's own Bow: a link meant for them never opens in it.
+        guard !options.isE2E, !options.isSmokeTest else { return }
         for url in urls where ["http", "https"].contains(url.scheme?.lowercased()) {
             if engineStarted {
                 openLink(url)
@@ -153,12 +149,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return controller
         }
         guard !options.isE2E else { return nil }
+        let controller = openWindowOrExplain(url: url)
+        controller?.showWindow(nil)
+        return controller
+    }
+
+    /// Opens a window as `openWindow` does, or shows the person why it cannot (an alert of its own) and returns nil.
+    func openWindowOrExplain(
+        url: URL?,
+        profile: (any EngineProfile)? = nil,
+        window: BrowserWindow? = nil,
+        sidebarStores: SidebarStores? = nil
+    ) -> BrowserWindowController? {
         do {
-            let controller = try openWindow(url: url)
-            controller.showWindow(nil)
-            return controller
+            return try openWindow(url: url, profile: profile, window: window, sidebarStores: sidebarStores)
         } catch {
-            appFeatures.require(SidebarStores.self).present(error, in: nil)
+            (sidebarStores ?? appFeatures.require(SidebarStores.self)).present(error, in: nil)
             return nil
         }
     }
@@ -199,8 +205,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         } else if let profile {
             store = try stores.makeWindowStore(profile: SidebarStores.sidebarProfileID(of: profile.profileID))
         } else {
-            store = try stores.main()
-            if let notice = stores.takePendingNotice() { notices.append(notice) }
+            let main = try stores.main()
+            store = main.store
+            if let notice = main.notice { notices.append(notice) }
         }
         var url = url
         if url == nil, store.graph.activeSpaceID.map({ store.graph.tabIDs(in: $0).isEmpty }) ?? true {
