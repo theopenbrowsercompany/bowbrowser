@@ -13,6 +13,7 @@ The harness is compiled into Debug builds only, and this folder's README is a do
 Agents use it, not `make smoke`, for "Done when" checks: the window stays off screen, the app never takes focus or shows in the Dock, the profile and settings are throwaway, the network is blocked, and it runs from any worktree, beside a normal Bow and while other worktrees build.
 `make e2e-run` does the same without building, to rerun the last build (for example a test that looked like load).
 `E2E=` goes to the app as one `--e2e=` value, and the app refuses a selection it does not know with exit 64.
+A harness self test that ends its run on purpose (`selectedByNameOnly` in `E2ETest`, for example `engine.watchdog-tracking-loop`) runs only when the selection names it exactly: `all`, areas, globs and tags skip it, and `E2E=list` leaves it out.
 
 ## Run folder, report and results.json
 
