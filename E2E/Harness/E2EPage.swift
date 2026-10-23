@@ -19,6 +19,13 @@ protocol E2EApp: AnyObject {
     func closeTab(_ page: any E2EPage) async throws -> Bool
     /// Closes the window `page` is in the way its close button does, and returns once the window has closed.
     func closeWindow(of page: any E2EPage) async throws
+    /// Clicks `button` in the toolbar of the window `page` is in. Throws when the button is disabled.
+    func click(_ button: E2EToolbarButton, in page: any E2EPage) throws
+    /// The state of `button` in the toolbar of the window `page` is in.
+    func toolbarButton(_ button: E2EToolbarButton, in page: any E2EPage) throws -> E2EToolbarButtonState
+    /// Sends `shortcut` to the window `page` is in the way pressing its keys does: through the app's menu, to the
+    /// menu item that has the shortcut. Throws when no menu item has it or the item is disabled.
+    func press(_ shortcut: E2EShortcut, in page: any E2EPage) throws
     /// The first page of the window opened last, which the run's final.png shows when that page is still the one
     /// its window shows; nil before any window opened and after quit().
     var lastOpenedPage: (any E2EPage)? { get }
@@ -30,6 +37,33 @@ extension E2EApp {
     func openWindow(at url: URL) async throws -> any E2EPage {
         try await openWindow(at: url, newProfile: nil)
     }
+}
+
+/// A navigation button in a browser window's toolbar.
+enum E2EToolbarButton: String {
+    case back, forward
+    /// Reload while the page is idle, stop while it loads.
+    case reload
+}
+
+/// What a toolbar button shows: whether it can be clicked, and its label (the reload button reads "Reload" or
+/// "Stop").
+struct E2EToolbarButtonState: Equatable, CustomStringConvertible {
+    var isEnabled: Bool
+    var label: String
+
+    var description: String { "\(label)(\(isEnabled ? "on" : "off"))" }
+}
+
+/// An app keyboard shortcut: Command with a key.
+enum E2EShortcut: String {
+    case back = "["
+    case forward = "]"
+    case reload = "r"
+    case stop = "."
+
+    /// The key pressed with Command, as a menu item's key equivalent.
+    var key: String { rawValue }
 }
 
 /// A profile for `E2EApp.openWindow` to create: on disk when persistent, in memory otherwise.

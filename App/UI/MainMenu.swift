@@ -7,6 +7,8 @@ enum MainMenu {
         let menu = NSMenu()
         menu.addItem(submenu(appMenu()))
         menu.addItem(submenu(editMenu()))
+        menu.addItem(submenu(viewMenu()))
+        menu.addItem(submenu(historyMenu()))
         menu.addItem(submenu(windowMenu()))
         return menu
     }
@@ -34,6 +36,23 @@ enum MainMenu {
         menu.addItem(withTitle: "Copy", action: #selector(NSText.copy(_:)), keyEquivalent: "c")
         menu.addItem(withTitle: "Paste", action: #selector(NSText.paste(_:)), keyEquivalent: "v")
         menu.addItem(withTitle: "Select All", action: #selector(NSText.selectAll(_:)), keyEquivalent: "a")
+        return menu
+    }
+
+    /// Reload and stop act on the key window's selected tab (`BrowserWindowController`), which enables them.
+    private static func viewMenu() -> NSMenu {
+        let menu = NSMenu(title: "View")
+        menu.addItem(withTitle: "Stop", action: #selector(BrowserWindowController.stopLoading(_:)), keyEquivalent: ".")
+        menu.addItem(
+            withTitle: "Reload Page", action: #selector(BrowserWindowController.reloadPage(_:)), keyEquivalent: "r")
+        return menu
+    }
+
+    /// Back and forward act on the key window's selected tab (`BrowserWindowController`), which enables them.
+    private static func historyMenu() -> NSMenu {
+        let menu = NSMenu(title: "History")
+        menu.addItem(withTitle: "Back", action: #selector(BrowserWindowController.goBack(_:)), keyEquivalent: "[")
+        menu.addItem(withTitle: "Forward", action: #selector(BrowserWindowController.goForward(_:)), keyEquivalent: "]")
         return menu
     }
 

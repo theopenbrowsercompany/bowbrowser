@@ -4,7 +4,7 @@ import BowCore
 /// A browser window: its tabs, and one host view that shows the selected tab. It reaches the engine only through
 /// the BowCore protocols, and is the delegate of each of its tabs.
 @MainActor
-final class BrowserWindowController: NSWindowController, NSWindowDelegate, EngineTabDelegate {
+final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMenuItemValidation, EngineTabDelegate {
     static let styleMask: NSWindow.StyleMask = [.titled, .closable, .miniaturizable, .resizable]
 
     /// Shows the selected tab. Switching tabs shows another tab here; pages are never reloaded by a switch.
@@ -19,6 +19,10 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, Engin
     var navigationPolicy: ((any EngineTab, EngineNavigation) -> NavigationPolicy)?
 
     private let profile: any EngineProfile
+    /// The back, forward and reload or stop buttons in the window's toolbar.
+    let navigationToolbar = NavigationToolbar()
+    /// What the navigation controls offer for the selected tab; the toolbar and the menu items follow it.
+    private(set) var navigationControls = NavigationControls.disabled
 
     /// The tab `webView` shows, read back from the view so it always matches the screen (the view refuses a tab
     /// that is closing).
@@ -48,6 +52,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, Engin
             shouldCascadeWindows = false
         }
         window.delegate = self
+        navigationToolbar.install(in: window, target: self)
         openTab(url: url)
     }
 
@@ -71,6 +76,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, Engin
         guard tabs.contains(where: { $0 === tab }) else { return }
         webView.show(tab)
         updateTitle()
+        updateNavigationControls()
     }
 
     /// Closes `tab`, one of this window's tabs, after its page's beforeunload handler runs. Returns true once it has
@@ -87,7 +93,10 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, Engin
     func tab(_ tab: any EngineTab, didReceive event: TabEvent) {
         switch event {
         case .stateChanged:
-            if tab === selectedTab { updateTitle() }
+            if tab === selectedTab {
+                updateTitle()
+                updateNavigationControls()
+            }
         case .closed:
             // A tab closes from this window, from quitting or from its page; the window follows its last tab.
             tabClosed(tab)
@@ -112,6 +121,49 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, Engin
         } else {
             updateTitle()
         }
+        updateNavigationControls()
+    }
+
+    // MARK: Navigation controls
+
+    /// Goes back in the selected tab's history (toolbar button, History > Back, Cmd+[).
+    @objc func goBack(_ sender: Any?) {
+        guard navigationControls.canGoBack else { return }
+        selectedTab?.goBack()
+    }
+
+    /// Goes forward in the selected tab's history (toolbar button, History > Forward, Cmd+]).
+    @objc func goForward(_ sender: Any?) {
+        guard navigationControls.canGoForward else { return }
+        selectedTab?.goForward()
+    }
+
+    /// Reloads the selected tab (toolbar button while idle, View > Reload Page, Cmd+R), also while it loads.
+    @objc func reloadPage(_ sender: Any?) {
+        guard navigationControls.canReload else { return }
+        selectedTab?.reload()
+    }
+
+    /// Stops the selected tab's load (toolbar button while loading, View > Stop, Cmd+.).
+    @objc func stopLoading(_ sender: Any?) {
+        guard navigationControls.canStop else { return }
+        selectedTab?.stop()
+    }
+
+    func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
+        switch menuItem.action {
+        case #selector(goBack(_:)): navigationControls.canGoBack
+        case #selector(goForward(_:)): navigationControls.canGoForward
+        case #selector(reloadPage(_:)): navigationControls.canReload
+        case #selector(stopLoading(_:)): navigationControls.canStop
+        default: true
+        }
+    }
+
+    /// Reads the controls from the selected tab's last pushed state and shows them in the toolbar.
+    private func updateNavigationControls() {
+        navigationControls = selectedTab.map { NavigationControls(state: $0.state, isClosed: $0.isClosed) } ?? .disabled
+        navigationToolbar.show(navigationControls)
     }
 
     private func updateTitle() {
