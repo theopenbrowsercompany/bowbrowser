@@ -93,6 +93,34 @@ extension E2EAppAdapter {
         let empty = controller.e2eEmptySpace
         let emptyShown = !empty.isHiddenOrHasHiddenAncestor && empty.window != nil
         let appearance = window.effectiveAppearance
+        let outline = sidebar.outlineView
+        func inOutline(_ view: NSView?) -> CGRect { view.map { outline.convert($0.bounds, from: $0) } ?? .zero }
+        let grid = views(in: outline, FavoritesGridView.self).first
+        let spaceName = views(in: outline, NSTextField.self).first { $0.identifier?.rawValue == "space-name" }
+        var topIconX = 0.0
+        var childIconX = 0.0
+        var childRowHeight = 0.0
+        var firstTabRow = CGRect.zero
+        for row in 0..<outline.numberOfRows {
+            let level = outline.level(forRow: row)
+            if level == 1, firstTabRow == .zero { firstTabRow = outline.rect(ofRow: row) }
+            guard let cell = outline.view(atColumn: 0, row: row, makeIfNecessary: false) as? TabSidebarRow else {
+                continue
+            }
+            let iconX = Double(inOutline(cell.iconView).minX)
+            if level == 1, topIconX == 0 { topIconX = iconX }
+            if level == 2, childIconX == 0 {
+                childIconX = iconX
+                childRowHeight = Double(outline.rect(ofRow: row).height)
+            }
+        }
+        let dot = views(in: sidebar.footer, NSButton.self).first {
+            $0.identifier?.rawValue == "space-icon" && $0.accessibilityValue() as? String == "on screen"
+        }
+        let dotSize = Double(dot?.image?.size.width ?? 0)
+        let ringWidth = Double(dot?.layer?.borderWidth ?? 0)
+        let panel = controller.feature(CommandBarFeature.self)?.panel
+        let panelContent = panel?.content.layer
         return E2EDesignLook(
             iconName: iconName,
             iconFileExists: iconFileExists,
@@ -122,7 +150,26 @@ extension E2EAppAdapter {
             selectedRowText: rowView.flatMap { hex($0.titleField.textColor, in: appearance) },
             selectedRowBold: rowView?.titleField.font?.fontDescriptor.symbolicTraits.contains(.bold) ?? false,
             showsEmptyState: emptyShown,
-            emptyStateMarkSize: emptyShown && empty.markView.image != nil ? Double(empty.markView.frame.width) : 0
+            emptyStateMarkSize: emptyShown && empty.markView.image != nil ? Double(empty.markView.frame.width) : 0,
+            favoriteTileFrame: inOutline(grid?.tiles.first),
+            favoritesFrame: inOutline(grid),
+            spaceNameFrame: inOutline(spaceName),
+            firstTabRowFrame: firstTabRow,
+            topIconX: topIconX,
+            childIconX: childIconX,
+            childRowHeight: childRowHeight,
+            spaceDotSize: dotSize,
+            spaceRingWidth: ringWidth,
+            spaceRingGap: dot.map { (Double($0.bounds.width) - dotSize) / 2 - ringWidth } ?? 0,
+            spaceRingColor: dot?.layer?.borderColor.flatMap { NSColor(cgColor: $0) }.flatMap {
+                hex($0, in: appearance)
+            },
+            commandBarRadius: Double(panelContent?.cornerRadius ?? 0),
+            commandBarClips: panelContent?.masksToBounds ?? false,
+            commandBarShadowHasPath: panel.map { panel in
+                panel.bounds.width > 0
+                    && panel.layer?.shadowPath.map { $0.boundingBox.size == panel.bounds.size } ?? false
+            } ?? false
         )
     }
 

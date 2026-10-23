@@ -151,40 +151,44 @@ enum SpaceActions {
     }
 }
 
-/// The name of the Space on screen, at the top of the sidebar above its tabs. Double-clicking it renames the Space,
-/// and its context menu renames or deletes it.
+/// The name of the Space on screen, as the pinned section's header: below the Favorites grid and above the Space's
+/// tabs, where Arc puts it. Double-clicking it renames the Space, and its context menu renames or deletes it, followed
+/// by the pinned section's own items (New Folder), which its row showed before it had a name on it.
 @MainActor
-final class SpaceNameHeader: SidebarAccessory {
-    static var placement: SidebarAccessoryPlacement { .top }
+final class SpaceNameView: NSView {
+    /// The header row's height: the 11 point label with 4 points above and below.
+    static let height: CGFloat = 22
 
-    let view: NSView
-    private let label = NSTextField(labelWithString: "")
+    let label = NSTextField(labelWithString: "")
     private weak var context: (any SidebarActionContext)?
     private var spaceID: SidebarSpaceID?
+    private var pinnedContainerID: SidebarItemID?
 
     init() {
-        let container = SpaceHeaderView()
-        view = container
+        super.init(frame: .zero)
         label.lineBreakMode = .byTruncatingTail
         label.identifier = NSUserInterfaceItemIdentifier("space-name")
         label.translatesAutoresizingMaskIntoConstraints = false
-        container.addSubview(label)
-        // A group label: padded 4 by 10 within the sidebar's own padding.
+        addSubview(label)
+        // A group label: inset 10 within the sidebar's own padding.
         NSLayoutConstraint.activate([
-            label.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: BowBrand.sidebarLeading + 10),
+            label.leadingAnchor.constraint(equalTo: leadingAnchor, constant: BowBrand.sidebarLeading + 10),
             label.trailingAnchor.constraint(
-                lessThanOrEqualTo: container.trailingAnchor, constant: -(BowBrand.sidebarTrailing + 10)),
-            label.topAnchor.constraint(equalTo: container.topAnchor, constant: 4),
-            label.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -4),
+                lessThanOrEqualTo: trailingAnchor, constant: -(BowBrand.sidebarTrailing + 10)),
+            label.centerYAnchor.constraint(equalTo: centerYAnchor),
         ])
-        container.onDoubleClick = { [weak self] in self?.renameShownSpace() }
-        container.makeMenu = { [weak self] in self?.menuItems() ?? [] }
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) is not supported")
     }
 
     func update(content: SidebarContent, context: (any SidebarActionContext)?) {
         self.context = context
         let space = content.graph.activeSpace
         spaceID = space?.id
+        pinnedContainerID = space?.pinnedContainerID
         let title = space.map(Self.title(of:)) ?? ""
         // Shown as an 11 point bold uppercase label in Soft; the tooltip keeps the name as typed.
         label.attributedStringValue = NSAttributedString(
@@ -201,29 +205,22 @@ final class SpaceNameHeader: SidebarAccessory {
         return space.title
     }
 
-    private func renameShownSpace() {
-        guard let context, let spaceID else { return }
-        SpaceActions.rename(spaceID, context: context, window: view.window)
-    }
-
-    private func menuItems() -> [NSMenuItem] {
-        guard let context, let spaceID else { return [] }
-        return SpaceActions.menuItems(for: spaceID, context: context) { [weak view] in view?.window }
-    }
-}
-
-/// The view behind the Space name header: a double-click and a context menu.
-@MainActor
-private final class SpaceHeaderView: NSView {
-    var onDoubleClick: (() -> Void)?
-    var makeMenu: (() -> [NSMenuItem])?
-
     override func mouseDown(with event: NSEvent) {
-        if event.clickCount == 2 { onDoubleClick?() } else { super.mouseDown(with: event) }
+        if event.clickCount == 2, let context, let spaceID {
+            SpaceActions.rename(spaceID, context: context, window: window)
+        } else {
+            super.mouseDown(with: event)
+        }
     }
 
     override func menu(for event: NSEvent) -> NSMenu? {
-        SpaceActions.contextMenu(makeMenu?() ?? [])
+        guard let context, let spaceID else { return nil }
+        var items = SpaceActions.menuItems(for: spaceID, context: context) { [weak self] in self?.window }
+        if let pinnedContainerID {
+            let section = SidebarMenus.menu(for: pinnedContainerID, kind: .section(.pinned), context: context)
+            if !section.isEmpty { items += [.separator()] + section }
+        }
+        return SpaceActions.contextMenu(items)
     }
 }
 
@@ -256,7 +253,7 @@ final class SpaceSwitcher: SidebarAccessory {
         stack.edgeInsets = NSEdgeInsets(top: 8, left: 0, bottom: 0, right: 0)
         view = stack
         icons.orientation = .horizontal
-        icons.spacing = 0
+        icons.spacing = Self.iconSpacing
         // Many Spaces narrow their icons, then clip at the footer's edge, rather than widening the sidebar.
         icons.setClippingResistancePriority(.defaultLow, for: .horizontal)
         icons.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
@@ -318,12 +315,12 @@ final class SpaceSwitcher: SidebarAccessory {
         case nil:
             // Arc's default: a dot per Space. The one on screen is Jam with an Apricot ring, the frame showing in the
             // 2 point gap between them; the others are Soft.
-            button.image = NSImage(systemSymbolName: "circle.fill", accessibilityDescription: space.title)
-            button.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: Self.dotSize, weight: .regular)
+            button.image = Self.dotImage
+            button.imageScaling = .scaleNone
             button.contentTintColor = space.isActive ? BowBrand.accent : BowBrand.soft
             button.wantsLayer = true
             button.layer?.cornerRadius = Self.dotButtonSize / 2
-            button.layer?.borderWidth = space.isActive ? 4 : 0
+            button.layer?.borderWidth = space.isActive ? Self.ringWidth : 0
             button.layer?.borderColor = BowBrand.ring.cgColor
         }
         if button.image == nil, button.title.isEmpty { button.title = String(space.title.prefix(1)) }
@@ -342,10 +339,24 @@ final class SpaceSwitcher: SidebarAccessory {
         return button
     }
 
-    /// A Space's dot, and its button: the dot with a 2 point gap and a 4 point ring around it, so dots 14 points
+    /// A Space's dot, and its button: the dot with a 2 point gap and a 2 point ring around it (the reference design's
+    /// 2 point frame colored ring inside a 4 point Apricot one). With `iconSpacing` between buttons, dots 14 points
     /// wide stand 12 points apart.
     static let dotSize: CGFloat = 14
-    static let dotButtonSize: CGFloat = 26
+    static let ringWidth: CGFloat = 2
+    static let dotButtonSize: CGFloat = dotSize + 2 * (2 + ringWidth)
+    static let iconSpacing: CGFloat = 4
+
+    /// The dot: a filled circle exactly `dotSize` across, tinted by its button.
+    static let dotImage: NSImage = {
+        let image = NSImage(size: NSSize(width: dotSize, height: dotSize), flipped: false) { rect in
+            NSColor.black.setFill()
+            NSBezierPath(ovalIn: rect).fill()
+            return true
+        }
+        image.isTemplate = true
+        return image
+    }()
 
     @objc private func iconClicked(_ sender: SpaceIconButton) {
         guard let context, let id = sender.spaceID else { return }

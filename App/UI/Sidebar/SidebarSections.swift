@@ -56,9 +56,16 @@ enum SidebarZone: String, Sendable {
     case today
 }
 
-/// The pinned tabs of the Space on screen, with their folders as expandable rows.
+/// The pinned tabs of the Space on screen, with their folders as expandable rows, under the Space's name.
 struct PinnedSection: SidebarSection {
     var zone: SidebarZone? { .pinned }
+    var headerHeight: CGFloat { SpaceNameView.height }
+
+    func makeHeaderView() -> NSView? { SpaceNameView() }
+
+    func updateHeaderView(_ view: NSView, content: SidebarContent, context: (any SidebarActionContext)?) {
+        (view as? SpaceNameView)?.update(content: content, context: context)
+    }
 
     func containerID(in graph: SidebarGraph, space: SidebarSpace) -> SidebarItemID? {
         space.pinnedContainerID

@@ -46,6 +46,8 @@ final class CommandBarPanel: NSView, NSTextFieldDelegate {
     static let width: CGFloat = 640
 
     let field = NSTextField()
+    /// The White rounded rect holding the field and the results, clipped to its corners.
+    let content = NSView()
     private let rowStack = NSStackView()
     private let separator = NSBox()
     private(set) var rows: [CommandBarRowView] = []
@@ -64,13 +66,20 @@ final class CommandBarPanel: NSView, NSTextFieldDelegate {
     override init(frame: NSRect) {
         super.init(frame: frame)
         appearance = NSAppearance(named: .aqua)
+        // The panel draws the shadow (along `shadowPath`, set in `layout()`), and its content view the White
+        // rounded rect, clipping the field and the results to its corners.
         wantsLayer = true
-        if let layer {
+        layer?.masksToBounds = false
+        shadow = BowBrand.softShadow()
+        content.wantsLayer = true
+        if let layer = content.layer {
             layer.backgroundColor = BowBrand.page.cgColor
             layer.cornerRadius = BowBrand.radiusPanel
             layer.cornerCurve = .continuous
+            layer.masksToBounds = true
         }
-        shadow = BowBrand.softShadow()
+        content.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(content)
 
         field.isBordered = false
         field.drawsBackground = false
@@ -93,13 +102,17 @@ final class CommandBarPanel: NSView, NSTextFieldDelegate {
         stack.spacing = 8
         stack.edgeInsets = NSEdgeInsets(top: 14, left: 16, bottom: 10, right: 16)
         stack.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(stack)
+        content.addSubview(stack)
         NSLayoutConstraint.activate([
             widthAnchor.constraint(equalToConstant: Self.width),
-            stack.leadingAnchor.constraint(equalTo: leadingAnchor),
-            stack.trailingAnchor.constraint(equalTo: trailingAnchor),
-            stack.topAnchor.constraint(equalTo: topAnchor),
-            stack.bottomAnchor.constraint(equalTo: bottomAnchor),
+            content.leadingAnchor.constraint(equalTo: leadingAnchor),
+            content.trailingAnchor.constraint(equalTo: trailingAnchor),
+            content.topAnchor.constraint(equalTo: topAnchor),
+            content.bottomAnchor.constraint(equalTo: bottomAnchor),
+            stack.leadingAnchor.constraint(equalTo: content.leadingAnchor),
+            stack.trailingAnchor.constraint(equalTo: content.trailingAnchor),
+            stack.topAnchor.constraint(equalTo: content.topAnchor),
+            stack.bottomAnchor.constraint(equalTo: content.bottomAnchor),
             field.widthAnchor.constraint(equalTo: stack.widthAnchor, constant: -32),
             separator.widthAnchor.constraint(equalTo: stack.widthAnchor, constant: -32),
             rowStack.widthAnchor.constraint(equalTo: stack.widthAnchor, constant: -32),
@@ -109,6 +122,12 @@ final class CommandBarPanel: NSView, NSTextFieldDelegate {
     @available(*, unavailable)
     required init?(coder: NSCoder) {
         fatalError("init(coder:) is not supported")
+    }
+
+    override func layout() {
+        super.layout()
+        layer?.shadowPath = CGPath(
+            roundedRect: bounds, cornerWidth: BowBrand.radiusPanel, cornerHeight: BowBrand.radiusPanel, transform: nil)
     }
 
     /// Shows `results`, highlighting the row at `selected`.
