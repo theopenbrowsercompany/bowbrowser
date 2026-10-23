@@ -287,18 +287,23 @@ final class E2ERunner {
         if let quitCheck {
             // Two times: the app closing every page and ending its message loop, which a person waits for, and
             // the whole quit with Chromium's own shutdown, which grows with machine load (see spec/quit.md).
-            let closed = BowEngine.quitCloseDuration
+            let closed = BowQuitTiming.closeDuration()
             let exited = BowEngine.quitDuration
             let times =
-                "closed=\(Self.format(closed)) limit \(Self.format(quitCheck.closeLimit)), "
-                + "exited=\(Self.format(exited)) limit \(Self.format(quitCheck.exitLimit))"
+                "closed=\(Self.milliseconds(closed)) limit \(Self.format(quitCheck.closeLimit)), "
+                + "exited=\(Self.milliseconds(exited)) limit \(Self.format(quitCheck.exitLimit))"
             if let quitFailure {
                 record(quitCheck.name, passed: false, detail: quitFailure)
-            } else if closed <= 0 || exited <= 0 {
+            } else if exited <= 0 {
                 record(quitCheck.name, passed: false, detail: "the quit clock never started, so quitting was not timed")
+            } else if closed <= 0 {
+                record(quitCheck.name, passed: false, detail: "the message loop ended before the quit clock started")
+            } else if closed >= quitCheck.closeLimit {
+                record(quitCheck.name, passed: false, detail: "closing took too long: \(times)")
+            } else if exited >= quitCheck.exitLimit {
+                record(quitCheck.name, passed: false, detail: "Chromium's shutdown took too long: \(times)")
             } else {
-                let passed = closed < quitCheck.closeLimit && exited < quitCheck.exitLimit
-                record(quitCheck.name, passed: passed, detail: times)
+                record(quitCheck.name, passed: true, detail: times)
             }
         }
 
@@ -432,6 +437,11 @@ final class E2ERunner {
             UserDefaults.standard.removePersistentDomain(forName: suite)
             try? fileManager.removeItem(at: preferences.appendingPathComponent(file))
         }
+    }
+
+    /// Seconds with three decimals, so a close of a few milliseconds does not read as zero.
+    private static func milliseconds(_ seconds: TimeInterval) -> String {
+        String(format: "%.3f", seconds)
     }
 
     private static func format(_ seconds: TimeInterval) -> String {

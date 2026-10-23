@@ -5,6 +5,9 @@
 #import "BowEngineConfiguration.h"
 #import "Bow-Swift.h"
 #include "BowEngine+Internal.h"
+#if BOW_E2E
+#include "BowE2EHooks.h"  // E2E seam
+#endif
 #include "include/cef_app.h"
 #include "include/cef_application_mac.h"
 #include "include/wrapper/cef_library_loader.h"
@@ -94,7 +97,9 @@ int main(int argc, char* argv[]) {
     CefRefPtr<BowCefApp> app(new BowCefApp(configuration));
     if (!CefInitialize(mainArgs, settings, app.get(), nullptr)) return CefGetExitCode();
     CefRunMessageLoop();
+#if BOW_E2E  // E2E seam: times the app's part of quitting, before Chromium's shutdown.
     BowEngineMessageLoopDidEnd();
+#endif
     CefShutdown();
     BowEngineDidShutDown();
     [delegate engineDidStop];

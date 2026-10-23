@@ -17,4 +17,5 @@
 #import "BowPopupParking.h"     // E2E seam
 #import "BowLeavePrompts.h"     // E2E seam
 #import "BowOpenBrowsers.h"     // E2E seam
+#import "BowQuitTiming.h"       // E2E seam
 #endif

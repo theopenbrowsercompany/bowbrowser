@@ -7,11 +7,12 @@ People rely on it every day, and every automated run relies on the app exiting o
 
 ## Behavior
 
-- Choosing Bow > Quit Bow or pressing Cmd+Q closes every window and the app exits with exit code 0, within 2 seconds on a machine that is not busy.
-  Quitting has two parts, timed from the moment it starts:
-  - closing: the app closes every page and ends its message loop, which takes a few hundredths of a second and must finish within 2 seconds;
-  - shutting down: Chromium stops its threads and helper processes, after which the process exits.
-    On a quiet machine this takes well under a second, but it waits on other threads and processes, so it stretches when the machine is busy (many parallel builds); the automated check gives the whole quit a ceiling of 10 seconds.
+- Choosing Bow > Quit Bow or pressing Cmd+Q closes every window and the app exits with exit code 0.
+  Quitting has two parts, both timed from the moment it starts:
+  - closing: the app closes every page and ends its message loop; this always finishes within 2 seconds (it takes a few hundredths of a second);
+  - shutting down: Chromium then stops its threads and helper processes and the process exits.
+    On a machine that is not busy the whole quit is done within 2 seconds, usually well under one.
+    Chromium's part waits on other threads and processes, so it stretches when the machine is busy (for example many parallel builds), but the whole quit is always done within 5 seconds.
 - Closing the last window (its close button, Window > Close or Cmd+W) closes every page (tab) in it, then the app quits the same way.
 - Closing a window that is not the last one closes only that window's pages and leaves the app running.
 - A page's own "leave this page?" prompt still appears when quitting or closing its window.
@@ -24,11 +25,12 @@ People rely on it every day, and every automated run relies on the app exiting o
   - `--smoke-quit=terminate` (the default) quits directly, `--smoke-quit=menu` presses Cmd+Q through the menu bar, and `--smoke-quit=close-window` closes the window, so each way a person quits can be checked on its own.
   - After quitting, a smoke run prints `quit: seconds=<time>` to standard error, timed from the result line.
     If the app has not finished quitting 2 seconds after the result line, it prints `quit: timed out after 2.0 seconds` instead and exits with code 3.
+    This limit covers the whole quit, Chromium's shutdown included, so a smoke run on a very busy machine can hit it; smoke runs are meant for a machine that is not busy.
 - An unknown value for a switch the app reads (such as `--smoke-quit=later`) prints the problem to standard error and exits with code 64 without opening a window.
 
 ## Edge cases
 
-- Quitting while a page is still loading, or before its window has finished opening, still exits within 2 seconds.
+- Quitting while a page is still loading, or before its window has finished opening, still closes every page within 2 seconds and exits.
 - Popup windows a page opened close along with everything else when quitting, and closing one leaves its opener's window open.
 - A page that loads more than once during a smoke run (a redirect or a script navigation) still produces one result line and keeps the first result's exit code.
 - A page that keeps its "leave this page?" prompt open blocks quitting until the person answers; a smoke run then fails with exit code 3 instead of hanging.
@@ -38,10 +40,10 @@ People rely on it every day, and every automated run relies on the app exiting o
 1. Run `make smoke`: it prints one `smoke: status=200 title="Example Domain" url=https://example.com/` line, then `quit: seconds=` below 2, and `echo $?` prints 0.
 2. Run the built app with `--smoke-test=https://example.com --smoke-quit=menu`: the same output and exit code 0.
 3. Run it with `--smoke-test=https://example.com --smoke-quit=close-window`: the same output and exit code 0.
-4. Open Bow normally, press Cmd+Q: the window closes and the process ends within 2 seconds with exit code 0.
-5. Open Bow normally, click the window's close button: the window closes and the process ends within 2 seconds with exit code 0.
+4. On a machine that is not busy, open Bow normally and press Cmd+Q: the window closes at once and the process ends within 2 seconds with exit code 0.
+5. On a machine that is not busy, open Bow normally and click the window's close button: the window closes at once and the process ends within 2 seconds with exit code 0.
 6. Run the built app with `--smoke-quit=later`: it prints an error, opens no window, and exits with code 64.
-7. Run `make e2e`: the `app.quit` test loads a page in an off-screen window, quits, and prints `PASS app.quit: closed=<s> limit 2, exited=<s> limit 10` after every other check and a final `E2E: PASS n/n`, exiting with code 0.
+7. Run `make e2e`: the `app.quit` test loads a page in an off-screen window, quits, and prints `PASS app.quit: closed=<s> limit 2, exited=<s> limit 5` after every other check and a final `E2E: PASS n/n`, exiting with code 0.
    `closed` is the closing part, `exited` the whole quit with Chromium's shutdown.
 
 ## Why the automated check has two limits
@@ -55,7 +57,9 @@ Timestamps taken through quitting during full `make e2e` runs, while other workt
   Pausing 0.3 seconds before it cut it to under 0.1 seconds, so much of it is waiting for work still finishing elsewhere, which a busy machine slows down.
 
 So a single 2 second limit on the whole quit measured mostly how busy the machine was: one full run under heavy load took 2.72 seconds and failed, while closing never took more than 0.05 seconds in any measured run.
-The check now holds closing, the part the app controls and a person waits for, to 2 seconds, and gives the whole quit a separate ceiling of 10 seconds that still catches a quit that stalls (the runner's hang watchdog fires at 15).
+The check now holds closing, the part the app controls and a person waits for, to 2 seconds, and gives the whole quit a separate limit of 5 seconds.
+That limit is about twice the slowest quit ever seen (2.72 seconds) and ten times the slowest in the measured runs, so load alone should not reach it, while a quit that stalls in Chromium's shutdown still fails the check well before the runner's hang watchdog (15 seconds).
+A shutdown regression smaller than that passes the check, but every run prints both times, so a drift shows in the reports.
 
 ## Out of scope
 
