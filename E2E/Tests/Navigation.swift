@@ -80,7 +80,8 @@ struct NavigationHistoryTest: E2ETest {
         }
         run.check(
             "nav.shortcuts", passed: shortcuts.back == "A" && shortcuts.forward == "B" && shortcuts.refused,
-            "back=\(shortcuts.back) forward=\(shortcuts.forward) disabled-forward=\(shortcuts.refused ? "refused" : "ran")")
+            "back=\(shortcuts.back) forward=\(shortcuts.forward) disabled-forward="
+                + (shortcuts.refused ? "refused" : "ran"))
 
         // A reload loads a new document: a mark the page held is gone afterwards.
         func reload(_ reload: () throws -> Void) async throws -> String {
@@ -90,8 +91,10 @@ struct NavigationHistoryTest: E2ETest {
             return mark == nil && title == "B" ? "reloaded" : "title=\(title) mark=\(mark ?? "none")"
         }
         let reloads = try await run.step("reload", timeout: E2ETimeouts.step) {
-            (toolbar: try await reload { try app.click(.reload, in: page) },
-             shortcut: try await reload { try app.press(.reload, in: page) })
+            (
+                toolbar: try await reload { try app.click(.reload, in: page) },
+                shortcut: try await reload { try app.press(.reload, in: page) }
+            )
         }
         run.check(
             "nav.reload", passed: reloads.toolbar == "reloaded" && reloads.shortcut == "reloaded",
