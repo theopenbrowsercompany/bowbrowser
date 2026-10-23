@@ -68,10 +68,10 @@ Start every session in `~/code/GitHub/bowbrowser`: the maintainer's `.claude/set
   After quitting (or timing out), the run echoes the lines that are not Chromium log lines and every Chromium ERROR or FATAL line; `chromium.errors` fails on any not listed as harmless in `E2E/Harness/E2EChromiumLog.swift`, whose header says what may be added.
   When a run ends any other way than PASS or FAIL (a timeout, a crash, a failed engine start), `make e2e` prints the end of `chromium.log`.
 - `make smoke`: opens a window on the maintainer's screen; never run it unless the maintainer asks.
-- `make verify`: lint, guards (`make guards`), tests (BowCore and `make test-e2e-wrapper`) and the Debug build.
+- `make verify`: lint, guards (`make guards`: e2e seams, Swift headers, list format), tests (BowCore and `make test-e2e-wrapper`) and the Debug build.
   A change is done when this and its end-to-end check pass.
 - `make release`: a Release build that must carry no e2e harness code or fixtures. It is not part of `make verify`; the lead runs it once per branch before merging.
-- Builds take turns through `scripts/build-lock.sh`, whose header documents the slots, the settings and the lead's priority file; a waiting build prints its rank, so let it wait.
+- Builds take turns through `scripts/build-lock.sh`, whose header documents the slots, the settings and the lead's priority file; a waiting build prints its rank, so let it wait; `BOW_BUILD_JOBS` caps each build's compile jobs (default 8).
   Never run two `make e2e` at once in the same worktree: their build steps race in `package-cef.sh`.
   Xcode's compilation cache is shared in `~/Library/Caches/bowbrowser/compile-cache`; delete the folder if it grows large.
 - `make format`: format Swift sources.
@@ -109,7 +109,7 @@ Stop only when a check fails and cannot be fixed, a guess would be costly to und
 1. **Pick.** Take the BOW cycle whose dates include today, move each In Review item whose pull request has merged to Done, and resume what is In Progress first.
    Skip items In Review, labeled `blocked`, or blocked by an item that is not Done.
    Otherwise take the one the maintainer names or the highest priority in Todo (lowest ID on ties), say why, and move it to In Progress; do sub-work items first.
-   Do not pull from the backlog or the next cycle unless asked.
+   Do not pull from the backlog or the next cycle unless asked; if nothing is left, say so, and if the cycle has ended with unfinished work, propose moving it to the next cycle.
 2. **Plan.** Read the item with its comments, `~/code/GitHub/bowbrowser-private/PLAN.md`, the feature's spec and the code it touches.
    If there is no spec, draft one from `spec/_template.md` in your own words as product behavior, grounded in the private `research/` (start with `research/02-arc-feature-triage.md`), copying none of its text.
    Decide the approach, the files that change, and how each "Done when" item will be checked end to end; where the item leaves something open, take the safest choice and note it in the report.
