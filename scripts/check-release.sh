@@ -1,5 +1,5 @@
 #!/bin/sh
-# Builds Release and fails if the app carries any of the e2e harness: a symbol for something E2E/ declares
+# Builds Release and fails if the app lacks a license file or carries any of the e2e harness: a symbol for something E2E/ declares
 # (scripts/e2e-names.sh --symbols) or the Fixtures folder. A successful build also proves the Release side of
 # every "E2E seam" (such as the AppDelegate #else branch) compiles.
 set -eu
@@ -27,6 +27,14 @@ if [ -e "$app/Contents/Resources/Fixtures" ]; then
   echo "Release app contains e2e fixtures: $app/Contents/Resources/Fixtures" >&2
   failed=yes
 fi
+
+# The license files scripts/bundle-licenses.sh copies in: CEF's and Bow's licenses and Chromium's credits.
+for license in CEF-LICENSE.txt Chromium-Credits.html Bow-LICENSE.txt; do
+  if [ ! -s "$app/Contents/Resources/$license" ]; then
+    echo "Release app lacks $license: $app/Contents/Resources/$license" >&2
+    failed=yes
+  fi
+done
 
 # Match whole names only: Swift and C++ mangle a name as <length><name>, and Objective-C classes and C symbols
 # end in _<name>. So WebViewPage would not match WebViewPageController.

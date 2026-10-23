@@ -49,6 +49,10 @@ enum MainMenu {
     }
 
     private static func addAppItems(to menu: NSMenu) {
+        let about = NSMenuItem(title: "About Bow", action: #selector(Licenses.showAbout(_:)), keyEquivalent: "")
+        about.target = Licenses.self
+        menu.addItem(about)
+        menu.addItem(.separator())
         menu.addItem(withTitle: "Hide Bow", action: #selector(NSApplication.hide(_:)), keyEquivalent: "h")
         menu.addItem(.separator())
         menu.addItem(withTitle: "Quit Bow", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")

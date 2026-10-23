@@ -1,9 +1,10 @@
+import AppKit
 import Foundation
 
 /// Tests of the app as a whole: starting, loading a page, quitting. Fixtures in E2E/Fixtures/app/.
 @MainActor
 enum AppTests {
-    static let all: [any E2ETest] = [AppQuitTest()]
+    static let all: [any E2ETest] = [AppLicensesTest(), AppQuitTest()]
 }
 
 /// Loads a fixture page in an off-screen window, checks that the page renders, and quits: every page closes within
@@ -27,5 +28,30 @@ struct AppQuitTest: E2ETest {
             try await E2EWaits.untilRendering(page)
         }
         run.expectQuit(name, closingWithin: 2, stoppingWithin: 5)
+    }
+}
+
+/// The built app carries CEF's license, Chromium's credits and Bow's license in its Resources, and the app menu
+/// offers them through About Bow.
+struct AppLicensesTest: E2ETest {
+    let name = "app.licenses"
+
+    func run(_ run: E2ERun) async throws {
+        try await run.step("read license files", timeout: E2ETimeouts.step) {
+            func has(_ file: String, _ text: String) -> Bool {
+                guard let url = Bundle.main.url(forResource: file, withExtension: nil),
+                    let data = try? Data(contentsOf: url)
+                else { return false }
+                return String(decoding: data, as: UTF8.self).contains(text)
+            }
+            let cef = has("CEF-LICENSE.txt", "Marshall A. Greenblatt")
+            let chromium = has("Chromium-Credits.html", "<html")
+            let bow = has("Bow-LICENSE.txt", "MIT License")
+            let menu = await MainActor.run { NSApp.mainMenu?.items.first?.submenu?.items.first?.title == "About Bow" }
+            func word(_ value: Bool) -> String { value ? "yes" : "no" }
+            run.check(
+                name, passed: cef && chromium && bow && menu,
+                "cef=\(word(cef)) chromium=\(word(chromium)) bow=\(word(bow)) menu=\(word(menu))")
+        }
     }
 }

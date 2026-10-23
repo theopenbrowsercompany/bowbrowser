@@ -98,6 +98,11 @@ targets:
             - "$(SRCROOT)/E2E/*/*/*/*"
             - "Fixtures"
     postBuildScripts:
+      # CEF's BSD license, Chromium's third party credits and Bow's own license ship in Resources (the
+      # distribution terms of CEF and Chromium require it). Fails the build when one is missing.
+      - name: Bundle licenses
+        script: '"$SRCROOT/scripts/bundle-licenses.sh"'
+        basedOnDependencyAnalysis: false
       - name: Package CEF
         script: '"$SRCROOT/scripts/package-cef.sh"'
         basedOnDependencyAnalysis: false
