@@ -34,5 +34,6 @@ enum WindowFeatures {
         AuthSheetFeature.self,
         CertificateErrorFeature.self,
         AirTrafficControlMenuFeature.self,
+        PeekFeature.self,
     ]
 }
