@@ -19,6 +19,20 @@ import Foundation
 
     /// Shuts the engine down. Returns once every tab is closed and the engine has stopped.
     func quit() async
+
+    /// True while the pages of tabs that closed stay alive, out of sight, until their downloads end (destroying a
+    /// page cancels its downloads). Quitting closes them, which cancels the downloads. Defaults to false.
+    var keepsClosedTabsForDownloads: Bool { get }
+
+    /// Returns once no closed tab's page is kept for its downloads any more, at once when none is. Defaults to
+    /// returning at once.
+    func closedTabsForDownloadsReleased() async
+}
+
+extension BrowserEngine {
+    public var keepsClosedTabsForDownloads: Bool { false }
+
+    public func closedTabsForDownloadsReleased() async {}
 }
 
 /// One isolated storage profile (one per space).
