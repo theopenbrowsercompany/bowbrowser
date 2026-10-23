@@ -1123,6 +1123,15 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
         if pendingSave != nil { saveRecordedPages() }
         onClose?(self)
     }
+
+    // A failed full screen transition reaches only the delegate, so the window passes it on to its features.
+    func windowDidFailToEnterFullScreen(_ window: NSWindow) {
+        for feature in features { feature.windowDidFailToEnterFullScreen() }
+    }
+
+    func windowDidFailToExitFullScreen(_ window: NSWindow) {
+        for feature in features { feature.windowDidFailToExitFullScreen() }
+    }
 }
 
 /// A window whose close requests (close button, File > Close Window, Shift+Cmd+W) wait for the page to close first.
