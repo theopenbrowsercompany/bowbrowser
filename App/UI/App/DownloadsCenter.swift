@@ -82,7 +82,7 @@ final class DownloadsCenter: AppFeature, EngineDownloadsDelegate {
             if let state = list.entry(key)?.item.state, state.isFinal || state == .unknown {
                 reserved[key] = nil
                 // A download that ended while its save panel was open (its tab closed) has nothing left to save.
-                panels[key]?.cancel(nil)
+                if state.isFinal { panels[key]?.cancel(nil) }
             }
         case .removed(let id):
             reserved[DownloadEntry.Key(profileID: profileID, downloadID: id)] = nil

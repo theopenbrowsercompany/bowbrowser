@@ -30,7 +30,7 @@ Each profile keeps its own downloads, and the window shows every profile's downl
   Keeping such downloads running after their tab closes is planned.
 - After that tab closes, the list follows the download's file on disk instead of the engine: the bytes received follow the file's size, a file the download wrote that reaches its known size and stays there for two reads is Complete, and a file that disappears, or a running download's file that never appears within 2 seconds, is Cancelled.
   A file that was already there (one the person chose to replace in the save panel) counts only once the download changes it.
-  A download that was failed or paused before its first byte stays as it was, since it can still resume.
+  A download that failed before its first byte stays as it was, since it can still resume; a paused one is cancelled like a running one.
   When a download ends while its save panel is still open, the panel closes.
   Pause and Cancel show at once; Resume shows the download running again, and if its file does not grow it later reads "Status unknown".
   A file that stops changing for 15 seconds without finishing reads "Status unknown" (it may be stalled, failed, or finished at an unknown size); such a row can be cleared, which cancels the download, and its name is no longer held for it.

@@ -40,7 +40,7 @@ struct DownloadsTabClosedTest: E2ETest {
         }
         guard atClose.receivedBytes < Self.size / 2 else {
             run.check(name, passed: false, "the download got \(atClose.receivedBytes) bytes before its tab closed")
-            await cancelRunning(run, except: earlier)
+            await cleanUp(run, except: earlier)
             return
         }
 
@@ -60,7 +60,7 @@ struct DownloadsTabClosedTest: E2ETest {
                 let updated = done.state != "inProgress"
                 guard updated else {
                     run.check(name, passed: false, "state=\(done.state) row=frozen bytes=\(done.receivedBytes)")
-                    await cancelRunning(run, except: earlier)
+                    await cleanUp(run, except: earlier)
                     return
                 }
                 let fileLeft = done.path.map { FileManager.default.fileExists(atPath: $0.path) } ?? true
@@ -93,16 +93,28 @@ struct DownloadsTabClosedTest: E2ETest {
                 )
             }
         } catch {
-            await cancelRunning(run, except: earlier)
+            if error is CancellationError { throw error }
+            if let error = error as? E2EError, error.reason == .testEnded { throw error }
+            await cleanUp(run, except: earlier)
             throw error
         }
     }
 
-    /// Cancels any download this test started that is still running.
-    private func cancelRunning(_ run: E2ERun, except earlier: Set<String>) async {
+    /// Cancels any download this test started that is still running, then clears every row it added, so a failure
+    /// leaves no row behind for later tests.
+    private func cleanUp(_ run: E2ERun, except earlier: Set<String>) async {
         guard let rows = try? await run.app.downloads() else { return }
         for row in rows where !earlier.contains(row.id) && (row.state == "inProgress" || row.state == "paused") {
             try? await run.app.press(.cancelOrClear, of: row)
+        }
+        for _ in 0..<50 {
+            guard let rows = try? await run.app.downloads() else { return }
+            let left = rows.filter { !earlier.contains($0.id) }
+            if left.isEmpty { return }
+            for row in left where row.state != "inProgress" && row.state != "paused" {
+                try? await run.app.press(.cancelOrClear, of: row)
+            }
+            try? await Task.sleep(nanoseconds: 20_000_000)
         }
     }
 
