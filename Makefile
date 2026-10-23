@@ -100,13 +100,15 @@ verify:
 check:
 	@./scripts/check.sh
 
-# The final check of a branch: refuses unless it contains origin/main, then make verify and the full make e2e, then
-# one block for the report (result lines, e2e summary and run folder, final.png, diff stat, tree hash).
+# The final check of a branch: warns when it is behind origin/main (refuses on a conflict), then make verify and the
+# full make e2e with make release beside it when app sources changed, then one block for the report (result lines,
+# e2e summary and run folder, final.png, diff stat, tree hash).
 # Run it after the last commit and a rebase onto origin/main. scripts/done.sh says how.
 done:
 	@./scripts/done.sh
 
-# Tests scripts/done.sh, the refusal and the report block, with a fake make (about a second).
+# Tests scripts/done.sh, the behind and conflict handling, the release build and the report block, with a fake make
+# (a few seconds).
 test-done:
 	./scripts/test-done.sh
 
