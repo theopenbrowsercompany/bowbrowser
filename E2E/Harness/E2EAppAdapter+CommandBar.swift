@@ -64,6 +64,7 @@ final class WindowCommandBar: E2ECommandBar {
                 case .history: "history"
                 case .navigation: "navigate"
                 case .search: "search"
+                case .command: "command"
                 }
             return E2ECommandBarRow(kind: kind, title: result.title, url: result.url, space: result.space?.name)
         }

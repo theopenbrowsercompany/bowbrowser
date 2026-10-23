@@ -47,7 +47,8 @@ public struct CommandBarRanker: Sendable {
                     entries.append(Entry(candidate: candidate, score: 0, provider: provider))
                 case .command:
                     // Only for typed text that matches the command's name; a blank bar lists tabs.
-                    guard !text.isEmpty, let match = Self.titleScore(candidate.title, text: Self.fold(text), words: words)
+                    guard !text.isEmpty,
+                        let match = Self.titleScore(candidate.title, text: Self.fold(text), words: words)
                     else { continue }
                     entries.append(Entry(candidate: candidate, score: match + 10, provider: provider))
                 case .openTab, .history:

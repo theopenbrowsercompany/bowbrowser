@@ -21,5 +21,6 @@ enum WindowFeatures {
         CopyURLFeature.self,
         SpaceThemeFeature.self,
         ToolbarFeature.self,
+        CollapseFoldersFeature.self,
     ]
 }

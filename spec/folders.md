@@ -22,6 +22,8 @@ They are made, renamed and deleted from the sidebar's context menus, and they ke
 - A folder's disclosure triangle opens or closes it; a closed folder hides its contents, and each folder remembers its own state.
 - Dragging works at every level: a tab or folder can be dropped into any folder, a folder moves with everything inside it, and a folder dragged from today into the pinned tabs (or into a pinned folder) is pinned with its contents.
   The drag rules themselves are in `sidebar.md`.
+- View > Collapse All Folders, and "Collapse All Folders" typed in the command bar, close every folder of the Space on screen, pinned and today alike, except the folders above the shown tab, which stay open (one that was closed opens again), so the shown tab stays visible.
+  It has no keyboard shortcut, as in Arc, is off while the Space has no folder, and is saved as one change, so the folders stay closed after a relaunch.
 
 ## Edge cases
 
@@ -42,7 +44,8 @@ They are made, renamed and deleted from the sidebar's context menus, and they ke
 4. Run `make e2e E2E=folders`: `PASS folders.delete-stay` and `PASS folders.delete-leave` show a delete whose page asks to stay keeping the folder and all its tabs, then a second delete answered Leave removing them all.
 5. Run `make e2e E2E=folders`: `PASS folders.drag` and `PASS folders.collapse` show a today folder dragged into a pinned folder, and a closed folder that stays closed after a relaunch.
 6. Run `make e2e E2E=folders.geometry`: `PASS folders.dropLevel: 4 drops landed with their gap at levels 2, 1, 3, 1` shows drops below a folder's last child leaving the folder at its own x, staying in at its children's x, two levels deep, and below the last row of the list; `PASS folders.childRowHeight: Shut=34.0 S1=32.0 S2=32.0` shows rows a folder shows when it opens are 32 points tall.
-7. By hand: right-click a folder that holds an open tab, choose Delete Folder and Tabs, confirm, and check the tab closed and the folder is gone.
+7. Run `make e2e E2E=collapse`: `PASS collapse: collapsed=3 visible=A` shows View > Collapse All Folders closing three of five open folders and leaving tab A under its open folders, `PASS collapse.saved` shows that after a relaunch, and `PASS collapse.command` shows the command bar offering and running it.
+8. By hand: right-click a folder that holds an open tab, choose Delete Folder and Tabs, confirm, and check the tab closed and the folder is gone.
 
 ## Out of scope
 
