@@ -719,6 +719,16 @@ extension E2EAppAdapter {
         guard let id = page.controller.modelID(of: page.tab) else {
             throw E2EError("tab \(page.tab.tabID) is not in its window")
         }
-        page.controller.sidebar(page.controller.sidebar, move: id, to: index)
+        let sidebar = page.controller.sidebarFeature
+        sidebar.sidebar(sidebar.sidebar, move: id, to: index)
     }
+}
+
+// The window features the adapter reaches into. Every window has each of them (`WindowFeatures.all`).
+extension BrowserWindowController {
+    fileprivate var sidebarFeature: SidebarFeature { feature(SidebarFeature.self)! }
+    fileprivate var sidebar: TabSidebarView { sidebarFeature.sidebar }
+    fileprivate var findBar: FindBar { feature(FindFeature.self)!.findBar }
+    fileprivate var permissionPrompts: PermissionPrompts { feature(PermissionsFeature.self)!.prompts }
+    fileprivate var navigationToolbar: NavigationToolbar { feature(NavigationFeature.self)!.toolbar }
 }

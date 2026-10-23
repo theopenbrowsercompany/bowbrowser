@@ -2,7 +2,7 @@ import AppKit
 import BowCore
 
 /// The find in page bar: a search field, the "n of m" count and previous, next and done buttons, floating at the
-/// top right corner of the page. It only shows and reports; the window controller runs the searches.
+/// top right corner of the page. It only shows and reports; the window's `FindFeature` runs the searches.
 @MainActor
 final class FindBar: NSView, NSSearchFieldDelegate {
     /// Called with the field's text whenever it changes.
