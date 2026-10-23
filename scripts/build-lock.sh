@@ -85,44 +85,48 @@ running_count() {
   echo "$n"
 }
 
-# Print the branches in the priority file, highest first, one per line, trimmed, without blanks or comments.
-priority_list() {
+# Read the priority file into prio (highest first, trimmed, without blanks or comments) and its length into
+# listed. Called once per pass, so each pass ranks every ticket against one reading of the file.
+prio=()
+listed=0
+load_priority() {
   local line
+  prio=()
+  listed=0
   [ -r "$priority_file" ] || return 0
   while IFS= read -r line || [ -n "$line" ]; do
     line=${line#"${line%%[![:space:]]*}"}
     line=${line%"${line##*[![:space:]]}"}
     case $line in '' | '#'*) continue ;; esac
-    echo "$line"
-  done < "$priority_file"
+    prio[listed]=$line
+    listed=$((listed + 1))
+  done < "$priority_file" 2>/dev/null
 }
 
 # Drop tickets whose build is gone, then print the live ones in serving order as "<rank> <ticket>": listed
-# branches by their place in the priority file (rank 1 first), then unlisted ones (rank 0), each group in
-# arrival order.
+# branches by their place in prio (rank 1 first), then unlisted ones (rank listed + 1), each group in arrival
+# order.
 live_tickets() {
-  local t b r n p list
-  list=$(priority_list)
+  local t b r i
   for t in "$dir"/queue/*; do
     [ -e "$t" ] || continue
     if ! alive "${t##*.}"; then
       rm -f "$t"
       continue
     fi
+    # A ticket whose build claimed a slot since the glob is gone; an empty one has no branch.
     b=""
-    read -r b < "$t" 2>/dev/null
-    r=0
-    if [ -n "$b" ] && [ -n "$list" ]; then
-      n=0
-      while IFS= read -r p; do
-        n=$((n + 1))
-        if [ "$p" = "$b" ]; then r=$n; break; fi
-      done <<< "$list"
+    { read -r b < "$t"; } 2>/dev/null || [ -e "$t" ] || continue
+    r=$((listed + 1))
+    if [ -n "$b" ]; then
+      i=0
+      while [ "$i" -lt "$listed" ]; do
+        if [ "${prio[i]}" = "$b" ]; then r=$((i + 1)); break; fi
+        i=$((i + 1))
+      done
     fi
-    # Sort unlisted tickets after every listed one, then print their rank as 0.
-    [ "$r" != 0 ] || r=999999
     echo "$r $t"
-  done | sort -k1,1n -k2 | sed 's/^999999 /0 /'
+  done | sort -k1,1n -k2
 }
 
 try_claim() {
@@ -167,6 +171,7 @@ mv "$dir/queue/.new.$$" "$ticket"
 told=""
 start=$SECONDS
 while :; do
+  load_priority
   order=$(live_tickets)
   first=$(echo "$order" | head -n 1)
   if [ "${first#* }" = "$ticket" ] && try_claim; then break; fi
@@ -175,10 +180,10 @@ while :; do
   ahead=${mine%%:*}
   rank=${mine#*:}
   rank=${rank%% *}
-  if [ "${rank:-0}" = 0 ]; then
+  if [ -z "$rank" ] || [ "$rank" -gt "$listed" ]; then
     where=unlisted
   else
-    where="priority $rank of $(priority_list | grep -c .)"
+    where="priority $rank of $listed"
   fi
   if [ "$told" != "$where" ]; then
     echo "build-lock: waiting for a $pool slot ($(running_count) of $slots running, $((${ahead:-1} - 1)) waiting ahead of this one, $where)" >&2
