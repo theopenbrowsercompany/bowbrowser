@@ -1067,8 +1067,12 @@ ledger_write() {
   [ -n "$outcomes" ] || return 0
   branch=$(git -C "$repo" branch --show-current 2>/dev/null)
   tree=$(git -C "$repo" rev-parse 'HEAD^{tree}' 2>/dev/null)
-  diff=$(git -C "$repo" diff HEAD 2>/dev/null | shasum | cut -c1-8)
-  [ -z "$(git -C "$repo" status --porcelain --untracked-files=no 2>/dev/null)" ] || tree="${tree:-unknown}-$diff"
+  # A modified tracked file or an untracked one (not ignored) makes the tree key its own.
+  if [ -n "$(git -C "$repo" status --porcelain 2>/dev/null)" ]; then
+    diff=$( { git -C "$repo" diff HEAD; git -C "$repo" ls-files --others --exclude-standard | while IFS= read -r f; do
+      echo "$f"; shasum < "$repo/$f"; done; } 2>/dev/null | shasum | cut -c1-8)
+    tree="${tree:-unknown}-$diff"
+  fi
   when=$(date -u +%Y-%m-%dT%H:%M:%SZ)
   # The shard of each planned test (a run-wide check names every shard's result, so it has none).
   shard_map=$(printf '%s\n' "$shard_plan" | awk -F "$us" '$1 ~ /^[0-9]+$/ && NF == 3 { print $2 "\t" $1 }')
