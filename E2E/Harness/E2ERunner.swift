@@ -232,6 +232,8 @@ final class E2ERunner {
         // A held download the test did not release (it failed or timed out first) ends now, so its tab's parked
         // browser can close below and nothing waits on it into the next test.
         E2EFixture.releaseAllHeld()
+        // A measurement that timed out may still hold Chromium's task manager; it must go before the engine stops.
+        BowS3Probe.stopTaskManager()
 
         let missing = test.checks.filter { !run.recorded.contains($0) }
         if let failure {
