@@ -2,12 +2,12 @@ import Foundation
 
 // The certificate error page: what it says, which tabs show it, and where Go back goes.
 
-/// The page a tab shows instead of a page whose certificate failed to verify, in plain words: the title Chrome uses,
+/// The page a tab shows instead of a page whose certificate failed to verify, in plain words: a short title,
 /// the host, what is wrong with its certificate, and the engine's error name for anyone who needs it. Its only
 /// action is Go back; it offers no way on to the site (a way past waits until the engine can say whether the site
 /// requires HTTPS, see `CertificateEnforcement`).
 public struct CertificateErrorPage: Equatable, Sendable {
-    public static let title = "Your connection is not private"
+    public static let title = "This connection is not secure"
     public static let goBackTitle = "Go back"
 
     public var error: CertificateError
@@ -71,11 +71,16 @@ public struct CertificateErrorPage: Equatable, Sendable {
         /// The tab has no page to go back to: it closes, as Cmd+W closes it, and the window shows what it shows
         /// after a close (the start screen when the Space has no other tab).
         case closeTab
+        /// The failed load has not settled yet: the page shows as soon as the engine asks, before the engine's own
+        /// error page has taken its place in the tab's history, so whether there is a page to go back to is not known
+        /// yet. Go back runs again once the tab stops loading.
+        case waitForLoad
     }
 
-    /// Where Go back goes for a tab that `canGoBack` or not.
-    public static func goBack(canGoBack: Bool) -> GoBack {
-        canGoBack ? .history : .closeTab
+    /// Where Go back goes for a tab that `isLoading` and `canGoBack` or not.
+    public static func goBack(canGoBack: Bool, isLoading: Bool) -> GoBack {
+        if isLoading { return .waitForLoad }
+        return canGoBack ? .history : .closeTab
     }
 }
 

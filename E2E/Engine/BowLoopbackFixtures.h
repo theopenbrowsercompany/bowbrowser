@@ -12,7 +12,8 @@ NS_ASSUME_NONNULL_BEGIN
 ///
 /// - The sign in listener speaks plain HTTP. Every path but `/favicon.ico` (404) answers 401 with `WWW-Authenticate: Basic realm="bow"`
 ///   until a request carries the Basic credentials `authUser` and `authPassword`, which get a 200 page titled
-///   "Signed in". (Plain HTTP, since over TLS the self-signed certificate would fail first.)
+///   "Signed in". A path under `/realm/<name>/` (letters and digits) names the realm `<name>` instead, so each test
+///   can sign in to a realm the engine has no remembered credentials for. (Plain HTTP, since over TLS the self-signed certificate would fail first.)
 /// - The certificate listener speaks TLS with a self-signed certificate for `badcert.bow.test`, which no keychain
 ///   trusts, so loading it is a certificate error (ERR_CERT_AUTHORITY_INVALID). A load that goes on anyway gets a
 ///   200 page titled "Bad certificate". The identity lives in process memory only: it is never added to a keychain.

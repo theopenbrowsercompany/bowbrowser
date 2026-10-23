@@ -125,7 +125,7 @@ final class AuthSheetFeature: NSResponder, BrowserWindowFeature {
                 let alert = NSAlert()
                 alert.messageText = AuthChallenge.sheetTitle
                 alert.informativeText = challenge.sheetMessage
-                // The first button is the default one (Return); Cancel also takes Escape.
+                // The first button is the sheet's default button (Return); Cancel takes Escape.
                 alert.addButton(withTitle: Self.signInTitle)
                 alert.addButton(withTitle: Self.cancelTitle)
                 let user = NSTextField(string: "")
@@ -133,18 +133,16 @@ final class AuthSheetFeature: NSResponder, BrowserWindowFeature {
                 let password = NSSecureTextField(string: "")
                 password.placeholderString = "Password"
                 // Nothing offers to save or fill the password: saved passwords are later work.
-                for field in [user, password] {
-                    field.contentType = nil
-                    field.frame.size = NSSize(width: 260, height: 22)
-                    field.translatesAutoresizingMaskIntoConstraints = true
-                }
+                for field in [user, password] { field.contentType = nil }
+                // Fixed frames, as the page dialogs' prompt field has: the alert lays its accessory view out by frame.
+                user.frame = NSRect(x: 0, y: 30, width: 260, height: 22)
+                password.frame = NSRect(x: 0, y: 0, width: 260, height: 22)
                 user.nextKeyView = password
                 password.nextKeyView = user
-                let stack = NSStackView(views: [user, password])
-                stack.orientation = .vertical
-                stack.spacing = 8
-                stack.frame = NSRect(x: 0, y: 0, width: 260, height: 52)
-                alert.accessoryView = stack
+                let fields = NSView(frame: NSRect(x: 0, y: 0, width: 260, height: 52))
+                fields.addSubview(user)
+                fields.addSubview(password)
+                alert.accessoryView = fields
                 alert.window.initialFirstResponder = user
                 sheet = Sheet(id: id, challenge: challenge, alert: alert, user: user, password: password)
                 return alert

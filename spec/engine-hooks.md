@@ -72,13 +72,13 @@ This spec covers what those hooks promise; the features that use them have their
 5. Run `make e2e E2E=window`: right clicking a link reaches the app with its address, and choosing Open Link in New Tab opens it as the next tab, printing `PASS window.context-menu: link=opened.html tabs=[A,B]` followed by the items shown; choosing Inspect asks the tab's DevTools to inspect the element under the pointer with nothing shown on screen, printing `PASS window.inspect: requests=1 at-element=true`.
 6. `make test` checks Bow's menu for links, images, fields, selections and bare pages.
 7. Run `make e2e E2E=page`: `PASS page.zoom.keys`, `PASS page.zoom.menu` and `PASS page.zoom.site` for zoom by key and menu with another site keeping its own level; `PASS page.crash.overlay` and `PASS page.crash.reload` for a crashed page and its Reload button; `PASS page.copy-image` for the copied image's data.
-8. Run `make e2e E2E=engine.challenges`: a page answering 401 with a Basic challenge asks the window, which cancels, printing a line starting `PASS engine.auth_hook: questions=[basic auth.bow.test:80 realm=bow answer=cancel] ended=finish http://auth.bow.test/ 401`; a page with a self-signed certificate asks the window, which cancels, printing a line starting `PASS engine.cert_hook: questions=[https://badcert.bow.test/ -202 answer=cancel] ended=fail https://badcert.bow.test/ -202`.
+8. Run `make e2e E2E=engine.challenges`: a page answering 401 with a Basic challenge asks the window, whose sign in sheet is cancelled, printing a line starting `PASS engine.auth_hook: questions=[basic auth.bow.test:80 realm=bow answer=cancel] ended=finish http://auth.bow.test/ 401`; a page with a self-signed certificate asks the window, which cancels, printing a line starting `PASS engine.cert_hook: questions=[https://badcert.bow.test/ -202 answer=cancel] ended=fail https://badcert.bow.test/ -202`.
 9. `make test` checks when a way past a certificate error may be offered and remembered (`CertificateAllowancesTests`).
 
 ## Out of scope
 
 - Camera or microphone state has no `make e2e` check yet: no fixture captures media.
-- The sign in sheet and the certificate error page themselves are later work; until then the window answers both questions with cancel.
+- The sign in sheet and the certificate error page themselves are in `auth.md`.
 - The keys still held when a script opens a page from a click (`window.open` in a click handler) have no `make e2e` check: test clicks come through DevTools, which holds no real keys; modified link clicks are checked in `popups.md`.
 - DevTools opening and closing with its tab has no `make e2e` check: e2e runs record the request instead, because the DevTools window would show on screen and take focus.
 - Docking DevTools inside the window is later work.

@@ -50,5 +50,5 @@ They come up as a sheet on the window showing that tab and never freeze the rest
 
 - A badge on a tab whose alert waits (Chrome marks the tab); a later change can add it.
 - Chrome's rule that a tab in a window that is not frontmost counts as a background tab: Bow counts the tab each window shows as shown.
-- HTTP sign in, which will reuse the same sheet pattern.
+- HTTP sign in, which follows the same sheet rules (see auth.md).
 - The leave prompt (see quit.md).
