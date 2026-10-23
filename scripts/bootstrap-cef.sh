@@ -12,6 +12,7 @@
 # Filling the cache (download, checksum, unpack, wrapper build) holds an flock on <cache>/<build>.lock, so builds
 # in several worktrees that all find a new cef.lock at once fill it once; the kernel drops the lock if this dies.
 set -eu
+self="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"
 cd "$(dirname "$0")/.."
 . ./cef.lock
 
@@ -40,7 +41,7 @@ if [ ! -f "$dir/.ready" ] && [ -z "${BOW_CEF_LOCKED:-}" ]; then
   mkdir -p "$cache"
   BOW_CEF_LOCKED=1 exec perl -MFcntl=:flock -e \
     '$^F = 255; open(my $fh, ">>", shift) or die "bootstrap-cef: $!\n"; flock($fh, LOCK_EX) or die "bootstrap-cef: $!\n";
-     exec(@ARGV) or die "bootstrap-cef: $!\n";' "$cache/$name.lock" "$0" "$@"
+     exec(@ARGV) or die "bootstrap-cef: $!\n";' "$cache/$name.lock" "$self" "$@"
 fi
 
 if [ ! -f "$dir/.ready" ]; then
