@@ -116,6 +116,8 @@
                          linkURL:(NSURL*)linkURL
                        sourceURL:(NSURL*)sourceURL
                    selectionText:(NSString*)selectionText
+                      isEditable:(BOOL)isEditable
+                       editFlags:(BowContextMenuEditFlags)editFlags
                     defaultItems:(NSArray<BowContextMenuItem*>*)defaultItems {
   self = [super init];
   if (self) {
@@ -127,6 +129,8 @@
     _linkURL = [linkURL copy];
     _sourceURL = [sourceURL copy];
     _selectionText = [selectionText copy];
+    _isEditable = isEditable;
+    _editFlags = editFlags;
     _defaultItems = [defaultItems copy];
   }
   return self;

@@ -55,6 +55,20 @@ BowContextMenuMediaType ToMediaType(cef_context_menu_media_type_t type) {
   }
 }
 
+static_assert(BowContextMenuCommandUndo == MENU_ID_UNDO && BowContextMenuCommandRedo == MENU_ID_REDO &&
+                  BowContextMenuCommandCut == MENU_ID_CUT && BowContextMenuCommandCopy == MENU_ID_COPY &&
+                  BowContextMenuCommandPaste == MENU_ID_PASTE && BowContextMenuCommandSelectAll == MENU_ID_SELECT_ALL,
+              "BowContextMenuCommand must match CEF's menu IDs");
+static_assert(BowContextMenuEditFlagsCanUndo == CM_EDITFLAG_CAN_UNDO &&
+                  BowContextMenuEditFlagsCanSelectAll == CM_EDITFLAG_CAN_SELECT_ALL,
+              "BowContextMenuEditFlags must match CEF's edit flags");
+
+BowContextMenuEditFlags ToEditFlags(int flags) {
+  const int known = CM_EDITFLAG_CAN_UNDO | CM_EDITFLAG_CAN_REDO | CM_EDITFLAG_CAN_CUT | CM_EDITFLAG_CAN_COPY |
+                    CM_EDITFLAG_CAN_PASTE | CM_EDITFLAG_CAN_DELETE | CM_EDITFLAG_CAN_SELECT_ALL;
+  return static_cast<BowContextMenuEditFlags>(flags & known);
+}
+
 BowContextMenuTarget ToMenuTargets(int flags) {
   BowContextMenuTarget targets = 0;
   if (flags & CM_TYPEFLAG_PAGE) targets |= BowContextMenuTargetPage;
@@ -88,6 +102,8 @@ bool BowTabClient::RunContextMenu(CefRefPtr<CefBrowser> browser,
                                               linkURL:BowToNSURL(params->GetLinkUrl())
                                             sourceURL:BowToNSURL(params->GetSourceUrl())
                                         selectionText:BowToNSString(params->GetSelectionText())
+                                           isEditable:params->IsEditable()
+                                            editFlags:ToEditFlags(params->GetEditStateFlags())
                                          defaultItems:MenuItems(model)];
   [tab_ runContextMenu:request callback:callback];
   return true;

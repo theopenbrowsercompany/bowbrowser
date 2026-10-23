@@ -202,6 +202,28 @@ typedef NS_CLOSED_ENUM(NSInteger, BowContextMenuMediaType) {
 /// The command ID that answers a context menu request without running any engine command.
 static const NSInteger BowContextMenuNoCommand NS_SWIFT_NAME(BowContextMenuRequest.noCommand) = -1;
 
+/// The engine's editing commands, as command IDs to answer a context menu request with. They run in the frame the
+/// menu was asked in, whether or not the engine's default menu listed them.
+typedef NS_ENUM(NSInteger, BowContextMenuCommand) {
+  BowContextMenuCommandUndo = 110,
+  BowContextMenuCommandRedo = 111,
+  BowContextMenuCommandCut = 112,
+  BowContextMenuCommandCopy = 113,
+  BowContextMenuCommandPaste = 114,
+  BowContextMenuCommandSelectAll = 117,
+} NS_SWIFT_NAME(BowContextMenuRequest.Command);
+
+/// What an editable field under the pointer can do now.
+typedef NS_OPTIONS(NSUInteger, BowContextMenuEditFlags) {
+  BowContextMenuEditFlagsCanUndo = 1 << 0,
+  BowContextMenuEditFlagsCanRedo = 1 << 1,
+  BowContextMenuEditFlagsCanCut = 1 << 2,
+  BowContextMenuEditFlagsCanCopy = 1 << 3,
+  BowContextMenuEditFlagsCanPaste = 1 << 4,
+  BowContextMenuEditFlagsCanDelete = 1 << 5,
+  BowContextMenuEditFlagsCanSelectAll = 1 << 6,
+} NS_SWIFT_NAME(BowContextMenuRequest.EditFlags);
+
 /// One item of the engine's default context menu. Immutable.
 NS_SWIFT_SENDABLE
 __attribute__((objc_subclassing_restricted))
@@ -241,6 +263,8 @@ __attribute__((objc_subclassing_restricted))
                          linkURL:(nullable NSURL *)linkURL
                        sourceURL:(nullable NSURL *)sourceURL
                    selectionText:(NSString *)selectionText
+                      isEditable:(BOOL)isEditable
+                       editFlags:(BowContextMenuEditFlags)editFlags
                     defaultItems:(NSArray<BowContextMenuItem *> *)defaultItems NS_DESIGNATED_INITIALIZER;
 - (instancetype)init NS_UNAVAILABLE;
 + (instancetype)new NS_UNAVAILABLE;
@@ -257,6 +281,9 @@ __attribute__((objc_subclassing_restricted))
 @property(nonatomic, readonly, copy, nullable) NSURL *sourceURL;
 /// The selected text, empty when nothing is selected.
 @property(nonatomic, readonly, copy) NSString *selectionText;
+/// YES when the pointer is over a field the person can type in; `editFlags` then says what it can do.
+@property(nonatomic, readonly) BOOL isEditable;
+@property(nonatomic, readonly) BowContextMenuEditFlags editFlags;
 /// The menu the engine would show by default, so the app can reuse its items and command IDs.
 @property(nonatomic, readonly, copy) NSArray<BowContextMenuItem *> *defaultItems;
 
