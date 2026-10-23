@@ -148,7 +148,10 @@ public final class SidebarStore {
             return
         }
         let problems = draft.integrityProblems()
-        guard problems.isEmpty else { throw .integrityCheckFailed(problems) }
+        guard problems.isEmpty else {
+            lastCommitRepairs = []
+            throw .integrityCheckFailed(problems)
+        }
         graph = draft
         lastCommitRepairs = splitFixes
         hasUnsavedChanges = true
