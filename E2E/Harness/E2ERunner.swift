@@ -86,6 +86,8 @@ final class E2ERunner {
             exit(0)
         }
         tests = Self.quitTestLast(try E2ETests.select(selection))
+        // Refuses tests that need different engine switches now, before the run folder or listeners exist.
+        _ = try E2ETests.switches(for: tests, base: Self.harnessSwitches(loopbackRules: ""))
 
         let fileManager = FileManager.default
         var runDirectory = URL(fileURLWithPath: outputPath, isDirectory: true).standardizedFileURL
@@ -147,27 +149,10 @@ final class E2ERunner {
         let configuration = BowEngineConfiguration(rootDataDirectory: profileDirectory.path)
         configuration.keychainServiceName = "Bow E2E Safe Storage"
         configuration.reportsQuitTime = true
-        configuration.extraSwitches = [
-            // Keep pages running and painting in a window no one can see.
-            "disable-renderer-backgrounding": "",
-            "disable-backgrounding-occluded-windows": "",
-            "disable-background-timer-throttling": "",
-            "disable-features": "MacWebContentsOcclusion",
-            // No updates, first run work or network of any kind; fixtures are served without DNS, except the
-            // loopback fixtures' two hosts, which resolve to their listeners on 127.0.0.1 (the first rule that
-            // matches a host wins).
-            "disable-component-update": "",
-            "disable-background-networking": "",
-            "no-first-run": "",
-            "no-proxy-server": "",
-            "host-resolver-rules": loopbackRules + "MAP * ~NOTFOUND",
-            // The same colors and language on every machine.
-            "force-color-profile": "srgb",
-            "lang": "en-US",
-            // Pages that ask for the camera or microphone get Chromium's fake devices, never the real ones, so no
-            // macOS privacy prompt can show.
-            "use-fake-device-for-media-stream": "",
-        ]
+        // A test may change them for its run (E2ETest.switchOverride); a selection whose tests need different
+        // switches was refused right after it was read, before anything started.
+        configuration.extraSwitches = try E2ETests.switches(
+            for: tests, base: Self.harnessSwitches(loopbackRules: loopbackRules))
         engineConfiguration = configuration
 
         AppSettings.defaults = UserDefaults(suiteName: defaultsSuiteName) ?? .standard
@@ -233,9 +218,8 @@ final class E2ERunner {
         let started = Date()
 
         let result = await E2ERace.run(
-            timeout: E2ERun.testTimeout,
-            timeoutError: E2EError(
-                "TIMEOUT: the test ran past its \(Int(E2ERun.testTimeout)) s limit", reason: .timeout)
+            timeout: test.timeLimit,
+            timeoutError: E2EError("TIMEOUT: the test ran past its \(Int(test.timeLimit)) s limit", reason: .timeout)
         ) {
             try await test.run(run)
         }
@@ -436,6 +420,8 @@ final class E2ERunner {
         output.line("FAIL \(name): \(detail)")
     }
 
+    fileprivate var outputDirectory: URL { runDirectory }
+
     /// Where the running test's checks start in `checks`.
     fileprivate var checkCount: Int { checks.count }
 
@@ -473,6 +459,32 @@ final class E2ERunner {
         heartbeat?.cancel()
         heartbeat = nil
         watchdog.disarm()
+    }
+
+    /// The engine switches of every run, before a test's `switchOverride`; `loopbackRules` are the loopback fixtures'
+    /// host resolver rules.
+    static func harnessSwitches(loopbackRules: String) -> [String: String] {
+        [
+            // Keep pages running and painting in a window no one can see.
+            "disable-renderer-backgrounding": "",
+            "disable-backgrounding-occluded-windows": "",
+            "disable-background-timer-throttling": "",
+            "disable-features": "MacWebContentsOcclusion",
+            // No updates, first run work or network of any kind; fixtures are served without DNS, except the
+            // loopback fixtures' two hosts, which resolve to their listeners on 127.0.0.1 (the first rule that
+            // matches a host wins).
+            "disable-component-update": "",
+            "disable-background-networking": "",
+            "no-first-run": "",
+            "no-proxy-server": "",
+            "host-resolver-rules": loopbackRules + "MAP * ~NOTFOUND",
+            // The same colors and language on every machine.
+            "force-color-profile": "srgb",
+            "lang": "en-US",
+            // Pages that ask for the camera or microphone get Chromium's fake devices, never the real ones, so no
+            // macOS privacy prompt can show.
+            "use-fake-device-for-media-stream": "",
+        ]
     }
 
     /// Prints one line per test: `TEST <name> area=<area> tags=<tags or -> checks=<checks>`, followed by
@@ -540,6 +552,8 @@ final class E2ERun {
     private(set) var currentStep = "before the first step"
     /// The run's throwaway Chromium root, where persistent profiles keep their folders.
     var dataDirectory: URL { runner.profileDirectory }
+    /// The run folder (`build/e2e/<run>/`, beside report.txt), where a test may leave result files of its own.
+    var outputDirectory: URL { runner.outputDirectory }
     var testName: String { test.name }
 
     /// When the running step's limit runs out; nil between steps. Waits give up shortly before it.
@@ -554,7 +568,7 @@ final class E2ERun {
 
     private unowned let runner: E2ERunner
     private let test: any E2ETest
-    private let deadline = Date(timeIntervalSinceNow: E2ERun.testTimeout)
+    private let deadline: Date
     private var finished = false
     /// Where this test's checks start in the runner's list.
     fileprivate let firstCheck: Int
@@ -565,6 +579,7 @@ final class E2ERun {
         self.runner = runner
         self.test = test
         self.app = app
+        deadline = Date(timeIntervalSinceNow: test.timeLimit)
         firstCheck = runner.checkCount
     }
 
@@ -582,7 +597,7 @@ final class E2ERun {
         let outerDeadline = Self.stepDeadline
         Self.stepDeadline = started.addingTimeInterval(limit)
         defer { Self.stepDeadline = outerDeadline }
-        let which = limitedByTest ? "the test's \(Int(Self.testTimeout)) s limit" : "its \(Self.format(limit)) s limit"
+        let which = limitedByTest ? "the test's \(Int(test.timeLimit)) s limit" : "its \(Self.format(limit)) s limit"
         let result = await E2ERace.run(
             timeout: limit, timeoutError: E2EError("TIMEOUT: the step ran past \(which)", reason: .timeout), body)
         let seconds = Self.format(Date().timeIntervalSince(started))
@@ -597,7 +612,8 @@ final class E2ERun {
         }
     }
 
-    /// The whole test, steps and code between them, must finish within this many seconds.
+    /// The whole test, steps and code between them, must finish within this many seconds, unless it sets its own
+    /// `E2ETest.timeLimit`.
     static let testTimeout: TimeInterval = 120
     private var remainingTime: TimeInterval { max(deadline.timeIntervalSinceNow, 0.001) }
 
