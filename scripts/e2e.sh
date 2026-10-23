@@ -1055,6 +1055,44 @@ attempt_json() {
   printf '}\n'
 } > "$run/results.json"
 
+# The ledger: one line per test and run-wide check of this run, appended under a lock in one write, so worktrees
+# running at once never interleave a line, with a header line when the file is new. Nothing here may change the
+# run's outcome: a failure warns on stderr and goes on.
+ledger_write() {
+  local file=${BOW_E2E_LEDGER:-$HOME/Library/Caches/bowbrowser/e2e-ledger.tsv}
+  # A shard's own run is written by the run that planned it, from the merged results.json.
+  [ -z "$shard_dir" ] || return 0
+  local outcomes branch tree diff when shard_map
+  outcomes=$("$repo/scripts/e2e-flakes.sh" --emit "$run/results.json") || return 1
+  [ -n "$outcomes" ] || return 0
+  branch=$(git -C "$repo" branch --show-current 2>/dev/null)
+  tree=$(git -C "$repo" rev-parse 'HEAD^{tree}' 2>/dev/null)
+  diff=$(git -C "$repo" diff HEAD 2>/dev/null | shasum | cut -c1-8)
+  [ -z "$(git -C "$repo" status --porcelain --untracked-files=no 2>/dev/null)" ] || tree="${tree:-unknown}-$diff"
+  when=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+  # The shard of each planned test (a run-wide check names every shard's result, so it has none).
+  shard_map=$(printf '%s\n' "$shard_plan" | awk -F "$us" '$1 ~ /^[0-9]+$/ && NF == 3 { print $2 "\t" $1 }')
+  mkdir -p "$(dirname "$file")" || return 1
+  printf '%s\n' "$outcomes" | WHEN=$when BRANCH=${branch:-detached} TREE=${tree:-unknown} LOAD=$load_start RUN=$run_name \
+    SHARDS=$shard_map LEDGER=$file perl -e '
+      use Fcntl qw(:flock SEEK_END);
+      my %shard = map { split /\t/ } grep { length } split /\n/, $ENV{SHARDS};
+      my $out = "";
+      while (my $l = <STDIN>) {
+        chomp $l;
+        my ($test, $outcome) = split /\t/, $l;
+        $out .= join("\t", $ENV{WHEN}, $test, $outcome, @ENV{qw(BRANCH TREE LOAD)},$shard{$test} // "-", $ENV{RUN}) . "\n";
+      }
+      open(my $fh, ">>", $ENV{LEDGER}) or die "cannot open $ENV{LEDGER}: $!\n";
+      flock($fh, LOCK_EX) or die "cannot lock $ENV{LEDGER}: $!\n";
+      seek($fh, 0, SEEK_END);
+      $out = join("\t", qw(date test outcome branch tree load shard run)) . "\n" . $out unless tell($fh);
+      syswrite($fh, $out) == length $out or die "short write to $ENV{LEDGER}\n";
+      close($fh) or die "cannot write $ENV{LEDGER}: $!\n";
+    '
+}
+ledger_write >&2 || echo "e2e: warning: could not write the e2e ledger (${BOW_E2E_LEDGER:-~/Library/Caches/bowbrowser/e2e-ledger.tsv}); the result stands" >&2
+
 # A shard's own output, shown above, already ended with the end of its chromium.log; a retry's did not.
 if [ "$quiet" = 0 ] && { [ "$status" = timeout ] || [ "$status" = crash ] || [ "$status" = error ]; } && [ -f "$log_dir/chromium.log" ] \
   && { [ "$sharded" = 0 ] || [ "$log_dir" = "$run/retry" ]; }; then

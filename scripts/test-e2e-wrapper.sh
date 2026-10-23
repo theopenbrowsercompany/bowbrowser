@@ -17,6 +17,8 @@ unset E2E_REPEAT
 # The checks' own quarantine list, empty until a check writes it, so the checked in one changes no outcome here.
 quarantine="$tmp/quarantine.txt"
 export E2E_QUARANTINE="$quarantine"
+# The shared flake ledger, a temp file here so no check touches the real one.
+export BOW_E2E_LEDGER="$tmp/ledger.tsv"
 app="$tmp/Bow.app"
 mkdir -p "$app/Contents/MacOS"
 # The fake app reads FAKE_MODE and writes report.txt into its --e2e-out folder like the real runner.
@@ -1033,6 +1035,99 @@ check "keeps the newest E2E_KEEP runs" is "$(find "$BOW_E2E_ROOT" -mindepth 1 -m
 check "list: passes the TEST lines through" is "$(FAKE_MODE=pass ./scripts/e2e.sh "$app" list | head -n 1)" "TEST a.one area=a tags=- checks=a.one"
 
 check "no build: exit 64" is "$(./scripts/e2e.sh "$tmp/none.app" >/dev/null 2>&1; echo $?)" 64
+
+# The ledger (BOW_E2E_LEDGER): every run appends one line per test, from any worktree. Two throwaway git repositories
+# with their own copy of the scripts, branch and tree stand in for two worktrees.
+: > "$quarantine"
+fakewt() {
+  local d="$tmp/wt-$1"
+  mkdir -p "$d"
+  cp -R scripts "$d/scripts"
+  git -C "$d" init -q
+  git -C "$d" checkout -q -b "$1"
+  echo "$1" > "$d/marker"
+  git -C "$d" add -A
+  git -C "$d" -c user.name=t -c user.email=t@t commit -q -m t
+}
+# wtrun <worktree> <fake mode>: a run of that worktree's wrapper, its run folders outside the worktree.
+wtrun() { (cd "$tmp/wt-$1" && FAKE_MODE=$2 BOW_E2E_ROOT="$tmp/wt-$1-runs" ./scripts/e2e.sh "$app" a.one > "$tmp/wt-$1.out" 2>&1; echo $?); }
+fakewt one
+fakewt two
+rm -f "$BOW_E2E_LEDGER"
+check "ledger: a flaky run in the first worktree exits 3" is "$(wtrun one flakyresult)" 3
+check "ledger: a flaky run in the second worktree exits 3" is "$(wtrun two flakyresult)" 3
+check "ledger: the header comes once, on a new file" \
+  is "$(head -n 1 "$BOW_E2E_LEDGER")|$(grep -c '^date' "$BOW_E2E_LEDGER")" "date	test	outcome	branch	tree	load	shard	run|1"
+check "ledger: a line per test per run with its 8 fields" \
+  is "$(awk -F '\t' 'NR > 1 && NF == 8 && $2 == "a.one" && $3 == "FLAKY" { n++ } END { print n + 0 "/" NR - 1 }' "$BOW_E2E_LEDGER")" "2/2"
+check "ledger: each line names its worktree's branch" is "$(awk -F '\t' 'NR > 1 { print $4 }' "$BOW_E2E_LEDGER" | paste -sd, -)" "one,two"
+check "ledger: each line names its worktree's tree" \
+  is "$(awk -F '\t' 'NR > 1 { print $5 }' "$BOW_E2E_LEDGER" | paste -sd, -)" \
+  "$(git -C "$tmp/wt-one" rev-parse 'HEAD^{tree}'),$(git -C "$tmp/wt-two" rev-parse 'HEAD^{tree}')"
+check "ledger: the date is UTC ISO 8601" \
+  is "$(awk -F '\t' 'NR == 2 { print ($1 ~ /^[0-9]{4}-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9]Z$/) ? "ok" : $1 }' "$BOW_E2E_LEDGER")" ok
+check "ledger: an unsharded run has no shard" is "$(awk -F '\t' 'NR == 2 { print $7 }' "$BOW_E2E_LEDGER")" "-"
+# The first worktree is deleted: its runs stay in the flake count.
+rm -rf "$tmp/wt-one" "$tmp/wt-one-runs"
+flakes=$(./scripts/e2e-flakes.sh)
+check "ledger: the flake count still has the deleted worktree's run" \
+  is "$(printf '%s\n' "$flakes" | awk '$1 == "a.one" { print $2, $3, $4, $5, $6, $7, $8 }')" "2 0 2 0 0 2 FILE"
+check "ledger: the flake count names the runs and branches" \
+  is "$(printf '%s\n' "$flakes" | tail -n 1)" "e2e-flakes: 2 runs on 2 branches in the last 7 days; 1 to file"
+check "ledger: a flake run's own results.json still counts through --local" \
+  is "$(./scripts/e2e-flakes.sh --local "$tmp/wt-two-runs" | awk '$1 == "a.one" { print $2, $4 }')" "1 1"
+# A quarantined flake keeps its own name.
+printf '%s\n' "a.one 2999-01-01 slow under load" > "$quarantine"
+check "ledger: a quarantined flake exits 0" is "$(wtrun two flakyresult)" 0
+check "ledger: a quarantined flake is QUARANTINED-FLAKY" is "$(tail -n 1 "$BOW_E2E_LEDGER" | cut -f 2,3)" "a.one	QUARANTINED-FLAKY"
+: > "$quarantine"
+check "ledger: a failing run is FAIL" is "$(wtrun two loudfail)" 1
+check "ledger: a failing run's line" is "$(tail -n 1 "$BOW_E2E_LEDGER" | cut -f 2,3)" "a.one	FAIL"
+check "ledger: a passing run is PASS" is "$(wtrun two loudpass)" 0
+check "ledger: a passing run's line" is "$(tail -n 1 "$BOW_E2E_LEDGER" | cut -f 2,3)" "a.one	PASS"
+check "ledger: the FAIL then PASS on the same tree counts as an event" \
+  is "$(./scripts/e2e-flakes.sh | awk '$1 == "a.one" { print $2, $3, $4, $5, $7, $8 }')" "5 1 3 1 4 FILE"
+# Parallel writers never interleave a line.
+rm -f "$BOW_E2E_LEDGER"
+fakewt three
+for i in 1 2 3 4 5 6; do wtrun three twoflaky > /dev/null & done
+wait
+check "ledger: parallel runs write whole lines" \
+  is "$(awk -F '\t' 'NR > 1 && NF != 8 { bad++ } END { print bad + 0 "/" NR - 1 "/" (NR - 1) / 2 }' "$BOW_E2E_LEDGER")" "0/12/6"
+check "ledger: parallel runs write one header" is "$(grep -c '^date' "$BOW_E2E_LEDGER")" 1
+# A ledger that cannot be written warns on stderr and changes nothing about the run.
+touch "$tmp/notafolder"
+res=$(cd "$tmp/wt-three" && FAKE_MODE=flakyresult BOW_E2E_LEDGER="$tmp/notafolder/ledger.tsv" BOW_E2E_ROOT="$tmp/wt-three-runs" \
+  ./scripts/e2e.sh "$app" a.one 2> "$tmp/ledger-stderr" | tail -n 1; echo "${PIPESTATUS[0]}")
+check "ledger: an unwritable ledger leaves the summary alone" is "$(printf '%s\n' "$res" | head -n 1)" "E2E: FLAKY 1/1 after retrying a.one"
+check "ledger: an unwritable ledger leaves the exit code alone" is "$(printf '%s\n' "$res" | tail -n 1)" 3
+check "ledger: an unwritable ledger warns on stderr" has "$tmp/ledger-stderr" "^e2e: warning: could not write the e2e ledger"
+# The threshold: a FLAKY, or a FAIL or TIMEOUT on a tree that the same test later passed, twice or more in 7 days.
+now=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+old=$(date -u -v-10d +%Y-%m-%dT%H:%M:%SZ)
+before=$(date -u -v-1H +%Y-%m-%dT%H:%M:%SZ)
+fake="$tmp/fake-ledger.tsv"
+{
+  printf 'date\ttest\toutcome\tbranch\ttree\tload\tshard\trun\n'
+  row() { printf '%s\t%s\t%s\tb\t%s\t1.00\t-\tr\n' "$1" "$2" "$3" "$4"; }
+  row "$before" t.fixed FAIL aaa; row "$now" t.fixed PASS aaa; row "$before" t.fixed TIMEOUT bbb; row "$now" t.fixed PASS bbb
+  row "$before" t.broken FAIL aaa; row "$before" t.broken FAIL bbb; row "$now" t.broken PASS ccc
+  row "$old" t.old FLAKY aaa; row "$old" t.old FLAKY bbb
+  row "$now" t.once FLAKY aaa; row "$now" t.once PASS bbb
+  row "$before" t.twice FLAKY aaa; row "$now" t.twice QUARANTINED-FLAKY bbb
+  printf 'garbage line\n'
+} > "$fake"
+tr_row() { ./scripts/e2e-flakes.sh --ledger "$fake" "${@:2}" | awk -v t="$1" '$1 == t { print $2, $7, $8 }'; }
+check "threshold: a FAIL and a TIMEOUT that later passed on their trees are 2 events: FILE" is "$(tr_row t.fixed)" "4 2 FILE"
+check "threshold: FAILs a later tree fixed are no events" is "$(tr_row t.broken)" "3 0 -"
+check "threshold: a flake older than the window is not counted" is "$(tr_row t.old)" ""
+check "threshold: --days widens the window" is "$(tr_row t.old --days 30)" "2 2 FILE"
+check "threshold: one FLAKY is not enough" is "$(tr_row t.once)" "2 1 -"
+check "threshold: a FLAKY and a QUARANTINED-FLAKY are 2 events: FILE" is "$(tr_row t.twice)" "2 2 FILE"
+check "threshold: no ledger exits 1" not ./scripts/e2e-flakes.sh --ledger "$tmp/missing.tsv" 2> /dev/null
+printf 'date\ttest\toutcome\tbranch\ttree\tload\tshard\trun\n%s\tt.old\tFLAKY\tb\taaa\t1.00\t-\tr\n' "$old" > "$tmp/oldonly.tsv"
+check "threshold: a window with no line exits 1" not ./scripts/e2e-flakes.sh --ledger "$tmp/oldonly.tsv" 2> /dev/null
+check "threshold: a bad --days exits 64" is "$(./scripts/e2e-flakes.sh --days x > /dev/null 2>&1; echo $?)" 64
 
 [ "$failed" = 0 ] && echo "e2e wrapper: all checks passed" || echo "e2e wrapper: some checks failed"
 exit "$failed"

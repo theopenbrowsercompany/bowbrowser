@@ -75,7 +75,18 @@ A plan or a shard that would run a test twice or not at all stops the run with e
 
 ## Flake history
 
-`scripts/e2e-flakes.sh [run roots or run folders]` reads every `results.json` under `build/e2e/` (or the roots given) and prints per test its runs, passes, FLAKY, FAIL and TIMEOUT counts and its newest failed run, most failures first.
+Every `scripts/e2e.sh` run appends one line per test and run-wide check to the shared ledger `~/Library/Caches/bowbrowser/e2e-ledger.tsv` (next to `timings.tsv`; `BOW_E2E_LEDGER` overrides the path, and the self tests use a temp file), from every worktree, so the history outlives a landed worktree.
+A line is tab separated: `date` (UTC), `test`, `outcome`, `branch`, `tree`, `load`, `shard`, `run`, under a header line written when the file is new.
+The outcome is `PASS`, `FLAKY` (failed or timed out, then passed on the retry), `QUARANTINED-FLAKY` (the same, on the quarantine list), `FAIL` or `TIMEOUT`, so a flake shows from the ledger alone.
+The `tree` is the commit's tree hash, with 8 hex digits of the diff added when tracked files were modified, so a fail fixed in the working tree is not a flake.
+Each run's lines go in under a lock in one write, and a ledger that cannot be written only warns on stderr: it never changes the run's output or exit code.
+
+`scripts/e2e-flakes.sh [--days N]` reads the ledger (7 days by default) and prints per test its runs, passes, FLAKY, FAIL and TIMEOUT counts, its events, FILE or `-`, and when it last failed, most events first.
+`--local [run roots or run folders]` (or the paths alone) reads the `results.json` files under `build/e2e/` of this checkout instead, and `--ledger FILE` reads another ledger.
+
+Filing threshold: a test that came back FLAKY, or FAIL or TIMEOUT on a tree that the same test later passed, twice or more within 7 days gets a flake item, which the lead files (its name, the dates, the branches and a `scripts/e2e-flakes.sh` excerpt).
+Each such event is one ledger line (FLAKY, QUARANTINED-FLAKY, or a FAIL or TIMEOUT line with a PASS line of the same test and tree at or after its date), and `e2e-flakes.sh` marks a test with 2 or more of them `FILE`.
+Quarantine a flake only with its filed item; remove the entry when the fix lands.
 
 ## Short output
 
