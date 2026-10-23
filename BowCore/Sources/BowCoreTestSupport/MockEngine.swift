@@ -45,7 +45,7 @@ import Foundation
     /// Closes every open tab without asking beforeunload, as engine shutdown does.
     public func quit() async {
         calls.append(.quit)
-        for tab in openTabs { tab.markClosed() }
+        for tab in openTabs { tab.markClosed(reason: .quit) }
         hasQuit = true
     }
 
@@ -111,6 +111,7 @@ import Foundation
     /// Every call made on the tab, in order.
     public private(set) var calls: [Call] = []
     public private(set) var isClosed = false
+    public private(set) var closeReason: TabCloseReason?
     /// Whether the page's beforeunload handler keeps the tab open when `close()` or `unload()` is called.
     public var beforeUnloadCancelsClose = false
     /// The zoom level last set; the mock keeps it per tab, not per site.
@@ -137,7 +138,7 @@ import Foundation
         calls.append(.close)
         guard !isClosed else { return true }
         if beforeUnloadCancelsClose { return false }
-        markClosed()
+        markClosed(reason: .app)
         return true
     }
 
@@ -154,11 +155,12 @@ import Foundation
         zoomLevel = level
     }
 
-    /// Marks the tab closed and sends `TabEvent.closed`, as the engine does whoever closed it. Call
-    /// it to script a page that closes itself.
-    public func markClosed() {
+    /// Marks the tab closed for `reason` and sends `TabEvent.closed`, as the engine does whoever closed
+    /// it. Call it with the default reason to script a page that closes itself.
+    public func markClosed(reason: TabCloseReason = .page) {
         guard !isClosed else { return }
         isClosed = true
+        closeReason = reason
         delegate?.tab(self, didReceive: .closed)
     }
 

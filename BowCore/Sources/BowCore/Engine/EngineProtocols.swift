@@ -89,6 +89,10 @@ extension EngineDownloadsDelegate {
     /// True once the page has been destroyed, whoever closed it. Navigation calls then do nothing.
     var isClosed: Bool { get }
 
+    /// Why the tab closed: set once it has, before `TabEvent.closed` arrives, and nil while it is open or after it
+    /// was unloaded. Defaults to nil (the engine does not say).
+    var closeReason: TabCloseReason? { get }
+
     /// Receives the tab's events. Implementations hold it weakly.
     var delegate: (any EngineTabDelegate)? { get set }
 
@@ -128,6 +132,7 @@ extension EngineDownloadsDelegate {
 }
 
 extension EngineTab {
+    public var closeReason: TabCloseReason? { nil }
     public func unload() async -> Bool { false }
     public var zoomLevel: Double { 0 }
     public func setZoomLevel(_ level: Double) {}
