@@ -57,6 +57,8 @@ final class E2ERunner {
     /// The test running now, which the heartbeat names if the main thread gets stuck.
     private var activeRun: E2ERun?
     private var heartbeat: Timer?
+    /// How many checks the tests themselves recorded (not e2e.isolation, the quit check or chromium.errors).
+    private var testCheckCount = 0
 
     /// Prepares a run before the engine starts. Throws for an unknown test or an unusable output folder.
     init(options: LaunchOptions) throws {
@@ -169,8 +171,11 @@ final class E2ERunner {
                     leftovers.append("\(test.name): \(leftover)")
                 }
             }
+            testCheckCount = checks.count
+            // The quit test keeps its window for quitting, so it is not among the tests checked here.
+            let closed = tests.filter { !$0.quitsApp }.count
             if leftovers.isEmpty {
-                record(Self.isolationCheck, passed: true, detail: "tests=\(tests.count) left-over=0")
+                record(Self.isolationCheck, passed: true, detail: "closed-tests=\(closed) left-over=0")
             } else {
                 record(Self.isolationCheck, passed: false, detail: leftovers.joined(separator: "; "))
             }
@@ -223,11 +228,18 @@ final class E2ERunner {
         let testChecks = checks[checksBefore...]
         let passed = testChecks.filter(\.passed).count
         let failed = passed < testChecks.count
-        if isLast { await writeScreenshot(of: app, to: runDirectory.appendingPathComponent("final.png")) }
+        // One screenshot at most: a failing last test's fail.png is a copy of its final.png.
         let folder = runDirectory.appendingPathComponent(test.name, isDirectory: true)
+        let finalURL = runDirectory.appendingPathComponent("final.png")
+        if isLast { await writeScreenshot(of: app, to: finalURL) }
         if failed {
             try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-            await writeScreenshot(of: app, to: folder.appendingPathComponent("fail.png"))
+            let failURL = folder.appendingPathComponent("fail.png")
+            if isLast {
+                try? FileManager.default.copyItem(at: finalURL, to: failURL)
+            } else {
+                await writeScreenshot(of: app, to: failURL)
+            }
         }
 
         // The quit test keeps its window, so quitting is timed with it open.
@@ -269,7 +281,7 @@ final class E2ERunner {
         }
 
         // A run passes only when its tests recorded checks; chromium.errors alone does not count.
-        let testChecks = checks.count
+        let testChecks = testCheckCount + (quitCheck == nil ? 0 : 1)
         let log = chromiumLog.finish()
         if log.unexpected.isEmpty {
             record(
@@ -423,13 +435,16 @@ final class E2ERun {
     /// step throws a TIMEOUT error, which fails the test, and the run goes on with the next test (the step's work
     /// is cancelled and its windows closed).
     func step<T>(_ name: String, timeout: TimeInterval, _ body: @escaping () async throws -> T) async throws -> T {
+        // A test that ran past its limit can still be running here; it must not drive the app any further.
+        guard !finished else { throw E2EError("the test had already ended when it started \(name)") }
         currentStep = name
         runner.beat()
         let limitedByTest = remainingTime < timeout
         let limit = min(timeout, remainingTime)
         let started = Date()
+        let outerDeadline = Self.stepDeadline
         Self.stepDeadline = started.addingTimeInterval(limit)
-        defer { Self.stepDeadline = nil }
+        defer { Self.stepDeadline = outerDeadline }
         let which = limitedByTest ? "the test's \(Int(Self.testTimeout)) s limit" : "its \(Self.format(limit)) s limit"
         let result = await E2ERace.run(
             timeout: limit, timeoutError: E2EError("TIMEOUT: the step ran past \(which)", reason: .timeout), body)
