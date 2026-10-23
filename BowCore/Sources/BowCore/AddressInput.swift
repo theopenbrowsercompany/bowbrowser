@@ -52,7 +52,8 @@ public enum AddressInput {
         let input = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !input.isEmpty else { return .empty }
 
-        if let url = URL(string: input), let scheme = url.scheme?.lowercased(),
+        let hasWhitespace = input.contains(where: \.isWhitespace)
+        if !hasWhitespace, let url = URL(string: input), let scheme = url.scheme?.lowercased(),
             ["http", "https", "file", "about", "chrome"].contains(scheme)
         {
             return .url(url)
@@ -74,7 +75,8 @@ public enum AddressInput {
 
     private static func looksLikeHost(_ input: String) -> Bool {
         guard !input.contains(where: \.isWhitespace) else { return false }
-        let host = input.split(separator: "/", maxSplits: 1).first.map(String.init) ?? input
+        let host = String(input.prefix { !"/?#".contains($0) })
+        guard !host.contains("@") else { return false }
         let name = host.split(separator: ":", maxSplits: 1).first.map(String.init) ?? host
         if name.lowercased() == "localhost" { return true }
         guard name.contains("."), !name.hasPrefix("."), !name.hasSuffix("."), !name.contains("..") else {

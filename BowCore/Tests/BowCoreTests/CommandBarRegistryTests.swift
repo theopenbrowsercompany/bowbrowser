@@ -58,8 +58,13 @@ import Testing
     }
 
     @Test func registryWithNoProvidersFinishesEmpty() async {
-        let results = await CommandBarRegistry().results(for: "x")
-        #expect(results.isEmpty)
+        let registry = CommandBarRegistry()
+        var updates = 0
+        for await update in await registry.updates(for: "x") {
+            updates += 1
+            #expect(update.isEmpty)
+        }
+        #expect(updates == 1)
     }
 
     @Test func addingAHistoryProviderLaterNeedsNoRankerChange() async {

@@ -8,8 +8,9 @@ import Foundation
 ///   found anywhere in the title or URL 200. Text that matches none of these drops the tab or page.
 /// - An open tab adds 30 and a history page adds 20, so a tab beats a page with the same match.
 /// - The address the person typed scores 900: it beats everything except an exact URL match.
-/// - Searching for the typed text scores 250 when no address was typed, so it sits below titles and
-///   addresses that start with the text but above loose matches, and 100 when an address was typed.
+/// - Searching for the typed text scores 250 when no typed address row shows, so it sits below
+///   matches that start a word of the title or address but above matches found only inside a word,
+///   and 100 while the typed address row shows.
 /// - A tab hides the history page and typed address for the same URL, and a history page hides the
 ///   typed address for its URL, so one URL shows once, as the most useful row.
 /// - Equal scores go to the most recently used, then to the provider registered first.
@@ -34,13 +35,11 @@ public struct CommandBarRanker: Sendable {
         }
 
         var entries: [Entry] = []
-        var addressTyped = false
         for (provider, candidates) in candidatesByProvider.enumerated() {
             for candidate in candidates {
                 switch candidate.kind {
                 case .navigation:
                     guard !text.isEmpty else { continue }
-                    addressTyped = true
                     entries.append(Entry(candidate: candidate, score: 900, provider: provider))
                 case .search:
                     guard !text.isEmpty else { continue }
@@ -57,10 +56,6 @@ public struct CommandBarRanker: Sendable {
                 }
             }
         }
-        for index in entries.indices where entries[index].candidate.kind == .search {
-            entries[index].score = addressTyped ? 100 : 250
-        }
-
         // One row per URL: tab over history over typed address. Several tabs may share a URL.
         var tabKeys = Set<String>()
         for entry in entries {
@@ -85,6 +80,12 @@ public struct CommandBarRanker: Sendable {
             case .navigation:
                 return !tabKeys.contains(key) && newestHistory[key] == nil
             }
+        }
+
+        // The search row drops to the bottom only while the typed address row is showing.
+        let addressShown = entries.contains { $0.candidate.kind == .navigation }
+        for index in entries.indices where entries[index].candidate.kind == .search {
+            entries[index].score = addressShown ? 100 : 250
         }
 
         entries.sort { a, b in
@@ -129,7 +130,9 @@ enum URLKey {
 
     static func make(_ text: String) -> String {
         var key = text.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        if let range = key.range(of: "://") { key = String(key[range.upperBound...]) }
+        if let range = key.range(of: #"^[a-z][a-z0-9+.-]*://"#, options: .regularExpression) {
+            key.removeSubrange(range)
+        }
         if key.hasPrefix("www.") { key.removeFirst(4) }
         if let hash = key.firstIndex(of: "#") { key = String(key[..<hash]) }
         while key.hasSuffix("/") { key.removeLast() }
