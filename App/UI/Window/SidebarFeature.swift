@@ -151,31 +151,66 @@ final class SidebarFeature: NSResponder, BrowserWindowFeature, SidebarViewDelega
         sidebar.beginRename(item)
     }
 
+    /// The folder's tabs go one at a time, each looked up again from the store, so a tab dragged in or out while a
+    /// leave prompt waits is closed or left as it is then. Tabs without a page leave the store at once (they have no
+    /// page to ask), and each closed tab leaves it right after closing (a pinned tab only unloads), so the tab the
+    /// window makes active after a close is never one of the folder's saved tabs, which would load it.
     func deleteWithTabs(_ item: SidebarItemID) {
-        let graph = window.store.graph
-        guard case .folder? = graph[item]?.data, let space = graph.activeSpaceID else { return }
-        let ids = graph.tabIDs(in: space)
-        let inside = ids.filter { graph.isDescendant($0, of: item) }
-        // The active tab moves out of the folder first, so closing it does not load another tab in the folder.
-        if let active = graph.activeTabID, let position = ids.firstIndex(of: active), inside.contains(active) {
-            let after = ids[position...].first { !graph.isDescendant($0, of: item) }
-            let before = ids[..<position].last { !graph.isDescendant($0, of: item) }
-            if let next = after ?? before { select(next) }
+        guard case .folder? = window.store.graph[item]?.data, let space = window.store.graph.activeSpaceID else {
+            return
         }
-        let loaded = inside.compactMap { runtimeIDs[$0] }.filter { window.engineTab(for: $0) != nil }
+        moveActiveTab(outOf: item, in: space)
+        dropUnloadedTabs(in: item, space: space)
         // Held strongly, as a close can free the window before the task runs.
         let owner = window
-        Task {
-            for id in loaded {
+        Task { [weak self] in
+            while let self, owner.store.graph[item] != nil {
+                let graph = owner.store.graph
+                let inside = graph.tabIDs(in: space).filter { graph.isDescendant($0, of: item) }
+                guard let tab = inside.first(where: { self.loadedID(of: $0) != nil }), let id = self.loadedID(of: tab)
+                else { break }
+                self.moveActiveTab(outOf: item, in: space)
                 guard await owner.closeTab(id: id) else { return }
+                if owner.store.graph[tab] != nil { owner.changeSidebar { try $0.apply([.delete(tab)]) } }
             }
             guard owner.store.graph[item] != nil else { return }
             owner.changeSidebar { try $0.apply([.delete(item)]) }
         }
     }
 
+    /// The runtime ID of tab `item` while its page is loaded.
+    private func loadedID(of item: SidebarItemID) -> BrowserTabID? {
+        runtimeIDs[item].flatMap { window.engineTab(for: $0) != nil ? $0 : nil }
+    }
+
+    /// Makes the nearest tab after folder `item` (or before it) active when the active tab is inside the folder.
+    private func moveActiveTab(outOf item: SidebarItemID, in space: SidebarSpaceID) {
+        let graph = window.store.graph
+        let ids = graph.tabIDs(in: space)
+        guard let active = graph.activeTabID, graph.isDescendant(active, of: item),
+            let position = ids.firstIndex(of: active)
+        else { return }
+        let after = ids[position...].first { !graph.isDescendant($0, of: item) }
+        let before = ids[..<position].last { !graph.isDescendant($0, of: item) }
+        if let next = after ?? before { select(next) }
+    }
+
+    /// Takes the tabs inside folder `item` that have no page out of the store.
+    private func dropUnloadedTabs(in item: SidebarItemID, space: SidebarSpaceID) {
+        let graph = window.store.graph
+        let unloaded = graph.tabIDs(in: space).filter { graph.isDescendant($0, of: item) && loadedID(of: $0) == nil }
+        guard !unloaded.isEmpty else { return }
+        window.changeSidebar { store in
+            try store.transaction { for tab in unloaded { try store.mutate(.delete(tab)) } }
+        }
+    }
+
     func confirm(_ message: String, detail: String, action: String, confirmed: @escaping @MainActor () -> Void) {
-        guard let sheetParent = window.window, sheetParent.attachedSheet == nil else { return }
+        guard let sheetParent = window.window, sheetParent.attachedSheet == nil else {
+            // Another sheet (a page's dialog) is up: the person hears that the action cannot ask now.
+            NSSound.beep()
+            return
+        }
         let alert = NSAlert()
         alert.alertStyle = .warning
         alert.messageText = message

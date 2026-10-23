@@ -12,11 +12,12 @@ They are made, renamed and deleted from the sidebar's context menus, and they ke
 - A new folder is named "New Folder" and starts with that name selected in its row, ready to type over.
 - Right-clicking a folder offers Rename Folder, and double-clicking a folder's row does the same: its name becomes editable in place.
   - Return or clicking elsewhere saves the new name; Escape, or an empty name, keeps the old one.
-- A folder that holds anything offers two ways to delete it:
+- A folder that holds tabs, directly or in its subfolders, offers two ways to delete it:
   - Delete Folder and Tabs asks first, in a sheet naming the folder and how many tabs it holds; Delete removes the folder and everything in it, and Cancel changes nothing.
-    Open tabs in it close as their close buttons would close them, and when the active tab was inside, the nearest tab outside the folder becomes active first.
+    Open tabs in it close as their close buttons would close them, one at a time, and when the active tab was inside, the nearest tab outside the folder becomes active first.
+    A tab dragged into the folder while a page's leave prompt waits goes with it, and one dragged out stays.
   - Delete Folder, Keep Tabs removes only the folder: what it held moves up into the folder's place in its parent, in the same order.
-- An empty folder offers a single Delete Folder, which asks nothing.
+- A folder without tabs (empty, or holding only empty folders) offers a single Delete Folder, which asks nothing.
 - A folder's disclosure triangle opens or closes it; a closed folder hides its contents, and each folder remembers its own state.
 - Dragging works at every level: a tab or folder can be dropped into any folder, a folder moves with everything inside it, and a folder dragged from today into the pinned tabs (or into a pinned folder) is pinned with its contents.
   The drag rules themselves are in `sidebar.md`.
@@ -26,7 +27,8 @@ They are made, renamed and deleted from the sidebar's context menus, and they ke
 - An empty folder is kept and listed, also after a relaunch.
 - Folders nest without a depth limit; a folder cannot be dropped inside itself or its own subfolders.
 - After a relaunch every folder is back in place with its name, its contents in order, and open or closed as it was left.
-- When a page asks to stay while its folder is being deleted with its tabs, the folder stays with what is left in it.
+- When a page asks to stay while its folder is being deleted with its tabs, the folder stays with what is left in it (its tabs that had no open page are already gone).
+- Choosing Delete Folder and Tabs while the window already shows a sheet (a page's dialog) only beeps.
 - Deleting a folder that holds every tab of the Space leaves the Space with no tabs.
 
 ## Acceptance checks
