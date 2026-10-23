@@ -251,32 +251,6 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
         }
     }
 
-    /// Moves tab `id` to `index` in the window's tab list: to the place of the tab that is at `index` once `id` has
-    /// left its own (in that tab's section or folder), or to the end of its own section past the last tab. A drag
-    /// never pins or unpins: a today tab dropped among pinned tabs goes to the top of today, and a pinned tab dropped
-    /// among today tabs to the end of the pinned section.
-    func reorderTab(_ id: BrowserTabID, to index: Int) {
-        guard let item = itemIDs[id], let space = activeSpace else { return }
-        let graph = store.graph
-        let others = activeSpaceTabIDs.filter { $0 != item }
-        let target = others.indices.contains(max(index, 0)) ? others[max(index, 0)] : nil
-        let pinned = graph.isPinned(item)
-        var mutation =
-            pinned
-            ? SidebarMutation.move(item, parent: space.pinnedContainerID, index: nil)
-            : SidebarMutation.move(item, parent: space.unpinnedContainerID, index: nil)
-        if let target, graph.isPinned(target) == pinned, let parent = graph[target]?.parentID,
-            let position = graph[parent]?.childrenIDs.filter({ $0 != item }).firstIndex(of: target)
-        {
-            mutation = .move(item, parent: parent, index: position)
-        } else if let target, graph.isPinned(target), !pinned {
-            // A drag never pins or unpins: a today tab dropped among pinned tabs goes to the top of today.
-            mutation = .move(item, parent: space.unpinnedContainerID, index: 0)
-        }
-        change { try $0.apply([mutation]) }
-        storeDidChange()
-    }
-
     /// Runs `body` on the window's store for a feature (a sidebar drag that moves, pins or unpins a tab), then brings
     /// the window up to date and tells the features, as the window's own changes do. A refusal is reported and changes
     /// nothing. Returns whether the change went through.

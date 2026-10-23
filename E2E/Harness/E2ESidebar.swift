@@ -37,3 +37,16 @@ protocol E2ESidebarApp: E2EApp {
     /// Moves `page`'s tab to `index` in its window's tab order, as dropping its row there does.
     func moveTab(_ page: any E2EPage, to index: Int) throws
 }
+
+/// The sidebar's zones as a test sees them: Favorites, pinned and today, with a divider between pinned and today.
+@MainActor
+protocol E2EZonesApp: E2ESidebarApp {
+    /// The rows of the sidebar outline of `page`'s window, top to bottom: each section's header as its zone
+    /// ("favorites", "pinned", "today") or "divider", and each item as its title.
+    func sidebarOutline(of page: any E2EPage) throws -> [String]
+    /// The zone ("favorites", "pinned" or "today") `page`'s tab is listed in, nil when it is in none.
+    func sidebarZone(of page: any E2EPage) throws -> String?
+    /// Drops `page`'s tab into `zone` at `index` among the zone's items (counted before the tab leaves its place),
+    /// as dropping its dragged row there does. Throws when the sidebar refuses the drop.
+    func dragTab(_ page: any E2EPage, toZone zone: String, at index: Int) throws
+}
