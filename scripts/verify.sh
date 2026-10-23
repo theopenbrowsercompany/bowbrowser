@@ -1,7 +1,9 @@
 #!/bin/bash
 # make verify: runs the independent checks side by side and fails when any of them fails.
 #
-#   scripts/verify.sh
+#   scripts/verify.sh [--plan]
+#
+# --plan prints which parts would run and why, and runs nothing.
 #
 # The parts are make targets: lint, guards, test, test-scripts and build. They share no output folder (lint and
 # guards only read, test builds BowCore/.build, the script tests use throwaway folders, build uses build/), so they
@@ -12,25 +14,30 @@
 # test-scripts (the e2e wrapper's and the compile cache prune's self tests, about 35 seconds) runs only when
 # something they test differs from origin/main, committed or not: scripts/ or the Makefile. A docs or app only
 # change skips it, and so does a branch whose scripts match origin/main. Without an origin/main ref it runs.
-# VERIFY_ALL=1 runs every part regardless, for a full backstop run.
+# VERIFY_ALL=1 runs every part regardless, for a full backstop run. VERIFY_BASE=<ref> compares with another ref.
 set -u
 cd "$(dirname "$0")/.."
 
 script_inputs=(scripts Makefile)
+base=${VERIFY_BASE:-origin/main}
 
 parts=(lint guards test build)
 if [ "${VERIFY_ALL:-0}" = 1 ]; then
   parts+=(test-scripts)
   echo "verify: VERIFY_ALL=1, running every part"
-elif ! git rev-parse -q --verify origin/main > /dev/null 2>&1; then
+elif ! git rev-parse -q --verify "$base^{commit}" > /dev/null 2>&1; then
   parts+=(test-scripts)
-  echo "verify: no origin/main ref, running the script tests"
-elif ! git diff --quiet origin/main -- "${script_inputs[@]}" 2> /dev/null ||
+  echo "verify: no $base ref, running the script tests"
+elif ! git diff --quiet "$base" -- "${script_inputs[@]}" 2> /dev/null ||
   [ -n "$(git ls-files --others --exclude-standard -- "${script_inputs[@]}")" ]; then
   parts+=(test-scripts)
-  echo "verify: scripts/ or the Makefile differ from origin/main, running the script tests"
+  echo "verify: scripts/ or the Makefile differ from $base, running the script tests"
 else
-  echo "verify: skip test-scripts (scripts/ and the Makefile match origin/main; VERIFY_ALL=1 runs it)"
+  echo "verify: skip test-scripts (scripts/ and the Makefile match $base; VERIFY_ALL=1 runs it)"
+fi
+if [ "${1:-}" = --plan ]; then
+  echo "verify: parts ${parts[*]}"
+  exit 0
 fi
 
 out=$(mktemp -d)
