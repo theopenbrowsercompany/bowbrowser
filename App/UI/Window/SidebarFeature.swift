@@ -115,6 +115,25 @@ final class SidebarFeature: NSResponder, BrowserWindowFeature, SidebarViewDelega
         return (url, tab.state.title)
     }
 
+    /// A loaded tab navigates. A tab without a page goes through `window.select(_:)`, which loads its saved page (for
+    /// a pinned tab, its pinned address) as selecting any such tab does, and then navigates to `url` unless that is
+    /// already the page it loaded.
+    @discardableResult
+    func load(_ item: SidebarItemID, url: URL) -> Bool {
+        guard let id = runtimeIDs[item] else { return false }
+        if let tab = window.engineTab(for: id), !tab.isClosed {
+            tab.load(url)
+            return true
+        }
+        // The address the window loads for a saved tab, as `select` is about to.
+        let graph = window.store.graph
+        let saved = graph.pinnedURL(of: item) ?? graph[item]?.tab?.savedPageURL
+        window.select(id)
+        guard let tab = window.engineTab(for: id), !tab.isClosed else { return false }
+        if saved != url { tab.load(url) }
+        return true
+    }
+
     func sidebarNewTab() {
         window.newTab(sidebar)
     }

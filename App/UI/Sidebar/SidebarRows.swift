@@ -10,7 +10,20 @@ final class TabSidebarRow: NSTableCellView {
     let iconView = NSImageView()
     let spinner = NSProgressIndicator()
     let closeButton: NSButton
+    /// Holds the row's accessory view (`SidebarRowAccessory`) before the close button; empty, it takes no room.
+    private let accessorySlot = NSStackView()
     var onClose: (() -> Void)?
+    /// The view a row accessory provider gave this row, nil for none. Read from the slot itself, so a view a
+    /// provider moved to another row is no longer this row's.
+    var accessoryView: NSView? {
+        get { accessorySlot.arrangedSubviews.first }
+        set {
+            let current = accessorySlot.arrangedSubviews.first
+            guard newValue !== current else { return }
+            current?.removeFromSuperview()
+            if let newValue { accessorySlot.addArrangedSubview(newValue) }
+        }
+    }
     var isActive = false {
         didSet { updateCloseButton() }
     }
@@ -49,7 +62,11 @@ final class TabSidebarRow: NSTableCellView {
         closeButton.toolTip = "Close Tab"
         closeButton.setAccessibilityLabel("Close Tab")
 
-        for view in [iconView, spinner, titleField, closeButton] as [NSView] {
+        accessorySlot.orientation = .horizontal
+        accessorySlot.spacing = 2
+        accessorySlot.setHuggingPriority(.required, for: .horizontal)
+
+        for view in [iconView, spinner, titleField, accessorySlot, closeButton] as [NSView] {
             view.translatesAutoresizingMaskIntoConstraints = false
             addSubview(view)
         }
@@ -64,7 +81,9 @@ final class TabSidebarRow: NSTableCellView {
             spinner.heightAnchor.constraint(equalToConstant: 16),
             titleField.leadingAnchor.constraint(equalTo: iconView.trailingAnchor, constant: 8),
             titleField.centerYAnchor.constraint(equalTo: centerYAnchor),
-            titleField.trailingAnchor.constraint(equalTo: closeButton.leadingAnchor, constant: -4),
+            titleField.trailingAnchor.constraint(equalTo: accessorySlot.leadingAnchor, constant: -4),
+            accessorySlot.trailingAnchor.constraint(equalTo: closeButton.leadingAnchor),
+            accessorySlot.centerYAnchor.constraint(equalTo: centerYAnchor),
             closeButton.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -6),
             closeButton.centerYAnchor.constraint(equalTo: centerYAnchor),
             closeButton.widthAnchor.constraint(equalToConstant: 20),
@@ -144,6 +163,8 @@ final class TabSidebarRow: NSTableCellView {
         super.prepareForReuse()
         isHovered = false
         onClose = nil
+        // The accessory stays for the outline to offer its provider again (`SidebarRowAccessory`); the outline sets
+        // it, or nil, every time it shows the row.
     }
 }
 
