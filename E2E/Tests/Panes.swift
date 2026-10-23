@@ -32,6 +32,8 @@ struct PanesContractTest: E2ETest {
         }
         let (a, c) = (pages[0], pages[2])
 
+        // Placed while one pane shows, so the panes the steps below lay out must go behind it.
+        let overlay = try app.addPageOverlay(besides: a)
         let four = try await run.step("show four panes", timeout: E2ETimeouts.step) {
             let shown = try app.showPanes(pages, focused: pages[2])
             return (shown, try app.panes(besides: a))
@@ -43,7 +45,6 @@ struct PanesContractTest: E2ETest {
                 && four.1.outlined == [2],
             "shown=\(four.0) \(four.1)")
 
-        let overlay = try app.addPageOverlay(besides: a)
         let two = try await run.step("show two panes", timeout: E2ETimeouts.step) {
             let shown = try app.showPanes([a, c], focused: a)
             return (shown, try app.panes(besides: a))
