@@ -45,11 +45,23 @@ struct DownloadsTabClosedTest: E2ETest {
         do {
             try await run.step("follow the download and clear it", timeout: E2ETimeouts.step * 2) {
                 // CEF aborts every request of a browser it destroys, which cancels the download; the row must say so.
-                let done = try await waitFor(run) { rows -> E2EDownload? in
-                    rows.first { $0.id == atClose.id && $0.state != "inProgress" }
+                // A row that stays in progress for 3 seconds after the tab closed is frozen.
+                var done = atClose
+                for _ in 0..<150 {
+                    guard let row = try await run.app.downloads().first(where: { $0.id == atClose.id }) else {
+                        throw E2EError("the download's row went away")
+                    }
+                    done = row
+                    if row.state != "inProgress" { break }
+                    try await Task.sleep(nanoseconds: 20_000_000)
+                }
+                let updated = done.state != "inProgress"
+                guard updated else {
+                    run.check(name, passed: false, "state=\(done.state) row=frozen bytes=\(done.receivedBytes)")
+                    await cancelRunning(run, except: earlier)
+                    return
                 }
                 let fileLeft = done.path.map { FileManager.default.fileExists(atPath: $0.path) } ?? false
-                let updated = done.state != atClose.state || done.receivedBytes != atClose.receivedBytes
 
                 // The cancelled row clears, and its name is free for the next download of the file.
                 try await run.app.press(.cancelOrClear, of: done)
@@ -58,7 +70,8 @@ struct DownloadsTabClosedTest: E2ETest {
                     at: E2EFixture.url("_slow/\(Self.size)/tab-closed.bin"), besides: page, select: false)
                 let next = try await waitFor(run) {
                     $0.first {
-                        !earlier.contains($0.id) && $0.id != done.id && $0.state == "inProgress" && $0.path != nil
+                        !earlier.contains($0.id) && $0.id != done.id && $0.state == "inProgress"
+                            && $0.path?.lastPathComponent.hasPrefix("tab-closed") == true
                     }
                 }
                 try await run.app.press(.cancelOrClear, of: next)
@@ -66,13 +79,14 @@ struct DownloadsTabClosedTest: E2ETest {
                 _ = try await run.app.closeTab(again)
 
                 let passed =
-                    done.state == "cancelled" && done.status == "Cancelled" && updated && !fileLeft
+                    done.state == "cancelled" && done.status == "Cancelled" && !fileLeft
                     && next.fileName == "tab-closed.bin"
                 run.check(
                     name,
                     passed: passed,
-                    "state=\(done.state) row=\(updated ? "updated" : "frozen")"
-                        + (passed ? "" : " status=\"\(done.status)\" fileLeft=\(fileLeft) next=\(next.fileName)")
+                    passed
+                        ? "state=\(done.state) row=updated"
+                        : "state=\(done.state) row=updated status=\"\(done.status)\" fileLeft=\(fileLeft) next=\(next.fileName)"
                 )
             }
         } catch {

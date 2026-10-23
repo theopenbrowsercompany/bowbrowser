@@ -32,6 +32,8 @@ bool IsFinal(BowDownloadState state) {
 // status is unknown.
 constexpr NSTimeInterval kWatchInterval = 0.25;
 constexpr CFAbsoluteTime kStallSeconds = 15;
+// How long an orphaned download with no file on disk yet is given before it counts as cancelled.
+constexpr CFAbsoluteTime kNoFileSeconds = 2;
 
 // The size of the file at `path`, or -1 when there is none.
 int64_t FileSize(const std::string& path) {
@@ -55,6 +57,7 @@ struct Watch {
   int64_t lastSize = 0;
   CFAbsoluteTime lastChange = 0;
   CFAbsoluteTime lastRead = 0;
+  CFAbsoluteTime orphanedAt = 0;
 };
 
 }  // namespace
@@ -463,7 +466,8 @@ class BowDownloadHandler : public CefDownloadHandler {
   const CFAbsoluteTime now = CFAbsoluteTimeGetCurrent();
   std::vector<uint32_t> orphans;
   for (auto& [downloadID, watch] : _watches) {
-    if (!watch.browser || !watch.browser->IsValid()) orphans.push_back(downloadID);
+    // A download reported without a browser has nothing to outlive, so Chromium keeps reporting it.
+    if (watch.orphaned || (watch.browser && !watch.browser->IsValid())) orphans.push_back(downloadID);
   }
   for (uint32_t downloadID : orphans) [self readOrphan:downloadID now:now];
   if (_watches.empty()) {
@@ -492,6 +496,7 @@ class BowDownloadHandler : public CefDownloadHandler {
     watch.lastSize = item.receivedBytes;
     watch.lastChange = now;
     watch.lastRead = now;
+    watch.orphanedAt = now;
     // Chromium had written bytes, so its file was on disk.
     watch.sawFile = item.receivedBytes > 0;
   }
@@ -524,6 +529,12 @@ class BowDownloadHandler : public CefDownloadHandler {
       [self finishOrphan:downloadID state:BowDownloadStateCancelled fullPath:nil];
       return;
     }
+  }
+  if (!watch.sawFile && now - watch.orphanedAt >= kNoFileSeconds) {
+    // Its browser closed before Chromium wrote anything (a save panel may still be open): CEF aborted its request,
+    // and an answer that comes later reaches a download that has ended.
+    [self finishOrphan:downloadID state:BowDownloadStateCancelled fullPath:nil];
+    return;
   }
 
   BowDownloadState state = item.state;
