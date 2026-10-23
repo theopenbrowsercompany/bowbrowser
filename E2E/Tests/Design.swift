@@ -243,8 +243,15 @@ struct DesignScreensTest: E2ETest {
         if let top = run.app as? any E2ETopTabsApp {
             try await run.step("top tabs", timeout: E2ETimeouts.step) {
                 try top.chooseUseTopTabs(in: notes)
-                _ = try await E2EWaits.until { try top.topTabs(of: notes).barShown }
-                try await shoot(notes, "mockup-4")
+                do {
+                    _ = try await E2EWaits.until { try top.topTabs(of: notes).barShown }
+                    try await shoot(notes, "mockup-4")
+                } catch {
+                    // Leave the sidebar layout and the saved setting as found, then fail the step.
+                    if (try? top.topTabs(of: notes).barShown) == true { try? top.chooseUseTopTabs(in: notes) }
+                    try? design.forgetWindowLayout()
+                    throw error
+                }
                 try top.chooseUseTopTabs(in: notes)
                 _ = try await E2EWaits.until { try !top.topTabs(of: notes).barShown }
                 try design.forgetWindowLayout()
