@@ -119,9 +119,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
         // The first main frame load that finishes or fails ends the run.
+        let tabID = tab.tabID
         controller.onTabEvent = { [weak self] eventTab, event in
-            guard eventTab === tab else { return }
-            self?.smokeTab(tab, didReceive: event)
+            guard eventTab.tabID == tabID else { return }
+            self?.smokeTab(eventTab, didReceive: event)
         }
         smokeTimer = Timer.scheduledTimer(withTimeInterval: Self.smokeTestTimeout, repeats: false) { [weak self] _ in
             MainActor.assumeIsolated {
