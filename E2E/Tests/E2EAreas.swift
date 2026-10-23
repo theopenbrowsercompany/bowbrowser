@@ -37,5 +37,7 @@ enum E2EAreas {
         TopTabsTests.all,
         PageTests.all,
         ArchiveAreaTests.all,
+        SpaceNameTests.all,
+        DragTests.all,
     ]
 }
