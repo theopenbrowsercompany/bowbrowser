@@ -113,6 +113,24 @@ extension EngineDownloadsDelegate {
     /// kept it open. A tab that closes also sends `TabEvent.closed`, which may come before or after
     /// this returns (the mock sends it first, the CEF engine on a later main thread task).
     func close() async -> Bool
+
+    /// Destroys the page's browser to free its memory while the app keeps the tab's model, to load it again later
+    /// in a new tab. The page's beforeunload handler runs, but it never prompts: a page that would ask to stay
+    /// keeps the tab loaded and this returns false. Returns true once unloaded; the tab is then closed and its
+    /// last event is `TabEvent.unloaded`, not `closed`. Defaults to false (the engine cannot unload).
+    func unload() async -> Bool
+
+    /// The page's zoom level: 0 is 100%, and each step of 1 is 20% larger (negative is smaller). The engine
+    /// remembers zoom per site in the profile, so setting it changes every tab on the same site, now and later.
+    var zoomLevel: Double { get }
+    /// Sets the zoom level of the page's site (see `zoomLevel`). Defaults to doing nothing.
+    func setZoomLevel(_ level: Double)
+}
+
+extension EngineTab {
+    public func unload() async -> Bool { false }
+    public var zoomLevel: Double { 0 }
+    public func setZoomLevel(_ level: Double) {}
 }
 
 /// Receives a tab's events on the main actor, in the order the engine produced them.
@@ -126,6 +144,27 @@ extension EngineDownloadsDelegate {
     /// notifications, clipboard and others). The answer covers every kind in the request and may take as long as
     /// the person needs. Defaults to `.dismiss`, which grants nothing.
     func tab(_ tab: any EngineTab, decidePermission request: PermissionRequest) async -> PermissionDecision
+
+    /// The page is opening a new page (a link with a target, `window.open`): where it goes, decided synchronously.
+    /// Defaults to `.window`, the engine's own popup window, which keeps `window.opener`. Popups opened by popups
+    /// and links saved to disk are not asked about.
+    func tab(_ tab: any EngineTab, decidePopup request: PopupRequest) -> PopupDecision
+
+    /// A popup decided as `.foregroundTab` or `.backgroundTab` arrived as a new tab in the same profile, still
+    /// connected to its opener (`window.opener`). The app owns it from now on. Defaults to closing it.
+    func tab(_ tab: any EngineTab, didOpenPopup newTab: any EngineTab, request: PopupRequest)
+
+    /// A key event is about to reach the page; true claims it, so the page never sees it. Asked synchronously.
+    /// Defaults to false.
+    func tab(_ tab: any EngineTab, handleKeyBeforePage event: EngineKeyEvent) -> Bool
+
+    /// A server asked for a user name and password. Answer with credentials, or nil to cancel (the page then
+    /// shows the server's own 401 page). Defaults to nil.
+    func tab(_ tab: any EngineTab, answer challenge: AuthChallenge) async -> AuthCredentials?
+
+    /// The page's certificate failed to verify. Defaults to `.cancel`, which fails the navigation and shows the
+    /// engine's error page.
+    func tab(_ tab: any EngineTab, decideCertificateError error: CertificateError) async -> CertificateErrorDecision
 }
 
 extension EngineTabDelegate {

@@ -60,6 +60,12 @@ public struct EngineTabState: Equatable, Sendable {
     public var isLoading: Bool
     public var canGoBack: Bool
     public var canGoForward: Bool
+    /// True while the page plays sound. Engines that cannot tell (CEF 156 reports no audible state) leave it false.
+    public var isAudible: Bool
+    /// True while the page uses a camera (or captures the screen's video).
+    public var isCapturingVideo: Bool
+    /// True while the page uses a microphone (or captures the screen's audio).
+    public var isCapturingAudio: Bool
 
     public init(
         tabID: TabID,
@@ -68,7 +74,10 @@ public struct EngineTabState: Equatable, Sendable {
         faviconURL: URL? = nil,
         isLoading: Bool = false,
         canGoBack: Bool = false,
-        canGoForward: Bool = false
+        canGoForward: Bool = false,
+        isAudible: Bool = false,
+        isCapturingVideo: Bool = false,
+        isCapturingAudio: Bool = false
     ) {
         self.tabID = tabID
         self.url = url
@@ -77,6 +86,9 @@ public struct EngineTabState: Equatable, Sendable {
         self.isLoading = isLoading
         self.canGoBack = canGoBack
         self.canGoForward = canGoForward
+        self.isAudible = isAudible
+        self.isCapturingVideo = isCapturingVideo
+        self.isCapturingAudio = isCapturingAudio
     }
 }
 
@@ -158,17 +170,21 @@ public struct PopupRequest: Equatable, Sendable {
     public var isUserGesture: Bool
     /// The size the page asked for, when it asked for one.
     public var requestedSize: PopupSize?
+    /// The window features the page passed to `window.open` (position, size, whether it asked for a popup).
+    public var windowFeatures: PopupWindowFeatures
 
     public init(
         targetURL: URL?,
         disposition: PopupDisposition,
         isUserGesture: Bool = false,
-        requestedSize: PopupSize? = nil
+        requestedSize: PopupSize? = nil,
+        windowFeatures: PopupWindowFeatures = PopupWindowFeatures()
     ) {
         self.targetURL = targetURL
         self.disposition = disposition
         self.isUserGesture = isUserGesture
         self.requestedSize = requestedSize
+        self.windowFeatures = windowFeatures
     }
 }
 
@@ -226,8 +242,11 @@ public enum TabEvent: Equatable, Sendable {
     /// A search started by `EngineTab.find` found matches or moved the active one. One search can
     /// report several times as the engine counts; the last has `isFinal`.
     case findResult(FindResult)
+    /// The page was unloaded by `EngineTab.unload()`: its browser is gone and the tab is closed, but the app keeps
+    /// its model to load it again later. Sent once, as the tab's last event, instead of `closed`.
+    case unloaded
     /// The page has been destroyed, whoever closed it: the app, quitting, or the page itself. Sent
-    /// once, as the tab's last event.
+    /// once, as the tab's last event (a tab that was unloaded sends `unloaded` instead).
     case closed
 }
 
