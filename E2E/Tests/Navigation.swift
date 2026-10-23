@@ -212,10 +212,9 @@ struct NavigationPopupTest: E2ETest {
                 "window.open('child.html?via=popup', 'child', 'width=480,height=360')",
                 "window.open('child.html?via=open')",
             ] {
-                // As if from a click: pages open popups from user actions. The page keeps each popup to close it.
+                // As if from a click: pages open popups from user actions.
                 _ = try await page.devTools(
-                    "Runtime.evaluate",
-                    ["expression": "void (window.bowPopups ??= []).push(\(open))", "userGesture": true])
+                    "Runtime.evaluate", ["expression": "void \(open)", "userGesture": true])
             }
             // The messages the children posted, once both have arrived or when the step's time is nearly up.
             return try await page.string(
@@ -236,11 +235,6 @@ struct NavigationPopupTest: E2ETest {
         }
         let passed = messages == expected.sorted().joined(separator: ",")
         run.check(name, passed: passed, passed ? "opener=kept" : "messages=\"\(messages)\" expected=\(expected)")
-        // Popups have no window of their own to close, so the opener closes them, as sign in flows do.
-        try await run.step("close popups", timeout: E2ETimeouts.step) {
-            _ = try await page.evaluate("window.bowPopups.forEach(popup => popup.close())")
-            try await E2EWaits.until(page, "window.bowPopups.every(popup => popup.closed)")
-        }
     }
 }
 

@@ -185,6 +185,7 @@ final class E2ERunner {
     private func run(_ test: any E2ETest, index: Int, isLast: Bool, app: E2EAppAdapter) async -> String? {
         let run = E2ERun(runner: self, test: test, app: app)
         activeRun = run
+        beat()
         defer { activeRun = nil }
         app.beginTest(index: index)
         let baseline = app.openBrowserCount
@@ -328,15 +329,18 @@ final class E2ERunner {
     /// Re-arms the watchdog from the main thread a few times a second, so it fires only when the main thread has
     /// not answered for `mainThreadStuckTimeout`.
     private func startHeartbeat() {
-        beat()
         let timer = Timer(timeInterval: Self.heartbeatInterval, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated { self?.beat() }
         }
         RunLoop.main.add(timer, forMode: .common)
         heartbeat = timer
+        beat()
     }
 
-    private func beat() {
+    /// Re-arms the watchdog naming the running test and step. Also called as each test and step starts, so a step
+    /// that blocks the main thread at once is still named.
+    fileprivate func beat() {
+        guard heartbeat != nil else { return }
         let place = activeRun.map { "\($0.testName): \($0.currentStep)" } ?? "between tests"
         watchdog.arm(
             "\(place) (the main thread did not answer for \(Int(Self.mainThreadStuckTimeout)) s)",
@@ -420,6 +424,7 @@ final class E2ERun {
     /// is cancelled and its windows closed).
     func step<T>(_ name: String, timeout: TimeInterval, _ body: @escaping () async throws -> T) async throws -> T {
         currentStep = name
+        runner.beat()
         let limitedByTest = remainingTime < timeout
         let limit = min(timeout, remainingTime)
         let started = Date()
