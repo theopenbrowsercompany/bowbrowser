@@ -58,7 +58,8 @@ public enum DownloadDestination: Equatable, Sendable {
     /// The name before its extension, and the extension with its dot (empty when there is none).
     private static func split(_ name: String) -> (String, String) {
         let lowered = name.lowercased()
-        for compound in compoundExtensions where lowered.hasSuffix("." + compound) && lowered.count > compound.count + 1 {
+        for compound in compoundExtensions where lowered.hasSuffix("." + compound) && lowered.count > compound.count + 1
+        {
             let cut = name.index(name.endIndex, offsetBy: -(compound.count + 1))
             return (String(name[..<cut]), String(name[cut...]))
         }

@@ -44,7 +44,16 @@ final class DownloadsWindowController: NSWindowController, NSTableViewDataSource
 
     /// Redraws the rows from `center`. The owner calls it on every change.
     func reload() {
-        tableView.reloadData()
+        if tableView.numberOfRows == rows.count {
+            // Progress only: refresh the rows on screen without rebuilding them. Rows keep their order until a
+            // download is added or removed.
+            let visible = tableView.rows(in: tableView.visibleRect)
+            for row in visible.location..<(visible.location + visible.length) where row < rows.count {
+                (tableView.view(atColumn: 0, row: row, makeIfNecessary: false) as? DownloadRowView)?.show(rows[row])
+            }
+        } else {
+            tableView.reloadData()
+        }
         askCheckbox.state = DownloadSettings.askWhereToSave ? .on : .off
     }
 

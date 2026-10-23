@@ -25,7 +25,7 @@ Each profile keeps its own downloads, and the window shows every profile's downl
 - Two profiles can each have a download with the same internal number; the list keeps them apart.
 - A finished download never changes state again, even if a late progress report arrives.
 - The list lasts for the session: after a restart it starts empty, and files already saved stay on disk.
-- Closing the tab that started a download may stop its progress reports from reaching the list (a limit of the engine today).
+- Closing the tab or popup that started a download may stop its progress reports from reaching the list; this is not yet checked.
 
 ## Acceptance checks
 
