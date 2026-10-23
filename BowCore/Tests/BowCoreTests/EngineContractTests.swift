@@ -128,6 +128,8 @@ import Testing
 
         #expect(delegate.events.contains(.didFail(navigation, error)))
         #expect(!tab.state.isLoading)
+        #expect(!error.isAborted)
+        #expect(NavigationError(code: NavigationError.abortedCode, description: "ERR_ABORTED").isAborted)
     }
 
     @Test func deliversPopupAndProcessGoneEvents() {
@@ -150,30 +152,72 @@ import Testing
         let engine = MockEngine()
         let tab = engine.defaultProfile.createTab(url: example)
         let mock = engine.openTabs[0]
+        let delegate = RecordingTabDelegate()
+        tab.delegate = delegate
 
         mock.beforeUnloadCancelsClose = true
         #expect(await tab.close() == false)
-        #expect(!mock.isClosed)
+        #expect(!tab.isClosed)
+        #expect(delegate.events.isEmpty)
 
         mock.beforeUnloadCancelsClose = false
         #expect(await tab.close() == true)
-        #expect(mock.isClosed)
-        #expect(mock.calls == [.close, .close])
+        #expect(tab.isClosed)
+        #expect(await tab.close() == true)
+        #expect(mock.calls == [.close, .close, .close])
         #expect(engine.openTabs.isEmpty)
+        #expect(delegate.events == [.closed])
+    }
+
+    @Test func pageClosingItselfSendsClosed() {
+        let engine = MockEngine()
+        let tab = engine.defaultProfile.createTab(url: example)
+        let delegate = RecordingTabDelegate()
+        tab.delegate = delegate
+
+        let mock = engine.openTabs[0]
+        mock.markClosed()
+        mock.markClosed()
+
+        #expect(tab.isClosed)
+        #expect(delegate.events == [.closed])
     }
 
     @Test func quitClosesEveryTab() async throws {
         let engine = MockEngine()
         let work = try engine.createProfile(id: "work", isPersistent: true)
-        _ = engine.defaultProfile.createTab(url: example)
-        _ = work.createTab(url: docs)
+        let first = engine.defaultProfile.createTab(url: example)
+        let second = work.createTab(url: docs)
+        let delegate = RecordingTabDelegate()
+        first.delegate = delegate
+        second.delegate = delegate
         engine.openTabs[0].beforeUnloadCancelsClose = true
 
         await engine.quit()
 
         #expect(engine.hasQuit)
         #expect(engine.openTabs.isEmpty)
+        #expect(first.isClosed && second.isClosed)
+        #expect(delegate.events == [.closed, .closed])
         #expect(engine.calls.last == .quit)
+    }
+
+    @Test func refusesInvalidAndTakenProfileIDs() throws {
+        let engine: any BrowserEngine = MockEngine()
+        _ = try engine.createProfile(id: "work-1.a_b", isPersistent: true)
+
+        for id: ProfileID in ["", ".", "..", "a/b", "spaced id", "caf\u{E9}"] {
+            #expect(!id.isValid)
+            #expect(throws: EngineError.invalidProfileID(id)) {
+                try engine.createProfile(id: id, isPersistent: false)
+            }
+        }
+        for id: ProfileID in ["default", "WORK-1.A_B"] {
+            #expect(throws: EngineError.profileExists(id)) {
+                try engine.createProfile(id: id, isPersistent: false)
+            }
+        }
+        #expect(ProfileID("...").isValid)
     }
 
     @Test func delegateIsHeldWeakly() {

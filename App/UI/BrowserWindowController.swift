@@ -1,24 +1,31 @@
 import AppKit
+import BowCore
 
-/// A browser window: its tabs, and one host view that shows the selected tab.
+/// A browser window: its tabs, and one host view that shows the selected tab. It reaches the engine only through
+/// the BowCore protocols, and is the delegate of each of its tabs.
 @MainActor
-final class BrowserWindowController: NSWindowController, NSWindowDelegate {
+final class BrowserWindowController: NSWindowController, NSWindowDelegate, EngineTabDelegate {
     static let styleMask: NSWindow.StyleMask = [.titled, .closable, .miniaturizable, .resizable]
 
-    /// Shows the selected tab. Switching tabs attaches another tab here; pages are never reloaded by a switch.
+    /// Shows the selected tab. Switching tabs shows another tab here; pages are never reloaded by a switch.
     let webView: BowWebView
     /// The window's open tabs, in order.
-    private(set) var tabs: [BowTab] = []
+    private(set) var tabs: [any EngineTab] = []
     /// Called when the window has closed, so the owner can let go of this controller.
     var onClose: ((BrowserWindowController) -> Void)?
+    /// Called with every event of the window's tabs, after the window has handled it.
+    var onTabEvent: ((any EngineTab, TabEvent) -> Void)?
+    /// Asked before every main frame navigation of the window's tabs; nil allows every navigation.
+    var navigationPolicy: ((any EngineTab, EngineNavigation) -> NavigationPolicy)?
 
-    private let profile: BowProfile
+    private let profile: any EngineProfile
 
-    var selectedTab: BowTab? { webView.attachedTab }
+    /// The tab `webView` shows, kept here rather than read back from the view.
+    private(set) var selectedTab: (any EngineTab)?
 
-    /// Opens `url` in a new centered window, or in `window` when given (e2e runs pass an off-screen one),
-    /// which is not cascaded: the caller places it.
-    init(url: URL, profile: BowProfile = BowEngine.shared.defaultProfile, window givenWindow: BrowserWindow? = nil) {
+    /// Opens `url` in a new centered window on `profile`, or in `window` when given (e2e runs pass an off-screen
+    /// one), which is not cascaded: the caller places it.
+    init(url: URL, profile: any EngineProfile, window givenWindow: BrowserWindow? = nil) {
         let window =
             givenWindow
             ?? BrowserWindow(
@@ -50,25 +57,43 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
 
     /// Opens `url` in a new tab of this window's profile, selecting it unless `select` is false.
     @discardableResult
-    func openTab(url: URL, select: Bool = true) -> BowTab {
+    func openTab(url: URL, select: Bool = true) -> any EngineTab {
         let tab = profile.createTab(url: url)
+        tab.delegate = self
         tabs.append(tab)
-        tab.uiDelegate = self
         if select || selectedTab == nil { self.select(tab) }
         return tab
     }
 
     /// Shows `tab`, one of this window's tabs.
-    func select(_ tab: BowTab) {
+    func select(_ tab: any EngineTab) {
         guard tabs.contains(where: { $0 === tab }) else { return }
-        webView.attach(tab)
+        selectedTab = tab
+        webView.show(tab)
         updateTitle()
     }
 
-    /// A tab closes from this window, from quitting or from its page; the window follows its last tab.
-    private func tabClosed(_ tab: BowTab) {
+    func tab(_ tab: any EngineTab, didReceive event: TabEvent) {
+        switch event {
+        case .stateChanged:
+            if tab === selectedTab { updateTitle() }
+        case .closed:
+            // A tab closes from this window, from quitting or from its page; the window follows its last tab.
+            tabClosed(tab)
+        default:
+            break
+        }
+        onTabEvent?(tab, event)
+    }
+
+    func tab(_ tab: any EngineTab, decidePolicyFor navigation: EngineNavigation) -> NavigationPolicy {
+        navigationPolicy?(tab, navigation) ?? .allow
+    }
+
+    private func tabClosed(_ tab: any EngineTab) {
         guard let index = tabs.firstIndex(where: { $0 === tab }) else { return }
         tabs.remove(at: index)
+        if selectedTab === tab { selectedTab = nil }
         if selectedTab == nil, !tabs.isEmpty {
             select(tabs[min(index, tabs.count - 1)])
         }
@@ -90,23 +115,13 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
         // A page the person chooses to stay on keeps its tab and the window open. Each close request asks the
         // pages again, as quitting again does.
         for tab in tabs {
-            tab.close { _ in }
+            Task { _ = await tab.close() }
         }
         return false
     }
 
     func windowWillClose(_ notification: Notification) {
         onClose?(self)
-    }
-}
-
-extension BrowserWindowController: BowTabUIDelegate {
-    func tab(_ tab: BowTab, didChangeState state: BowTabState) {
-        if tab === selectedTab { updateTitle() }
-    }
-
-    func tabDidClose(_ tab: BowTab) {
-        tabClosed(tab)
     }
 }
 

@@ -13,11 +13,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private static let smokeTestTimeout: TimeInterval = 30
     /// A smoke run fails with `BowEngineQuitTimeoutExitCode` if quitting takes longer than this.
     private static let smokeQuitTimeout: TimeInterval = 2
-    /// The engine's error code for an aborted load (ERR_ABORTED).
-    private static let abortedErrorCode = -3
     /// Exit code for switches the app cannot parse (EX_USAGE).
     private static let usageExitCode: Int32 = 64
 
+    /// The engine as app code sees it: the BowCore protocols over the bridge.
+    let engine: any BrowserEngine = CEFEngine()
     private var windowControllers: [BrowserWindowController] = []
     private var options = LaunchOptions()
     #if BOW_E2E
@@ -93,13 +93,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         !options.isE2E
     }
 
-    /// Opens `url` in a new browser window on `profile`, or in `window` when given (e2e runs pass an off-screen
-    /// one).
+    /// Opens `url` in a new browser window on `profile` (the default profile when nil), or in `window` when given
+    /// (e2e runs pass an off-screen one).
     func openWindow(
         url: URL,
-        profile: BowProfile = BowEngine.shared.defaultProfile,
+        profile: (any EngineProfile)? = nil,
         window: BrowserWindow? = nil
     ) -> BrowserWindowController {
+        // The engine always has its default profile.
+        let profile = profile ?? engine.profile(id: .default)!
         let controller = BrowserWindowController(url: url, profile: profile, window: window)
         controller.onClose = { [weak self] closed in
             self?.windowControllers.removeAll { $0 === closed }
@@ -116,8 +118,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             finishSmokeTest("no tab opened", exitCode: 1)
             return
         }
-        // The first main frame load that finishes or fails ends the run (see the BowTabNavigationDelegate extension).
-        tab.navigationDelegate = self
+        // The first main frame load that finishes or fails ends the run.
+        controller.onTabEvent = { [weak self] eventTab, event in
+            guard eventTab === tab else { return }
+            self?.smokeTab(tab, didReceive: event)
+        }
         smokeTimer = Timer.scheduledTimer(withTimeInterval: Self.smokeTestTimeout, repeats: false) { [weak self] _ in
             MainActor.assumeIsolated {
                 self?.finishSmokeTest("timed out", exitCode: 2)
@@ -178,19 +183,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 }
 
 /// A smoke run's result: the first load of its tab that finishes or fails.
-extension AppDelegate: BowTabNavigationDelegate {
-    func tab(_ tab: BowTab, didFinish navigation: BowNavigation, httpStatus: Int) {
-        let ok = (200..<400).contains(httpStatus)
-        let url = tab.state.url?.absoluteString ?? navigation.url.absoluteString
-        let line = "status=\(httpStatus) title=\"\(tab.state.title)\" url=\(url)"
-        finishSmokeTest(line, exitCode: ok ? 0 : 1)
-    }
-
-    func tab(_ tab: BowTab, didFail navigation: BowNavigation, error: BowNavigationError) {
-        // An aborted load was replaced (a script navigation or a meta refresh) or left no page; the result is the
-        // load that follows, or the timeout.
-        if error.code == Self.abortedErrorCode { return }
-        let line = "error=\(error.code) \(error.errorText) url=\(navigation.url.absoluteString)"
-        finishSmokeTest(line, exitCode: 1)
+extension AppDelegate {
+    fileprivate func smokeTab(_ tab: any EngineTab, didReceive event: TabEvent) {
+        switch event {
+        case .didFinish(let navigation, let httpStatus):
+            let ok = (200..<400).contains(httpStatus)
+            let url = tab.state.url?.absoluteString ?? navigation.url.absoluteString
+            let line = "status=\(httpStatus) title=\"\(tab.state.title)\" url=\(url)"
+            finishSmokeTest(line, exitCode: ok ? 0 : 1)
+        case .didFail(let navigation, let error):
+            // An aborted load was replaced (a script navigation or a meta refresh) or left no page; the result is
+            // the load that follows, or the timeout.
+            if error.isAborted { return }
+            let line = "error=\(error.code) \(error.description) url=\(navigation.url.absoluteString)"
+            finishSmokeTest(line, exitCode: 1)
+        default:
+            break
+        }
     }
 }
