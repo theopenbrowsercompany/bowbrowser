@@ -17,7 +17,9 @@ public enum PageZoom {
 
     /// The size, as a whole percentage, a page at zoom `level` shows at.
     public static func percent(forLevel level: Double) -> Int {
-        Int((pow(1.2, level) * 100).rounded())
+        // A level the engine could not have stored (not a number, or far past the presets) reads as the nearest size.
+        guard level.isFinite else { return 100 }
+        return Int((pow(1.2, min(max(level, -50), 50)) * 100).rounded())
     }
 
     /// The zoom level one preset larger than `level`, or nil at the largest.

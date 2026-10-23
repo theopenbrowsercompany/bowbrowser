@@ -24,11 +24,10 @@ extension E2ETestApp: E2EPageBehaviorApp {
         try adapter.requireActive(token, "click Reload on the crashed tab page")
         let view = try Self.crashedFeature(of: page).crashedView
         let button = view.reloadButton
-        guard !view.isHiddenOrHasHiddenAncestor, let window = button.window else {
+        guard !view.isHiddenOrHasHiddenAncestor, button.window != nil else {
             throw E2EError("the crashed tab page is not shown")
         }
         guard Self.hitTarget(of: button) === button else { throw E2EError("something covers the Reload button") }
-        _ = window
         // A button tracks a press until the release, so the click goes through its own press handling.
         button.performClick(nil)
     }
