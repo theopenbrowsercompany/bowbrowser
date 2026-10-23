@@ -11,6 +11,39 @@ namespace {
 std::function<void(uint64_t, bool, std::function<void(bool)>)> gLeavePromptAnswerer;
 #endif
 
+// A page in a popup window of the engine's own asked for an alert, confirm or prompt: a sheet on that window, so
+// only the popup waits. A popup in no window (an e2e run parks them off screen) is answered as cancelled.
+void RunPopupWindowDialog(CefRefPtr<CefBrowser> browser,
+                          const CefString& originURL,
+                          CefJSDialogHandler::JSDialogType dialogType,
+                          const CefString& messageText,
+                          const CefString& defaultPromptText,
+                          CefRefPtr<CefJSDialogCallback> callback) {
+  NSView* view = (__bridge NSView*)browser->GetHost()->GetWindowHandle();
+  NSWindow* window = view.window;
+  if (!window) {
+    callback->Continue(false, CefString());
+    return;
+  }
+  NSString* host = BowToNSURL(originURL).host;
+  NSAlert* alert = [[NSAlert alloc] init];
+  alert.messageText = host.length ? [host stringByAppendingString:@" says"] : @"This page says";
+  alert.informativeText = BowToNSString(messageText);
+  [alert addButtonWithTitle:@"OK"];
+  if (dialogType != JSDIALOGTYPE_ALERT) [alert addButtonWithTitle:@"Cancel"];
+  NSTextField* field = nil;
+  if (dialogType == JSDIALOGTYPE_PROMPT) {
+    field = [NSTextField textFieldWithString:BowToNSString(defaultPromptText)];
+    field.frame = NSMakeRect(0, 0, 260, 22);
+    alert.accessoryView = field;
+  }
+  [alert beginSheetModalForWindow:window
+                completionHandler:^(NSModalResponse response) {
+                  const bool accepted = response == NSAlertFirstButtonReturn;
+                  callback->Continue(accepted, accepted && field ? field.stringValue.UTF8String : "");
+                }];
+}
+
 }  // namespace
 
 bool BowTabClient::OnJSDialog(CefRefPtr<CefBrowser> browser,
@@ -26,7 +59,14 @@ bool BowTabClient::OnJSDialog(CefRefPtr<CefBrowser> browser,
     suppressMessage = true;
     return false;
   }
-  if (!IsOwn(browser) || ![tab_ takesUIRequest:@selector(tab:runJavaScriptDialog:completionHandler:)]) {
+  // A popup in a window of the engine's own asks on that window, never app modal.
+  if (!IsOwn(browser)) {
+    RunPopupWindowDialog(browser, originURL, dialogType, messageText, defaultPromptText, callback);
+    return true;
+  }
+  // Without a UI delegate that takes dialogs the page is answered as cancelled: CEF's own dialog is app modal.
+  if (![tab_ takesUIRequest:@selector(tab:runJavaScriptDialog:completionHandler:)]) {
+    suppressMessage = true;
     return false;
   }
   BowJSDialogKind kind = BowJSDialogKindAlert;
@@ -121,21 +161,7 @@ bool BowTabClient::OnFileDialog(CefRefPtr<CefBrowser> browser,
     });
     return;
   }
-  if (![self takesUIRequest:@selector(tab:runJavaScriptDialog:completionHandler:)]) {
-    [self runLeavePrompt:request answer:answer];
-    return;
-  }
-  // A delegate gone before it is asked must not cancel a close or quit by default: the tab asks itself instead.
-  [self askDelegateForDialog:request
-                      answer:answer
-                   otherwise:^{
-                     BowTab* tab = weakSelf;
-                     if (tab) {
-                       [tab runLeavePrompt:request answer:answer];
-                     } else {
-                       answer(YES, nil);
-                     }
-                   }];
+  [self runLeavePrompt:request answer:answer];
 }
 
 // Hands a dialog to the UI delegate. The handler answers once; released unanswered, it answers NO (cancel, or
@@ -161,8 +187,8 @@ bool BowTabClient::OnFileDialog(CefRefPtr<CefBrowser> browser,
                  otherwise:otherwise];
 }
 
-// The tab's own "leave this site?" prompt, used when the UI delegate takes no dialogs: a sheet on the window
-// showing the tab, or a free-floating alert while the tab is detached.
+// The tab's own "leave this site?" prompt, which the tab always asks itself (never its UI delegate): a sheet on the
+// window showing the tab, or a free-floating alert while the tab is detached.
 - (void)runLeavePrompt:(BowJSDialogRequest*)request answer:(void (^)(BOOL, NSString* _Nullable))answer {
 #if BOW_E2E  // E2E seam: an e2e run answers the prompt itself instead of showing it, outside the CEF callback.
   if (gLeavePromptAnswerer) {

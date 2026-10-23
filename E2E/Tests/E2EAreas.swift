@@ -40,5 +40,6 @@ enum E2EAreas {
         SpaceNameTests.all,
         DragTests.all,
         RecentTabsTests.all,
+        PageDialogsTests.all,
     ]
 }

@@ -79,11 +79,11 @@ NS_SWIFT_UI_ACTOR
 /// Saving a link to disk, ignored actions and popups opened by popups are not reported.
 - (void)tab:(BowTab *)tab didRequestPopup:(BowPopupRequest *)request NS_SWIFT_NAME(tab(_:didRequestPopup:));
 
-/// The page asked for an alert, confirm, prompt or beforeunload dialog. Answer with whether the person accepted
-/// (OK or "Leave"), and for a prompt the text they entered (nil otherwise). Answering a beforeunload dialog
-/// with NO keeps the page, and cancels the close or quit that asked. Without this method the tab asks
-/// "leave this site?" itself (a sheet on its window, or a free-floating alert while it is detached), and other
-/// dialogs are the engine's own.
+/// The page asked for an alert, confirm or prompt. Answer with whether the person accepted (OK), and for a prompt
+/// the text they entered (nil otherwise); the page waits for the answer. Without this method every such dialog is
+/// answered as cancelled (the engine's own dialog would be app modal). The "leave this site?" prompt never comes
+/// here: the tab asks it itself (a sheet on its window, or a free-floating alert while it is detached). Popups in
+/// windows of the engine's own ask on their own window.
 - (void)tab:(BowTab *)tab
     runJavaScriptDialog:(BowJSDialogRequest *)request
       completionHandler:(void (^)(BOOL accepted, NSString *_Nullable userInput))completionHandler
