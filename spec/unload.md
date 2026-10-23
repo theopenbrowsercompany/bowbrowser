@@ -24,6 +24,23 @@ An unloaded tab stays in the sidebar and loads again when you open it.
 - A tab that is closing for good is never unloaded instead: not after its page closed itself, and not while the app quits.
   Closing a tab whose unload is still under way turns it into a close: the unload reports that it did not happen, and the tab is closed by the app.
 
+## App wiring
+
+- Unloading is off by default, behind one setting; with it off, nothing is ever unloaded, not even under critical memory pressure.
+- While it is on, Bow looks for idle tabs about once a minute, across every window and every Space, and at once whenever macOS reports memory pressure.
+- Under warning or critical memory pressure, as macOS reports it, the shorter idle times and lower loaded tab limits apply, and critical pressure unloads every tab that may be unloaded.
+- Never unloaded, however long idle and whatever the pressure:
+  - the tab a window shows;
+  - a tab mid navigation, still loading its page;
+  - any tab of a profile with a download under way, since destroying the page that started it would cancel it;
+  - a tab using the camera or microphone;
+  - a tab playing sound, once the engine reports audio (the current engine does not, so this does not apply yet);
+  - every tab of a window that is closing, and every tab while a page's dialog (an alert or a leave prompt) waits for an answer, so a dialog never vanishes unanswered; the next look tries again.
+- Pinned tabs and Favorites are spared longer than other tabs.
+- The idle times, loaded tab limits and how often Bow looks are named in one place, so measurements can tune them without touching the rest.
+- An unloaded tab keeps its row, address, title and icon, and loads again from its address when chosen, without its back and forward history.
+- Quitting stops unloading at once: no tab is unloaded while the app quits.
+
 ## Edge cases
 
 - A tab that is already unloaded is never chosen again.
@@ -47,9 +64,11 @@ These run as unit tests today (`UnloadPolicyTests`).
 8. Run `make e2e`: the `engine.unload` check unloads a tab through the engine, then closes a tab whose slow beforeunload keeps its unload pending, and prints `PASS engine.unload: unloaded=true closed=true last=unloaded taken-over-unload=false close=true close-last=closed close-reason=app`.
 9. Run `make e2e`: `PASS tabs.unload-reload: row=kept loaded=again url=same` shows an unloaded tab keeping its row in the window and loading again at its address when chosen, and `PASS tabs.unload-stay` shows a page that would ask to stay left loaded with no prompt.
 
+10. Run `make e2e E2E=unload`: `PASS unload.off` shows nothing unloaded with the setting off, after a day idle and under critical pressure; `PASS unload.policy: live=1 unloaded=3` shows a pass after a day idle unloading every background tab and keeping the shown one, and `PASS unload.reload` choosing an unloaded tab loading it again at its address; `PASS unload.exempt` shows a tab using the camera kept; `PASS unload.pressure` shows critical pressure unloading a recently used background tab; `PASS unload.engine_reload` shows an unloaded row keeping its title and icon; `PASS unload.dialog` shows a pass while a background tab's alert is up unloading nothing, and the next pass after it is answered unloading the tab.
+
 ## Out of scope
 
-- Reading memory pressure from the engine, the placeholder snapshot and sidebar display: they need the app and the measurements, and are not built yet.
-  Reopening the page works: a window keeps an unloaded tab's row and loads it again when chosen.
+- The placeholder snapshot and showing in the sidebar that a tab is unloaded are not built yet.
+  A setting in a settings window for unloading is not built yet either; it is a stored setting only.
 - The idle times and limits shown here are placeholders until those measurements arrive.
 - Restoring back and forward history after unloading.

@@ -31,7 +31,7 @@ The list comes from the saved sidebar (see `sidebar-store.md`): a window's tabs 
 - Closing a pinned tab with Close Tab unloads its page and keeps its row; the next tab becomes active.
   When it was the Space's only tab, it stays active with no page loaded, also after switching to another Space and back, and loads again only once its row or the page area's Load Tab button is chosen.
   Meanwhile the page area says the tab is not loaded, with that Load Tab button, rather than staying blank.
-- A tab whose page the browser unloads (to save memory) keeps its row, address and title, and is never closed by it.
+- A tab whose page the browser unloads (to save memory) keeps its row, address, title and icon, and is never closed by it (see `unload.md`).
   Choosing its row loads the page again at its address (a pinned tab at its pinned address), losing its back and forward history.
   When the shown tab is unloaded, the page area says the tab is not loaded, with the Load Tab button.
   A page whose beforeunload handler would ask to stay is not unloaded, and no prompt shows.
@@ -74,8 +74,6 @@ The list comes from the saved sidebar (see `sidebar-store.md`): a window's tabs 
   Tabs that close because their window closes or the app quits keep their place in the sidebar and come back on the next launch.
   A tab whose page closes itself (`window.close()`) leaves the sidebar the same way, and a pinned one unloads and stays.
   A tab whose page could not be opened at all keeps its row and saved page, so a saved tab never disappears without the person closing it.
-- A tab whose page is unloaded to save memory (see `unload.md`) keeps its row, address, title and icon, and loads again from its saved address when chosen.
-  It loses its back and forward history.
 - A loaded tab whose row leaves the sidebar any other way (its Space deleted, archived, a Favorite removed) has its page closed, so no page keeps running without a row.
   A page that asks before leaving asks once; when the person chooses to stay it keeps running unlisted until its window closes, and later sidebar changes do not ask again.
 - Asking for a tab that does not exist (select, close, move or update with an unknown identity) changes nothing.
