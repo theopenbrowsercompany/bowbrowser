@@ -60,7 +60,7 @@ extension E2EAppAdapter {
     func importFileLog(relativeTo folder: URL) -> E2EImportFileLog? {
         guard let log = historyImportService.e2eLastFileLog else { return nil }
         let prefix = folder.standardizedFileURL.path + "/"
-        let temp = ArcImportFeature.temporaryFolder.standardizedFileURL.path + "/"
+        let temp = historyImportService.scratch.url.standardizedFileURL.path + "/"
         var opened: [String] = []
         var removed: [URL] = []
         for event in log.events {

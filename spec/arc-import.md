@@ -99,9 +99,10 @@ Bringing them makes the command bar's history results useful from the first day.
 - Exactly these files are read, and no other:
   - `Local State` at the top of the folder, for the list of profiles (`profile.info_cache`);
   - `Bookmarks` in each listed profile's folder, read whole as JSON;
-  - `History` in each listed profile's folder, with its `History-wal` and `History-journal` files when they are there, copied byte for byte into a temporary folder of Bow's own.
+  - `History` in each listed profile's folder, with its `History-wal` and `History-journal` files when they are there, copied byte for byte into a folder of this Bow process's own inside its data directory (`Import Scratch/<process ID>`), never a temporary folder another Bow shares.
     SQLite opens only the copy: once to fold the copied side files into it, then read only to read the `urls` and `visits` tables.
-    The copy is deleted as soon as it is read, whether the read worked or not; one left by a quit or crash mid-read is deleted when Bow quits or next starts.
+    The copy is deleted as soon as it is read, whether the read worked or not.
+    A process deletes its own folder when it quits, and at launch only the folders of Bow processes no longer running, so one Bow starting or quitting never deletes another's copy mid-read.
   - `Cookies`, `Login Data`, `Web Data`, `Extensions` and every other file are never opened, and Arc's folder is never written to.
 - A folder with no `Local State`, or one that is not Chromium's, or one that lists no profile, stops at a message that says so, with Choose Another Folder….
   A profile whose History or Bookmarks is missing, locked or damaged still brings what could be read, and the preview names the problem.
@@ -110,6 +111,8 @@ Bringing them makes the command bar's history results useful from the first day.
 - Visits keep their time (Chromium stores microseconds since 1601 UTC), the page title and whether the address was typed.
   Pages that are not web pages (`chrome://`, `file:` and the like), loads inside frames, reloads, and visits without a usable time are left out, the same visits Bow itself would not record.
   An imported title names a page only when it has no title yet.
+  Visits go in 500 at a time, each batch its own transaction, so a page load or a search on the same profile waits for one batch at most.
+  A batch that fails takes out the batches before it, and Undo takes out every batch together.
 - The preview lists, per profile, the visits and bookmarks it brings and the Bow profile it goes to, then any problem.
   A choice sets what happens to bookmarks: Bookmarks as a pinned folder (the default) or Skip bookmarks.
   Cookies, passwords and extensions are not imported, and the preview says so.
