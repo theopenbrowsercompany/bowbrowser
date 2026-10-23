@@ -18,8 +18,10 @@ bootstrap: hooks
 hooks:
 	@if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then git config core.hooksPath .githooks; fi
 
+# --use-cache skips generation (and leaves the project file untouched, so Xcode keeps its build plan) when
+# project.yml and the source file list have not changed.
 project:
-	xcodegen generate --quiet
+	xcodegen generate --quiet --use-cache
 
 build: project
 	./scripts/xcodebuild.sh -project Bow.xcodeproj -scheme Bow -configuration Debug -derivedDataPath $(BUILD_DIR) -quiet build
