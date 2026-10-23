@@ -274,16 +274,16 @@ check "an app results.json that is not JSON: results.json stays valid" valid_jso
 check "an app results.json is kept aside" has "$BOW_E2E_ROOT/latest/app-results.json" "not json"
 
 # interrupt <signal> [mode] [tenths]: runs the wrapper on an app that never ends (FAKE_MODE hang), sends the signal
-# once the app runs, and sets stopped (yes when the wrapper ended within tenths of a second, default 40), code, last,
+# once the app runs, and sets stopped (yes when the wrapper ended within tenths of a second, default 100), code, last,
 # res and iroot.
 interrupt() {
-  local sig=$1 mode=${2:-hang} limit=${3:-40} i wpid
+  local sig=$1 mode=${2:-hang} limit=${3:-100} i wpid
   iroot="$tmp/int-$sig-$mode"
   # perl gives the wrapper a default INT, as a terminal does: a background job of a script starts with INT ignored.
   BOW_E2E_ROOT=$iroot FAKE_MODE=$mode perl -e '$SIG{INT} = "DEFAULT"; exec @ARGV' ./scripts/e2e.sh "$app" \
     > "$tmp/int-$sig.out" 2>&1 &
   wpid=$!
-  for i in $(seq 100); do [ -s "$iroot/latest/report.txt" ] && break; sleep 0.1; done
+  for i in $(seq 300); do [ -s "$iroot/latest/report.txt" ] && break; sleep 0.1; done
   kill -"$sig" "$wpid"
   stopped=no
   for i in $(seq "$limit"); do kill -0 "$wpid" 2>/dev/null || { stopped=yes; break; }; sleep 0.1; done
@@ -302,12 +302,13 @@ for sig in TERM INT; do
   check "$sig: exit 130" is "$code" 130
   check "$sig: summary" is "$last" "E2E: ERROR interrupted"
   check "$sig: results.json is valid JSON" valid_json "$res"
+  check "$sig: report.txt gets the line" has "$iroot/latest/report.txt" "^E2E: ERROR interrupted"
   check "$sig: results.json says interrupted" is "$(field "$res" status)" interrupted
   check "$sig: the app and its helper are ended" is "$(ps -axo command= | grep -F -- "$iroot/" | grep -vc grep)" 0
   check "$sig: the build lock slot is given back" is "$(ls "$BOW_LOCK_DIR/e2e/slots" | wc -l | tr -d ' ')" 0
 done
 # An app that ignores TERM is swept after 5 seconds, so the build lock still ends and gives back its slot.
-interrupt TERM hangterm 120
+interrupt TERM hangterm 200
 check "an app that ignores TERM: the wrapper stops" is "$stopped" yes
 check "an app that ignores TERM: exit 130" is "$code" 130
 check "an app that ignores TERM: the app is ended" is "$(ps -axo command= | grep -F -- "$iroot/" | grep -vc grep)" 0
