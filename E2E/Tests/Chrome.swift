@@ -227,23 +227,30 @@ struct ChromeToolbarHiddenTest: E2ETest {
 
         let hide = try await run.step("hide the toolbar", timeout: E2ETimeouts.firstLoad) {
             let title = try app.toolbarMenuTitle(of: page)
+            let before = try app.urlField(of: page)
             try toggle()
             hidden = true
             let gone = try await ChromeTests.until {
                 let field = try app.urlField(of: page)
                 return !field.isShown && !field.isTopRowShown
             }
+            let after = try app.urlField(of: page)
             let other = try await app.openWindow(at: ChromeTests.url("keys"))
             let otherField = try app.urlField(of: other)
             try await app.closeWindow(of: other)
-            return (title, gone, try app.toolbarMenuTitle(of: page), try app.savedShowsToolbar(), otherField)
+            return (
+                title, gone, try app.toolbarMenuTitle(of: page), try app.savedShowsToolbar(), otherField, before, after
+            )
         }
+        // The content below rises past where the top row was, and stays clear of the window buttons.
+        let rose = hide.6.contentTop < hide.5.contentTop && hide.6.contentClearsWindowButtons
         run.check(
             name,
             passed: hide.0 == "Hide Toolbar" && hide.1 && hide.2 == "Show Toolbar" && hide.3 == false
-                && !hide.4.isShown && !hide.4.isTopRowShown,
+                && !hide.4.isShown && !hide.4.isTopRowShown && rose,
             "menu-before=\(hide.0) hidden=\(hide.1) menu-after=\(hide.2) saved=\(hide.3.map(String.init) ?? "nil") "
-                + "new-window: \(hide.4)")
+                + "content-top=\(Int(hide.5.contentTop))->\(Int(hide.6.contentTop)) "
+                + "clears-window-buttons=\(hide.6.contentClearsWindowButtons) new-window: \(hide.4)")
 
         let location = try await run.step("Cmd+L while hidden", timeout: E2ETimeouts.step) {
             try app.chooseMenuItem(key: "l", modifiers: .command, in: page)

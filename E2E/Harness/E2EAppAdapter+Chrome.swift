@@ -39,20 +39,26 @@ extension E2ETestApp: E2EURLFieldApp {
         let controller = try E2EAppAdapter.tabPage(page).controller
         let field = try Self.urlFieldView(in: controller)
         let sidebar = controller.e2eSidebar
+        // Frames as they will be drawn, with any change since the last layout pass laid out.
+        sidebar.layoutSubtreeIfNeeded()
         let frame = field.convert(field.bounds, to: nil)
         // The lowest of the top row and the window buttons, in window coordinates (y grows upwards).
-        var covered = [sidebar.topRow.convert(sidebar.topRow.bounds, to: nil)]
+        var buttons: [NSRect] = []
         for kind in [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton] {
             if let button = controller.window?.standardWindowButton(kind), !button.isHiddenOrHasHiddenAncestor {
-                covered.append(button.convert(button.bounds, to: nil))
+                buttons.append(button.convert(button.bounds, to: nil))
             }
         }
-        let bottom = covered.map(\.minY).min() ?? .greatestFiniteMagnitude
+        let buttonsBottom = buttons.map(\.minY).min() ?? .greatestFiniteMagnitude
+        let rowBottom = sidebar.topRow.convert(sidebar.topRow.bounds, to: nil).minY
+        let slot = sidebar.topSlot.convert(sidebar.topSlot.bounds, to: nil)
+        let sidebarTop = sidebar.convert(sidebar.bounds, to: nil).maxY
         return E2EURLField(
             text: field.text, isPlaceholder: field.address == nil,
             isShown: field.window != nil && !field.isHiddenOrHasHiddenAncestor,
             isTopRowShown: !sidebar.topRow.isHiddenOrHasHiddenAncestor, size: field.bounds.size,
-            isBelowTopRow: frame.maxY <= bottom)
+            isBelowTopRow: frame.maxY <= min(rowBottom, buttonsBottom), contentTop: sidebarTop - slot.maxY,
+            contentClearsWindowButtons: slot.maxY <= buttonsBottom)
     }
 
     func clickURLField(of page: any E2EPage) throws {
