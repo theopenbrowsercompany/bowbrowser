@@ -13,6 +13,7 @@ enum NavigationTests {
 /// shows stop in place of reload and can be stopped.
 struct NavigationHistoryTest: E2ETest {
     let name = "nav.history"
+    let checks = ["nav.history", "nav.shortcuts", "nav.reload", "nav.stop"]
 
     /// How long a toolbar state may take to follow the engine's state push before the check fails.
     static let settle: TimeInterval = 3
