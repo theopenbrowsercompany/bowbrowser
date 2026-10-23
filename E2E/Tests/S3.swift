@@ -48,9 +48,11 @@ struct S3OptInTest: E2ETest {
             let realistic = S3RunTest(run: .realistic)
             let switches = try E2ETests.switches(for: [realistic], base: base)
             let mixed = (try? E2ETests.switches(for: [realistic, S3RunTest(run: .control)], base: base)) != nil
-            let dropped = switches["disable-renderer-backgrounding"] == nil
+            let dropped =
+                switches["disable-renderer-backgrounding"] == nil
                 && switches["disable-background-timer-throttling"] == nil
-            let kept = switches["disable-backgrounding-occluded-windows"] != nil
+            let kept =
+                switches["disable-backgrounding-occluded-windows"] != nil
                 && switches["autoplay-policy"] == "no-user-gesture-required"
             run.check(
                 "s3.switch-override", passed: dropped && kept && !mixed,
@@ -122,7 +124,15 @@ struct S3RunTest: E2ETest {
 /// WasHidden (DH), frozen (DF), detached for a long pass (DL), audible (DA), audible and muted (DAM), a lower
 /// windowless frame rate (FR, a no op for windowed browsers) and closed (U).
 enum S3Pass: String, CaseIterable {
-    case V, D, DH, DF, DL, DA, DAM, FR, U
+    case attached = "V"
+    case detached = "D"
+    case wasHidden = "DH"
+    case frozen = "DF"
+    case long = "DL"
+    case audible = "DA"
+    case muted = "DAM"
+    case frameRate = "FR"
+    case unloaded = "U"
 }
 
 struct S3Config {
@@ -137,7 +147,7 @@ struct S3Config {
     var repeatsOnLoad: Bool
     var switches: E2ESwitchOverride?
 
-    func segments(of pass: S3Pass) -> [TimeInterval] { pass == .DL ? longSegments : [measure] }
+    func segments(of pass: S3Pass) -> [TimeInterval] { pass == .long ? longSegments : [measure] }
     func seconds(of pass: S3Pass) -> TimeInterval { settle + segments(of: pass).reduce(0, +) }
 
     /// Chromium's own background throttling back on, occlusion still off so the attached tab in an off screen
@@ -150,7 +160,7 @@ struct S3Config {
         tabs: 30, audioTabs: 5, passes: S3Pass.allCases, settle: 30, measure: 120, longSegments: [300, 90],
         topInterval: 10, repeatsOnLoad: true, switches: realisticSwitches)
     static let control = S3Config(
-        tabs: 30, audioTabs: 0, passes: [.V, .D, .DF], settle: 30, measure: 120, longSegments: [],
+        tabs: 30, audioTabs: 0, passes: [.attached, .detached, .frozen], settle: 30, measure: 120, longSegments: [],
         topInterval: 10, repeatsOnLoad: true, switches: nil)
     static let smoke = S3Config(
         tabs: 3, audioTabs: 1, passes: S3Pass.allCases, settle: 2, measure: 6, longSegments: [4, 2],
@@ -203,11 +213,11 @@ final class S3Session {
     func measure() async throws {
         try await run.step("check the engine switches", timeout: E2ETimeouts.step) { self.checkSwitches() }
         let passes = config.passes
-        if passes.contains(.V) {
+        if passes.contains(.attached) {
             try await run.step("open \(config.tabs) windows", timeout: 60 + Double(config.tabs) * 3) {
                 try await self.openWindows()
             }
-            try await pass(.V)
+            try await pass(.attached)
             try await run.step("close all windows but the first", timeout: 30 + Double(config.tabs)) {
                 for page in self.windowPages { try await self.app.closeWindow(of: page) }
                 self.windowPages = []
@@ -223,7 +233,7 @@ final class S3Session {
         try await run.step("open \(config.tabs - 1) tabs unselected", timeout: 60 + Double(config.tabs) * 2) {
             try await self.openParkedTabs()
         }
-        for pass in passes where pass != .V { try await self.pass(pass) }
+        for pass in passes where pass != .attached { try await self.pass(pass) }
         recordChecks()
     }
 
@@ -275,7 +285,7 @@ final class S3Session {
             }
             passes.append(result)
             let busy = result["flagged"] as? Bool ?? false
-            guard busy, config.repeatsOnLoad, attempt == 1, pass != .U else { return }
+            guard busy, config.repeatsOnLoad, attempt == 1, pass != .unloaded else { return }
             attempt += 1
         }
     }
@@ -286,24 +296,24 @@ final class S3Session {
         // Puts the tabs in the pass's state. Counters are reset first, since a frozen page answers nothing.
         try await takeAll()
         switch pass {
-        case .V, .D: break
-        case .DH:
+        case .attached, .detached: break
+        case .wasHidden:
             extra["wasHiddenCalled"] = try parked.map { try app.s3SetWasHidden(true, $0.page) }.allSatisfy { $0 }
-        case .DF:
+        case .frozen:
             for tab in parked { _ = try await tab.page.devTools("Page.setWebLifecycleState", ["state": "frozen"]) }
             extra["frozen"] = parked.count
             // A frozen page answers no reads, so its counters run from before the settle to after the measuring.
             extra["pageCountersCover"] = "settle and measuring"
-        case .DL:
+        case .long:
             // Fresh hidden pages, so the long pass sees intensive throttling begin 5 minutes after hiding.
             try await reload(parked, load: "busy")
             try await takeAll()
             extra["reloadedAtStart"] = true
-        case .DA:
+        case .audible:
             try await reload(audible, load: "audio")
             try await takeAll()
             extra["audioTabs"] = audible.map(\.site)
-        case .DAM:
+        case .muted:
             // Audible again when a repeat follows an attempt that put them back to busy.
             let silent = audible.filter { $0.load != "audio" }
             if !silent.isEmpty {
@@ -312,15 +322,15 @@ final class S3Session {
             }
             extra["mutedCalled"] = try audible.map { try app.s3SetAudioMuted(true, $0.page) }.allSatisfy { $0 }
             extra["mutedReported"] = try audible.map { try app.s3IsAudioMuted($0.page) }.allSatisfy { $0 }
-        case .FR:
+        case .frameRate:
             extra["frameRateCalled"] = try tabs.map { try app.s3SetWindowlessFrameRate(1, $0.page) }
                 .allSatisfy { $0 }
-        case .U:
+        case .unloaded:
             for tab in parked { _ = try await app.closeTab(tab.page) }
             tabs = Array(tabs.prefix(1))
             extra["closed"] = config.tabs - 1
         }
-        let frozen = pass == .DF
+        let frozen = pass == .frozen
 
         try await pause(config.settle)
         if !frozen { try await takeAll() }
@@ -352,9 +362,9 @@ final class S3Session {
         let pages = try await takeAll()
         // Undoes the per tab states that would carry into the next pass.
         switch pass {
-        case .DH: for tab in parked { _ = try app.s3SetWasHidden(false, tab.page) }
-        case .DAM: for tab in audible { _ = try app.s3SetAudioMuted(false, tab.page) }
-        case .FR: for tab in tabs { _ = try app.s3SetWindowlessFrameRate(30, tab.page) }
+        case .wasHidden: for tab in parked { _ = try app.s3SetWasHidden(false, tab.page) }
+        case .muted: for tab in audible { _ = try app.s3SetAudioMuted(false, tab.page) }
+        case .frameRate: for tab in tabs { _ = try app.s3SetWindowlessFrameRate(30, tab.page) }
         default: break
         }
         let loadAfter = e2eS3LoadAverage()
@@ -384,7 +394,7 @@ final class S3Session {
         ]
         if !segmentPages.isEmpty { result["segments"] = segmentPages }
         // Back to busy once the rows name the load they measured.
-        if pass == .DAM { try await reload(audible, load: "busy") }
+        if pass == .muted { try await reload(audible, load: "busy") }
         return result
     }
 
@@ -436,7 +446,8 @@ final class S3Session {
             "disable-backgrounding-occluded-windows", "disable-features", "autoplay-policy",
         ]
         for name in names { switches[name] = BowS3Probe.switchValue(name) ?? NSNull() }
-        let expected = test.switchOverride?.applied(to: E2ERunner.harnessSwitches(loopbackRules: ""))
+        let expected =
+            test.switchOverride?.applied(to: E2ERunner.harnessSwitches(loopbackRules: ""))
             ?? E2ERunner.harnessSwitches(loopbackRules: "")
         let wrong = names.filter { (BowS3Probe.switchValue($0)) != expected[$0] }
         run.check(
@@ -489,7 +500,9 @@ final class S3Session {
             if paged < open { missing.append("\(name) page counters \(paged)/\(open)") }
             if processes < open + 1 { missing.append("\(name) processes \(processes)") }
             // top lists every process it was given (the browser, each renderer and Chromium's other helpers).
-            if topRows < open + 1 { missing.append("\(name) top \((pass["top"] as? [String: Any])?["error"] ?? "no rows")") }
+            if topRows < open + 1 {
+                missing.append("\(name) top \((pass["top"] as? [String: Any])?["error"] ?? "no rows")")
+            }
         }
         let ran = Set(first.compactMap { $0["pass"] as? String })
         let notRun = config.passes.map(\.rawValue).filter { !ran.contains($0) }
