@@ -13,3 +13,7 @@ inline constexpr const char* kBowPageSignalAudible = "audible";
 /// The person edited a form field in the frame's document. Sent once per document, and again when the document
 /// comes back from the back/forward cache.
 inline constexpr const char* kBowPageSignalFormEdited = "form-edited";
+/// The frame's document is going (its JavaScript context is released): every signal of the frame ends, sent with
+/// `on` false. A frame that keeps its identifier for its next document (a same-site navigation in the same frame)
+/// sends it before the next document's own signals, so the old document's never outlive it.
+inline constexpr const char* kBowPageSignalReleased = "released";
