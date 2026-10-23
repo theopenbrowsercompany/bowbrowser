@@ -28,15 +28,13 @@ struct E2EContextMenu {
 
 extension E2EPage {
     /// Right clicks the center of the first element matching `selector`, which asks the page for a context menu.
-    /// Like `click(_:button:modifiers:)` it is confirmed: a press or `contextmenu` event the page never saw (Chromium
-    /// drops input while a page's frame updates are deferred, yet the DevTools call succeeds) is sent again and logged
-    /// as `E2E right click <selector>: ...`, and once the page saw `contextmenu` nothing is sent again, so the page
-    /// asks for one menu.
+    /// Like `click(_:button:modifiers:)` it is confirmed: when the page never saw the `contextmenu` event (Chromium
+    /// drops input while a page's frame updates are deferred, yet the DevTools call succeeds), the press and release
+    /// are sent again and logged as `E2E right click <selector>: ...`; once the page saw `contextmenu` nothing is
+    /// sent again, so the page asks for one menu. Also like a click, it throws when something else covers the
+    /// element's center, and a right click into a frame is pressed once, unconfirmed.
     func rightClick(_ selector: String) async throws {
         let target = try await pressTarget(selector, verb: "right click")
-        // The right button's held bit is 2.
-        try await confirmedPress(
-            at: target, verb: "right click", button: "right", heldBit: 2, modifiers: [],
-            released: (name: "contextmenu", events: ["contextmenu"]))
+        try await confirmedPress(at: target, button: .right, modifiers: [], arriving: ["contextmenu"])
     }
 }

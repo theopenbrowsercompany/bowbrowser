@@ -23,18 +23,28 @@ enum E2EKey {
     }
 }
 
-/// A mouse button `E2EPage.click(_:button:modifiers:)` can press.
+/// A mouse button a page press can use: `E2EPage.click(_:button:modifiers:)` presses the left or middle one, and
+/// `E2EPage.rightClick(_:)` the right one.
 enum E2EMouseButton: String {
     case left
     case middle
+    case right
 
     /// The Input.dispatchMouseEvent `buttons` bit for this button while it is held.
-    fileprivate var heldBit: Int { self == .left ? 1 : 4 }
+    fileprivate var heldBit: Int {
+        switch self {
+        case .left: 1
+        case .right: 2
+        case .middle: 4
+        }
+    }
 }
 
-/// Where a page press lands, in the page's viewport, and whether the page itself can confirm that it arrived.
+/// Where a page press lands, in the page's viewport, whether the page itself can confirm that it arrived, and the
+/// verb its errors and resend notes use ("click", "right click").
 struct E2EPressTarget {
     var selector: String
+    var verb: String
     var x: Double
     var y: Double
     var confirms: Bool
@@ -72,9 +82,7 @@ extension E2EPage {
     /// which counts as the click.
     func click(_ selector: String, button: E2EMouseButton = .left, modifiers: E2EInputModifiers = []) async throws {
         let target = try await pressTarget(selector, verb: "click")
-        try await confirmedPress(
-            at: target, verb: "click", button: button.rawValue, heldBit: button.heldBit, modifiers: modifiers,
-            released: (name: "click", events: ["click", "auxclick"]))
+        try await confirmedPress(at: target, button: button, modifiers: modifiers, arriving: ["click", "auxclick"])
     }
 
     /// Where a press on the first element matching `selector` lands, scrolling it into view first, and whether the
@@ -101,25 +109,26 @@ extension E2EPage {
         guard let point = center as? [Double], point.count == 3 else {
             throw E2EError("cannot \(verb) \(selector): \(center as? String ?? "no position")")
         }
-        return E2EPressTarget(selector: selector, x: point[0], y: point[1], confirms: point[2] == 1)
+        return E2EPressTarget(selector: selector, verb: verb, x: point[0], y: point[1], confirms: point[2] == 1)
     }
 
-    /// Presses and releases `button` at `target` with `modifiers` held, confirming that the press (`pointerdown`)
-    /// and then one of `released.events` reached the page, and sending again what the page missed, a short moment
-    /// later, until it lands or the step's wait budget runs out (see `click(_:button:modifiers:)` for why). Once the
-    /// page saw one of `released.events` nothing is sent again, so a press whose default action opens something (a
-    /// context menu) opens it once. Each resend is logged to stderr (chromium.log) as `E2E <verb> <selector>: ...`.
-    /// A target that cannot confirm is pressed once.
+    /// Presses and releases `button` at `target` with `modifiers` held, and confirms that one of `arriving` (the
+    /// event the press and release exist for: `click`, `contextmenu`) reached the page; when it did not, the press
+    /// and release are sent again, a short moment later, until it lands or the step's wait budget runs out (see
+    /// `click(_:button:modifiers:)` for why). Every press is followed by its release, so no button stays held. Once
+    /// the page saw one of `arriving`, nothing is sent again, so a press whose default action opens something (a
+    /// context menu) opens it once. Each resend is logged to stderr (chromium.log) as `E2E <verb> <selector>: ...`,
+    /// naming whether the page missed the press (`pointerdown`) or only the event. A target that cannot confirm is
+    /// pressed once.
     func confirmedPress(
-        at target: E2EPressTarget, verb: String, button: String, heldBit: Int, modifiers: E2EInputModifiers,
-        released: (name: String, events: [String])
+        at target: E2EPressTarget, button: E2EMouseButton, modifiers: E2EInputModifiers, arriving: [String]
     ) async throws {
         // `buttons` is the buttons held after the event: the pressed one while held, none once released.
         func send(_ type: String, buttons: Int) async throws {
             _ = try await devTools(
                 "Input.dispatchMouseEvent",
                 [
-                    "type": type, "x": target.x, "y": target.y, "button": button, "buttons": buttons,
+                    "type": type, "x": target.x, "y": target.y, "button": button.rawValue, "buttons": buttons,
                     "clickCount": 1, "modifiers": modifiers.rawValue,
                 ]
             )
@@ -130,42 +139,45 @@ extension E2EPage {
         func missed(_ field: String) async throws -> Bool {
             try await evaluate("window.\(Self.pressRecord)?.\(field)") as? Bool == false
         }
-        let arm = Self.armPressRecord(released: released.events)
+        let arm = Self.armPressRecord(arriving: arriving)
         let deadline = Date().addingTimeInterval(E2EWaits.budget())
         var resends = 0
         while true {
             if target.confirms { _ = try await evaluate(arm) }
-            try await send("mousePressed", buttons: heldBit)
-            var lost: String?
-            if target.confirms, try await missed("pressed") {
-                lost = "press"
-            } else {
-                try await send("mouseReleased", buttons: 0)
-                if target.confirms, try await missed("released") { lost = released.name }
-            }
-            guard let lost else { return }
+            try await send("mousePressed", buttons: button.heldBit)
+            let pressLost = target.confirms ? try await missed("pressed") : false
+            try await send("mouseReleased", buttons: 0)
+            // Only the event decides: when it arrived, nothing is sent again, even if `pointerdown` went unseen.
+            guard target.confirms, try await missed("arrived") else { return }
+            let lost = pressLost ? "press" : arriving[0]
             resends += 1
-            let note = "E2E \(verb) \(target.selector): the page missed the \(lost), resend \(resends)\n"
+            let note = "E2E \(target.verb) \(target.selector): the page missed the \(lost), resend \(resends)\n"
             FileHandle.standardError.write(Data(note.utf8))
             guard Date() < deadline else {
-                throw E2EError("cannot \(verb) \(target.selector): the page missed the \(lost) \(resends) times")
+                throw E2EError(
+                    "cannot \(target.verb) \(target.selector): the page missed the \(lost) \(resends) times")
             }
             try await Task.sleep(nanoseconds: 50_000_000)
         }
     }
 
-    /// The page global in which `confirmedPress` records the press and release events that reached the page.
+    /// The page global in which `confirmedPress` records whether the press and the event it waits for reached the
+    /// page.
     private static var pressRecord: String { "__bowE2EPress" }
 
-    /// Starts a fresh record for one press and the first of `released` to follow it. Listeners left from an earlier
-    /// arming write to their own old record, which nothing reads.
-    private static func armPressRecord(released: [String]) -> String {
+    /// Starts a fresh record for one press and the first of `arriving` to follow it, removing the listeners of the
+    /// previous record so resends do not pile them up.
+    private static func armPressRecord(arriving: [String]) -> String {
         """
         (() => {
-          const record = window.\(pressRecord) = { pressed: false, released: false };
-          addEventListener('pointerdown', () => { record.pressed = true; }, { capture: true, once: true });
-          for (const type of \(jsArray(released))) {
-            addEventListener(type, () => { record.released = true; }, { capture: true, once: true });
+          window.\(pressRecord)?.listeners.abort();
+          const record = window.\(pressRecord) = {
+            pressed: false, arrived: false, listeners: new AbortController(),
+          };
+          const options = { capture: true, once: true, signal: record.listeners.signal };
+          addEventListener('pointerdown', () => { record.pressed = true; }, options);
+          for (const type of \(jsArray(arriving))) {
+            addEventListener(type, () => { record.arrived = true; }, options);
           }
         })()
         """
