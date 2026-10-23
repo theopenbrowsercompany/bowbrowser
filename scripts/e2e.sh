@@ -31,7 +31,9 @@
 #                                       the line says only the retried tests passed: `E2E: FLAKY retried tests
 #                                       passed n/n after retrying <tests> (the first attempt printed no total)`.
 #   E2E: CRASH exit=<code> ...  exit 4  the app ended without a summary line (a crash, Chromium's own watchdog),
-#                                       on the first run or on the retry
+#                                       on the first run or on the retry. Exit 2 with "Teardown watchdog expired"
+#                                       in chromium.log says so: `E2E: CRASH exit=2 Chromium teardown watchdog
+#                                       during quit`.
 #   E2E: ERROR ...              exit 64 the app could not start the run (an unknown selection, no build), or the
 #                                       build lock refused to run it (a bad BOW_E2E_SLOTS)
 #   E2E: ERROR interrupted      exit 130 Ctrl-C, TERM or HUP: the app and its helpers are ended at once, and
@@ -91,21 +93,28 @@ prune
 # process of the app bundle whose command line names the folder belongs to this run (a `tail -f` of its log does
 # not). Ends them: TERM, then KILL after 2 seconds.
 orphans_killed=0
+# nap <seconds>: sleeps in the background and waits, so a signal's trap runs at once instead of after the sleep.
+nap() { sleep "$1" & wait $!; }
 sweep() {
-  local pids pid i n=0
+  local pids pid i n=0 snapshot
   # The folder followed by "/" (helpers) or by a space or the end of the line (the app's own --e2e-out=<folder>,
   # in case the app outlived its build lock), so a run never matches a sibling whose name starts with its own.
   # The build lock still running (child, during an interrupt) is left to end by itself and give back its slot.
-  pids=$(ps -axo pid=,command= | D="$1" B="$bundle/Contents/" awk -v me=$$ -v child="${child:-0}" '
+  # ps runs in the background and is waited for, so a signal during a slow ps stops the run at once too.
+  snapshot=$(mktemp "$run/.ps.XXXXXX") || return 0
+  ps -axo pid=,command= > "$snapshot" 2> /dev/null &
+  wait $!
+  pids=$(D="$1" B="$bundle/Contents/" awk -v me=$$ -v child="${child:-0}" '
     { line = $0 " " }
-    index(line, ENVIRON["B"]) && (index(line, ENVIRON["D"] "/") || index(line, "=" ENVIRON["D"] " ")) && $1 != me && $1 != child { print $1 }')
+    index(line, ENVIRON["B"]) && (index(line, ENVIRON["D"] "/") || index(line, "=" ENVIRON["D"] " ")) && $1 != me && $1 != child { print $1 }' "$snapshot")
+  rm -f "$snapshot"
   [ -n "$pids" ] || return 0
   for pid in $pids; do kill -TERM "$pid" 2>/dev/null && n=$((n + 1)); done
   orphans_killed=$((orphans_killed + n))
   for i in 1 2 3 4 5 6 7 8 9 10; do
     pids=$(for pid in $pids; do kill -0 "$pid" 2>/dev/null && echo "$pid"; done)
     [ -n "$pids" ] || break
-    sleep 0.2
+    nap 0.2
   done
   for pid in $pids; do kill -KILL "$pid" 2>/dev/null; done
   say "ended $n helper processes the app left running"
@@ -131,9 +140,18 @@ gone() {
   local i
   for i in $(seq "$2"); do
     kill -0 "$1" 2>/dev/null || return 0
-    sleep 0.2
+    nap 0.2
   done
   ! kill -0 "$1" 2>/dev/null
+}
+# is_build_lock <pid>: true while the process is the build lock this script started for the folder in $current: its
+# command is `<shell> <repo>/scripts/build-lock.sh ...` and ends with the `--e2e-out=<folder>` argument, both
+# compared exactly (not as a pattern), so a recycled PID is never mistaken for it.
+is_build_lock() {
+  ps -o command= -p "$1" 2> /dev/null | S="$repo/scripts/build-lock.sh" T="--e2e-out=$current" awk '
+    { ok = ($1 == ENVIRON["S"] || $2 == ENVIRON["S"]) && length($0) >= length(ENVIRON["T"]) \
+        && substr($0, length($0) - length(ENVIRON["T"]) + 1) == ENVIRON["T"] }
+    END { exit !ok }'
 }
 on_signal() {
   trap '' INT TERM HUP
@@ -143,9 +161,7 @@ on_signal() {
   if [ -n "$child" ] && kill -TERM "$child" 2>/dev/null; then
     gone "$child" 25 || { [ -z "$current" ] || sweep "$current"; gone "$child" 10; } || {
       # The PID was seen alive seconds ago: KILL it only while it is still this run's build lock.
-      case $(ps -o command= -p "$child" 2>/dev/null) in
-        *build-lock.sh*"$run"*) kill -KILL "$child" 2>/dev/null ;;
-      esac
+      is_build_lock "$child" && kill -KILL "$child" 2>/dev/null
     }
     wait "$child" 2>/dev/null
   fi
@@ -216,7 +232,11 @@ attempt() {
     *)
       status=crash
       local why="E2E: CRASH exit=$app_code${signal:+ signal=$signal}"
-      if [ -n "$summary" ]; then why="$why after its summary line ($summary)"; else why="$why without a summary line"; fi
+      if [ -n "$summary" ]; then why="$why after its summary line ($summary)"
+      elif [ "$app_code" = 2 ] && grep -q 'Teardown watchdog expired' "$dir/chromium.log" 2>/dev/null; then
+        # Chromium's own watchdog ended the app (exit 2) because shutdown hung.
+        why="$why Chromium teardown watchdog during quit"
+      else why="$why without a summary line"; fi
       summary=$why
       echo "$summary" >> "$dir/report.txt"
       ;;

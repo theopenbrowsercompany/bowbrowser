@@ -24,12 +24,13 @@ stamp() {
   (cd "$framework_src" && pwd -P)
   stat -f '%N %m %c %z %i' "$framework_src/Chromium Embedded Framework"
   # The framework's Libraries and Resources (about 230 files), by metadata, so a stat each is cheap.
-  find "$framework_src/Libraries" "$framework_src/Resources" -type f -print0 | sort -z | xargs -0 stat -f '%N %m %c %z %i'
+  # find -L and stat -L follow symlinks, so a link whose target changes still changes the stamp.
+  find -L "$framework_src/Libraries" "$framework_src/Resources" -type f -print0 | sort -z | xargs -0 stat -L -f '%N %m %c %z %i'
   find "$helper_src" -type f -print0 | sort -z | xargs -0 shasum
   shasum "$0"
   stat -f '%N %m %c %z %i' "$framework/Versions/A/Chromium Embedded Framework"
-  find "$framework/Versions/A/Libraries" "$framework/Versions/A/Resources" -type f -print0 | sort -z |
-    xargs -0 stat -f '%N %m %c %z %i'
+  find -L "$framework/Versions/A/Libraries" "$framework/Versions/A/Resources" -type f -print0 | sort -z |
+    xargs -0 stat -L -f '%N %m %c %z %i'
   for kind in "" GPU Renderer Plugin Alerts; do
     name=$(helper_name "$kind")
     stat -f '%N %m %c %z %i' "$frameworks/$name.app/Contents/MacOS/$name" \
