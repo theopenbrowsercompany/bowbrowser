@@ -497,6 +497,11 @@ void BowTearDownBrowserView(CefRefPtr<CefBrowser> browser) {
   if (_browser && !self.willClose) _browser->GetHost()->SetZoomLevel(zoomLevel);
 }
 
+- (void)exitFullscreen {
+  // The view resizes as the app restores its layout around the page.
+  if (_browser && !self.willClose) _browser->GetHost()->ExitFullscreen(true);
+}
+
 - (void)unloadWithCompletion:(void (^)(BOOL))completion {
   // A tab closing for good (the page called window.close(), or the engine quits) is never unloaded instead.
   if (self.closed || self.willClose || BowEngineIsQuitting()) {

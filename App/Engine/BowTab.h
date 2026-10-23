@@ -108,6 +108,10 @@ NS_SWIFT_UI_ACTOR
 /// on the page's site. 0 while the tab has no browser, and setting it then does nothing.
 @property(nonatomic) double zoomLevel;
 
+/// Asks the page to leave fullscreen (Alloy style leaves Escape and tab switches to the app); the UI delegate's
+/// `tab:fullscreenDidChange:` follows once it has. Does nothing while the tab has no browser or is closing.
+- (void)exitFullscreen;
+
 /// Downloads the site icon at `url` (usually the state's `faviconURL`) through the tab's own profile, at most
 /// `maxPixelSize` pixels on a side, and calls `completion` on a later main thread task with the image, or nil when
 /// the download failed or the tab has no browser.

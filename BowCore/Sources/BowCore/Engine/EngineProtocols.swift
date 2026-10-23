@@ -144,6 +144,11 @@ extension EngineDownloadsDelegate {
     /// Sets the zoom level of the page's site (see `zoomLevel`). Defaults to doing nothing.
     func setZoomLevel(_ level: Double)
 
+    /// Asks the page to leave fullscreen (the Fullscreen API's, entered with `element.requestFullscreen()`), as
+    /// Escape or switching tabs does; `TabEvent.fullscreenChanged(false)` follows once it has. Does nothing when the
+    /// page is not fullscreen or the tab is closed. Defaults to doing nothing.
+    func exitFullscreen()
+
     /// Opens DevTools for the page in a window of its own, inspecting the element at `point` when given (and only
     /// focusing it when it is open already). DevTools closes with the tab, and quitting closes it. Does nothing once
     /// the tab is closed. Defaults to doing nothing.
@@ -159,6 +164,7 @@ extension EngineTab {
     public func unload() async -> Bool { false }
     public var zoomLevel: Double { 0 }
     public func setZoomLevel(_ level: Double) {}
+    public func exitFullscreen() {}
     public func showDevTools(inspectingAt point: PagePoint?) {}
     public func closeDevTools() {}
     public var hasDevTools: Bool { false }
