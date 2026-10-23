@@ -236,6 +236,17 @@ private final class TabPage: E2EPage {
     var isClosed: Bool { tab.isClosed }
     var finishedLoads: Int { loads.count }
 
+    var permissionPrompt: E2EPermissionPrompt? {
+        guard isShown, let prompt = controller.permissionPrompts.visiblePrompt else { return nil }
+        return E2EPermissionPrompt(
+            kinds: Set(prompt.request.kinds.map(\.rawValue)),
+            message: prompt.message,
+            frame: prompt.frame
+        ) { [weak prompt] allow in
+            (allow ? prompt?.allowButton : prompt?.blockButton)?.performClick(nil)
+        }
+    }
+
     func load(_ url: URL) {
         tab.load(url)
     }

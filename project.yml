@@ -67,6 +67,11 @@ targets:
       properties:
         CFBundleDisplayName: Bow
         NSSupportsAutomaticGraphicsSwitching: true
+        # macOS asks these the first time a site Bow has allowed uses the camera, microphone or location.
+        NSCameraUsageDescription: Websites you allow can use your camera, for example for video calls.
+        NSMicrophoneUsageDescription: Websites you allow can use your microphone, for example for calls.
+        NSLocationUsageDescription: Websites you allow can use your location, for example for maps.
+        NSLocationWhenInUseUsageDescription: Websites you allow can use your location, for example for maps.
     settings:
       base:
         PRODUCT_NAME: Bow

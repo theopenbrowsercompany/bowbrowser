@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Permissions fixture</title>
+  <script>
+    // Asks for the camera and answers "granted" when a live video track arrived, or the error's name.
+    async function requestCamera() {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+        const live = stream.getVideoTracks().some((track) => track.readyState === "live");
+        stream.getTracks().forEach((track) => track.stop());
+        return live ? "granted" : "no-track";
+      } catch (error) {
+        return error.name;
+      }
+    }
+    // Starts asking without waiting for the answer, which waits on the prompt.
+    function startCamera() {
+      window.cameraResult = requestCamera();
+      return "started";
+    }
+  </script>
+</head>
+<body>
+  <h1>Permissions fixture</h1>
+  <p>A page that asks to use the camera.</p>
+</body>
+</html>

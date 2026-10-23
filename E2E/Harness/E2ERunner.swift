@@ -108,6 +108,9 @@ final class E2ERunner {
             // The same colors and language on every machine.
             "force-color-profile": "srgb",
             "lang": "en-US",
+            // Pages that ask for the camera or microphone get Chromium's fake devices, never the real ones, so no
+            // macOS privacy prompt can show.
+            "use-fake-device-for-media-stream": "",
         ]
         engineConfiguration = configuration
 
