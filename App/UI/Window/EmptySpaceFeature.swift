@@ -92,7 +92,7 @@ final class EmptySpaceView: NSView {
             button.layer?.cornerRadius = Self.pillHeight / 2
             button.attributedTitle = NSAttributedString(
                 string: button.title,
-                attributes: [.font: NSFont.systemFont(ofSize: 13, weight: .semibold), .foregroundColor: NSColor.white])
+                attributes: [.font: BowBrand.ui(weight: .semibold), .foregroundColor: NSColor.white])
             button.translatesAutoresizingMaskIntoConstraints = false
             NSLayoutConstraint.activate([
                 button.heightAnchor.constraint(equalToConstant: Self.pillHeight),
@@ -102,7 +102,7 @@ final class EmptySpaceView: NSView {
         markView.image = NSImage(named: "BowMark")
         markView.imageScaling = .scaleProportionallyUpOrDown
         markView.setAccessibilityLabel("Bow")
-        messageLabel.font = .systemFont(ofSize: 15)
+        messageLabel.font = BowBrand.ui(15)
         messageLabel.textColor = BowBrand.soft
         let stack = NSStackView(views: [markView, messageLabel, newTabButton, loadTabButton])
         stack.orientation = .vertical

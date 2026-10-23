@@ -123,7 +123,7 @@ final class SidebarView: NSView, NSOutlineViewDataSource, NSOutlineViewDelegate,
         newTabButton.alignment = .left
         newTabButton.contentTintColor = BowBrand.soft
         topRow.orientation = .horizontal
-        newTabButton.font = .systemFont(ofSize: 13)
+        newTabButton.font = BowBrand.ui()
         newTabButton.setAccessibilityLabel("New Tab")
 
         let column = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("item"))

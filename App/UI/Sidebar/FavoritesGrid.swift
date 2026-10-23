@@ -260,7 +260,7 @@ final class FavoriteTileView: NSView, NSDraggingSource {
         layer?.cornerCurve = .continuous
         iconView.imageScaling = .scaleProportionallyUpOrDown
         letterField.alignment = .center
-        letterField.font = .systemFont(ofSize: 13, weight: .semibold)
+        letterField.font = BowBrand.ui(weight: .semibold)
         letterField.textColor = .white
         letterField.wantsLayer = true
         letterField.layer?.cornerRadius = 5
