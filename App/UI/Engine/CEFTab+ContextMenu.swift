@@ -96,7 +96,7 @@ extension CEFTab {
         case .forward: goForward()
         case .reload: reload()
         case .inspect: showDevTools(inspectingAt: request.position)
-        case .openLinkInNewTab, .custom, .undo, .redo, .cut, .copy, .paste, .selectAll: break
+        case .openLinkInNewTab, .copyImage, .custom, .undo, .redo, .cut, .copy, .paste, .selectAll: break
         }
     }
 

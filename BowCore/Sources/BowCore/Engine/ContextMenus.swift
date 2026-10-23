@@ -94,6 +94,8 @@ public enum ContextMenuCommand: Hashable, Sendable {
     /// Puts the link's address, or the image's, on the pasteboard.
     case copyLinkAddress
     case copyImageAddress
+    /// Puts the image itself on the pasteboard. Only the app can: the engine has no command for it, so it does nothing.
+    case copyImage
     /// The tab's own navigation.
     case back
     case forward
@@ -163,7 +165,10 @@ public enum ContextMenuPolicy {
             ])
         }
         if request.imageURL != nil {
-            groups.append([ContextMenuItem("Copy Image Address", .copyImageAddress)])
+            groups.append([
+                ContextMenuItem("Copy Image", .copyImage),
+                ContextMenuItem("Copy Image Address", .copyImageAddress),
+            ])
         }
         if request.isEditable {
             let flags = request.editFlags
