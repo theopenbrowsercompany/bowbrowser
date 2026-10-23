@@ -4,13 +4,13 @@ import BowCore
 // The panes area of the adapter: E2EPanesApp over the window controller's pane API.
 
 extension E2ETestApp: E2EPanesApp {
-    func showPanes(_ pages: [any E2EPage], focused: any E2EPage) throws -> Bool {
+    func showPanes(_ pages: [any E2EPage], focused: any E2EPage, fractions: [Double]?) throws -> Bool {
         try adapter.requireActive(token, "show panes")
         let tabPages = try pages.map(E2EAppAdapter.tabPage)
         let focused = try E2EAppAdapter.tabPage(focused)
         guard let controller = tabPages.first?.controller, tabPages.allSatisfy({ $0.controller === controller })
         else { throw E2EError("the panes' pages are not in one window") }
-        return controller.showPanes(tabPages.map(\.tab), focused: focused.tab)
+        return controller.showPanes(tabPages.map(\.tab), focused: focused.tab, fractions: fractions)
     }
 
     func focusPane(at index: Int, besides page: any E2EPage) throws -> Bool {
