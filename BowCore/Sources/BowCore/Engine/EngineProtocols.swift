@@ -51,6 +51,16 @@ import Foundation
     func reload()
     func stop()
 
+    /// Finds `text` in the page, highlighting every match and selecting the active one. Asking again
+    /// with the same text and case steps to the next match (the previous one when `forward` is
+    /// false); other text starts a new search, and empty text stops finding. Results arrive as
+    /// `TabEvent.findResult`.
+    func find(_ text: String, forward: Bool, matchCase: Bool)
+
+    /// Stops finding and clears the highlights; the active match stays selected. Results of the
+    /// stopped search that arrive later are dropped.
+    func stopFind()
+
     /// Closes the tab after running the page's beforeunload handler. Returns true when the tab
     /// closed (at once when it already had) and false when the page (or the person, at its prompt)
     /// kept it open. A tab that closes also sends `TabEvent.closed`, which may come before or after

@@ -3,8 +3,9 @@ import AppKit
 /// Screenshots of a page's window as evidence for agents and the maintainer, never for pixel comparisons.
 ///
 /// The window's AppKit views come from `cacheDisplay(in:to:)`, in which Chromium's layer renders blank, and the
-/// web content from DevTools `Page.captureScreenshot`; the web image is drawn into the web view's rect. Neither
-/// needs the Screen Recording permission, and both work on the off-screen window.
+/// web content from DevTools `Page.captureScreenshot`; the web image is drawn into the web view's rect, and views
+/// floating over the web view (such as the find bar) are drawn again on top. Neither needs the Screen Recording
+/// permission, and both work on the off-screen window.
 @MainActor
 enum E2EScreenshot {
     /// A PNG of `page`'s window, title bar included.
@@ -32,12 +33,27 @@ enum E2EScreenshot {
         NSGraphicsContext.current = context
         // The web image is in device pixels; drawing it into the rect in points scales it to the bitmap.
         web.draw(in: webRect, from: .zero, operation: .copy, fraction: 1, respectFlipped: false, hints: nil)
+        // Views floating over the web view (such as the find bar) were covered by the web image; draw them again.
+        for overlay in overlays(above: contentView) {
+            guard let overlayImage = overlay.bitmapImageRepForCachingDisplay(in: overlay.bounds) else { continue }
+            overlay.cacheDisplay(in: overlay.bounds, to: overlayImage)
+            var rect = root.convert(overlay.bounds, from: overlay)
+            if root.isFlipped { rect.origin.y = root.bounds.height - rect.maxY }
+            overlayImage.draw(
+                in: rect, from: .zero, operation: .sourceOver, fraction: 1, respectFlipped: false, hints: nil)
+        }
         NSGraphicsContext.restoreGraphicsState()
 
         guard let png = image.representation(using: .png, properties: [:]) else {
             throw E2EError("cannot encode the screenshot as PNG")
         }
         return png
+    }
+
+    /// The visible views ordered above `view` among its siblings, which draw over it.
+    private static func overlays(above view: NSView) -> [NSView] {
+        guard let siblings = view.superview?.subviews, let index = siblings.firstIndex(of: view) else { return [] }
+        return siblings[(index + 1)...].filter { !$0.isHidden }
     }
 
     /// The page's visible web content, from DevTools.

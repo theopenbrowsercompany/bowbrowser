@@ -99,6 +99,9 @@ protocol E2EPage: AnyObject {
     var leavePromptAnswer: Bool { get set }
     /// How many leave prompts (not counting reload prompts) the page's tab has asked so far.
     var leavePrompts: Int { get }
+    /// Opens the find bar of the page's window the way Edit > Find (Cmd+F) does, and returns it.
+    /// Throws when the menu item is missing or the bar does not show.
+    func openFindBar() throws -> any E2EFindBar
     /// Calls a Chrome DevTools protocol method and returns its result object.
     func devTools(_ method: String, _ params: [String: Any]) async throws -> [String: Any]
     /// The view that shows the page's web content, for screenshots; nil while another tab of its window is shown

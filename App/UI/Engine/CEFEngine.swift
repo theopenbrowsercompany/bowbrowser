@@ -102,6 +102,8 @@ final class CEFTab: NSObject, EngineTab {
     func goForward() { tab.goForward() }
     func reload() { tab.reload() }
     func stop() { tab.stop() }
+    func find(_ text: String, forward: Bool, matchCase: Bool) { tab.find(text, forward: forward, matchCase: matchCase) }
+    func stopFind() { tab.stopFind() }
 
     func close() async -> Bool {
         await withCheckedContinuation { continuation in
@@ -164,6 +166,13 @@ extension CEFTab: BowTabUIDelegate {
 
     func tab(_ tab: BowTab, renderProcessGone reason: BowProcessGoneReason) {
         send(.renderProcessGone(ProcessGoneReason(reason)))
+    }
+
+    func tab(_ tab: BowTab, didUpdateFindResult result: BowFindResult) {
+        send(
+            .findResult(
+                FindResult(
+                    matchCount: result.matchCount, activeMatch: result.activeMatch, isFinal: result.isFinalUpdate)))
     }
 }
 

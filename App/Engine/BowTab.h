@@ -23,6 +23,21 @@ NS_SWIFT_SENDABLE
 
 @end
 
+/// What a find in page search has found so far, as the engine reported it (mirrors `FindResult`).
+NS_SWIFT_SENDABLE
+@interface BowFindResult : NSObject
+
+- (instancetype)init NS_UNAVAILABLE;
+
+/// How many matches the page holds, as counted so far.
+@property(nonatomic, readonly) NSInteger matchCount;
+/// The position of the active match, from 1 to `matchCount`, or 0 when there is none.
+@property(nonatomic, readonly) NSInteger activeMatch;
+/// YES once the engine has finished counting; earlier results of the same search may count fewer matches.
+@property(nonatomic, readonly, getter=isFinalUpdate) BOOL finalUpdate;
+
+@end
+
 /// One web page for its whole life, independent of any view that shows it. Created by `BowProfile`; shown by
 /// attaching it to a `BowWebView`. The engine keeps the tab alive until it closes, so letting go of it does not
 /// close the page: call `closeWithCompletion:`.
@@ -46,6 +61,15 @@ NS_SWIFT_UI_ACTOR
 - (void)goForward;
 - (void)reload;
 - (void)stop;
+
+/// Finds `text` in the page, highlighting every match and selecting the active one. Asking again with the same
+/// text and case steps to the next match (or the previous one when `forward` is NO); other text starts a new
+/// search. Empty text stops finding. Results arrive through the UI delegate's `tab(_:didUpdateFindResult:)`.
+- (void)findText:(NSString *)text forward:(BOOL)forward matchCase:(BOOL)matchCase
+    NS_SWIFT_NAME(find(_:forward:matchCase:));
+/// Stops finding and clears the highlights. The active match stays selected, as in other browsers. Results of the
+/// stopped search that arrive later are dropped.
+- (void)stopFind;
 
 /// Closes the tab after running the page's beforeunload handler. The completion runs on a later main thread task
 /// with YES once the page is destroyed, or NO when the person chose to stay on the page (at the UI delegate's

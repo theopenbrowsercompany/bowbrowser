@@ -181,6 +181,23 @@ public enum ProcessGoneReason: Equatable, Sendable {
     case other
 }
 
+/// What a find in page search has found so far.
+public struct FindResult: Equatable, Sendable {
+    /// How many matches the page holds, as counted so far.
+    public var matchCount: Int
+    /// The position of the active match, from 1 to `matchCount`, or 0 when there is none.
+    public var activeMatch: Int
+    /// True once the engine has finished counting; earlier results of the same search may count
+    /// fewer matches.
+    public var isFinal: Bool
+
+    public init(matchCount: Int, activeMatch: Int, isFinal: Bool = true) {
+        self.matchCount = matchCount
+        self.activeMatch = activeMatch
+        self.isFinal = isFinal
+    }
+}
+
 /// Something that happened in a tab, pushed by the engine in order.
 ///
 /// Main frame navigations go start, then any redirects, then commit, then finish or fail, and every started
@@ -206,6 +223,9 @@ public enum TabEvent: Equatable, Sendable {
     case fullscreenChanged(Bool)
     /// The render process ended; the page is gone until the tab reloads.
     case renderProcessGone(ProcessGoneReason)
+    /// A search started by `EngineTab.find` found matches or moved the active one. One search can
+    /// report several times as the engine counts; the last has `isFinal`.
+    case findResult(FindResult)
     /// The page has been destroyed, whoever closed it: the app, quitting, or the page itself. Sent
     /// once, as the tab's last event.
     case closed
