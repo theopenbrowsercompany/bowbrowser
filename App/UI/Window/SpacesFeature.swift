@@ -91,9 +91,11 @@ final class SpacesFeature: NSResponder, BrowserWindowFeature, NSMenuItemValidati
         case #selector(nextSpace(_:)):
             return graph.adjacentSpaceID(.next) != nil
         case #selector(deleteSpace(_:)):
-            return graph.activeSpaceID.map { SpaceActions.canDelete($0, in: graph) } ?? false
+            // One question at a time: not while the window shows a sheet.
+            return window.window?.attachedSheet == nil
+                && (graph.activeSpaceID.map { SpaceActions.canDelete($0, in: graph) } ?? false)
         case #selector(renameSpace(_:)):
-            return graph.activeSpace != nil
+            return window.window?.attachedSheet == nil && graph.activeSpace != nil
         default:
             return true
         }

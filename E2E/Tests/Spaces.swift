@@ -48,6 +48,14 @@ enum SpacesAreaTests {
         }
     }
 
+    /// Returns once the window `page` is in shows no sheet, or shortly before the step's limit.
+    static func sheetClosed(_ app: any E2ESpacesApp, _ page: any E2EPage) async throws {
+        let deadline = Date().addingTimeInterval(E2EWaits.budget())
+        while try app.sheetMessage(in: page) != nil, Date() < deadline {
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+    }
+
     /// The window's Spaces a moment after an action that should change nothing.
     static func unchanged(_ app: any E2ESpacesApp, _ page: any E2EPage) async throws -> E2ESpacesState {
         try await Task.sleep(nanoseconds: 200_000_000)
@@ -214,6 +222,7 @@ struct SpacesManageTest: E2ETest {
             let state = try await SpacesAreaTests.settle(app, page) {
                 $0.active == "personal" && $0.header == "personal"
             }
+            try await SpacesAreaTests.sheetClosed(app, page)
             return (message, state, try app.sheetMessage(in: page))
         }
         run.check(
@@ -244,10 +253,12 @@ struct SpacesManageTest: E2ETest {
             try app.chooseSpacesMenuItem("Delete Space…", in: page)
             let message = try app.sheetMessage(in: page) ?? "no sheet"
             try app.answerSheet("Cancel", text: nil, in: page)
-            let kept = try await SpacesAreaTests.unchanged(app, page)
+            try await SpacesAreaTests.sheetClosed(app, page)
+            let kept = try app.spaces(of: page)
             try app.chooseSpacesMenuItem("Delete Space…", in: page)
             try app.answerSheet("Delete", text: nil, in: page)
             let state = try await SpacesAreaTests.settle(app, page) { $0.spaces == ["personal"] }
+            try await SpacesAreaTests.sheetClosed(app, page)
             return (message, kept, state)
         }
         let asked = confirmed.0.contains("Delete “work”?") && confirmed.0.contains("tab closes")
