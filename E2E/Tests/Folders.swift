@@ -16,7 +16,7 @@ enum FoldersTests {
 
     /// What `read` gives once `condition` holds, or what it gave last shortly before the step's limit. Checked once
     /// per run loop turn, as the sidebar changes on main thread tasks.
-    static func wait<T>(_ read: () throws -> T, until condition: (T) -> Bool) async throws -> T {
+    static func wait<T>(until condition: (T) -> Bool, read: () throws -> T) async throws -> T {
         let deadline = Date().addingTimeInterval(E2EWaits.budget())
         while true {
             let value = try read()
@@ -36,9 +36,9 @@ enum FoldersTests {
     /// The outline once it reads `expected` (in `E2EOutlineRow.description` form joined by " | "), or as it read
     /// last.
     static func outline(_ app: any E2EFoldersApp, of page: any E2EPage, until expected: String) async throws -> String {
-        try await wait({ try app.sidebarOutlineRows(of: page).map(\.description).joined(separator: " | ") }) {
-            $0 == expected
-        }
+        try await wait(
+            until: { $0 == expected },
+            read: { try app.sidebarOutlineRows(of: page).map(\.description).joined(separator: " | ") })
     }
 
     /// Starts and ends a rename of a new or existing folder: waits for the field to show `old`, types `new` and
@@ -46,10 +46,10 @@ enum FoldersTests {
     static func rename(
         from old: String, to new: String, in page: any E2EPage, app: any E2EFoldersApp
     ) async throws -> String? {
-        let editing = try await wait({ try app.sidebarRenameText(in: page) }) { $0 == old }
+        let editing = try await wait(until: { $0 == old }, read: { try app.sidebarRenameText(in: page) })
         guard editing == old else { return "the rename field showed \(editing ?? "nothing"), not \(old)" }
         try app.typeSidebarRename(new, in: page)
-        let outline = try await wait({ try app.sidebarOutline(of: page) }) { $0.contains(new) }
+        let outline = try await wait(until: { $0.contains(new) }, read: { try app.sidebarOutline(of: page) })
         guard outline.contains(new), try app.sidebarRenameText(in: page) == nil else {
             return "renaming \(old) to \(new) left \(outline)"
         }
@@ -167,12 +167,12 @@ struct FoldersDeleteTest: E2ETest {
         let sheet = try await run.step("ask before deleting Inner and its tabs", timeout: E2ETimeouts.step) {
             try app.chooseSidebarMenuItem(
                 "Delete Folder and Tabs…", row: try FoldersTests.row("Inner", in: page, app: app), in: page)
-            return try await FoldersTests.wait({ try app.sidebarSheet(in: page) }) { $0 != nil }
+            return try await FoldersTests.wait(until: { $0 != nil }, read: { try app.sidebarSheet(in: page) })
         }
         try await run.step("cancel", timeout: E2ETimeouts.step) {
             guard sheet != nil else { return problems.append("no sheet asked") }
             try app.clickSheetButton("Cancel", in: page)
-            let gone = try await FoldersTests.wait({ try app.sidebarSheet(in: page) }) { $0 == nil }
+            let gone = try await FoldersTests.wait(until: { $0 == nil }, read: { try app.sidebarSheet(in: page) })
             if gone != nil { problems.append("the sheet stayed after Cancel") }
             if try app.sidebarOutline(of: page).contains("Inner") == false {
                 problems.append("Cancel deleted Inner")
@@ -182,7 +182,7 @@ struct FoldersDeleteTest: E2ETest {
         let afterDelete = try await run.step("delete Inner and its tabs", timeout: E2ETimeouts.step) {
             try app.chooseSidebarMenuItem(
                 "Delete Folder and Tabs…", row: try FoldersTests.row("Inner", in: page, app: app), in: page)
-            _ = try await FoldersTests.wait({ try app.sidebarSheet(in: page) }) { $0 != nil }
+            _ = try await FoldersTests.wait(until: { $0 != nil }, read: { try app.sidebarSheet(in: page) })
             try app.clickSheetButton("Delete", in: page)
             return try await FoldersTests.outline(app, of: page, until: deletedAll)
         }
@@ -226,15 +226,14 @@ struct FoldersDeleteTest: E2ETest {
         let afterOpen = try await run.step("delete Empty and its open tab", timeout: E2ETimeouts.firstLoad) {
             try app.chooseSidebarMenuItem(
                 "Delete Folder and Tabs\u{2026}", row: try FoldersTests.row("Empty", in: page, app: app), in: page)
-            _ = try await FoldersTests.wait({ try app.sidebarSheet(in: page) }) { $0 != nil }
+            _ = try await FoldersTests.wait(until: { $0 != nil }, read: { try app.sidebarSheet(in: page) })
             try app.clickSheetButton("Delete", in: page)
-            _ = try await FoldersTests.wait({ d.isClosed }) { $0 }
+            _ = try await FoldersTests.wait(until: { $0 }, read: { d.isClosed })
             return try await FoldersTests.outline(app, of: page, until: cleared)
         }
         let active = try await run.step("read the active tab", timeout: E2ETimeouts.step) {
-            try await FoldersTests.wait({ try app.sidebarRows(of: page).first(where: \.isActive)?.title }) {
-                $0 == "T1"
-            }
+            try await FoldersTests.wait(
+                until: { $0 == "T1" }, read: { try app.sidebarRows(of: page).first(where: \.isActive)?.title })
         }
         let openPassed = d.isClosed && afterOpen == cleared && active == "T1"
         run.check(
