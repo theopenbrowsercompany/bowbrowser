@@ -17,5 +17,6 @@ enum AppFeatures {
         ProfileRegistryStore.self,
         ProfileMoves.self,
         ArcImportFeature.self,
+        LittleArcCenter.self,
     ]
 }
