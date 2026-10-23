@@ -23,7 +23,7 @@ protocol E2EUnloadApp: E2EApp {
     func unloadItem(of page: any E2EPage) throws -> String
     /// Sidebar tab `item` of `page`'s window as the checks read it.
     func unloadTabState(_ item: String, besides page: any E2EPage) throws -> E2EUnloadTabState
-    /// Reports that `page` started or stopped playing sound, as a frame's sound signal from the page would.
+    /// Reports that `page` started or stopped playing sound, through the tab method a frame's sound signal calls.
     func setTabAudible(_ audible: Bool, _ page: any E2EPage) throws
     /// Puts `text` on the general pasteboard and chooses Edit > Paste (its Command-V item, through the menu, so no
     /// key event reaches the page) in `page`'s window, then waits for `pasted` before putting the pasteboard's earlier

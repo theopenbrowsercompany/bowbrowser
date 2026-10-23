@@ -83,7 +83,8 @@ size_t BowEngineParkedRequestsRefused(const char* kind);
 size_t BowEngineDevToolsRequests(uint64_t tabID, CGPoint* inspectedPoint);
 
 /// Reports that the open tab with this ID started (true) or stopped (false) playing sound, through the same tab
-/// method an engine audio event would call, since CEF 156 has none. Returns false when no open tab has the ID.
+/// method a frame's sound signal from the render process calls, as a frame of its own, so a test controls exactly
+/// when the sound stops. Returns false when no open tab has the ID.
 /// Main thread only.
 bool BowEngineSetTabAudible(uint64_t tabID, bool audible);
 

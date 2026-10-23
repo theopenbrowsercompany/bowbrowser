@@ -514,8 +514,9 @@ struct UnloadManyTest: E2ETest {
 }
 
 /// A background tab that played sound within the last 30 seconds stays loaded under critical memory pressure while
-/// a quiet one unloads; 31 seconds after its sound stopped, the next pass unloads it. The engine reports no sound in
-/// CEF 156, so the test reports it through the tab, as an engine audio event would.
+/// a quiet one unloads; 31 seconds after its sound stopped, the next pass unloads it. The test reports the sound
+/// through the tab method the page's sound signal calls, so it chooses the moment the sound stops
+/// (unload.audible_page plays real sound in a page).
 struct UnloadAudibleTest: E2ETest {
     let name = "unload.audible"
 

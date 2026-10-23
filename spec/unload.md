@@ -54,15 +54,33 @@ A hidden tab playing sound is not throttled at all (about 4.5 percent of a core 
   - a tab mid navigation, still loading its page;
   - any tab of a profile with a download under way, since destroying the page that started it would cancel it;
   - a tab using the camera or microphone;
-  - a tab you typed into, until it goes to another page: a key that enters or edits text in one of its fields (Command-V, Command-X and Command-Z included) keeps it loaded, so form text with no leave prompt to guard it is never lost;
   - a pinned tab or Favorite showing a page other than its saved address, since loading it again would go back to that address and lose the page it was on;
-  - a tab playing sound, or that stopped less than 30 seconds ago, once the engine reports sound: the current engine (CEF 156) has no event for it (its audio handler takes the sound over instead of reporting it), so this does not apply yet outside e2e runs, which report sound through the tab as an engine event would;
+  - a tab playing sound, or that stopped less than 30 seconds ago, as the page's sound signal reports it (see Page signals);
   - every tab of a window that is closing or showing a sheet (a leave prompt or a page's dialog), and a tab whose page alert waits for the tab to be shown (see page-dialogs.md), so a dialog never vanishes unseen; the next look tries again.
+- Never unloaded at normal or warning pressure, neither for being idle nor to meet the loaded tab limit: a tab with an edited form, until it goes to another page (a new document in its main frame).
+  A form counts as edited once the page reports an edit (see Page signals), or once a key that enters or edits text in one of its fields reached it through the app (Command-V, Command-X and Command-Z included).
+  So form text with no leave prompt to guard it is not lost, however it arrived.
+  Under critical pressure such a tab is unloaded like any other, as Chrome's discarding does: the system may end the page's process itself when memory runs out, and freeing memory then outweighs the input.
+  It still counts toward the loaded tab limit.
 - Pinned tabs and Favorites are spared longer than other tabs.
 - The idle times, loaded tab limits and how often Bow looks are named in one place, so measurements can tune them without touching the rest.
 - An unloaded tab keeps its row, address, title and icon, and loads again from its address when chosen, without its back and forward history.
   This holds for a tab unloaded while its Space is off screen too: switching back shows its row with its icon and the title its page had.
 - Quitting stops unloading at once: no tab is unloaded while the app quits.
+
+## Page signals
+
+The engine (CEF 156) reports neither sound (its audio handler takes the sound over instead of reporting it) nor form input that arrives without a key (paste or cut from the Edit menu, drop, dictation, undo from the menu, autofill, a chosen file), so each page reports them itself.
+The helper's render process installs a small script in every frame, main frame and subframes alike, as the frame's JavaScript context is created and before the page's own scripts run, and the script sends each change to the browser as a process message from its frame.
+The page cannot call the channel itself: it is handed to the script, never set on the page.
+
+- Sound: a frame plays sound while one of its media elements plays (not paused, not ended) unmuted at a volume above 0, or while one of its Web Audio contexts that is connected to its output runs.
+  Sound starting is reported at once; sound stopping only once the frame has been quiet for 2 seconds, so a gap between tracks does not end it.
+  The tab is audible while any of its frames is, and its sound stopping starts the 30 second recently audible window.
+- Form edit: the first input or change event the browser fires in a frame's document (on a text field, text area, list, check box, file input or editable text, by any means), once per document.
+  Events a page fires from its own script do not count, so a page cannot keep itself loaded that way.
+- A frame's signals go when the frame leaves the page (removed, gone to another document, or into the back and forward cache), when the main frame commits a new document, and when the page's render process ends.
+  A page restored from the back and forward cache reports both again.
 
 ## Edge cases
 
@@ -81,6 +99,7 @@ A hidden tab playing sound is not throttled at all (about 4.5 percent of a core 
 5. Critical pressure, one visible tab and one recently used background tab: only the background tab is unloaded.
 6. A background tab playing audio, or that stopped 29 seconds ago, or using the microphone, idle for hours: it stays loaded; 30 seconds after its sound stopped it may be unloaded.
 7. Thirty recently used loaded tabs at normal pressure: none is unloaded; eight at warning pressure: the two least recently used are unloaded.
+   A background tab with an edited form, idle for a day: it stays loaded at normal and warning pressure, is passed over when trimming to the loaded tab limit (while still counting toward it), and is unloaded under critical pressure.
 8. The placeholder shows for an unloaded tab shown alone, not in one of several panes, and goes when its page finishes, fails, its render process ends or it closes.
 
 These run as unit tests today (`UnloadPolicyTests`).
@@ -91,6 +110,7 @@ These run as unit tests today (`UnloadPolicyTests`).
 11. Run `make e2e E2E=unload`: `PASS unload.off` shows nothing unloaded with the setting off, after a day idle and under critical pressure; `PASS unload.policy: live=1 unloaded=3` shows a pass after a day idle unloading every background tab and keeping the shown one, and `PASS unload.reload` choosing an unloaded tab loading it again at its address; `PASS unload.exempt` shows a tab using the camera kept; `PASS unload.pressure` shows critical pressure unloading a recently used background tab; `PASS unload.engine_reload` shows an unloaded row keeping its title and icon; `PASS unload.dialog` shows a pass while a background tab's alert waits for its tab unloading nothing, and the next pass after the alert was shown and answered unloading the tab.
 12. Run `make e2e E2E=unload`: `PASS unload.offscreen_space: unloaded=3` shows a today tab and a pinned tab unloaded while their Space is off screen keeping their icon, address and title when you switch back, and `PASS unload.offscreen_reload` choosing each loading it again at that address; `PASS unload.pinned_away: unloaded=1 pinned=live` shows a pinned tab browsed away from its pinned address kept loaded while a background tab unloads; `PASS unload.typed: unloaded=0 tab=live` shows a tab with text typed into its field kept loaded with its text, and `PASS unload.typed_navigated: unloaded=1` shows it unloading once it has gone to another page.
 13. Run `make e2e E2E=unload`: `PASS unload: live=1 unloaded=29` shows 30 tabs in one window, one shown, at normal pressure: nothing unloaded 59 minutes on, every background tab 61 minutes on; `PASS unload.audible: within=live quiet=unloaded after=unloaded` shows a tab whose sound stopped 20 seconds ago kept under critical pressure while a quiet tab unloads, and unloaded 31 seconds after; `PASS unload.placeholder: unloaded=1 card="Unload held" page=shown order=card,page` shows an unloaded tab chosen again showing the card with its title while its page loads, then its page.
+14. Run `make e2e E2E=unload`: `PASS unload.audible_page: element=live webaudio=live within=live after=unloaded` shows a background tab playing a quiet tone kept after a day idle, first through an audio element and then through Web Audio, kept 20 seconds after the sound stopped and unloaded 31 seconds after; `PASS unload.form_paste: unloaded=0 tab=live edited=true keys=0` and `PASS unload.form_dictation: unloaded=0 tab=live edited=true keys=0` show a tab whose field got text from Edit > Paste or from an input method, with no key event, kept after a day idle with its text.
 
 ## Out of scope
 
@@ -98,8 +118,3 @@ These run as unit tests today (`UnloadPolicyTests`).
 - A snapshot of the page as the placeholder (see Behavior for why it is a card).
 - A setting in a settings window for unloading is not built yet; it is a stored setting only.
 - Restoring back and forward history after unloading.
-
-## Later
-
-- Typing is the only form input that keeps a tab loaded today.
-  Text dropped into a field, dictated, or pasted, cut or undone from the Edit menu with the mouse, and a file chosen for an upload, do not count, so a page holding only such input and no leave prompt can still be unloaded.
