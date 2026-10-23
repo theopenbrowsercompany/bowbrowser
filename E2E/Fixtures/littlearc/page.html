@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Page</title>
+  <style>
+    body { margin: 0; font: 16px -apple-system, sans-serif; background: #fff; color: #111; }
+    h1 { margin: 0; padding: 24px; background: #7c3aed; color: #fff; }
+    textarea { display: block; margin: 24px; width: 480px; height: 120px; font: inherit; }
+  </style>
+  <script>
+    // Titled after its `name` parameter. The page counts its loads in sessionStorage (which a reload of the same tab
+    // keeps) and gets a fresh bowLoadID per document, so a page that moved without reloading reads the same ID and a
+    // load count of 1. Once something is typed in the textarea it asks before going away.
+    document.title = new URLSearchParams(location.search).get("name") || "?";
+    window.bowLoadID = String(Math.random()).slice(2) + "-" + Date.now();
+    sessionStorage.setItem("bowLoads", String(Number(sessionStorage.getItem("bowLoads") || "0") + 1));
+    window.addEventListener("beforeunload", event => {
+      if (document.querySelector("textarea").value === "") return;
+      event.preventDefault();
+      event.returnValue = "";
+    });
+  </script>
+</head>
+<body>
+  <h1>Little Arc fixture</h1>
+  <p style="padding: 0 24px">A page a link from another app opens in Little Arc.</p>
+  <textarea placeholder="Type to leave an unsaved draft"></textarea>
+</body>
+</html>

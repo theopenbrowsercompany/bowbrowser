@@ -154,7 +154,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     /// Opens the links kept until the engine started, oldest first; links from then on open as they arrive.
     func openKeptLinks() {
-        for link in linkIntake.open() { openLink(link.url, from: link.source) }
+        for link in linkIntake.open() { openIncomingLink(link) }
     }
 
     /// Called by main after the engine has shut down, just before the process exits with `BowEngine.exitCode`.
@@ -167,10 +167,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     /// A link from another app (a link clicked in Mail, `open https://...`), as a GetURL Apple Event: AppKit's own
-    /// handler is replaced so the event's sender can be read. Each link opens in a new tab of the most recently used
-    /// browser window, in the profile of its Space on screen, or in a new window when none is open. Links that arrive
-    /// before the engine has started open once it has, in order; links while Bow quits, or while launch refuses to
-    /// start, are dropped, and so is anything that is not an http or https address.
+    /// handler is replaced so the event's sender can be read. Each link opens in Little Arc or a browser window
+    /// (`openIncomingLink`). Links that arrive before the engine has started open once it has, in order; links while
+    /// Bow quits, or while launch refuses to start, are dropped, and so is anything that is not an http or https
+    /// address.
     @objc private func handleGetURLEvent(_ event: NSAppleEventDescriptor, withReplyEvent reply: NSAppleEventDescriptor)
     {
         // An e2e or smoke run is a throwaway beside the person's own Bow: a link meant for them never opens in it.
@@ -179,22 +179,43 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             if e2eDeliversLinks { forThisRun = true }  // E2E seam: a link the harness itself delivers.
         #endif
         guard forThisRun, !BowEngine.isQuitting, let link = ExternalLinks.link(from: event) else { return }
-        if let link = linkIntake.receive(link) { openLink(link.url, from: link.source) }
+        if let link = linkIntake.receive(link) { openIncomingLink(link) }
     }
 
-    /// Opens a link from another app. `source` is the app that sent it, for link routing rules; until they exist the
-    /// link opens in the profile of the target window's Space on screen, as Arc does without rules. Returns the window
-    /// it opened in, or nil when it opened nowhere (an e2e run never opens an on screen window for it).
-    @discardableResult
-    func openLink(_ url: URL, from source: LinkSource? = nil) -> BrowserWindowController? {
-        // The main window, else the last one on screen or in the Dock, else, while Bow is hidden and so no window is on
-        // screen, the last one. A window that is closing opens no tab, so it is skipped and the link goes to another
-        // window, or to a new one.
+    /// Opens a link from another app where `LittleArc.opening` says: in a new Little Arc window while "links from other
+    /// apps open in Little Arc" is on (the default, as in Arc) and a browser window is open, its page in the profile
+    /// of that window's Space on screen; otherwise in a browser window (`openLink`).
+    func openIncomingLink(_ link: IncomingLink) {
+        let window = linkWindow()
+        switch LittleArc.opening(setting: LittleArcCenter.opensExternalLinks, hasBrowserWindow: window != nil) {
+        case .littleArc:
+            guard let window else { return }
+            appFeatures.require(LittleArcCenter.self).open(
+                link.url, from: window, takesFocus: !options.isE2E
+            ) { [weak self] in self?.linkWindow() }
+        case .browserWindow:
+            openLink(link.url, from: link.source)
+        }
+    }
+
+    /// The browser window a link goes to: the main window, else the last one on screen or in the Dock, else, while
+    /// Bow is hidden and so no window is on screen, the last one. A window that is closing opens no tab, so it is
+    /// skipped. Nil when no window can take the link.
+    func linkWindow() -> BrowserWindowController? {
         let open = windowControllers.filter { !$0.isClosing }
-        if let controller = open.first(where: { $0.window?.isMainWindow == true })
+        return open.first(where: { $0.window?.isMainWindow == true })
             ?? open.last(where: { $0.window.map { $0.isVisible || $0.isMiniaturized } == true })
             ?? (NSApp.isHidden ? open.last : nil)
-        {
+    }
+
+    /// Opens a link from another app in a browser window. `source` is the app that sent it, for link routing rules;
+    /// until they exist the link opens in the profile of the target window's Space on screen, as Arc does without
+    /// rules. Returns the window it opened in, or nil when it opened nowhere (an e2e run never opens an on screen
+    /// window for it).
+    @discardableResult
+    func openLink(_ url: URL, from source: LinkSource? = nil) -> BrowserWindowController? {
+        // With no window to take it (`linkWindow`), the link opens a new one.
+        if let controller = linkWindow() {
             guard controller.openTab(url: url) != nil else { return nil }
             #if BOW_E2E
                 e2eLinkOpened?(url, source, controller)  // E2E seam

@@ -195,6 +195,7 @@ final class E2EAppAdapter {
         for controller in controllers where controller.window?.isVisible == true {
             controller.window?.performClose(nil)
         }
+        closeLittleArc()
         let deadline = Date().addingTimeInterval(timeout)
         while true {
             let windows = controllers.filter { $0.window?.isVisible == true }.count
