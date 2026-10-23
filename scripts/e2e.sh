@@ -69,6 +69,10 @@
 # e2e.isolation or quit check, a runner without RESULT lines). FLAKY therefore never hides a check the retry did
 # not run again. A retry that cannot start (exit 64) leaves the first attempt's outcome in place.
 #
+# A crash report a Debug build's Crashpad kept (<folder>/profile/Crashpad, or already in <folder>/crash-reports) is
+# copied into <folder>/crash-reports/ and named by a `CRASH REPORT <path>` line before the summary, in short output
+# too, and in results.json's "crashReports". Nothing is uploaded, and a report never changes the outcome.
+#
 # The last line printed is always the summary:
 #   E2E: PASS n/n               exit 0
 #   E2E: FAIL passed/n          exit 1  a check failed (and failed again on the retry)
@@ -1003,6 +1007,36 @@ if [ "$retry" = 1 ] && { [ "$status" = fail ] || [ "$status" = timeout ]; }; the
   fi
 fi
 load_end=$(load)
+
+# Crash reports (a Debug build's Crashpad keeps them on disk, never uploads them). Each attempt's folder is looked
+# at once, after the run: reports the engine's throwaway root (<folder>/profile/Crashpad/{new,pending,completed})
+# holds are copied into <folder>/crash-reports/, unless one of that name is already there (a report moves from
+# pending to completed), and every .dmp in a crash-reports folder is named by one `CRASH REPORT <path>` line in the
+# run's report.txt (short output keeps it) and in results.json's crashReports. A shard's own run leaves it to the
+# run that planned it, which looks in every shard's folder.
+crash_reports=""
+collect_crash_reports() {
+  local dir sub src file
+  [ -z "$shard_dir" ] || return 0
+  for dir in "$run" "$run"/shard-* "$run/retry"; do
+    [ -d "$dir" ] || continue
+    for sub in new pending completed; do
+      for src in "$dir/profile/Crashpad/$sub"/*.dmp; do
+        [ -f "$src" ] || continue
+        mkdir -p "$dir/crash-reports" || continue
+        [ -e "$dir/crash-reports/$(basename "$src")" ] || cp -p "$src" "$dir/crash-reports/" 2>/dev/null
+      done
+    done
+    for file in "$dir/crash-reports"/*.dmp; do
+      [ -f "$file" ] && crash_reports="$crash_reports${crash_reports:+$'\n'}$file"
+    done
+  done
+  [ -n "$crash_reports" ] || return 0
+  printf '%s\n' "$crash_reports" | while IFS= read -r file; do echo "CRASH REPORT $file"; done \
+    | if [ "$quiet" = 1 ]; then cat >> "$run/report.txt"; else tee -a "$run/report.txt"; fi
+}
+collect_crash_reports
+
 # Every run names the expired entries, so they get removed or renewed.
 if [ -n "$expired" ] && [ -z "$shard_dir" ]; then
   expired_lines | if [ "$quiet" = 1 ]; then cat >> "$run/report.txt"; else tee -a "$run/report.txt"; fi
@@ -1043,6 +1077,9 @@ attempt_json() {
     [ -n "$n" ] && printf '%s{"name":%s,"expires":%s,"reason":%s}' "$sep" "$(json "$n")" "$(json "$d")" "$(json "$r")" && sep=,; done; }
   printf '],"quarantineExpired":['
   printf '%s\n' "$expired" | awk -F "$us" '{ print $1 }' | { sep=""; while IFS= read -r n; do [ -n "$n" ] && printf '%s%s' "$sep" "$(json "$n")" && sep=,; done; }
+  printf '],"crashReports":['
+  printf '%s\n' "$crash_reports" | { sep=""; while IFS= read -r n; do
+    [ -n "$n" ] && printf '%s%s' "$sep" "$(json "$n")" && sep=,; done; }
   printf '],"attempts":['
   sep=""
   for a in "${attempts[@]}"; do
@@ -1104,7 +1141,7 @@ if [ "$quiet" = 1 ]; then
   # failing_lines <folder> <prefix>: the FAIL, FLAKY, QUARANTINED, QUARANTINE EXPIRED, TIMEOUT and NOT RUN lines and
   # the RESULT lines of failing tests in the folder's report.txt.
   failing_lines() {
-    awk -v p="$2" '/^(FAIL|FLAKY|QUARANTINED) |^QUARANTINE EXPIRED |^E2E: TIMEOUT |^NOT RUN |^RESULT [^ ]+ (fail|timeout)( |$)/ { print p $0 }' \
+    awk -v p="$2" '/^(FAIL|FLAKY|QUARANTINED) |^QUARANTINE EXPIRED |^CRASH REPORT |^E2E: TIMEOUT |^NOT RUN |^RESULT [^ ]+ (fail|timeout)( |$)/ { print p $0 }' \
       "$1/report.txt" 2>/dev/null
   }
   failing_lines "$run" ""

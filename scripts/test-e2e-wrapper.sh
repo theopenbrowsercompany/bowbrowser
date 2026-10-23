@@ -61,6 +61,8 @@ shardrun() {
   for t in "${tests[@]}"; do [ "$t" = a.three ] || ordered+=("$t"); done
   for t in "${tests[@]}"; do [ "$t" != a.three ] || ordered+=("$t"); done
   line() { echo "$1" | tee -a "$r"; }
+  # FAKE_DUMP=1: every app leaves a Crashpad report of its own name in its folder.
+  [ "${FAKE_DUMP:-0}" != 1 ] || { mkdir -p "$out/profile/Crashpad/pending"; echo dump > "$out/profile/Crashpad/pending/s$$.dmp"; }
   if [ "$first" = 1 ]; then
     for t in "${ordered[@]}"; do [ "$t" != "${FAKE_USAGE:-}" ] || { echo "bow: --e2e=$sel is not a test" >&2; exit 64; }; done
     if [ -n "${FAKE_BARRIER:-}" ]; then
@@ -157,6 +159,17 @@ case $FAKE_MODE in
     echo "PASS a.one: ok" > "$r"; echo yes > "$out/../hanging"
     while :; do sleep 0.1; done ;;
   pass) echo "PASS a.one: ok" > "$r"; echo "E2E: PASS 1/1" >> "$r"; exit 0 ;;
+  # Crashpad keeps a report (pending, then the same name in completed) and a second one in another state, and
+  # another sits already in crash-reports; a retry's own crash lands in its folder.
+  crashdump)
+    mkdir -p "$out/profile/Crashpad/pending" "$out/profile/Crashpad/completed" "$out/crash-reports"
+    echo dump1 > "$out/profile/Crashpad/pending/aaa.dmp"; echo dump1 > "$out/profile/Crashpad/completed/aaa.dmp"
+    echo dump2 > "$out/profile/Crashpad/completed/bbb.dmp"; echo dump3 > "$out/crash-reports/ccc.dmp"
+    echo "not a report" > "$out/profile/Crashpad/pending/note.txt"
+    case $out in
+      */retry) { echo "PASS a.one: ok"; echo "E2E: PASS 1/1"; } > "$r"; exit 0 ;;
+      *) { echo "FAIL a.one: slow"; echo "E2E: FAIL 0/1"; } > "$r"; exit 1 ;;
+    esac ;;
   fail) echo "FAIL a.one: broken" > "$r"; echo "E2E: FAIL 0/1" >> "$r"; exit 1 ;;
   timeout) echo "E2E: TIMEOUT a.one: open window" > "$r"; exit 2 ;;
   usage) echo "bow: --e2e=nope is not a test" >&2; exit 64 ;;
@@ -1165,6 +1178,31 @@ wtrun four loudpass > /dev/null
 check "ledger: an untracked file changes the tree key" \
   is "$(tail -n 2 "$BOW_E2E_LEDGER" | cut -f 5 | sort -u | wc -l | tr -d ' ')" 2
 check "threshold: a bad --days exits 64" is "$(./scripts/e2e-flakes.sh --days x > /dev/null 2>&1; echo $?)" 64
+
+# Crash reports: copied into the run folder, named before the summary, in results.json, outcome unchanged.
+run crashdump
+runf="$BOW_E2E_ROOT/latest"
+check "crash reports: the run's outcome stays FLAKY" is "$code" 3
+check "crash reports: the summary stays the last line" is "$last" "E2E: FLAKY 1/1 after retrying a.one"
+check "crash reports: Crashpad's reports are copied into crash-reports" is "$(ls "$runf/crash-reports" | tr '\n' ' ')" "aaa.dmp bbb.dmp ccc.dmp "
+check "crash reports: the copy has the report's content" is "$(cat "$runf/crash-reports/bbb.dmp")" dump2
+check "crash reports: a non report file is left" not test -e "$runf/crash-reports/note.txt"
+check "crash reports: one line per report, the same name once" is "$(grep -c '^CRASH REPORT ' "$runf/report.txt")" 6
+check "crash reports: the line names the path" has "$runf/report.txt" "^CRASH REPORT $(field "$res" run)/crash-reports/aaa.dmp\$"
+check "crash reports: the retry's report is named too" has "$runf/report.txt" "^CRASH REPORT $(field "$res" run)/retry/crash-reports/bbb.dmp\$"
+check "crash reports: printed before the summary" is "$(echo "$out" | grep -c '^CRASH REPORT ')" 6
+check "crash reports: results.json is valid JSON" valid_json "$res"
+check "crash reports: results.json lists them" is "$(field "$res" crashReports.0)" "$(field "$res" run)/crash-reports/aaa.dmp"
+check "crash reports: results.json lists the retry's" is "$(field "$res" crashReports.5)" "$(field "$res" run)/retry/crash-reports/ccc.dmp"
+E2E_QUIET=1 run crashdump
+check "crash reports: short output keeps the lines" is "$(echo "$out" | grep -c '^CRASH REPORT ')" 6
+run pass
+check "crash reports: none, no line" not has "$BOW_E2E_ROOT/latest/report.txt" "^CRASH REPORT"
+check "crash reports: none, an empty list" is "$(plutil -extract crashReports raw -o - "$res" 2>/dev/null)" 0
+E2E_SHARDS=2 FAKE_DUMP=1 run shard
+check "crash reports: sharded, each shard's report is named once" is "$(grep -c '^CRASH REPORT ' "$BOW_E2E_ROOT/latest/report.txt")" 2
+check "crash reports: sharded, copied into the shard's folder" is "$(ls "$BOW_E2E_ROOT"/latest/shard-*/crash-reports/*.dmp | wc -l | tr -d ' ')" 2
+check "crash reports: sharded, results.json lists both" is "$(plutil -extract crashReports raw -o - "$res")" 2
 
 [ "$failed" = 0 ] && echo "e2e wrapper: all checks passed" || echo "e2e wrapper: some checks failed"
 exit "$failed"
