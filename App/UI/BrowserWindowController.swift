@@ -485,8 +485,8 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
             saved.savedURL != url.absoluteString || saved.savedTitle != state.title
         else { return }
         // Committed now and written shortly after, so a title that changes many times writes the file once.
-        guard change({ try $0.apply([.setSavedPage(item, url: url.absoluteString, title: state.title)], saving: false) })
-        else { return }
+        let record = SidebarMutation.setSavedPage(item, url: url.absoluteString, title: state.title)
+        guard change({ try $0.apply([record], saving: false) }) else { return }
         guard pendingSave == nil else { return }
         pendingSave = Timer.scheduledTimer(withTimeInterval: Self.recordSaveDelay, repeats: false) { [weak self] _ in
             MainActor.assumeIsolated { self?.saveRecordedPages() }
