@@ -1,6 +1,6 @@
 import Foundation
 
-/// What a window's page area shows: one to four tabs side by side, each in its own pane, one of them focused. The
+/// What a window's page area shows: one to four tabs side by side or stacked, each in its own pane, one focused. The
 /// focused pane's tab is the window's active tab, so the sidebar, the toolbar, find and the keyboard all follow it.
 ///
 /// The window keeps one layout while the person works in it and brings it up to date with `reconciled` after every
@@ -13,18 +13,25 @@ public struct PaneLayout<ID: Hashable>: Equatable {
     public private(set) var tabs: [ID]
     /// The tab of the pane that has focus, always one of `tabs`.
     public private(set) var focused: ID
-    /// Each pane's share of the page area's width, in pane order, summing to 1.
+    /// Each pane's share of the page area along `orientation` (its width side by side, its height stacked), in pane
+    /// order, summing to 1.
     public private(set) var fractions: [Double]
+    /// How the panes sit: side by side (`.horizontal`, leading to trailing) or stacked (`.vertical`, top to bottom),
+    /// as Arc names a split's two layouts.
+    public private(set) var orientation: SidebarSplit.Orientation
 
     /// A layout of `tabs` with `focused` in focus, or nil when there are not one to four tabs, a tab is listed twice,
     /// or `focused` is not one of them. `fractions` that do not fit (a count that does not match, a share that is not
     /// a positive number) give equal panes; a pane under `SidebarSplit.minimumPaneFraction` is raised to it.
-    public init?(tabs: [ID], focused: ID, fractions: [Double]? = nil) {
+    public init?(
+        tabs: [ID], focused: ID, fractions: [Double]? = nil, orientation: SidebarSplit.Orientation = .horizontal
+    ) {
         guard (1...Self.maximumPanes).contains(tabs.count), Set(tabs).count == tabs.count, tabs.contains(focused)
         else { return nil }
         self.tabs = tabs
         self.focused = focused
         self.fractions = Self.fitting(fractions, count: tabs.count)
+        self.orientation = orientation
     }
 
     /// One pane showing `tab`.
@@ -46,7 +53,16 @@ public struct PaneLayout<ID: Hashable>: Equatable {
         guard let active else { return nil }
         guard tabs.contains(active) else { return .single(active) }
         let kept = tabs.indices.filter { tabs[$0] == active || showable(tabs[$0]) }
-        return PaneLayout(tabs: kept.map { tabs[$0] }, focused: active, fractions: kept.map { fractions[$0] })
+        return PaneLayout(
+            tabs: kept.map { tabs[$0] }, focused: active, fractions: kept.map { fractions[$0] },
+            orientation: orientation)
+    }
+
+    /// The same panes with each one's share set to `fractions` (a divider moved), keeping focus and orientation; nil
+    /// when the shares do not fit the panes.
+    public func resized(_ fractions: [Double]) -> PaneLayout? {
+        guard fractions.count == tabs.count, SidebarSplit.normalized(fractions) != nil else { return nil }
+        return PaneLayout(tabs: tabs, focused: focused, fractions: fractions, orientation: orientation)
     }
 
     /// The pane that takes focus when the tab of `tab`'s pane closes: the pane before it, or the one after it when it

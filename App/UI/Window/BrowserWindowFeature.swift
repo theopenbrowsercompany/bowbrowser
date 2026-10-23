@@ -20,9 +20,17 @@ protocol BrowserWindowFeature: NSResponder {
     /// window's last tab has closed.
     func selectedTabChanged(_ tab: (any EngineTab)?)
 
-    /// The person dragged a divider between the panes the window shows (`BrowserWindowController.showPanes`);
-    /// `fractions` is each pane's new share of the page area's width, in pane order.
+    /// The person let go of a divider they dragged between the panes the window shows
+    /// (`BrowserWindowController.showPanes`), or a divider moved outside a drag; `fractions` is each pane's new share
+    /// of the page area's length (its width side by side, its height stacked), in pane order. Called once per drag,
+    /// never on its every step, so a feature can save the shares here.
     func paneDividerMoved(fractions: [Double])
+
+    /// Where `sheet`, about to come down on the window, drops from (`NSWindowDelegate`'s
+    /// `window(_:willPositionSheet:using:)`, in window coordinates), or nil to leave it to another feature. The first
+    /// feature that answers places it; with none it drops from `proposed`, below the window's title bar. A feature
+    /// answers only for its own sheets.
+    func positionSheet(_ sheet: NSWindow, proposed: NSRect) -> NSRect?
 
     /// `tab`, one of the window's tabs, reported `event`. The window has already updated its tab list.
     func tab(_ tab: any EngineTab, didReceive event: TabEvent)
@@ -110,6 +118,7 @@ extension BrowserWindowFeature {
     static func addMenuItems(to menus: MainMenu.Menus) {}
     func selectedTabChanged(_ tab: (any EngineTab)?) {}
     func paneDividerMoved(fractions: [Double]) {}
+    func positionSheet(_ sheet: NSWindow, proposed: NSRect) -> NSRect? { nil }
     func tab(_ tab: any EngineTab, didReceive event: TabEvent) {}
     func tabDidClose(_ tab: any EngineTab) {}
     func tabOpened(_ tab: any EngineTab, item: SidebarItemID) {}
