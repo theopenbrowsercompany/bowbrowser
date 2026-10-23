@@ -59,6 +59,10 @@ It uses Bow's brand colors as light and dark tokens, soft radii and one soft sha
 - The navigation buttons follow the window's light or dark appearance.
 - A second fullscreen request from the page already filling the window changes nothing; a page in a tab that is not shown is asked to leave at once.
 - Closing the window or quitting while a page is fullscreen closes it without toggling macOS full screen first.
+- macOS ignores a full screen toggle sent while the window is still animating into or out of full screen, so page fullscreen waits for the animation to end.
+  The chrome and the card follow at once; the window is toggled when the animation ends (did enter or did exit full screen), at most once, and only when it did not end where the page wants it.
+  Escape right after entering takes the window out once the enter animation ends; entering, leaving and entering again during one animation toggles nothing more; a page that asks again while the window animates out of full screen keeps the window, which goes back in.
+- A window that fails to enter macOS full screen keeps the page filling it, and leaving then brings the chrome back without a toggle; a window that fails to leave stays in full screen, and Bow does not try again.
 
 ## Acceptance checks
 
@@ -76,7 +80,7 @@ It uses Bow's brand colors as light and dark tokens, soft radii and one soft sha
 12. `design.fonts` prints PASS for `design.fonts_registered`, `design.fonts_sidebar`, `design.fonts_command_bar` and `design.fonts_empty`.
 13. `make e2e E2E=design` runs these checks and writes screenshots to `build/e2e/<run>/design/`, among them `mockup-1.png` (start screen, light), `mockup-2.png` (browsing, light), `mockup-3.png` (browsing, dark) and `mockup-4.png` (top tabs), as evidence for the maintainer to look at, never compared by pixels.
 14. `design.footer` prints PASS for `design.footer_centred` (the dots' middle is within 1 point of the middle between the archive button and the "+"), `design.footer_dot_colors` and `design.footer_dot_menu`; `design.fonts` also reads the folder rows (semibold) and the command bar's result rows.
-15. Click a page's fullscreen button: `make e2e E2E=fullscreen` prints `PASS fullscreen: sidebar=hidden` with insets 0, radius 0, no shadow and one full screen toggle, and PASS for `fullscreen.escape`, `fullscreen.exit`, `fullscreen.tab_switch`, `fullscreen.already`, `fullscreen.navigate`, `fullscreen.window_exit` and `fullscreen.top_tabs`; a recorder stands in for macOS full screen, so the run never takes over the display.
+15. Click a page's fullscreen button: `make e2e E2E=fullscreen` prints `PASS fullscreen: sidebar=hidden` with insets 0, radius 0, no shadow and one full screen toggle, and PASS for `fullscreen.escape`, `fullscreen.exit`, `fullscreen.tab_switch`, `fullscreen.already`, `fullscreen.navigate`, `fullscreen.window_exit`, `fullscreen.top_tabs`, `fullscreen.transition` (Escape during the enter animation: one toggle until it ends, then exactly one exit toggle, with the chrome and card restored) and `fullscreen.transition_cancel` (Fullscreen, Escape and Fullscreen again during one animation: no toggle beyond the first); a recorder stands in for macOS full screen, so the run never takes over the display.
 
 ## Out of scope
 
