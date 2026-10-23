@@ -28,7 +28,7 @@ Bow keeps it in one file of its own, separate from the engine's session data.
   Collapsing when everything is already closed changes nothing.
   Expand all opens every folder of the current Space again.
 - A closed folder hides everything inside it, however deep; the rows the sidebar shows are the sections' items in order, without the contents of closed folders.
-  A split view's tabs are always shown.
+  A split view cannot be closed: its tabs are shown whenever the split itself is.
 - Favorites are the row of icons at the top of the sidebar.
   There is one Favorites row per profile, and every Space of that profile shows the same row; a Space on another profile shows that profile's own row, which starts empty.
   Until the person can choose profiles, every Space uses the default profile and so shares one row.
