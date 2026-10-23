@@ -2,14 +2,15 @@ import Foundation
 
 /// The whole sidebar as a flat graph of items keyed by ID, plus the Spaces that own its sections.
 ///
-/// The roots are containers: one for Favorites and two per Space (pinned and unpinned). Every other item hangs under a
+/// The roots are containers: one Favorites section per profile and two per Space (pinned and unpinned). Every other item hangs under a
 /// container, folder or split. A graph read from disk may break these rules; `repair()` restores them, and the store
 /// only commits graphs that pass `integrityProblems()`.
 public struct SidebarGraph: Hashable, Sendable {
     public internal(set) var items: [SidebarItemID: SidebarItem]
     /// Spaces in the order the person arranged them.
     public internal(set) var spaces: [SidebarSpace]
-    public internal(set) var favoritesContainerID: SidebarItemID
+    /// The Favorites section of each profile. Spaces of one profile share it. Always holds the default profile.
+    public internal(set) var favoritesContainerIDs: [SidebarProfileID: SidebarItemID]
     /// The Space on screen. Always set in a sound graph; optional only so a damaged file can still be read.
     public internal(set) var activeSpaceID: SidebarSpaceID?
     /// The tab that was selected when the sidebar was last saved; the only one that loads right away on launch.
@@ -19,13 +20,13 @@ public struct SidebarGraph: Hashable, Sendable {
     public init(
         items: [SidebarItemID: SidebarItem],
         spaces: [SidebarSpace],
-        favoritesContainerID: SidebarItemID,
+        favoritesContainerIDs: [SidebarProfileID: SidebarItemID],
         activeSpaceID: SidebarSpaceID? = nil,
         activeTabID: SidebarItemID? = nil
     ) {
         self.items = items
         self.spaces = spaces
-        self.favoritesContainerID = favoritesContainerID
+        self.favoritesContainerIDs = favoritesContainerIDs
         self.activeSpaceID = activeSpaceID
         self.activeTabID = activeTabID
     }
@@ -45,7 +46,7 @@ public struct SidebarGraph: Hashable, Sendable {
         return SidebarGraph(
             items: [favorites.id: favorites, pinned.id: pinned, unpinned.id: unpinned],
             spaces: [space],
-            favoritesContainerID: favorites.id,
+            favoritesContainerIDs: [.default: favorites.id],
             activeSpaceID: space.id)
     }
 
@@ -57,9 +58,11 @@ public struct SidebarGraph: Hashable, Sendable {
         (items[id]?.childrenIDs ?? []).compactMap { items[$0] }
     }
 
-    /// The containers every visible item hangs under: Favorites, then each Space's pinned and unpinned sections.
+    /// The containers every visible item hangs under: each profile's Favorites (default profile first), then each
+    /// Space's pinned and unpinned sections.
     public var rootIDs: [SidebarItemID] {
-        [favoritesContainerID] + spaces.flatMap { [$0.pinnedContainerID, $0.unpinnedContainerID] }
+        favoritesProfileIDs.compactMap { favoritesContainerIDs[$0] }
+            + spaces.flatMap { [$0.pinnedContainerID, $0.unpinnedContainerID] }
     }
 
     /// Item IDs in sidebar order: each root, then its descendants depth first. Unreachable items are left out.
@@ -108,13 +111,20 @@ public struct SidebarGraph: Hashable, Sendable {
                 return
             }
         }
-        checkRoot(favoritesContainerID, kind: .favorites, owner: "favorites")
+        if favoritesContainerIDs[.default] == nil { problems.append("the default profile has no favorites container") }
+        for profile in favoritesProfileIDs {
+            guard let id = favoritesContainerIDs[profile] else { continue }
+            checkRoot(id, kind: .favorites, owner: "favorites of profile \(profile)")
+        }
         if spaces.isEmpty { problems.append("there are no spaces") }
         var spaceIDs: Set<SidebarSpaceID> = []
         for space in spaces {
             if !spaceIDs.insert(space.id).inserted { problems.append("space \(space.id) appears twice") }
             checkRoot(space.pinnedContainerID, kind: .pinned, owner: "space \(space.id) pinned")
             checkRoot(space.unpinnedContainerID, kind: .unpinned, owner: "space \(space.id) unpinned")
+            if favoritesContainerIDs[space.profileID] == nil {
+                problems.append("space \(space.id) uses profile \(space.profileID), which has no favorites container")
+            }
         }
 
         for item in items.values.sorted(by: { $0.id < $1.id }) {

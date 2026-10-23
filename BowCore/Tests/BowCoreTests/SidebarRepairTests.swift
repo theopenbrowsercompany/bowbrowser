@@ -151,7 +151,7 @@ import Testing
         #expect(after.firstSpace.pinnedContainerID != "lost-pinned")
         #expect(after["pinned"] == nil)
         #expect(log.contains(.removedUnusedContainer("pinned")))
-        #expect(log.contains(.createdContainer(after.favoritesContainerID, kind: .favorites)))
+        #expect(log.contains(.createdContainer(try #require(after.favoritesContainerIDs[.default]), kind: .favorites)))
         // The old pinned section's items are recovered in their old order, then Favorites' tabs, whose list is gone.
         #expect(after[.recentlyRecovered]?.parentID == after.firstSpace.pinnedContainerID)
         #expect(

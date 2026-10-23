@@ -81,7 +81,8 @@ extension SidebarGraph {
             return container.id
         }
 
-        favoritesContainerID = claim(favoritesContainerID, kind: .favorites)
+        // Favorites: the default profile always has a section, and so does every profile a Space uses. A profile with
+        // no Space keeps its section, because its Favorites are the person's even while no Space shows them.
         var seenSpaces: Set<SidebarSpaceID> = []
         spaces = spaces.filter { space in
             if seenSpaces.insert(space.id).inserted { return true }
@@ -93,6 +94,10 @@ extension SidebarGraph {
                 id: .make(), title: Self.defaultSpaceTitle, pinnedContainerID: .make(), unpinnedContainerID: .make())
             spaces = [space]
             log.append(.createdSpace(space.id))
+        }
+        let favoriteProfiles = Set(favoritesContainerIDs.keys).union(spaces.map(\.profileID)).union([.default])
+        for profile in Self.defaultFirst(favoriteProfiles) {
+            favoritesContainerIDs[profile] = claim(favoritesContainerIDs[profile] ?? .make(), kind: .favorites)
         }
         for index in spaces.indices {
             spaces[index].pinnedContainerID = claim(spaces[index].pinnedContainerID, kind: .pinned)
