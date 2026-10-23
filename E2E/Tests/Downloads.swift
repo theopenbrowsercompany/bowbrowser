@@ -6,7 +6,73 @@ import Foundation
 enum DownloadsTests {
     static let all: [any E2ETest] = [
         DownloadsTest(), DownloadsTabClosedTest(), DownloadsParkedPageTest(), DownloadsWindowClosedTest(),
+        DownloadsFooterButtonTest(),
     ]
+}
+
+/// Clicks the downloads button in the sidebar footer with the downloads window hidden: the window shows, a second
+/// click leaves one window, and the button shows activity only while a download runs.
+struct DownloadsFooterButtonTest: E2ETest {
+    let name = "downloads.footer-button"
+    let checks = ["downloads.footer-button", "downloads.footer-activity"]
+
+    func run(_ run: E2ERun) async throws {
+        guard let app = run.app as? any E2EDownloadsButtonApp else { throw E2EError("the app has no downloads button") }
+        let page = try await run.step("open window", timeout: E2ETimeouts.step) {
+            try await run.app.openWindow(at: E2EFixture.url("downloads/index.html"))
+        }
+        try await run.step("load the fixture", timeout: E2ETimeouts.firstLoad) {
+            let status = try await page.waitForLoad(after: 0)
+            guard status == 200 else { throw E2EError("the fixture loaded with status \(status)") }
+        }
+        let earlier = Set(try await run.app.downloads().map(\.id))
+
+        let hiddenBefore = try await run.step("hide the downloads window", timeout: E2ETimeouts.step) {
+            try await app.hideDownloadsWindow()
+            return app.visibleDownloadsWindowCount() == 0
+        }
+        let idle = try app.downloadsButtonShowsActivity(in: page)
+        let counts = try await run.step("click the button", timeout: E2ETimeouts.step) {
+            try app.clickDownloadsButton(in: page)
+            _ = try await DownloadRows.poll("the downloads window showed") {
+                app.visibleDownloadsWindowCount() == 1 ? true : nil
+            }
+            // Clicking again with the window open brings it forward: still one window.
+            try app.clickDownloadsButton(in: page)
+            return app.visibleDownloadsWindowCount()
+        }
+        run.check(
+            "downloads.footer-button", passed: hiddenBefore && counts == 1,
+            "hidden before=\(hiddenBefore) windows after two clicks=\(counts)")
+
+        do {
+            let (_, row) = try await run.step("start a download", timeout: E2ETimeouts.step) {
+                try await DownloadRows.startInTab(
+                    run, "_slow/320000/footer-button.bin", fileName: "footer-button.bin", besides: page,
+                    except: earlier)
+            }
+            _ = try await run.step("button shows the download", timeout: E2ETimeouts.step) {
+                try await DownloadRows.poll("the button showed activity") {
+                    (try? app.downloadsButtonShowsActivity(in: page)) == true ? true : nil
+                }
+            }
+            try await run.step("cancel the download", timeout: E2ETimeouts.step) {
+                try await DownloadRows.cancelAndClear(run, row)
+            }
+            _ = try await run.step("button settles", timeout: E2ETimeouts.step) {
+                try await DownloadRows.poll("the button stopped showing activity") {
+                    (try? app.downloadsButtonShowsActivity(in: page)) == false ? true : nil
+                }
+            }
+            run.check(
+                "downloads.footer-activity", passed: !idle, "idle before=\(!idle) active while running, idle after")
+        } catch {
+            if error is CancellationError { throw error }
+            if let error = error as? E2EError, error.reason == .testEnded { throw error }
+            await DownloadRows.cleanUp(run, except: earlier)
+            throw error
+        }
+    }
 }
 
 /// Opens a held download of known size in a second tab and closes that tab mid download: the fixture server sends

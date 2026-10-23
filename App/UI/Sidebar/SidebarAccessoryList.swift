@@ -8,6 +8,7 @@
 @MainActor
 enum SidebarAccessories {
     static let all: [any SidebarAccessory.Type] = [
+        DownloadsFooterButton.self,
         SpaceSwitcher.self,
     ]
 }

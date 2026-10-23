@@ -34,6 +34,12 @@ public struct DownloadList: Equatable, Sendable {
 
     public init() {}
 
+    /// How many downloads are running now (paused ones are not): the sidebar's downloads button shows activity while
+    /// this is above zero.
+    public var activeCount: Int {
+        entries.lazy.filter { $0.item.state == .inProgress }.count
+    }
+
     public func entry(_ key: DownloadEntry.Key) -> DownloadEntry? {
         entries.first { $0.id == key }
     }
