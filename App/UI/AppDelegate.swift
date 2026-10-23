@@ -145,6 +145,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 return
             }
             controller.showWindow(nil)
+            // Folders of profiles deleted last run go now: no browser of theirs was created this run.
+            appFeatures.require(ProfileRegistryStore.self).deleteMarkedFolders(
+                spaceProfiles: controller.store.graph.spaces.map(\.profileID))
         }
         openKeptLinks()
     }

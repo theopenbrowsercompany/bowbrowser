@@ -15,5 +15,6 @@ enum AppFeatures {
         TabUnloader.self,
         ArchiveCenter.self,
         ProfileRegistryStore.self,
+        ProfileMoves.self,
     ]
 }
