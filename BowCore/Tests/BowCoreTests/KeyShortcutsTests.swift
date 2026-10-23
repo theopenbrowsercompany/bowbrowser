@@ -38,7 +38,12 @@ import Testing
         #expect(KeyShortcut.copyURL.matches(key("C", [.command, .shift])))
         #expect(KeyShortcut.toggleToolbar.matches(key("D", [.command, .shift])))
         #expect(KeyShortcut.zoomIn.matches(key("=", .command)))
-        #expect(KeyShortcut.zoomIn.matches(key("+", [.command, .shift])))
+        #expect(KeyShortcut.zoomIn.matches(key("+", .command)))
+        // Arc's Command-Shift-Plus adds a split view, so it is no longer Zoom In.
+        #expect(!KeyShortcut.zoomIn.matches(key("+", [.command, .shift])))
+        #expect(KeyShortcut.addSplitView.matches(key("+", [.command, .shift])))
+        #expect(KeyShortcut.addSplitView.matches(key("=", [.command, .shift])))
+        #expect(!KeyShortcut.addSplitView.matches(key("=", .command)))
         #expect(KeyShortcut.zoomOut.matches(key("-", .command)))
         #expect(KeyShortcut.actualSize.matches(key("0", .command)))
         #expect(KeyShortcut.recentTabs.matches(key("\t", .control, keyCode: KeyChord.tabKeyCode)))

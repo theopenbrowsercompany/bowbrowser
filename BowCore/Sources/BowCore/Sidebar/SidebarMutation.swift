@@ -102,6 +102,7 @@ public enum SidebarMutation: Equatable, Sendable {
     case setActiveSpace(SidebarSpaceID)
     /// Selects the active Space's own tab when the selected one no longer belongs on screen (after tabs moved).
     case reconcileSelectedTab
+    /// Selects a tab (nil selects none). A tab that is a pane of a split also becomes that split's focused pane.
     case setActiveTab(SidebarItemID?)
 }
 
@@ -246,6 +247,8 @@ extension SidebarGraph {
         case .setActiveTab(let id):
             if let id, try !existing(id).data.isTab { throw .invalidHierarchy("\(id) is not a tab") }
             activeTabID = id
+            // Selecting a pane of a split focuses it there too, so the split comes back with that pane focused.
+            if let id { focusSplitPane(id) }
         }
     }
 

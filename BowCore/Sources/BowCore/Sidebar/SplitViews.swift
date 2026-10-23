@@ -85,6 +85,46 @@ extension SidebarGraph {
         return panes.first
     }
 
+    /// What the window shows while `active` is the active tab and a pane of a split: the split's tabs in pane order,
+    /// `active` focused, and the saved widths. Nil when `active` is nil or is not a pane.
+    public func splitPanes(showing active: SidebarItemID?) -> SplitPanes? {
+        guard let active, let splitID = splitID(containing: active) else { return nil }
+        let panes = splitPaneIDs(splitID)
+        guard panes.count >= SidebarSplit.minimumPanes, panes.contains(active) else { return nil }
+        return SplitPanes(
+            splitID: splitID, panes: panes, focused: active, fractions: splitWidthFractions(splitID))
+    }
+
+    /// What opening `tab` in a split view beside the active tab `active` does (a tab row's "Open in Split View"):
+    /// joins `active`'s split as its last pane when `active` is a pane, otherwise makes a split of `active` then
+    /// `tab`. Nil when that is not allowed: `tab` is `active`, either is not a tab or is a Favorite, `tab` is already
+    /// a pane, the two are in different sections, or `active`'s split has four panes.
+    public func splitOpening(_ tab: SidebarItemID, besides active: SidebarItemID?) -> SplitOpening? {
+        guard let active, tab != active, items[tab]?.data.isTab == true, items[active]?.data.isTab == true,
+            !isInFavorites(tab), !isInFavorites(active), splitID(containing: tab) == nil,
+            let section = sectionID(of: active), sectionID(of: tab) == section
+        else { return nil }
+        if let splitID = splitID(containing: active) {
+            guard splitPaneIDs(splitID).count < SidebarSplit.maximumPanes else { return nil }
+            return .addPane(tab, to: splitID)
+        }
+        return .create([active, tab])
+    }
+
+    /// Where a new tab goes to open as a pane beside the active tab `active` (Add Split View): into `active`'s split
+    /// when it is a pane, otherwise into a new split with `active`. New tabs open in the today section, so this is
+    /// nil unless `active` (or its split) sits in its Space's today section, and nil when the split is full.
+    public func newPanePlacement(besides active: SidebarItemID?) -> NewPanePlacement? {
+        guard let active, items[active]?.data.isTab == true, let spaceID = spaceID(containing: active),
+            let today = space(spaceID)?.unpinnedContainerID, sectionID(of: active) == today
+        else { return nil }
+        if let splitID = splitID(containing: active) {
+            guard splitPaneIDs(splitID).count < SidebarSplit.maximumPanes else { return nil }
+            return .addPane(to: splitID)
+        }
+        return .createWith(active)
+    }
+
     /// The saved focus when it is still a pane, otherwise nil (so a stale focus never blocks a layout change).
     fileprivate func savedPaneFocus(_ id: SidebarItemID) -> SidebarItemID? {
         guard let saved = split(id)?.focusedItemID, splitPaneIDs(id).contains(saved) else { return nil }
@@ -140,6 +180,15 @@ extension SidebarGraph {
         split.widthFactors = factors
         split.focusedItemID = focusedItemID
         items[id]?.data = .split(split)
+    }
+
+    /// Makes `tab` its split's focused pane, keeping the widths; nothing when it is not a pane or already focused.
+    mutating func focusSplitPane(_ tab: SidebarItemID) {
+        guard let splitID = splitID(containing: tab), case .split(var split)? = items[splitID]?.data,
+            split.focusedItemID != tab
+        else { return }
+        split.focusedItemID = tab
+        items[splitID]?.data = .split(split)
     }
 
     // MARK: Cleanup
