@@ -110,7 +110,7 @@ Each Space has its own pinned tabs and tabs, and one window shows one Space at a
 ## Out of scope
 
 - Reordering Spaces, choosing a Space's icon or theme from the switcher, and choosing a symbol icon from a menu.
-- Choosing a profile for a Space, and confirming a move between Spaces of different profiles.
+- Choosing a profile for a Space, and moving a tab between Spaces of different profiles (see `profiles.md`).
 - Gradients, light or dark overrides and other richer themes (a theme can later carry more than one color).
 - Restoring or archiving the tabs of a deleted Space (see `sidebar-store.md` for archiving).
 - Saving the sidebar itself (see `sidebar-store.md`).
