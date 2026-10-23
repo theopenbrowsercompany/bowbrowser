@@ -15,7 +15,7 @@
   <a id="blank" href="opened.html?via=blank" target="_blank">Open B (new tab link)</a>
   <button id="open" onclick="window.bowOpened = window.open('opened.html?via=open') !== null">Open B (window.open)</button>
   <button id="login" onclick="window.bowLogin = window.open('login.html', 'login', 'width=480,height=560')">Sign in (sized popup)</button>
-  <button id="storm"onclick="window.bowStorm = Array.from({ length: 20 }, () => window.open('opened.html?via=storm')).filter(Boolean).length">Open B twenty times</button>
+  <button id="storm" onclick="window.bowStorm = Array.from({ length: 20 }, () => window.open('opened.html?via=storm')).filter(Boolean).length">Open B twenty times</button>
   <script>
     // Each page this one opened says so once it has loaded: through window.opener when it has one (bowMessages),
     // and on a broadcast channel either way (bowLoaded), so a test waits on these events.
