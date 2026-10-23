@@ -469,6 +469,21 @@ extension TestApp: E2ESidebarApp {
     }
 }
 
+extension TestApp: E2EZonesApp {
+    func sidebarOutline(of page: any E2EPage) throws -> [String] {
+        try adapter.sidebarOutline(of: page)
+    }
+
+    func sidebarZone(of page: any E2EPage) throws -> String? {
+        try adapter.sidebarZone(of: page)
+    }
+
+    func dragTab(_ page: any E2EPage, toZone zone: String, at index: Int) throws {
+        try adapter.requireActive(token, "drag a tab")
+        try adapter.dragTab(page, toZone: zone, at: index)
+    }
+}
+
 /// E2EPage over one tab, fed its events and policy questions by the adapter, and a DevTools session on its browser.
 @MainActor
 private final class TabPage: E2EPage {
@@ -694,7 +709,7 @@ private struct MainThreadResult: @unchecked Sendable {
     let value: [String: Any]
 }
 
-// The sidebar and tab commands over the window controller and its TabSidebarView. The test's app (TestApp) offers
+// The sidebar and tab commands over the window controller and its SidebarView. The test's app (TestApp) offers
 // them to the test, after checking that the test is still running.
 extension E2EAppAdapter {
     func sidebarRows(of page: any E2EPage) throws -> [E2ESidebarRow] {
@@ -706,39 +721,45 @@ extension E2EAppAdapter {
         (page as? TabPage)?.sidebarRowHistory ?? []
     }
 
-    /// The row of `tab` as the sidebar draws it, made if the table has not laid it out yet.
+    /// The row of `tab` as the sidebar draws it, made if the outline has not laid it out yet.
     fileprivate static func sidebarRow(of tab: any EngineTab, in controller: BrowserWindowController)
         -> E2ESidebarRow?
     {
-        guard let id = controller.modelID(of: tab), let row = controller.sidebar.tabList.index(of: id) else {
-            return nil
-        }
-        let table = controller.sidebar.tableView
-        guard let view = table.view(atColumn: 0, row: row, makeIfNecessary: true) as? TabSidebarRow else {
+        guard let id = controller.modelID(of: tab), let item = controller.sidebarItemID(for: id),
+            let row = controller.sidebar.row(for: item)
+        else { return nil }
+        let outline = controller.sidebar.outlineView
+        guard let view = outline.view(atColumn: 0, row: row, makeIfNecessary: true) as? TabSidebarRow else {
             return nil
         }
         return E2ESidebarRow(
             title: view.titleField.stringValue,
             isLoading: view.isLoading,
             hasFavicon: view.hasFavicon,
-            isActive: table.rowView(atRow: row, makeIfNecessary: true)?.isSelected ?? false
+            isActive: outline.rowView(atRow: row, makeIfNecessary: true)?.isSelected ?? false
         )
+    }
+
+    /// The sidebar item of `page`'s tab.
+    private static func sidebarItem(of page: TabPage) throws -> SidebarItemID {
+        guard let id = page.controller.modelID(of: page.tab), let item = page.controller.sidebarItemID(for: id) else {
+            throw E2EError("tab \(page.tab.tabID) is not in its window's sidebar")
+        }
+        return item
     }
 
     func clickSidebarRow(of page: any E2EPage) throws {
         let page = try Self.tabPage(page)
-        let sidebar = page.controller.sidebar
-        guard let id = page.controller.modelID(of: page.tab), let row = sidebar.tabList.index(of: id) else {
+        guard let row = page.controller.sidebar.row(for: try Self.sidebarItem(of: page)) else {
             throw E2EError("tab \(page.tab.tabID) has no sidebar row")
         }
-        // What the table's click action does with the clicked row.
-        sidebar.clickRow(row)
+        // What the outline's click action does with the clicked row.
+        page.controller.sidebar.clickRow(row)
     }
 
     func clickSidebarClose(of page: any E2EPage) throws {
         let page = try Self.tabPage(page)
-        guard let id = page.controller.modelID(of: page.tab), let view = page.controller.sidebar.rowView(for: id)
-        else {
+        guard let view = page.controller.sidebar.rowView(for: try Self.sidebarItem(of: page)) else {
             throw E2EError("tab \(page.tab.tabID) has no sidebar row")
         }
         guard !view.closeButton.isHidden else { throw E2EError("the row's close button is not showing") }
@@ -792,15 +813,48 @@ extension E2EAppAdapter {
         guard let id = page.controller.modelID(of: page.tab) else {
             throw E2EError("tab \(page.tab.tabID) is not in its window")
         }
-        let sidebar = page.controller.sidebarFeature
-        sidebar.sidebar(sidebar.sidebar, move: id, to: index)
+        guard page.controller.sidebarFeature.moveTab(id, to: index) else {
+            throw E2EError("the sidebar refused to move the tab to \(index)")
+        }
+    }
+
+    func sidebarOutline(of page: any E2EPage) throws -> [String] {
+        let sidebar = try Self.tabPage(page).controller.sidebar
+        return sidebar.rowKinds().enumerated().map { row, kind in
+            if let section = kind.section { return section.zone?.rawValue ?? "divider" }
+            let view = sidebar.outlineView.view(atColumn: 0, row: row, makeIfNecessary: true)
+            return (view as? TabSidebarRow)?.titleField.stringValue
+                ?? (view as? SidebarGroupRow)?.titleField.stringValue ?? "?"
+        }
+    }
+
+    func sidebarZone(of page: any E2EPage) throws -> String? {
+        let page = try Self.tabPage(page)
+        return page.controller.sidebar.zone(of: try Self.sidebarItem(of: page))?.rawValue
+    }
+
+    func dragTab(_ page: any E2EPage, toZone zone: String, at index: Int) throws {
+        let page = try Self.tabPage(page)
+        let graph = page.controller.store.graph
+        guard let space = graph.activeSpace else { throw E2EError("the window has no Space on screen") }
+        let parent: SidebarItemID?
+        switch SidebarZone(rawValue: zone) {
+        case .pinned?: parent = space.pinnedContainerID
+        case .today?: parent = space.unpinnedContainerID
+        case .favorites?: parent = graph.favoritesContainerID(for: space.profileID)
+        case nil: parent = nil
+        }
+        guard let parent else { throw E2EError("the sidebar has no zone \(zone)") }
+        guard page.controller.sidebar.drop(try Self.sidebarItem(of: page), into: parent, at: index) else {
+            throw E2EError("the sidebar refused to drop the tab in \(zone) at \(index)")
+        }
     }
 }
 
 // The window features the adapter reaches into. Every window has each of them (`WindowFeatures.all`).
 extension BrowserWindowController {
     fileprivate var sidebarFeature: SidebarFeature { feature(SidebarFeature.self)! }
-    fileprivate var sidebar: TabSidebarView { sidebarFeature.sidebar }
+    fileprivate var sidebar: SidebarView { sidebarFeature.sidebar }
     fileprivate var findBar: FindBar { feature(FindFeature.self)!.findBar }
     fileprivate var permissionPrompts: PermissionPrompts? { feature(PermissionsFeature.self)?.prompts }
     fileprivate var navigationToolbar: NavigationToolbar { feature(NavigationFeature.self)!.toolbar }

@@ -13,6 +13,7 @@ enum E2EAreas {
         FindTests.all,
         PermissionsTests.all,
         SidebarViewTests.all,
+        ZonesTests.all,
         ImportTests.all,
         DownloadsTests.all,
         StoreTests.all,
