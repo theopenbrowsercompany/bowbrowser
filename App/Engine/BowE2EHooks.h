@@ -48,11 +48,13 @@ bool BowEngineParksPopups();
 /// returning nil) parks popups again. Called on the main thread as each popup is created.
 void BowEngineHostPopups(NSView* (^host)(void));
 
-/// The view a new popup is created in once BowEngineParkPopups has been called: the hosted view, or the parking view.
-NSView* BowEnginePopupParentView();
+/// The view BowEngineHostPopups' host gives for a popup about to open in a window of its own, or nil to park it. Called
+/// by the engine only for a popup it opens as a window, never for one that becomes a tab or is blocked.
+NSView* BowEngineHostedPopupView();
 
 /// Asks the popup browser shown inside `view` to close with the same request quitting makes of every browser
-/// (CloseBrowser without forcing). Returns false when no popup browser is in `view`. Main thread only.
+/// (CloseBrowser without forcing). Returns false when no popup browser is in `view`, or it is closing or was asked to
+/// close already, so nothing was sent. Main thread only.
 bool BowEngineClosePopupInView(NSView* view);
 
 /// The alert, confirm or prompt sheet a hosted popup's page has up on `window`, or nil when none is. Main thread only.

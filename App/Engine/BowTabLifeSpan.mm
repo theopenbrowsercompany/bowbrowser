@@ -138,9 +138,9 @@ bool BowTabClient::OnBeforePopup(CefRefPtr<CefBrowser> browser,
   // through it): in a window of the engine's own by default, or as a new tab when the app asks for one.
 #if BOW_E2E  // E2E seam: e2e runs keep popups (and their own popups) in the parking view, so none shows on screen.
   if (BowEngineParksPopups()) {
-    NSView* parentView = BowEnginePopupParentView();
-    windowInfo.SetAsChild((__bridge void*)parentView,
-                          CefRect(0, 0, parentView.bounds.size.width, parentView.bounds.size.height));
+    NSView* parkingView = BowEngineParkingView();
+    windowInfo.SetAsChild((__bridge void*)parkingView,
+                          CefRect(0, 0, parkingView.bounds.size.width, parkingView.bounds.size.height));
   }
 #endif
   // Popups opened by the engine's own popup windows are not the tab's. Saving a link (Alt+click) and ignored
@@ -171,9 +171,17 @@ bool BowTabClient::OnBeforePopup(CefRefPtr<CefBrowser> browser,
   switch (decision) {
     case BowPopupDecisionBlock:
       return true;
-    case BowPopupDecisionWindow:
+    case BowPopupDecisionWindow: {
+#if BOW_E2E  // E2E seam: a test that hosts popup windows gets this one in an off screen window instead of parked.
+      NSView* hostedView = BowEngineParksPopups() ? BowEngineHostedPopupView() : nil;
+      if (hostedView) {
+        windowInfo.SetAsChild((__bridge void*)hostedView,
+                              CefRect(0, 0, hostedView.bounds.size.width, hostedView.bounds.size.height));
+      }
+#endif
       [tab requestPopup:request];
       return false;
+    }
     case BowPopupDecisionForegroundTab:
     case BowPopupDecisionBackgroundTab: {
       // The new tab's own client receives the popup browser, so it is that tab's own browser from the start.
@@ -224,6 +232,8 @@ bool BowTabClient::DoClose(CefRefPtr<CefBrowser> browser) {
   if (!IsOwn(browser)) {
     // A dialog sheet still up goes first, answered as cancelled: AppKit refuses performClose: on a window with a
     // sheet attached, which would leave the popup open and hold up a quit (the engine asks for no reset first).
+    // Cancelling it resumes the page's script, so any dialog it asks for from now on is refused (OnJSDialog).
+    closingPopups_.insert(browser->GetIdentifier());
     OnResetDialogState(browser);
     // Returning false makes CEF send performClose: to the browser's window, which suits a popup's own window.
     if (windowlessPopups_.erase(browser->GetIdentifier()) == 0) return false;
@@ -260,6 +270,7 @@ void BowTabClient::OnBeforeClose(CefRefPtr<CefBrowser> browser) {
   } else {
     // A popup window's dialog sheet goes with it (BowTabDialogs.mm).
     OnResetDialogState(browser);
+    closingPopups_.erase(browser->GetIdentifier());
   }
   BowDownloadsBrowserClosed(browser->GetIdentifier());
   BowEngineBrowserClosed(browser);

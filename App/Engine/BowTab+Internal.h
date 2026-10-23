@@ -352,6 +352,9 @@ class BowTabClient : public CefClient,
   CefRefPtr<CefDownloadHandler> downloadHandler_;
   // Identifiers of this tab's popups that were created in no window.
   std::set<int> windowlessPopups_;
+  // Identifiers of this tab's popups that are closing (past DoClose): a dialog they ask for now is refused, so no new
+  // sheet can hold up their window's close.
+  std::set<int> closingPopups_;
 
   IMPLEMENT_REFCOUNTING(BowTabClient);
 };
