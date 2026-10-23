@@ -11,7 +11,7 @@ E2E ?= all
 # scripts/e2e.sh alone, quoted for the shell.
 unexport E2E
 
-.PHONY: bootstrap hooks project build test test-lock test-e2e-wrapper run smoke e2e e2e-run format lint guards release verify clean
+.PHONY: bootstrap hooks project build test test-lock test-e2e-wrapper test-prune test-scripts run smoke e2e e2e-run format lint guards release verify clean
 
 bootstrap: hooks
 	./scripts/bootstrap-cef.sh
@@ -27,7 +27,9 @@ hooks:
 project:
 	xcodegen generate --quiet --use-cache
 
+# The empty .metadata_never_index keeps Spotlight from indexing the build folder (derived data and e2e runs).
 build: project
+	@mkdir -p $(BUILD_DIR) && : > $(BUILD_DIR)/.metadata_never_index
 	./scripts/xcodebuild.sh -project Bow.xcodeproj -scheme Bow -configuration Debug -derivedDataPath $(BUILD_DIR) -quiet build
 
 test:
@@ -37,9 +39,16 @@ test:
 test-lock:
 	./scripts/test-build-lock.sh
 
-# Tests scripts/e2e.sh with a fake app (a few seconds; launches no real app).
+# Tests scripts/e2e.sh with a fake app (about 35 seconds; launches no real app).
 test-e2e-wrapper:
 	./scripts/test-e2e-wrapper.sh
+
+# Tests scripts/prune-compile-cache.sh on small fake caches (a few seconds).
+test-prune:
+	./scripts/test-prune-compile-cache.sh
+
+# The script self tests verify runs when scripts/ or the Makefile differ from origin/main.
+test-scripts: test-e2e-wrapper test-prune
 
 run: build
 	open $(APP)
@@ -74,7 +83,10 @@ guards:
 release: project
 	./scripts/check-release.sh
 
-verify: lint guards test test-e2e-wrapper build
+# lint, guards, test, build and test-scripts side by side, with seconds per part. test-scripts runs only when
+# scripts/ or the Makefile differ from origin/main; VERIFY_ALL=1 runs it always. scripts/verify.sh says how.
+verify:
+	@./scripts/verify.sh
 
 clean:
 	rm -rf $(BUILD_DIR) Bow.xcodeproj Generated
