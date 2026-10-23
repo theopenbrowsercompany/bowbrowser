@@ -35,26 +35,16 @@ final class EmptySpaceFeature: NSResponder, BrowserWindowFeature {
         fatalError("init(coder:) is not supported")
     }
 
-    func storeChanged(_ graph: SidebarGraph) {
-        update()
-    }
-
+    /// Shown while the page area shows no page, the window follows every store change with this: the empty Space
+    /// state when the Space on screen has no tabs, else the unloaded tab state. Hidden while the window closes, since
+    /// it loads nothing then.
     func selectedTabChanged(_ tab: (any EngineTab)?) {
-        update()
-    }
-
-    /// Shown while the page area shows no page: the empty Space state when the Space on screen has no tabs, else the
-    /// unloaded tab state.
-    private func update() {
-        guard let window else { return }
-        let graph = window.store.graph
-        guard let space = graph.activeSpaceID else {
+        guard let window, let space = window.store.graph.activeSpaceID, tab == nil, !window.isClosing else {
             emptyView.isHidden = true
             return
         }
-        let hasTabs = !graph.tabIDs(in: space).isEmpty
-        emptyView.isHidden = hasTabs && window.selectedTab != nil
-        emptyView.showsUnloadedTab = hasTabs
+        emptyView.isHidden = false
+        emptyView.showsUnloadedTab = !window.store.graph.tabIDs(in: space).isEmpty
     }
 
     /// Loads the active tab the unloaded state stands for, as choosing its row does.

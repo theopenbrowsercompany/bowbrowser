@@ -514,6 +514,8 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
     /// person chooses to stay keeps running, unlisted, and is not asked again by later changes (closing the window
     /// asks it again, as it asks every page).
     private func closeOrphans() {
+        // A page asked before whose row came back is asked again should its row leave again.
+        closingOrphans = closingOrphans.filter { id in itemIDs[id].map { store.graph[$0] == nil } ?? true }
         for (item, runtime) in runtimeTabs where store.graph[item] == nil {
             guard let tab = engineTabs[runtime.id], closingOrphans.insert(runtime.id).inserted else { continue }
             Task { _ = await tab.close() }
@@ -636,16 +638,22 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
     }
 
     /// Shows the window again once a close it was asked for has ended with a page staying: the active tab when its
-    /// page is still open, else a page of the Space on screen that stayed, rather than loading the closed active tab
-    /// again. The active tab loads again only when no page of the Space stayed.
+    /// page is still open, else a listed page that stayed (one of the Space on screen first, else one of another
+    /// Space, which comes on screen), rather than loading the closed active tab again. The active tab loads again only
+    /// when no listed page stayed (an orphan page that stayed has no row to show).
     private func showAfterStayedClose() {
-        let activeOpen = activeItemID.flatMap { runtimeTabs[$0] }.map { engineTabs[$0.id] != nil } ?? false
-        if !activeOpen,
-            let stayed = activeSpaceTabIDs.first(where: { runtimeTabs[$0].map { engineTabs[$0.id] != nil } ?? false })
-        {
-            change { try $0.selectTab(stayed) }
+        if activeItemID.map(isLoaded) != true {
+            let listed = runtimeTabs.keys.filter { store.graph[$0] != nil && !activeSpaceTabIDs.contains($0) }
+            if let stayed = activeSpaceTabIDs.first(where: isLoaded) ?? listed.first(where: isLoaded) {
+                change { try $0.selectTab(stayed) }
+            }
         }
         storeDidChange()
+    }
+
+    /// Whether sidebar tab `item` has an open page in this window.
+    private func isLoaded(_ item: SidebarItemID) -> Bool {
+        runtimeTabs[item].map { engineTabs[$0.id] != nil } ?? false
     }
 
     func windowDidBecomeMain(_ notification: Notification) {
