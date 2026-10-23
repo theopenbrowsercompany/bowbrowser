@@ -1,5 +1,6 @@
 // App entry point. Chromium has to load and start before AppKit runs, so main lives in the engine.
 #import <Cocoa/Cocoa.h>
+#import <QuartzCore/QuartzCore.h>
 
 #import "BowEngine.h"
 #import "BowEngineConfiguration.h"
@@ -98,6 +99,15 @@ int main(int argc, char* argv[]) {
     CefRefPtr<BowCefApp> app(new BowCefApp(configuration));
     if (!CefInitialize(mainArgs, settings, app.get(), nullptr)) return CefGetExitCode();
     CefRunMessageLoop();
+    // Every page has closed, but quitting closes no window, and Chromium's shutdown below can take seconds on a busy
+    // machine: take every window off screen now, so quitting looks done the moment the app stops taking input.
+    // Ordering out sends no close callbacks, so nothing reaches the engine or the stores after the loop ended. With the
+    // loop gone nothing would finish AppKit's fade out animation, which leaves the window on screen, so it is off.
+    for (NSWindow* window in NSApp.windows) {
+      window.animationBehavior = NSWindowAnimationBehaviorNone;
+      [window orderOut:nil];
+    }
+    [CATransaction flush];
     BowEngineMessageLoopDidEnd();
     CefShutdown();
     BowEngineDidShutDown();
