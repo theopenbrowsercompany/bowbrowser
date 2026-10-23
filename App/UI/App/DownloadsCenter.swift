@@ -79,10 +79,17 @@ final class DownloadsCenter: AppFeature, EngineDownloadsDelegate {
             let key = DownloadEntry.Key(profileID: profileID, downloadID: item.id)
             // An interrupted download keeps its file, since it can resume into it. One whose status is unknown lets
             // go of its name; its partial file on disk still keeps a new download from taking it.
-            if let state = list.entry(key)?.item.state, state.isFinal || state == .unknown {
+            guard let entry = list.entry(key) else { break }
+            let state = entry.item.state
+            if state.isFinal || state == .unknown {
                 reserved[key] = nil
                 // A download that ended while its save panel was open (its tab closed) has nothing left to save.
                 if state.isFinal { panels[key]?.cancel(nil) }
+            } else if reserved[key] == nil, state == .inProgress || state == .paused,
+                let destination = entry.item.destination
+            {
+                // One whose status was unknown and that runs again holds its name again.
+                reserved[key] = destination
             }
         case .removed(let id):
             reserved[DownloadEntry.Key(profileID: profileID, downloadID: id)] = nil

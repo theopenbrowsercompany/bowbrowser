@@ -1,6 +1,8 @@
 // The tab's CefLifeSpanHandler: popups the page opens, and the browser's creation and close.
 #import "BowTab+Internal.h"
 
+#import "BowDownloads+Internal.h"
+
 #if BOW_E2E
 #include "BowE2EHooks.h"  // E2E seam
 #endif
@@ -159,8 +161,10 @@ bool BowTabClient::DoClose(CefRefPtr<CefBrowser> browser) {
     BowTearDownBrowserView(browser);
     return true;
   }
-  // A tab's browser is not tied to a window: tear down its own view instead.
-  [tab_ browserWillClose];
+  // A tab's browser is not tied to a window: tear down its own view instead, once its downloads end.
+  BowTab* tab = tab_;
+  [tab browserWillClose];
+  if ([tab keepClosingBrowserForDownloads:browser]) return true;
   BowTearDownBrowserView(browser);
   return true;
 }
@@ -175,6 +179,7 @@ void BowTabClient::OnBeforeClose(CefRefPtr<CefBrowser> browser) {
     [pendingPopupTabs_ removeAllObjects];
     [tab_ browserClosed];
   }
+  BowDownloadsBrowserClosed(browser->GetIdentifier());
   BowEngineBrowserClosed(browser);
 }
 

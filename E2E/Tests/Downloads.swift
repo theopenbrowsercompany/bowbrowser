@@ -7,9 +7,10 @@ enum DownloadsTests {
     static let all: [any E2ETest] = [DownloadsTest(), DownloadsTabClosedTest()]
 }
 
-/// Opens a slow download of known size in a second tab and closes that tab mid download. Chromium stops reporting a
-/// download once its tab closes (and CEF cancels it), so the row must update from disk to Cancelled and free its
-/// name while it is still listed, then clear.
+/// Opens a slow download of known size in a second tab and closes that tab mid download. The tab leaves at once,
+/// but its browser stays alive, out of sight, so the download goes on to complete (CEF would cancel it with the
+/// browser); while it runs its name stays held. The parked browser closes once the download ends, which the runner's
+/// `e2e.isolation` check sees.
 struct DownloadsTabClosedTest: E2ETest {
     let name = "downloads.tab-closed"
     let checks = ["downloads.tab-closed"]
@@ -45,51 +46,40 @@ struct DownloadsTabClosedTest: E2ETest {
         }
 
         do {
-            try await run.step("follow the download and clear it", timeout: E2ETimeouts.step * 2) {
-                // CEF aborts every request of a browser it destroys, which cancels the download; the row must say so.
-                // A row that stays in progress for 3 seconds after the tab closed is frozen.
-                var done = atClose
-                for _ in 0..<150 {
-                    guard let row = try await run.app.downloads().first(where: { $0.id == atClose.id }) else {
-                        throw E2EError("the download's row went away")
-                    }
-                    done = row
-                    if row.state != "inProgress" { break }
-                    try await Task.sleep(nanoseconds: 20_000_000)
-                }
-                let updated = done.state != "inProgress"
-                guard updated else {
-                    run.check(name, passed: false, "state=\(done.state) row=frozen bytes=\(done.receivedBytes)")
-                    await cleanUp(run, except: earlier)
-                    return
-                }
-                let fileLeft = done.path.map { FileManager.default.fileExists(atPath: $0.path) } ?? true
-
-                // The cancelled row frees its name while it is still listed, so the next download of the file takes
-                // it; then the row clears.
+            try await run.step("follow the download to its end and clear it", timeout: E2ETimeouts.step * 4) {
+                // While the closed tab's download runs, it holds its name: the same file again is numbered.
                 let again = try run.app.openTab(
                     at: E2EFixture.url("_slow/\(Self.size)/tab-closed.bin"), besides: page, select: false)
                 let next = try await waitFor(run) {
                     $0.first {
-                        !earlier.contains($0.id) && $0.id != done.id && $0.state == "inProgress"
+                        !earlier.contains($0.id) && $0.id != atClose.id && $0.state == "inProgress"
                             && $0.path?.lastPathComponent.hasPrefix("tab-closed") == true
                     }
                 }
                 try await run.app.press(.cancelOrClear, of: next)
                 _ = try await waitFor(run) { [id = next.id] in $0.first { $0.id == id && $0.state == "cancelled" } }
                 _ = try await run.app.closeTab(again)
+
+                // The download outlives its tab and completes; any other end means its browser was destroyed.
+                let done = try await waitFor(run) { [id = atClose.id] rows -> E2EDownload? in
+                    guard let row = rows.first(where: { $0.id == id }) else { return nil }
+                    return row.state == "inProgress" || row.state == "paused" ? nil : row
+                }
+                let size = done.path.flatMap {
+                    ((try? FileManager.default.attributesOfItem(atPath: $0.path))?[.size] as? NSNumber)?.int64Value
+                }
                 try await run.app.press(.cancelOrClear, of: done)
                 _ = try await waitFor(run) { rows in rows.contains { $0.id == done.id } ? nil : rows }
 
                 let passed =
-                    done.state == "cancelled" && done.status == "Cancelled" && done.path != nil && !fileLeft
-                    && next.fileName == "tab-closed.bin"
+                    done.state == "complete" && done.status.hasPrefix("Complete") && size == Self.size
+                    && done.fileName == "tab-closed.bin" && next.fileName == "tab-closed (1).bin"
                 run.check(
                     name,
                     passed: passed,
                     passed
                         ? "state=\(done.state) row=updated"
-                        : "state=\(done.state) row=updated status=\"\(done.status)\" path=\(done.path?.path ?? "none") fileLeft=\(fileLeft) next=\(next.fileName)"
+                        : "state=\(done.state) row=updated status=\"\(done.status)\" size=\(size.map(String.init) ?? "none") file=\(done.fileName) next=\(next.fileName)"
                 )
             }
         } catch {

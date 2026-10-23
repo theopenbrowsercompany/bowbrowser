@@ -28,7 +28,7 @@ bool IsFinal(BowDownloadState state) {
   return state == BowDownloadStateComplete || state == BowDownloadStateCancelled;
 }
 
-// How often downloads whose tab closed are read from disk, and how long their file may stay unchanged before their
+// How often downloads whose browser closed are read from disk, and how long their file may stay unchanged before their
 // status is unknown.
 constexpr NSTimeInterval kWatchInterval = 0.25;
 constexpr CFAbsoluteTime kStallSeconds = 15;
@@ -44,6 +44,11 @@ int64_t FileSize(const std::string& path, double* modified = nullptr) {
   return info.st_size;
 }
 
+// Running or paused: destroying the download's browser would cancel it.
+bool IsActive(BowDownloadState state) {
+  return state == BowDownloadStateInProgress || state == BowDownloadStatePaused;
+}
+
 bool NeedsReading(BowDownloadState state) {
   // An interrupted download changes only when it is resumed, which is reported or done through resumeDownload:.
   return state == BowDownloadStateInProgress || state == BowDownloadStatePaused || state == BowDownloadStateUnknown;
@@ -53,7 +58,7 @@ bool NeedsReading(BowDownloadState state) {
 bool gEngineStopped = false;
 
 // What is known about a running download apart from its snapshot: the browser Chromium reports it through, and,
-// once that browser has closed, what its file on disk last looked like.
+// once that browser has closed (a crash, a quit, or a popup window closing), what its file on disk last looked like.
 struct Watch {
   CefRefPtr<CefBrowser> browser;
   // The browser closed, so the download is read from disk.
@@ -252,8 +257,11 @@ class BowDownloadHandler : public CefDownloadHandler {
   std::set<uint32_t> _removed;
   // Every download that is not final or removed.
   std::map<uint32_t, Watch> _watches;
-  // Reads orphaned downloads from disk while any watched download can change.
+  // Reads orphaned downloads from disk while any of them can change. Downloads whose browser is alive are reported
+  // by Chromium and never read.
   NSTimer* _watchTimer;
+  // Browsers of closed tabs kept alive for their downloads, by browser ID, each with what to run once they end.
+  std::map<int, dispatch_block_t> _keptBrowsers;
   // Destination questions not answered yet, abandoned when the engine stops.
   NSHashTable<BowDestinationAnswer*>* _answers;
 }
@@ -267,6 +275,7 @@ class BowDownloadHandler : public CefDownloadHandler {
 - (void)engineDidStop {
   [_watchTimer invalidate];
   _watchTimer = nil;
+  _keptBrowsers.clear();
   _watches.clear();
   _controls.clear();
   for (BowDestinationAnswer* answer in _answers) [answer abandon];
@@ -386,6 +395,7 @@ class BowDownloadHandler : public CefDownloadHandler {
   } else {
     [delegate downloads:self didUpdateItem:item];
   }
+  [self releaseIdleBrowsers];
 }
 
 - (BowDownloadItem*)snapshot:(CefRefPtr<CefDownloadItem>)item {
@@ -444,12 +454,6 @@ class BowDownloadHandler : public CefDownloadHandler {
 }
 
 - (void)resumeDownload:(uint32_t)downloadID {
-  // An interrupted download is not read, so its browser may have closed unnoticed; Chromium would not report the
-  // resume then. Its file is read first, which may show it ended.
-  auto found = _watches.find(downloadID);
-  if (found != _watches.end() && found->second.browser && !found->second.browser->IsValid()) {
-    [self readOrphan:downloadID now:CFAbsoluteTimeGetCurrent()];
-  }
   auto control = _controls.find(downloadID);
   if (control == _controls.end()) return;
   control->second->Resume();
@@ -493,11 +497,53 @@ class BowDownloadHandler : public CefDownloadHandler {
   _cancelled.erase(downloadID);
   _watches.erase(downloadID);
   [self.delegate downloads:self didRemoveItem:item];
+  [self releaseIdleBrowsers];
 }
 
-#pragma mark Downloads whose tab closed
+#pragma mark Browsers kept alive
 
-// Notes the browser reporting a running download, and makes sure the watch timer runs.
+- (BOOL)hasActiveDownloadsForBrowser:(int)browserID {
+  for (const auto& [downloadID, watch] : _watches) {
+    if (watch.orphaned || !watch.browser || watch.browser->GetIdentifier() != browserID) continue;
+    NSUInteger index = [self indexOf:downloadID];
+    if (index != NSNotFound && IsActive(_items[index].state)) return YES;
+  }
+  return NO;
+}
+
+- (void)whenDownloadsOfBrowserEnd:(int)browserID run:(dispatch_block_t)block {
+  if (gEngineStopped) return;
+  _keptBrowsers[browserID] = [block copy];
+  [self releaseIdleBrowsers];
+}
+
+- (BOOL)keepsBrowserAlive:(int)browserID {
+  return _keptBrowsers.count(browserID) > 0;
+}
+
+// Runs, on a later main thread task, the block of each kept browser with no active download left, or of every kept
+// browser when `all` is true.
+- (void)releaseBrowsers:(BOOL)all {
+  std::vector<dispatch_block_t> blocks;
+  for (auto it = _keptBrowsers.begin(); it != _keptBrowsers.end();) {
+    if (all || ![self hasActiveDownloadsForBrowser:it->first]) {
+      blocks.push_back(it->second);
+      it = _keptBrowsers.erase(it);
+    } else {
+      ++it;
+    }
+  }
+  for (dispatch_block_t block : blocks) dispatch_async(dispatch_get_main_queue(), block);
+}
+
+- (void)releaseIdleBrowsers {
+  if (!_keptBrowsers.empty()) [self releaseBrowsers:NO];
+}
+
+#pragma mark Downloads whose browser closed
+
+// Notes the browser reporting a running download. One reported through a browser that has closed already is
+// followed on disk at once.
 - (void)watch:(uint32_t)downloadID browser:(CefRefPtr<CefBrowser>)browser {
   if (gEngineStopped) return;
   Watch& watch = _watches[downloadID];
@@ -506,7 +552,20 @@ class BowDownloadHandler : public CefDownloadHandler {
     watch.browser = browser;
     watch.orphaned = false;
     watch.paused = false;
+    if (!browser->IsValid()) [self browserClosed:browser->GetIdentifier()];
   }
+}
+
+// The browser `browserID` closed: Chromium says nothing more about its downloads, which are read from disk now.
+- (void)browserClosed:(int)browserID {
+  _keptBrowsers.erase(browserID);
+  std::vector<uint32_t> orphans;
+  for (const auto& [downloadID, watch] : _watches) {
+    if (!watch.orphaned && watch.browser && watch.browser->GetIdentifier() == browserID) orphans.push_back(downloadID);
+  }
+  if (orphans.empty()) return;
+  const CFAbsoluteTime now = CFAbsoluteTimeGetCurrent();
+  for (uint32_t downloadID : orphans) [self readOrphan:downloadID now:now];
   [self startWatchTimer];
 }
 
@@ -535,15 +594,14 @@ class BowDownloadHandler : public CefDownloadHandler {
   std::vector<uint32_t> orphans;
   for (auto& [downloadID, watch] : _watches) {
     // A download reported without a browser has nothing to outlive, so Chromium keeps reporting it.
-    if (watch.orphaned || (watch.browser && !watch.browser->IsValid())) orphans.push_back(downloadID);
+    if (watch.orphaned) orphans.push_back(downloadID);
   }
   for (uint32_t downloadID : orphans) [self readOrphan:downloadID now:now];
-  // Downloads that cannot change (interrupted ones) stay watched, so a resume finds their browser, but do not keep
-  // the timer running.
+  // Only orphans are read, and those that cannot change (interrupted ones) do not keep the timer running.
   bool needed = false;
   for (auto& entry : _watches) {
     NSUInteger index = [self indexOf:entry.first];
-    if (index != NSNotFound && NeedsReading(_items[index].state)) {
+    if (entry.second.orphaned && index != NSNotFound && NeedsReading(_items[index].state)) {
       needed = true;
       break;
     }
@@ -669,9 +727,26 @@ class BowDownloadHandler : public CefDownloadHandler {
 - (void)update:(BowDownloadItem*)item {
   [self store:item];
   [self.delegate downloads:self didUpdateItem:item];
+  [self releaseIdleBrowsers];
 }
 
 @end
+
+bool BowDownloadsKeepsBrowserAlive(int browserID) {
+  for (BowDownloads* downloads in BowDownloads.allDownloads) {
+    if ([downloads keepsBrowserAlive:browserID]) return true;
+  }
+  return false;
+}
+
+void BowDownloadsReleaseKeptBrowsers() {
+  for (BowDownloads* downloads in BowDownloads.allDownloads) [downloads releaseBrowsers:YES];
+}
+
+void BowDownloadsBrowserClosed(int browserID) {
+  if (gEngineStopped) return;
+  for (BowDownloads* downloads in BowDownloads.allDownloads) [downloads browserClosed:browserID];
+}
 
 void BowDownloadsEngineDidStop() {
   gEngineStopped = true;
