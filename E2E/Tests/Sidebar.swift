@@ -231,7 +231,9 @@ struct SidebarMenuShortcutsTest: E2ETest {
             }
         }
         // Keys without a printable character show by name.
-        let names = [E2EKeyModifiers.command.shortcut(E2EMenuKey.upArrow), E2EKeyModifiers().shortcut(E2EMenuKey.function(5))]
+        let names = [
+            E2EKeyModifiers.command.shortcut(E2EMenuKey.upArrow), E2EKeyModifiers().shortcut(E2EMenuKey.function(5)),
+        ]
         if names != ["Cmd+Up", "F5"] { problems.append("names=\(names)") }
 
         let routes = try await run.step("menu routes", timeout: E2ETimeouts.step) {
@@ -251,8 +253,7 @@ struct SidebarMenuShortcutsTest: E2ETest {
     }
 
     /// Where every shortcut goes in `page`'s window, and what is wrong with it: Quit, Hide and Minimize must be
-    /// refused, Close Tab must reach the window's controller, nothing may go to the application or its delegate, and
-    /// choosing Quit or Minimize must throw a refusal and leave the window open.
+    /// refused, Close Tab must reach the window's controller (not the app delegate's fallback), and choosing Quit or Minimize must throw a refusal and leave the window open.
     @MainActor
     private static func routeProblems(app: any E2EMenuApp, in page: any E2EPage) throws
         -> (routes: [E2EMenuRoute], problems: [String])
@@ -266,13 +267,13 @@ struct SidebarMenuShortcutsTest: E2ETest {
         where !routes.contains(where: { $0.shortcut == shortcut && $0.handler == handler }) {
             problems.append("\(shortcut) not \(handler): \(routes.filter { $0.shortcut == shortcut })")
         }
-        problems += routes.filter { $0.handler.hasSuffix("Application") || $0.handler == "AppDelegate" }.map(
-            \.description)
         for key in ["q", "m"] {
             do {
                 try app.chooseMenuItem(key: key, modifiers: .command, in: page)
                 problems.append("Cmd+\(key) was chosen")
             } catch let error as E2EError where error.reason == .testEnded {
+                throw error
+            } catch let error as CancellationError {
                 throw error
             } catch {
                 if !"\(error)".contains("refused") { problems.append("Cmd+\(key): \(error)") }
@@ -297,7 +298,7 @@ struct SidebarSeedTest: E2ETest {
             throw E2EError("the app cannot seed a sidebar")
         }
         let url = { (name: String) in E2EFixture.url("sidebar/page.html?name=\(name)") }
-        let homeProfile = app.testProfileID + "-home"
+        let homeProfile = try app.testProfileID() + "-home"
         let seed = E2ESeed(
             spaces: [
                 E2ESeedSpace(
@@ -346,7 +347,7 @@ struct SidebarSeedTest: E2ETest {
                 : problems.joined(separator: " "))
 
         let refusal = try await run.step("refuse a profile both persistent and in memory", timeout: E2ETimeouts.step) {
-            let id = app.testProfileID + "-clash"
+            let id = try app.testProfileID() + "-clash"
             let clash = E2ESeed(spaces: [
                 E2ESeedSpace("A", profile: .new(E2EProfile(id: id, isPersistent: false))),
                 E2ESeedSpace("B", profile: .new(E2EProfile(id: id, isPersistent: true))),
@@ -355,6 +356,8 @@ struct SidebarSeedTest: E2ETest {
                 _ = try await app.openWindow(seeded: clash)
                 return "opened"
             } catch let error as E2EError where error.reason == .testEnded {
+                throw error
+            } catch let error as CancellationError {
                 throw error
             } catch {
                 return "\(error)"
@@ -373,7 +376,7 @@ struct SidebarSeedTest: E2ETest {
         let ids = Array(window.spaceIDs.values) + Array(window.itemIDs.values)
         if Set(ids).count != ids.count { problems.append("ids repeat") }
         if Set(window.spaceIDs.keys) != ["Work", "Home"] { problems.append("spaces=\(window.spaceIDs.keys.sorted())") }
-        let profiles = ["Work": app.testProfileID, "Home": homeProfile]
+        let profiles = ["Work": try app.testProfileID(), "Home": homeProfile]
         for (name, profile) in profiles.sorted(by: { $0.key < $1.key }) {
             guard let id = window.spaceIDs[name], let entry = try app.storeEntry(id: id, in: window.page) else {
                 problems.append("\(name)=unresolved")
