@@ -16,8 +16,8 @@ enum EngineTests {
 /// (`E2ENestedLoop`), and the run must end with `E2E: TIMEOUT <test>: <step>`, a stack sample in hang.txt and exit
 /// code 2 within the watchdog's limit. Each ends its run, so it runs only when named exactly (`selectedByNameOnly`):
 /// `make e2e E2E=engine.watchdog-tracking-loop` or `E2E=engine.watchdog-default-mode-loop`.
-/// The names are constants rather than `let name = "..."`, the form `make done` reads to repeat changed tests, so
-/// its repeat step never reruns a test whose pass is a TIMEOUT.
+/// The names are static constants rather than a stored name set to a string literal, the form `make done` reads to
+/// repeat changed tests, so its repeat step never reruns a test whose pass is a TIMEOUT.
 struct EngineWatchdogTest: E2ETest {
     enum Loop {
         case tracking, defaultMode
