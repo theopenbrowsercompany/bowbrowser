@@ -66,8 +66,11 @@ struct CertsUpdaterOffTest: E2ETest {
 /// an update check of the CRLSet goes to the update server (which this run cannot resolve, so it fails as an update
 /// check error rather than a service or registration error). Selected by name only, since it needs the updater
 /// switch the other tests leave on: `make e2e E2E=certs.components`.
+/// The name is a computed property rather than a stored string literal, the form `make done` reads to repeat changed
+/// tests in one run, since its switches cannot share a run with `certs.updater-off`; repeat it on its own with
+/// `E2E_REPEAT=5 make e2e-run E2E=certs.components`.
 struct CertsComponentsTest: E2ETest {
-    let name = "certs.components"
+    var name: String { "certs.components" }
     var selectedByNameOnly: Bool { true }
     var switchOverride: E2ESwitchOverride? { E2ESwitchOverride(removing: ["disable-component-update"]) }
     let checks = ["certs.components.registered", "certs.components.update-check"]
