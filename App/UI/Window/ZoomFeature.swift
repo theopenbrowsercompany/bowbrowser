@@ -24,7 +24,8 @@ final class ZoomFeature: NSResponder, BrowserWindowFeature, NSMenuItemValidation
     static func addMenuItems(to menus: MainMenu.Menus) {
         if !menus.view.items.isEmpty { menus.view.addItem(.separator()) }
         menus.view.addItem(withTitle: "Actual Size", action: #selector(actualSize(_:)), keyEquivalent: "0")
-        menus.view.addItem(withTitle: "Zoom In", action: #selector(zoomIn(_:)), keyEquivalent: "+")
+        // Cmd+= rather than "+", which AppKit reads as Cmd+Shift+=: that is Arc's Add Split View.
+        menus.view.addItem(withTitle: "Zoom In", action: #selector(zoomIn(_:)), keyEquivalent: "=")
         menus.view.addItem(withTitle: "Zoom Out", action: #selector(zoomOut(_:)), keyEquivalent: "-")
     }
 

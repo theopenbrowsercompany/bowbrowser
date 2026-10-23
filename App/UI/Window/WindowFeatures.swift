@@ -30,5 +30,6 @@ enum WindowFeatures {
         PageDialogsFeature.self,
         PageFullscreenFeature.self,
         ImportMenuFeature.self,
+        SplitViewFeature.self,
     ]
 }

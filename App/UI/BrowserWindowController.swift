@@ -406,9 +406,12 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
     }
 
     /// A mouse button went down at `point` in window coordinates, about to reach the view under it: a press in a pane
-    /// that is not focused focuses it first, so the page it lands in is the active tab when it handles the press.
+    /// that is not focused focuses it first, so the page it lands in is the active tab when it handles the press. While
+    /// the window shows a sheet the press never reaches a pane (AppKit checks for the sheet after this), so it changes
+    /// nothing.
     func pointerWillPress(at point: NSPoint) {
-        guard let paneLayout, paneLayout.isSplit, let root = window?.contentView?.superview,
+        guard window?.attachedSheet == nil, let paneLayout, paneLayout.isSplit,
+            let root = window?.contentView?.superview,
             let hit = root.hitTest(point),
             let index = paneViews.firstIndex(where: { hit.isDescendant(of: $0) }), index != paneLayout.focusedIndex
         else { return }
@@ -433,8 +436,17 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
             return
         }
         guard paneLayout.isSplit else {
+            // Collapsing from several panes with the keyboard in one of them: it stays on the page that remains.
+            let responder = window?.firstResponder as? NSView
+            let keyboardInPanes =
+                paneContainer?.superview != nil
+                && responder.map { view in ([primaryView] + extraPaneViews).contains { view.isDescendant(of: $0) } }
+                    == true
             showOnePane()
             if let tab = engineTabs[paneLayout.focused] { primaryView.show(tab) }
+            if keyboardInPanes, (window?.firstResponder as? NSView)?.isDescendant(of: primaryView) != true {
+                primaryView.focusAttachedTab()
+            }
             return
         }
         showSplit(paneLayout)

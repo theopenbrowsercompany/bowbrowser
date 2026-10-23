@@ -522,12 +522,15 @@ final class SidebarView: NSView, NSOutlineViewDataSource, NSOutlineViewDelegate,
     }
 
     /// What a click on row `row` does (the outline's click action): a tab row asks the window to make that tab
-    /// active. A click on a section, folder or split row, or outside the rows, selects nothing.
+    /// active, and a split row its focused tab, which shows the split. A click on a section or folder row, or outside
+    /// the rows, selects nothing.
     func clickRow(_ row: Int) {
-        guard row >= 0, let id = (outlineView.item(atRow: row) as? SidebarNode)?.itemID,
-            content.graph[id]?.data.isTab == true
-        else { return }
-        delegate?.select(id)
+        guard row >= 0, let id = (outlineView.item(atRow: row) as? SidebarNode)?.itemID else { return }
+        if content.graph[id]?.data.isTab == true {
+            delegate?.select(id)
+        } else if let focused = content.graph.focusedSplitPaneID(id) {
+            delegate?.select(focused)
+        }
     }
 
     /// The outline's double click action.
