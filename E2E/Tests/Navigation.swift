@@ -4,7 +4,166 @@ import Foundation
 /// fixture server's `/_redirect/`, `/_error/` and `/_204/` paths.
 @MainActor
 enum NavigationTests {
-    static let all: [any E2ETest] = [NavigationEventsTest(), NavigationPopupTest()]
+    static let all: [any E2ETest] = [NavigationEventsTest(), NavigationPopupTest(), NavigationHistoryTest()]
+}
+
+/// Drives the window's back, forward, reload and stop controls the way a person does: the toolbar buttons and the
+/// menu shortcuts (Cmd+[, Cmd+], Cmd+R, Cmd+.). Checks that back and forward land on the right pages, that the
+/// buttons are disabled when the tab cannot go back or forward, that reload loads a new document, and that a load
+/// shows stop in place of reload and can be stopped.
+struct NavigationHistoryTest: E2ETest {
+    let name = "nav.history"
+
+    /// How long a toolbar state may take to follow the engine's state push before the check fails.
+    static let settle: TimeInterval = 3
+
+    func run(_ run: E2ERun) async throws {
+        let pageA = E2EFixture.url("navigation/a.html")
+        let pageB = E2EFixture.url("navigation/b.html")
+        let slow = E2EFixture.url("navigation/slow.html")
+        let app = run.app
+
+        let page = try await run.step("open window", timeout: E2ETimeouts.step) {
+            try await app.openWindow(at: pageA)
+        }
+        try await run.step("load page A", timeout: E2ETimeouts.firstLoad) {
+            let status = try await page.waitForLoad(after: 0)
+            guard status == 200 else { throw E2EError("page A loaded with status \(status)") }
+        }
+        /// Loads one page with `navigate` and returns its title.
+        func navigate(_ navigate: () throws -> Void) async throws -> String {
+            let loads = page.finishedLoads
+            try navigate()
+            _ = try await page.waitForLoad(after: loads)
+            return try await page.string("document.title")
+        }
+
+        var problems: [String] = []
+        // Back off, forward off, reload on: a fresh tab has no history.
+        let fresh = try await run.step("check a fresh tab", timeout: E2ETimeouts.step) {
+            try await Self.waitForButtons(app, page, back: false, forward: false)
+        }
+        if let fresh { problems.append("fresh tab: \(fresh)") }
+        try await run.step("load page B", timeout: E2ETimeouts.step) {
+            _ = try await navigate { page.load(pageB) }
+            if let wrong = try await Self.waitForButtons(app, page, back: true, forward: false) {
+                problems.append("after loading B: \(wrong)")
+            }
+        }
+        let back = try await run.step("go back with the toolbar", timeout: E2ETimeouts.step) {
+            let title = try await navigate { try app.click(.back, in: page) }
+            if let wrong = try await Self.waitForButtons(app, page, back: false, forward: true) {
+                problems.append("after back: \(wrong)")
+            }
+            return title
+        }
+        let forward = try await run.step("go forward with the toolbar", timeout: E2ETimeouts.step) {
+            let title = try await navigate { try app.click(.forward, in: page) }
+            if let wrong = try await Self.waitForButtons(app, page, back: true, forward: false) {
+                problems.append("after forward: \(wrong)")
+            }
+            return title
+        }
+        let passed = back == "A" && forward == "B" && problems.isEmpty
+        run.check(
+            name, passed: passed,
+            "back=\(back) forward=\(forward)" + (problems.isEmpty ? "" : " " + problems.joined(separator: "; ")))
+
+        let shortcuts = try await run.step("go back and forward with shortcuts", timeout: E2ETimeouts.step) {
+            let back = try await navigate { try app.press(.back, in: page) }
+            _ = try await Self.waitForButtons(app, page, back: false, forward: true)
+            let forward = try await navigate { try app.press(.forward, in: page) }
+            _ = try await Self.waitForButtons(app, page, back: true, forward: false)
+            // With nothing ahead, the menu item is disabled like the button.
+            let refused = (try? app.press(.forward, in: page)) == nil
+            return (back: back, forward: forward, refused: refused)
+        }
+        run.check(
+            "nav.shortcuts", passed: shortcuts.back == "A" && shortcuts.forward == "B" && shortcuts.refused,
+            "back=\(shortcuts.back) forward=\(shortcuts.forward) disabled-forward=\(shortcuts.refused ? "refused" : "ran")")
+
+        // A reload loads a new document: a mark the page held is gone afterwards.
+        func reload(_ reload: () throws -> Void) async throws -> String {
+            _ = try await page.evaluate("window.bowMark = 'kept'")
+            let title = try await navigate(reload)
+            let mark = try await page.evaluate("window.bowMark")
+            return mark == nil && title == "B" ? "reloaded" : "title=\(title) mark=\(mark ?? "none")"
+        }
+        let reloads = try await run.step("reload", timeout: E2ETimeouts.step) {
+            (toolbar: try await reload { try app.click(.reload, in: page) },
+             shortcut: try await reload { try app.press(.reload, in: page) })
+        }
+        run.check(
+            "nav.reload", passed: reloads.toolbar == "reloaded" && reloads.shortcut == "reloaded",
+            "toolbar=\(reloads.toolbar) shortcut=\(reloads.shortcut)")
+
+        // The slow page never finishes on its own, so the reload button shows stop until it is stopped.
+        let stops = try await run.step("stop loads", timeout: E2ETimeouts.step * 3) {
+            // Stopped once the page has committed, so the page shown, and so reloaded, is the slow one.
+            var commits = Self.commits(of: slow, in: page)
+            page.load(slow)
+            let loading = try await Self.waitForReload(app, page, label: "Stop")
+            try await Self.waitForCommit(of: slow, after: commits, in: page)
+            try app.click(.reload, in: page)
+            let stopped = try await Self.waitForReload(app, page, label: "Reload")
+            commits = Self.commits(of: slow, in: page)
+            try app.click(.reload, in: page)
+            let reloading = try await Self.waitForReload(app, page, label: "Stop")
+            try await Self.waitForCommit(of: slow, after: commits, in: page)
+            try app.press(.stop, in: page)
+            let stoppedAgain = try await Self.waitForReload(app, page, label: "Reload")
+            let refused = (try? app.press(.stop, in: page)) == nil
+            return [
+                "loading=\(loading)", "toolbar-stop=\(stopped)", "reloading=\(reloading)",
+                "shortcut-stop=\(stoppedAgain)", "idle-stop=\(refused ? "refused" : "ran")",
+            ]
+        }
+        let expectedStops = [
+            "loading=Stop(on)", "toolbar-stop=Reload(on)", "reloading=Stop(on)", "shortcut-stop=Reload(on)",
+            "idle-stop=refused",
+        ]
+        run.check("nav.stop", passed: stops == expectedStops, stops.joined(separator: " "))
+    }
+
+    /// Waits until the back and forward buttons are enabled as expected and the reload button reads Reload and is
+    /// enabled. Returns nil once they are, or what they show after `settle` seconds.
+    private static func waitForButtons(
+        _ app: any E2EApp, _ page: any E2EPage, back: Bool, forward: Bool
+    ) async throws -> String? {
+        let expected = [
+            E2EToolbarButtonState(isEnabled: back, label: "Back"),
+            E2EToolbarButtonState(isEnabled: forward, label: "Forward"),
+            E2EToolbarButtonState(isEnabled: true, label: "Reload"),
+        ]
+        let deadline = Date().addingTimeInterval(settle)
+        while true {
+            let shown = try [E2EToolbarButton.back, .forward, .reload].map { try app.toolbarButton($0, in: page) }
+            if shown == expected { return nil }
+            if Date() > deadline { return "buttons=\(shown) expected=\(expected)" }
+            try await Task.sleep(nanoseconds: 20_000_000)
+        }
+    }
+
+    private static func commits(of url: URL, in page: any E2EPage) -> Int {
+        page.navigationEvents.filter { $0.kind == .commit && $0.url == url }.count
+    }
+
+    /// Waits until `url` has committed more than `commits` times; the step's timeout bounds the wait.
+    private static func waitForCommit(of url: URL, after commits: Int, in page: any E2EPage) async throws {
+        while Self.commits(of: url, in: page) <= commits {
+            try await Task.sleep(nanoseconds: 20_000_000)
+        }
+    }
+
+    /// Waits until the reload button reads `label` and returns what it shows then, or after `settle` seconds.
+    private static func waitForReload(_ app: any E2EApp, _ page: any E2EPage, label: String) async throws -> String {
+        let deadline = Date().addingTimeInterval(settle)
+        while true {
+            let shown = try app.toolbarButton(.reload, in: page)
+            if shown.label == label || Date() > deadline { return shown.description }
+            try await Task.sleep(nanoseconds: 20_000_000)
+        }
+    }
 }
 
 /// Opens pages from a fixture the way sign in flows do, a sized popup and a plain `window.open(url)`, and checks

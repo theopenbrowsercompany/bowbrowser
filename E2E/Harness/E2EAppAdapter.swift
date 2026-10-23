@@ -96,6 +96,68 @@ final class E2EAppAdapter: E2EApp {
         }
     }
 
+    func click(_ button: E2EToolbarButton, in page: any E2EPage) throws {
+        let control = try Self.toolbarControl(button, in: page)
+        guard control.isEnabled else { throw E2EError("the \(button.rawValue) button is disabled") }
+        control.performClick(nil)
+    }
+
+    func toolbarButton(_ button: E2EToolbarButton, in page: any E2EPage) throws -> E2EToolbarButtonState {
+        let control = try Self.toolbarControl(button, in: page)
+        return E2EToolbarButtonState(isEnabled: control.isEnabled, label: control.accessibilityLabel() ?? "")
+    }
+
+    private static func toolbarControl(_ button: E2EToolbarButton, in page: any E2EPage) throws -> NSButton {
+        let controller = try tabPage(page).controller
+        let item: NavigationToolbar.Item =
+            switch button {
+            case .back: .back
+            case .forward: .forward
+            case .reload: .reload
+            }
+        let control = controller.navigationToolbar.button(item)
+        // The button must really be in the window's toolbar, not just exist.
+        guard let window = controller.window, control.window === window,
+            window.toolbar?.items.contains(where: { $0.view === control }) == true
+        else {
+            throw E2EError("the \(button.rawValue) button is not in the window's toolbar")
+        }
+        return control
+    }
+
+    /// Finds the menu item with the shortcut and sends its action the way AppKit does for a key press: to the first
+    /// object in the window's responder chain (then its delegate) that handles it, after that object validates
+    /// the item. The e2e window never becomes key, so the window is named here instead of AppKit finding the key
+    /// window.
+    func press(_ shortcut: E2EShortcut, in page: any E2EPage) throws {
+        let controller = try Self.tabPage(page).controller
+        guard let window = controller.window else { throw E2EError("the page has no window") }
+        guard let item = NSApp.mainMenu.flatMap({ Self.menuItem(shortcut.key, in: $0) }), let action = item.action
+        else {
+            throw E2EError("no menu item has the shortcut Cmd+\(shortcut.key)")
+        }
+        var responder: NSResponder? = window.firstResponder
+        var target: AnyObject?
+        while let current = responder, target == nil {
+            if current.responds(to: action) { target = current }
+            responder = current.nextResponder
+        }
+        if target == nil, let delegate = window.delegate, delegate.responds(to: action) { target = delegate }
+        guard let target else { throw E2EError("nothing in the window handles \(item.title)") }
+        if let validator = target as? NSMenuItemValidation, !validator.validateMenuItem(item) {
+            throw E2EError("\(item.title) (Cmd+\(shortcut.key)) is disabled")
+        }
+        NSApp.sendAction(action, to: target, from: item)
+    }
+
+    private static func menuItem(_ key: String, in menu: NSMenu) -> NSMenuItem? {
+        for item in menu.items {
+            if item.keyEquivalent == key, item.keyEquivalentModifierMask == .command { return item }
+            if let submenu = item.submenu, let found = menuItem(key, in: submenu) { return found }
+        }
+        return nil
+    }
+
     private static func tabPage(_ page: any E2EPage) throws -> TabPage {
         guard let page = page as? TabPage else { throw E2EError("the page did not come from this app") }
         return page

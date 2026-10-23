@@ -65,6 +65,36 @@ class EmptyResponseHandler : public CefResourceHandler {
   IMPLEMENT_REFCOUNTING(EmptyResponseHandler);
 };
 
+const char kHangPrefix[] = "/_hang/";
+
+// Never answers, so a page that loads it (an image, say) keeps loading until it is stopped or closed.
+class HangingResponseHandler : public CefResourceHandler {
+ public:
+  bool Open(CefRefPtr<CefRequest> request, bool& handleRequest, CefRefPtr<CefCallback> callback) override {
+    // Decided later, which never comes; Cancel() lets go of the callback.
+    handleRequest = false;
+    callback_ = callback;
+    return true;
+  }
+
+  void GetResponseHeaders(CefRefPtr<CefResponse> response, int64_t& responseLength, CefString& redirectUrl) override {
+    responseLength = 0;
+    response->SetError(ERR_ABORTED);
+  }
+
+  bool Read(void* dataOut, int bytesToRead, int& bytesRead, CefRefPtr<CefResourceReadCallback> callback) override {
+    bytesRead = 0;
+    return false;
+  }
+
+  void Cancel() override { callback_ = nullptr; }
+
+ private:
+  CefRefPtr<CefCallback> callback_;
+
+  IMPLEMENT_REFCOUNTING(HangingResponseHandler);
+};
+
 // Creates a handler for each request to https://bow.test/. Runs on Chromium's IO thread, so it keeps only an
 // immutable copy of the directory path.
 class FixtureHandlerFactory : public CefSchemeHandlerFactory {
@@ -89,6 +119,7 @@ class FixtureHandlerFactory : public CefSchemeHandlerFactory {
     }
     if (path.rfind(kErrorPrefix, 0) == 0) return new EmptyResponseHandler(0);
     if (path.rfind(kNoContentPrefix, 0) == 0) return new EmptyResponseHandler(204);
+    if (path.rfind(kHangPrefix, 0) == 0) return new HangingResponseHandler();
     if (path.back() == '/') path += "index.html";
 
     const std::string file = directory_ + path;
