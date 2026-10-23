@@ -23,6 +23,48 @@ CefRefPtr<CefResourceHandler> NotFound() {
   return new CefStreamResourceHandler(404, "Not Found", "text/plain", {}, body);
 }
 
+const char kRedirectPrefix[] = "/_redirect/";
+const char kErrorPrefix[] = "/_error/";
+const char kNoContentPrefix[] = "/_204/";
+
+// Answers with no body: with `status` (a 302 redirect to `location`, or a 204), or, when `status` is 0, a failed
+// connection (ERR_CONNECTION_REFUSED), which Chromium reports as a failed load.
+class EmptyResponseHandler : public CefResourceHandler {
+ public:
+  explicit EmptyResponseHandler(int status, std::string location = "")
+      : status_(status), location_(std::move(location)) {}
+
+  bool Open(CefRefPtr<CefRequest> request, bool& handleRequest, CefRefPtr<CefCallback> callback) override {
+    handleRequest = true;
+    return true;
+  }
+
+  void GetResponseHeaders(CefRefPtr<CefResponse> response, int64_t& responseLength, CefString& redirectUrl) override {
+    responseLength = 0;
+    if (status_ == 0) {
+      response->SetError(ERR_CONNECTION_REFUSED);
+      return;
+    }
+    response->SetStatus(status_);
+    response->SetStatusText(status_ == 302 ? "Found" : "No Content");
+    response->SetHeaderByName("Cache-Control", "no-store", true);
+    if (!location_.empty()) redirectUrl = location_;
+  }
+
+  bool Read(void* dataOut, int bytesToRead, int& bytesRead, CefRefPtr<CefResourceReadCallback> callback) override {
+    bytesRead = 0;
+    return false;
+  }
+
+  void Cancel() override {}
+
+ private:
+  const int status_;
+  const std::string location_;
+
+  IMPLEMENT_REFCOUNTING(EmptyResponseHandler);
+};
+
 // Creates a handler for each request to https://bow.test/. Runs on Chromium's IO thread, so it keeps only an
 // immutable copy of the directory path.
 class FixtureHandlerFactory : public CefSchemeHandlerFactory {
@@ -41,6 +83,12 @@ class FixtureHandlerFactory : public CefSchemeHandlerFactory {
             .ToString();
     // Never leave the fixture directory.
     if (path.empty() || path[0] != '/' || path.find("..") != std::string::npos) return NotFound();
+    if (path.rfind(kRedirectPrefix, 0) == 0) {
+      return new EmptyResponseHandler(
+          302, std::string("https://") + kFixtureHost + "/" + path.substr(sizeof(kRedirectPrefix) - 1));
+    }
+    if (path.rfind(kErrorPrefix, 0) == 0) return new EmptyResponseHandler(0);
+    if (path.rfind(kNoContentPrefix, 0) == 0) return new EmptyResponseHandler(204);
     if (path.back() == '/') path += "index.html";
 
     const std::string file = directory_ + path;

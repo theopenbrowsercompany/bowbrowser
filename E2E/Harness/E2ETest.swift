@@ -13,7 +13,7 @@ protocol E2ETest {
 enum E2ETests {
     /// Every test, in the order `--e2e=all` runs them. Add each area's tests here.
     static let all: [any E2ETest] =
-        AppTests.all + SandboxTests.all + InputTests.all + TabsTests.all + ProfilesTests.all
+        AppTests.all + SandboxTests.all + InputTests.all + TabsTests.all + ProfilesTests.all + NavigationTests.all
 }
 
 /// Step timeouts shared by tests.
@@ -23,7 +23,9 @@ enum E2ETimeouts {
     static let step: TimeInterval = 5
 }
 
-/// Fixture page URLs. Files in E2E/Fixtures/<area>/ are served at `https://bow.test/<area>/`.
+/// Fixture page URLs. Files in E2E/Fixtures/<area>/ are served at `https://bow.test/<area>/`. Three paths need no
+/// file: `_redirect/<path>` redirects to `<path>`, `_204/<anything>` answers 204 No Content, and
+/// `_error/<anything>` fails to load.
 enum E2EFixture {
     static func url(_ path: String) -> URL {
         URL(string: "https://bow.test/\(path)")!
