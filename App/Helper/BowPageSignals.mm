@@ -2,9 +2,17 @@
 // frame's JavaScript context reports when the frame plays sound and when the person edits one of its form fields,
 // through a native function that sends a process message to the browser.
 //
-// The script runs as each context is created, before the page's own scripts, so its listeners come first and the
-// media and Web Audio methods it wraps are the ones the page gets. The native function is handed to the script as an
-// argument and never set on the page's global object, so the page cannot call it.
+// The script runs as each context is created, before the page's own scripts, so its listeners come first. It must
+// stay invisible to the page, because a browser a site can tell apart from Chrome gets singled out by tamper and
+// fingerprint checks (CAPTCHAs, blocks):
+// - It changes no object the page can reach: no prototype, no method, no global. It only adds event listeners,
+//   which a page cannot list.
+// - Every built-in it uses later (listener registration, the media and event getters, the collections, timers) is
+//   taken and bound while it installs, before any page script can replace one, so it never looks up a property the
+//   page could have redefined to notice it.
+// - Its listeners catch every error, so none reaches the page's error handlers.
+// The native function is handed to the script as an argument and never set on the page's global object, so the
+// page cannot call it.
 #include "BowPageSignals.h"
 
 #include "BowPageSignalNames.h"
@@ -14,11 +22,14 @@
 namespace {
 
 // The script, evaluated to a function that takes the native signal function. Its rules:
-// - Sound: the frame plays sound while a media element plays (not paused, not ended) unmuted at a volume above 0, or
-//   while an AudioContext connected to its output runs. Elements are followed from their media events, which reach
-//   the window in the capture phase when they are in a document, and from play() for those that are not; contexts
-//   from AudioNode.connect to their destination. Sound starting is reported at once; sound stopping only once the
-//   frame has stayed quiet for kQuietMs, so the gap between two tracks does not turn it off.
+// - Sound: the frame plays sound while a media element plays (not paused, not ended) unmuted at a volume above 0.
+//   Elements are followed from their media events (play, playing, pause, ended, volumechange, emptied), which reach
+//   the window in the capture phase while the element is in the frame's document; once followed, an element's own
+//   events keep it looked at after it leaves the document. Followed elements are held weakly and let go once
+//   stopped. Sound starting is reported at once; sound stopping only once the frame has stayed quiet for kQuietMs,
+//   so the gap between two tracks does not turn it off.
+//   Not seen, since that would take changing what the page sees: Web Audio, a media element that never was in the
+//   document (new Audio().play()), and one inside a shadow tree (its media events do not leave the tree).
 // - Form edit: the first trusted input or change event of the document. Only the browser fires trusted ones, and
 //   only for text fields, text areas, lists, check boxes, file inputs and editable text (a field inside a shadow tree
 //   reaches the window as its host), whatever the means: typing, paste, drop, dictation, undo, autofill, a chosen
@@ -29,43 +40,62 @@ constexpr const char* kScript = R"JS(
 (function (signal) {
   "use strict";
   const kQuietMs = 2000;
+  // A built-in method as a plain function taking its receiver first, bound now so calling it later looks nothing up.
+  const method = Function.prototype.call.bind(Function.prototype.bind, Function.prototype.call);
+  const getter = (type, name) => method(Object.getOwnPropertyDescriptor(type.prototype, name).get);
   const later = setTimeout;
   const cancel = clearTimeout;
-  const listen = EventTarget.prototype.addEventListener;
+  const listen = method(EventTarget.prototype.addEventListener);
+  const eventTarget = getter(Event, "target");
+  const nodeType = getter(Node, "nodeType");
+  const persisted = getter(PageTransitionEvent, "persisted");
+  const WeakRefType = WeakRef;
+  const deref = method(WeakRef.prototype.deref);
+  const mapSet = method(Map.prototype.set);
+  const mapDelete = method(Map.prototype.delete);
+  const mapForEach = method(Map.prototype.forEach);
+  const weakHas = method(WeakSet.prototype.has);
+  const weakAdd = method(WeakSet.prototype.add);
+  const weakDelete = method(WeakSet.prototype.delete);
   const MediaElement = window.HTMLMediaElement;
-  const AudioContextType = window.AudioContext;
-  const DestinationNode = window.AudioDestinationNode;
-  const media = new Set();
+  const paused = MediaElement ? getter(MediaElement, "paused") : null;
+  const ended = MediaElement ? getter(MediaElement, "ended") : null;
+  const muted = MediaElement ? getter(MediaElement, "muted") : null;
+  const volume = MediaElement ? getter(MediaElement, "volume") : null;
+  const mediaEvents = ["play", "playing", "pause", "ended", "volumechange", "emptied"];
+
+  // Elements that may be playing, by a number of their own, held weakly.
+  const media = new Map();
+  const listed = new WeakSet();
+  // Elements carrying the script's own media listeners.
   const followed = new WeakSet();
-  // Contexts connected to their output, held weakly: a context the page dropped is not kept for its sound.
-  const contexts = new Set();
-  const followedContexts = new WeakSet();
+  let nextID = 0;
   let audible = false;
   let quietTimer = 0;
   let edited = false;
 
+  // `body` as a listener that lets no error reach the page.
+  const quietly = (body) => (event) => {
+    try { body(event); } catch (error) {}
+  };
   const send = (kind, on) => {
     try { signal(kind, on); } catch (error) {}
   };
-  // Whether anything plays now. Visits every entry, letting go of elements that stopped and contexts that closed or
-  // that the page let go of, so the script keeps nothing alive the page no longer uses.
+  // Whether a media element plays now. Visits every entry, letting go of elements that stopped or that the page let
+  // go of, so the script keeps nothing alive the page no longer uses.
   const playingNow = () => {
     let playing = false;
-    for (const element of media) {
-      if (element.paused || element.ended) {
-        media.delete(element);
-      } else if (!element.muted && element.volume > 0) {
+    mapForEach(media, (reference, id) => {
+      const element = deref(reference);
+      if (!element) {
+        mapDelete(media, id);
+      } else if (paused(element) || ended(element)) {
+        mapDelete(media, id);
+        weakDelete(listed, element);
+      } else if (!muted(element) && volume(element) > 0) {
         playing = true;
       }
-    }
-    for (const reference of contexts) {
-      const context = reference.deref();
-      if (!context || context.state === "closed") {
-        contexts.delete(reference);
-      } else if (context.state === "running") {
-        playing = true;
-      }
-    }
+    });
     return playing;
   };
   const update = () => {
@@ -73,66 +103,54 @@ constexpr const char* kScript = R"JS(
       if (quietTimer) { cancel(quietTimer); quietTimer = 0; }
       if (!audible) { audible = true; send("audible", true); }
     } else if (audible && !quietTimer) {
-      quietTimer = later(() => {
+      quietTimer = later(quietly(() => {
         quietTimer = 0;
         if (!playingNow()) { audible = false; send("audible", false); }
         else { update(); }
-      }, kQuietMs);
+      }), kQuietMs);
     }
   };
-  const mediaEvents = ["play", "playing", "pause", "ended", "volumechange", "emptied"];
+  const onElementEvent = quietly(update);
+  // Whether `target` is a media element of this frame, asked of the native getter so nothing the page set answers.
+  const isMedia = (target) => {
+    try { paused(target); return true; } catch (error) { return false; }
+  };
   const followElement = (element) => {
-    if (!followed.has(element)) {
-      followed.add(element);
-      for (const type of mediaEvents) listen.call(element, type, update);
+    if (!weakHas(followed, element)) {
+      weakAdd(followed, element);
+      for (let i = 0; i < mediaEvents.length; i++) listen(element, mediaEvents[i], onElementEvent);
     }
-    media.add(element);
+    if (!weakHas(listed, element)) {
+      weakAdd(listed, element);
+      mapSet(media, nextID++, new WeakRefType(element));
+    }
     update();
   };
   if (MediaElement) {
-    for (const type of mediaEvents) {
-      listen.call(window, type, (event) => {
-        if (event.target instanceof MediaElement) followElement(event.target);
-      }, true);
-    }
-    const play = MediaElement.prototype.play;
-    MediaElement.prototype.play = function () {
-      const result = play.apply(this, arguments);
-      followElement(this);
-      return result;
-    };
-  }
-  if (AudioContextType && DestinationNode && window.AudioNode) {
-    const connect = AudioNode.prototype.connect;
-    AudioNode.prototype.connect = function (target) {
-      const result = connect.apply(this, arguments);
-      const context = target instanceof DestinationNode ? target.context : null;
-      if (context instanceof AudioContextType && !followedContexts.has(context)) {
-        followedContexts.add(context);
-        contexts.add(new WeakRef(context));
-        listen.call(context, "statechange", update);
-      }
-      update();
-      return result;
-    };
+    const onMediaEvent = quietly((event) => {
+      const target = eventTarget(event);
+      if (isMedia(target)) followElement(target);
+    });
+    for (let i = 0; i < mediaEvents.length; i++) listen(window, mediaEvents[i], onMediaEvent, true);
   }
 
-  const edit = (event) => {
-    if (edited || !event.isTrusted || !(event.target instanceof Node)) return;
+  const edit = quietly((event) => {
+    if (edited || !event.isTrusted) return;
+    try { nodeType(eventTarget(event)); } catch (error) { return; }
     edited = true;
     send("form-edited", true);
-  };
-  listen.call(window, "input", edit, true);
-  listen.call(window, "change", edit, true);
+  });
+  listen(window, "input", edit, true);
+  listen(window, "change", edit, true);
 
   // Back from the cache, sound is looked at afresh rather than resent as it was when the page left.
-  listen.call(window, "pageshow", (event) => {
-    if (!event.persisted) return;
+  listen(window, "pageshow", quietly((event) => {
+    if (!persisted(event)) return;
     if (edited) send("form-edited", true);
     if (quietTimer) { cancel(quietTimer); quietTimer = 0; }
     audible = false;
     update();
-  }, true);
+  }), true);
 })
 )JS";
 

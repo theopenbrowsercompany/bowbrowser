@@ -60,7 +60,7 @@ public struct EngineTabState: Equatable, Sendable {
     public var isLoading: Bool
     public var canGoBack: Bool
     public var canGoForward: Bool
-    /// True while the page plays sound, as the page's media elements and Web Audio report it.
+    /// True while the page plays sound, as the page's media elements report it.
     public var isAudible: Bool
     /// True while the page uses a camera (or captures the screen's video).
     public var isCapturingVideo: Bool

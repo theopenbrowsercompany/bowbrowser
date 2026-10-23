@@ -79,30 +79,6 @@ extension E2ETestApp: E2EUnloadApp {
         }
     }
 
-    func pasteThroughEditMenu(
-        _ text: String, in page: any E2EPage, until pasted: @MainActor () async throws -> Bool
-    ) async throws -> Bool {
-        try adapter.requireActive(token, "paste")
-        let pasteboard = NSPasteboard.general
-        // What the pasteboard held, read now and put back once the page has pasted, so the run leaves it as it was.
-        let saved = (pasteboard.pasteboardItems ?? []).map { item in
-            item.types.compactMap { type in item.data(forType: type).map { (type, $0) } }
-        }
-        defer {
-            pasteboard.clearContents()
-            let items = saved.map { entries in
-                let item = NSPasteboardItem()
-                for (type, data) in entries { item.setData(data, forType: type) }
-                return item
-            }
-            if !items.isEmpty { pasteboard.writeObjects(items) }
-        }
-        pasteboard.clearContents()
-        pasteboard.setString(text, forType: .string)
-        try chooseMenuItem(key: "v", modifiers: .command, in: page)
-        return try await pasted()
-    }
-
     func unloadPlaceholder(besides page: any E2EPage) throws -> E2EUnloadPlaceholder {
         let controller = try E2EAppAdapter.tabPage(page).controller
         guard let feature = controller.feature(TabUnloadFeature.self) else {

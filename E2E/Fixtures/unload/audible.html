@@ -7,7 +7,7 @@
 </head>
 <body>
   <h1>Unload audible fixture</h1>
-  <p>Plays a 440 Hz tone at about -70 dBFS (RMS), too quiet to hear, through an audio element or through Web Audio.
+  <p>Plays a 440 Hz tone at about -70 dBFS (RMS), too quiet to hear, through an audio element.
     Click the button first: the click is the user activation that lets the page start sound.</p>
   <button id="activate" type="button">Allow sound</button>
   <audio id="tone" loop></audio>
@@ -48,21 +48,6 @@
     // Resolves once the element plays, or with why it could not.
     window.startElement = () => element.play().then(() => "playing", (error) => `refused: ${error.name}`);
     window.stopElement = () => { element.pause(); return element.paused; };
-
-    let context = null;
-    // Resolves with the context's state once it has started.
-    window.startWebAudio = async () => {
-      context = new AudioContext();
-      const oscillator = context.createOscillator();
-      const gain = context.createGain();
-      gain.gain.value = peak;
-      oscillator.frequency.value = 440;
-      oscillator.connect(gain).connect(context.destination);
-      oscillator.start();
-      await context.resume();
-      return context.state;
-    };
-    window.stopWebAudio = async () => { await context.close(); return context.state; };
   </script>
 </body>
 </html>

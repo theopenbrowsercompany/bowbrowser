@@ -7,8 +7,8 @@
 
 /// The process message's name.
 inline constexpr const char* kBowPageSignalMessage = "bow.page-signal";
-/// The frame plays sound now: a media element plays with sound, or a running AudioContext is connected to its
-/// output. Turned off a short while after the last sound stopped, so a gap between tracks does not turn it off.
+/// The frame plays sound now: one of its media elements plays with sound (Web Audio is not seen). Turned off a
+/// short while after the last sound stopped, so a gap between tracks does not turn it off.
 inline constexpr const char* kBowPageSignalAudible = "audible";
 /// The person edited a form field in the frame's document. Sent once per document, and again when the document
 /// comes back from the back/forward cache.

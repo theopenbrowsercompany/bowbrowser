@@ -20,8 +20,8 @@ NS_SWIFT_SENDABLE
 @property(nonatomic, readonly, getter=isLoading) BOOL loading;
 @property(nonatomic, readonly) BOOL canGoBack;
 @property(nonatomic, readonly) BOOL canGoForward;
-/// YES while one of the page's frames plays sound, as the page's own media elements and Web Audio report it from the
-/// render process (CEF 156 has no audible event).
+/// YES while one of the page's frames plays sound, as the page's own media elements report it from the render
+/// process (CEF 156 has no audible event). Web Audio alone does not count (see spec/unload.md, Page signals).
 @property(nonatomic, readonly, getter=isAudible) BOOL audible;
 /// YES while the page uses a camera (or captures the screen's video).
 @property(nonatomic, readonly, getter=isCapturingVideo) BOOL capturingVideo;

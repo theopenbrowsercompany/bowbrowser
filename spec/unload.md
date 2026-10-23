@@ -74,13 +74,28 @@ The engine (CEF 156) reports neither sound (its audio handler takes the sound ov
 The helper's render process installs a small script in every frame, main frame and subframes alike, as the frame's JavaScript context is created and before the page's own scripts run, and the script sends each change to the browser as a process message from its frame.
 The page cannot call the channel itself: it is handed to the script, never set on the page.
 
-- Sound: a frame plays sound while one of its media elements plays (not paused, not ended) unmuted at a volume above 0, or while one of its Web Audio contexts that is connected to its output runs.
+- The script changes nothing the page can see or reach: no prototype, method or global, only event listeners, which a page cannot list.
+  The built-ins it uses after installing are taken before the page's scripts run, so a page that replaces them cannot notice it, and no error of its own reaches the page.
+  A page that could tell Bow apart from Chrome would let sites single out Bow users in tamper and fingerprint checks (CAPTCHAs, blocks), so whatever cannot be seen this way goes unseen (see Known gaps).
+- Sound: a frame plays sound while one of its media elements plays (not paused, not ended) unmuted at a volume above 0.
+  The script learns of an element from its media events (play, playing, pause, ended, volume change, emptied) as they pass the frame's window, and from then on follows the element's own events, holding it weakly and letting it go once it stops.
   Sound starting is reported at once; sound stopping only once the frame has been quiet for 2 seconds, so a gap between tracks does not end it.
   The tab is audible while any of its frames is, and its sound stopping starts the 30 second recently audible window.
 - Form edit: the first input or change event the browser fires in a frame's document (on a text field, text area, list, check box, file input or editable text, by any means), once per document.
   Events a page fires from its own script do not count, so a page cannot keep itself loaded that way.
 - A frame's signals go when its document goes (the frame navigates, even when the engine keeps the same frame for the next document), when the frame leaves the page (removed, or into the back and forward cache), when the main frame commits a new document, and when the page's render process ends.
   A page restored from the back and forward cache reports its edited form again and looks at its sound afresh.
+
+### Known gaps
+
+Each of these would need the script to change something the page can see (wrap a media or Web Audio method), which would let sites fingerprint Bow, so a tab playing sound only these ways is not kept loaded for its sound:
+
+- Sound made only with Web Audio (many games, music tools built on libraries like Tone.js).
+- A media element that plays without ever being in the frame's document (an audio object made and played by script), since its media events never pass the window.
+- A media element inside a shadow tree, since its media events do not leave the tree (they are not composed).
+
+Paste from the Edit menu is covered by the form edit rule (the browser fires a trusted input event with no key event) and by the key rule for Command-V, but has no end to end test of its own: driving it would swap the person's shared clipboard during the run.
+Input from an input method (dictation) goes the same way and is tested end to end.
 
 ## Edge cases
 
@@ -110,7 +125,7 @@ These run as unit tests today (`UnloadPolicyTests`).
 11. Run `make e2e E2E=unload`: `PASS unload.off` shows nothing unloaded with the setting off, after a day idle and under critical pressure; `PASS unload.policy: live=1 unloaded=3` shows a pass after a day idle unloading every background tab and keeping the shown one, and `PASS unload.reload` choosing an unloaded tab loading it again at its address; `PASS unload.exempt` shows a tab using the camera kept; `PASS unload.pressure` shows critical pressure unloading a recently used background tab; `PASS unload.engine_reload` shows an unloaded row keeping its title and icon; `PASS unload.dialog` shows a pass while a background tab's alert waits for its tab unloading nothing, and the next pass after the alert was shown and answered unloading the tab.
 12. Run `make e2e E2E=unload`: `PASS unload.offscreen_space: unloaded=3` shows a today tab and a pinned tab unloaded while their Space is off screen keeping their icon, address and title when you switch back, and `PASS unload.offscreen_reload` choosing each loading it again at that address; `PASS unload.pinned_away: unloaded=1 pinned=live` shows a pinned tab browsed away from its pinned address kept loaded while a background tab unloads; `PASS unload.typed: unloaded=0 tab=live` shows a tab with text typed into its field kept loaded with its text, and `PASS unload.typed_navigated: unloaded=1` shows it unloading once it has gone to another page.
 13. Run `make e2e E2E=unload`: `PASS unload: live=1 unloaded=29` shows 30 tabs in one window, one shown, at normal pressure: nothing unloaded 59 minutes on, every background tab 61 minutes on; `PASS unload.audible: within=live quiet=unloaded after=unloaded` shows a tab whose sound stopped 20 seconds ago kept under critical pressure while a quiet tab unloads, and unloaded 31 seconds after; `PASS unload.placeholder: unloaded=1 card="Unload held" page=shown order=card,page` shows an unloaded tab chosen again showing the card with its title while its page loads, then its page.
-14. Run `make e2e E2E=unload`: `PASS unload.audible_page: element=live webaudio=live within=live after=unloaded` shows a background tab playing a quiet tone kept after a day idle, first through an audio element and then through Web Audio, kept 20 seconds after the sound stopped and unloaded 31 seconds after; `PASS unload.form_paste: unloaded=0 tab=live edited=true keys=0` and `PASS unload.form_dictation: unloaded=0 tab=live edited=true keys=0` show a tab whose field got text from Edit > Paste or from an input method, with no key event, kept after a day idle with its text.
+14. Run `make e2e E2E=unload`: `PASS unload.audible_page: element=live within=live after=unloaded` shows a background tab playing a quiet tone through an audio element kept after a day idle, kept 20 seconds after the sound stopped and unloaded 31 seconds after; `PASS unload.form_dictation: unloaded=0 tab=live edited=true keys=0` shows a tab whose field got text from an input method, with no key event, kept after a day idle with its text.
 
 ## Out of scope
 
