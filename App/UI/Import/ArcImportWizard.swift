@@ -151,10 +151,13 @@ final class ArcImportWizard: NSObject {
         popup.setAccessibilityLabel("Space mode")
         views.append(popup)
 
-        var spaceBoxes: [WizardButton] = []
+        // The boxes' closures hold refresh, so refresh holds the boxes and the controller weakly: a strong hold
+        // would keep this view, the wizard and its sheet window alive after the sheet ends.
+        let spaceBoxes = NSHashTable<WizardButton>.weakObjects()
+        weak var controller = controller
         let continueButton = button("Continue", isDefault: true) { [weak self] in self?.showPreview() }
         func refresh() {
-            for box in spaceBoxes { box.isEnabled = choices.choosesSpaces }
+            for box in spaceBoxes.allObjects { box.isEnabled = choices.choosesSpaces }
             let empty = choices.preview(of: result, in: controller?.store.graph).isEmpty
             continueButton.isEnabled = !empty
         }
@@ -173,7 +176,7 @@ final class ArcImportWizard: NSObject {
                 self?.choices = choices
                 refresh()
             }
-            spaceBoxes.append(box)
+            spaceBoxes.add(box)
             views.append(box)
         }
         if result.spaces.isEmpty { views.append(body("The file has no Spaces.")) }
