@@ -32,11 +32,13 @@ final class PageDialogsFeature: NSResponder, BrowserWindowFeature {
         // Closing the window or quitting answers every dialog, so no page waits on a sheet nobody can see and no
         // close or quit waits on a page that waits on one.
         let center = NotificationCenter.default
-        observers.append(
-            center.addObserver(forName: NSWindow.willCloseNotification, object: window.window, queue: .main) {
-                [weak self] _ in
-                MainActor.assumeIsolated { self?.closeAll() }
-            })
+        if let nsWindow = window.window {
+            observers.append(
+                center.addObserver(forName: NSWindow.willCloseNotification, object: nsWindow, queue: .main) {
+                    [weak self] _ in
+                    MainActor.assumeIsolated { self?.closeAll() }
+                })
+        }
         observers.append(
             center.addObserver(forName: NSApplication.willTerminateNotification, object: nil, queue: .main) {
                 [weak self] _ in
