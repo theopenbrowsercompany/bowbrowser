@@ -129,6 +129,12 @@ final class E2EAppAdapter {
         return page
     }
 
+    /// Tracks a window the app opened by itself during the test (off screen, through a seam), so the test's cleanup
+    /// closes it with the others.
+    func trackAppOpenedWindow(_ controller: BrowserWindowController) {
+        testControllers.append(controller)
+    }
+
     private func createProfile(id: String, isPersistent: Bool) throws -> any EngineProfile {
         do {
             return try delegate.engine.createProfile(id: ProfileID(id), isPersistent: isPersistent)

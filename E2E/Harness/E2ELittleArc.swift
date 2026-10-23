@@ -10,7 +10,8 @@ protocol E2ELittleArcApp: E2EApp {
     /// The setting goes back to off (the e2e run's own value, which the other link tests rely on) when the test ends.
     func setLittleArcSetting(_ value: Bool?) throws
     /// Delivers `url` as a GetURL Apple Event sent from this app to its own handler, the way a link clicked in another
-    /// app arrives. Returns the Little Arc window it opened, or nil when it opened none.
+    /// app arrives. Returns the Little Arc window it opened, or nil when it opened none. With no browser window open,
+    /// the page's own calls go through the test's last window, closed or not.
     func deliverLinkToLittleArc(_ url: URL) throws -> E2ELittleArcWindow?
     /// The open Little Arc windows, oldest first, as they are now.
     func littleArcWindows() throws -> [E2ELittleArcWindowState]
@@ -27,6 +28,33 @@ protocol E2ELittleArcApp: E2EApp {
     func spaceTitle(holding littleArcPage: any E2EPage, in page: any E2EPage) throws -> String?
     /// How many browsers the engine has open or is creating, popups and Little Arc pages included.
     var openBrowsers: Int { get }
+    /// The open browser window whose Space on screen shows `littleArcPage` as its shown tab, as a person sees it, and
+    /// whether it stays off every screen; nil when no open window shows it. A window Open in Bow opened with no
+    /// browser window open is found here too.
+    func browserWindow(showing littleArcPage: any E2EPage) throws -> (state: E2EBrowserWindowState, offScreen: Bool)?
+    /// The page dialog up as a sheet on Little Arc window `window`, nil when none is.
+    func littleArcDialog(in window: E2ELittleArcWindow) throws -> E2EPageDialog?
+    /// True when Little Arc window `window` and the dialog sheet on it both stay off every screen.
+    func littleArcDialogIsOffScreen(in window: E2ELittleArcWindow) throws -> Bool
+    /// Presses OK (true) or Cancel (false) on the dialog sheet of Little Arc window `window`, as a person does.
+    func answerLittleArcDialog(in window: E2ELittleArcWindow, accept: Bool) throws
+    /// The permission prompt anchored to Little Arc window `window`'s page, nil when none shows.
+    func littleArcPermissionPrompt(in window: E2ELittleArcWindow) throws -> E2EPermissionPrompt?
+    /// Chooses the main menu item whose shortcut is `key` with exactly `modifiers` as AppKit sends it while Little Arc
+    /// window `window` is key and the browser window is main: the first object that handles it along Little Arc's
+    /// responder chain and its delegate, then along the browser window's, once it validates. Returns the class of the
+    /// object that took it, or "disabled" when that object refused it, or "none" when nothing handles it.
+    func chooseMenuItem(key: String, modifiers: E2EKeyModifiers, inLittleArc window: E2ELittleArcWindow) throws
+        -> String
+    /// Little Arc window `window`'s address: whether it is being edited (it has the keyboard focus in its window) and
+    /// the text it shows.
+    func littleArcAddress(in window: E2ELittleArcWindow) throws -> (isEditing: Bool, text: String)
+    /// What the app would do now if its last browser window had just closed (stay, quit or wait for downloads),
+    /// decided as the real handler decides it, without the e2e run's own "never quit".
+    func lastWindowClosedDecision() throws -> String
+    /// Makes the next move of Little Arc window `window`'s page fail after its window switched Space, as a window
+    /// refusing the page would.
+    func failNextLittleArcAdopt(in window: E2ELittleArcWindow) throws
 }
 
 /// A Little Arc window a link opened, with the page it shows.

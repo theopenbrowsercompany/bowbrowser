@@ -15,6 +15,12 @@
     document.title = new URLSearchParams(location.search).get("name") || "?";
     window.bowLoadID = String(Math.random()).slice(2) + "-" + Date.now();
     sessionStorage.setItem("bowLoads", String(Number(sessionStorage.getItem("bowLoads") || "0") + 1));
+    // Shows an alert on the next turn, so the call that starts it returns at once; counts each answer.
+    window.alertsAnswered = 0;
+    function startAlert() {
+      setTimeout(() => { alert("Little Arc alert"); window.alertsAnswered += 1; }, 0);
+      return "started";
+    }
     window.addEventListener("beforeunload", event => {
       if (document.querySelector("textarea").value === "") return;
       event.preventDefault();

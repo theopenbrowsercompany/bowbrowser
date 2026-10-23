@@ -31,7 +31,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         /// Told about each link from another app that opened, with its sender and the window it opened in.
         var e2eLinkOpened: ((URL, LinkSource?, BrowserWindowController) -> Void)?  // E2E seam
         /// Opens the window Open in Bow needs with no browser window open, off screen, given how to open it.
-        var e2eOpenWindow: (((BrowserWindow) throws -> BrowserWindowController) throws -> BrowserWindowController)?  // E2E seam
+        typealias E2EWindowOpen = (BrowserWindow) throws -> BrowserWindowController  // E2E seam
+        var e2eOpenWindow: ((E2EWindowOpen) throws -> BrowserWindowController)?  // E2E seam
     #endif
     /// True once the engine has started and windows can open.
     private var engineStarted = false
@@ -253,7 +254,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Space of profile `profileID` (`LittleArc.newWindowSpace`), so the page can move into it. Returns nil, opening
     /// nothing, when that sidebar has no Space of the profile or the window cannot open.
     private func openWindowForLittleArc(profileID: SidebarProfileID) -> BrowserWindowController? {
-        guard let store = lastShownSidebar, let spaceID = LittleArc.newWindowSpace(in: store.graph, profileID: profileID)
+        guard let store = lastShownSidebar,
+            let spaceID = LittleArc.newWindowSpace(in: store.graph, profileID: profileID)
         else { return nil }
         if store.graph.activeSpaceID != spaceID {
             guard (try? store.switchToSpace(spaceID)) != nil else { return nil }

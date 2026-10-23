@@ -21,6 +21,24 @@ extension E2EAppAdapter {
     func closeLittleArc() {
         delegate.appFeatures.require(LittleArcCenter.self).closeAll()
         AppSettings.defaults.set(false, forKey: LittleArcCenter.opensExternalLinksKey)
+        delegate.e2eOpenWindow = nil
+    }
+
+    /// Lets Open in Bow open its window with no browser window open, as the app does, but in an off-screen window
+    /// the test tracks and closes, never on a screen.
+    func allowLittleArcWindows() {
+        delegate.e2eOpenWindow = { [weak self] open in
+            let window = OffscreenBrowserWindow(
+                contentRect: Self.windowFrame, styleMask: BrowserWindowController.styleMask, backing: .buffered,
+                defer: false)
+            let controller = try open(window)
+            self?.trackAppOpenedWindow(controller)
+            // Creating a titled window moves it onto a screen; put it back where it belongs, then order it in
+            // without activating the app or becoming key.
+            window.setFrame(window.frameRect(forContentRect: Self.windowFrame), display: false)
+            window.orderFrontRegardless()
+            return controller
+        }
     }
 
     var littleArcCenter: LittleArcCenter { delegate.appFeatures.require(LittleArcCenter.self) }
@@ -45,16 +63,18 @@ extension E2ETestApp: E2ELittleArcApp {
     func deliverLinkToLittleArc(_ url: URL) throws -> E2ELittleArcWindow? {
         try adapter.requireActive(token, "deliver a link")
         let center = adapter.littleArcCenter
+        adapter.allowLittleArcWindows()
         let before = Set(center.panels.map(ObjectIdentifier.init))
         try E2EAppAdapter.deliver([E2ELink(address: url.absoluteString, sender: true)], delegate: adapter.delegate) {
             _, _, _ in
         }
         guard let panel = center.panels.first(where: { !before.contains(ObjectIdentifier($0)) }) else { return nil }
         guard let tab = panel.tab else { throw E2EError("the new Little Arc window has no page") }
-        // The page's calls need a browser window; it is the one the page can move into. Made before the engine
-        // reports anything about the new page, which it does on later main thread tasks.
-        guard let controller = adapter.delegate.linkWindow() else {
-            throw E2EError("Little Arc opened with no browser window")
+        // The page's calls need a browser window; it is the one the page can move into, else the test's last window
+        // (closed when no window is open). Made before the engine reports anything about the new page, which it does
+        // on later main thread tasks.
+        guard let controller = adapter.delegate.linkWindow() ?? adapter.testControllers.last else {
+            throw E2EError("Little Arc opened with no browser window the test opened")
         }
         let page = adapter.track(tab, in: controller, token: token)
         panel.e2eTabEvent = { [weak page] _, event in page?.tabDidReceive(event) }
@@ -110,7 +130,7 @@ extension E2ETestApp: E2ELittleArcApp {
 
     /// The ANSI key codes of the keys the Little Arc tests press.
     private static let littleArcKeyCodes: [String: UInt16] = [
-        "o": 31, "1": 18, "2": 19, "3": 20, "4": 21,
+        "o": 31, "1": 18, "2": 19, "3": 20, "4": 21, "r": 15, "l": 37, "f": 3,
     ]
 
     func closeLittleArc(_ window: E2ELittleArcWindow) throws {
@@ -154,4 +174,117 @@ extension E2ETestApp: E2ELittleArcApp {
     }
 
     var openBrowsers: Int { adapter.openBrowserCount }
+
+    func browserWindow(showing littleArcPage: any E2EPage) throws -> (state: E2EBrowserWindowState, offScreen: Bool)? {
+        try adapter.requireActive(token, "read the window showing the page")
+        let tab = try E2EAppAdapter.tabPage(littleArcPage).tab
+        guard let controller = adapter.delegate.linkWindow(), controller.selectedTab?.tabID == tab.tabID,
+            controller.webView.isShowing(tab), let window = controller.window
+        else { return nil }
+        let shown = controller.selectedTab.flatMap { controller.modelID(of: $0) }
+        let state = E2EBrowserWindowState(
+            tabs: controller.tabList.tabs.map { "\($0.id)=\($0.url?.absoluteString ?? "")" },
+            shownTab: shown.map { "\($0)" } ?? "none",
+            spaceTitle: controller.activeSpace?.title ?? "none",
+            frame: window.frame,
+            isKey: window.isKeyWindow)
+        let offScreen = !window.isKeyWindow && !NSScreen.screens.contains { $0.frame.intersects(window.frame) }
+        return (state, offScreen)
+    }
+
+    func littleArcDialog(in window: E2ELittleArcWindow) throws -> E2EPageDialog? {
+        try adapter.requireActive(token, "read Little Arc's dialog")
+        let panel = try adapter.littleArcPanel(window)
+        guard let sheet = panel.dialogs.sheet else { return nil }
+        let alert = sheet.alert
+        return E2EPageDialog(
+            title: alert.messageText, message: alert.informativeText, buttons: alert.buttons.map(\.title),
+            field: sheet.field?.stringValue, isAttached: alert.window.sheetParent === panel.window)
+    }
+
+    func littleArcDialogIsOffScreen(in window: E2ELittleArcWindow) throws -> Bool {
+        try adapter.requireActive(token, "read Little Arc's dialog")
+        let panel = try adapter.littleArcPanel(window)
+        guard let sheet = panel.dialogs.sheet else { throw E2EError("no dialog is up on Little Arc") }
+        let frames = [panel.window.frame, sheet.alert.window.frame]
+        return frames.allSatisfy { frame in !NSScreen.screens.contains { $0.frame.intersects(frame) } }
+    }
+
+    func answerLittleArcDialog(in window: E2ELittleArcWindow, accept: Bool) throws {
+        try adapter.requireActive(token, "answer Little Arc's dialog")
+        let panel = try adapter.littleArcPanel(window)
+        guard let sheet = panel.dialogs.sheet else { throw E2EError("no dialog is up on Little Arc") }
+        let buttons = sheet.alert.buttons
+        guard let button = accept ? buttons.first : buttons.dropFirst().first else {
+            throw E2EError("the dialog has no \(accept ? "OK" : "Cancel") button")
+        }
+        button.performClick(nil)
+    }
+
+    func littleArcPermissionPrompt(in window: E2ELittleArcWindow) throws -> E2EPermissionPrompt? {
+        try adapter.requireActive(token, "read Little Arc's permission prompt")
+        let panel = try adapter.littleArcPanel(window)
+        guard let prompt = panel.prompts.visiblePrompt else { return nil }
+        let token = token
+        return E2EPermissionPrompt(
+            kinds: Set(prompt.request.kinds.map(\.rawValue)), message: prompt.message, frame: prompt.frame
+        ) { [weak adapter, weak prompt] allow in
+            try adapter?.requireActive(token, allow ? "allow a permission" : "block a permission")
+            (allow ? prompt?.allowButton : prompt?.blockButton)?.performClick(nil)
+        }
+    }
+
+    func chooseMenuItem(key: String, modifiers: E2EKeyModifiers, inLittleArc window: E2ELittleArcWindow) throws
+        -> String
+    {
+        try adapter.requireActive(token, "choose \(modifiers.shortcut(key)) in Little Arc")
+        let panel = try adapter.littleArcPanel(window)
+        guard let item = E2EAppAdapter.menuItem(key: key, modifiers: modifiers), let action = item.action else {
+            throw E2EError("no menu item has the shortcut \(modifiers.shortcut(key))")
+        }
+        // As NSApp.target(forAction:) looks with Little Arc key and the browser window main: the key window's
+        // responder chain and delegate, then the main window's chain, delegate and controller.
+        var candidates: [AnyObject] = []
+        for nsWindow in [panel.window as NSWindow, adapter.delegate.linkWindow()?.window].compactMap({ $0 }) {
+            var responder: NSResponder? = nsWindow.firstResponder
+            while let current = responder {
+                candidates.append(current)
+                responder = current.nextResponder
+            }
+            for extra in [nsWindow.delegate as AnyObject?, nsWindow.windowController] {
+                if let extra, !candidates.contains(where: { $0 === extra }) { candidates.append(extra) }
+            }
+        }
+        guard let target = candidates.first(where: { $0.responds(to: action) }) else { return "none" }
+        let enabled: Bool
+        if let validator = target as? NSMenuItemValidation {
+            enabled = validator.validateMenuItem(item)
+        } else if let validator = target as? NSUserInterfaceValidations {
+            enabled = validator.validateUserInterfaceItem(item)
+        } else {
+            enabled = true
+        }
+        guard enabled else { return "disabled" }
+        guard NSApp.sendAction(action, to: target, from: item) else {
+            throw E2EError("\"\(item.title)\" could not be sent to \(type(of: target))")
+        }
+        return String(describing: type(of: target))
+    }
+
+    func littleArcAddress(in window: E2ELittleArcWindow) throws -> (isEditing: Bool, text: String) {
+        try adapter.requireActive(token, "read Little Arc's address")
+        let panel = try adapter.littleArcPanel(window)
+        let text = panel.toolbar.host.currentEditor()?.string ?? panel.toolbar.host.stringValue
+        return (panel.isEditingAddress, text)
+    }
+
+    func lastWindowClosedDecision() throws -> String {
+        try adapter.requireActive(token, "read what closing the last window does")
+        return "\(adapter.delegate.lastWindowClosed())"
+    }
+
+    func failNextLittleArcAdopt(in window: E2ELittleArcWindow) throws {
+        try adapter.requireActive(token, "make Little Arc's move fail")
+        try adapter.littleArcPanel(window).e2eFailsAdopt = true
+    }
 }
