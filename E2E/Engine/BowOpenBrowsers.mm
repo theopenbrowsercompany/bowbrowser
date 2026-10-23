@@ -12,4 +12,14 @@
   return static_cast<NSInteger>(BowEngineParkedRequestsRefused(kind.UTF8String));
 }
 
++ (NSInteger)devToolsRequestsForTab:(uint64_t)tabID {
+  return static_cast<NSInteger>(BowEngineDevToolsRequests(tabID, nullptr));
+}
+
++ (CGPoint)devToolsInspectedPointForTab:(uint64_t)tabID {
+  CGPoint point;
+  BowEngineDevToolsRequests(tabID, &point);
+  return point;
+}
+
 @end

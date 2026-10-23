@@ -718,6 +718,19 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
         return .cancel
     }
 
+    func tab(_ tab: any EngineTab, decideContextMenu request: ContextMenuRequest) -> ContextMenuDecision {
+        guard modelID(of: tab) != nil else { return .engineDefault }
+        return features.lazy.compactMap { $0.decideContextMenu(request, for: tab) }.first
+            ?? ContextMenuPolicy.defaultDecision(for: request)
+    }
+
+    func tab(
+        _ tab: any EngineTab, runContextMenuCommand command: ContextMenuCommand, request: ContextMenuRequest
+    ) -> Bool {
+        guard modelID(of: tab) != nil else { return false }
+        return features.contains { $0.runContextMenuCommand(command, request: request, in: tab) }
+    }
+
     /// Lets go of `tab` once its page has closed or the engine unloaded it. A tab the person or its page closed leaves
     /// the sidebar (a pinned tab only unloads and stays); any other keeps its row. An unload is never requested and
     /// has no close reason, so it keeps the row, address and title, and the tab loads again when chosen.

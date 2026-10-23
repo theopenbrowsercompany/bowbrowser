@@ -124,4 +124,20 @@ NS_SWIFT_UI_ACTOR
 
 @end
 
+/// DevTools for a tab's page (BowTabDevTools.mm).
+@interface BowTab (DevTools)
+
+/// Opens DevTools for the page in a window of its own and inspects the element at `point`, in points from the top
+/// left of the view showing the tab. When DevTools is open already it is only focused. DevTools closes when the tab
+/// does, and quitting closes it. Does nothing while the tab has no browser.
+- (void)showDevToolsInspectingPoint:(CGPoint)point NS_SWIFT_NAME(showDevTools(inspectingAt:));
+/// Opens DevTools for the page as `showDevToolsInspectingPoint:` does, inspecting nothing.
+- (void)showDevTools;
+/// Closes the page's DevTools, if open.
+- (void)closeDevTools;
+/// YES while the page's DevTools is open.
+@property(nonatomic, readonly) BOOL hasDevTools;
+
+@end
+
 NS_ASSUME_NONNULL_END

@@ -54,4 +54,10 @@ void BowEngineNoteParkedRequestRefused(const char* kind);
 /// How many UI requests of `kind` pages of closed tabs kept for their downloads were refused so far. Main thread only.
 size_t BowEngineParkedRequestsRefused(const char* kind);
 
+/// Once BowEngineParksPopups has been called, a tab asked to show DevTools records the request instead of opening it:
+/// this engine version opens DevTools only as a window of its own (Chrome style, which takes no parent view), which
+/// would show on screen and activate the app. Returns how many requests the tab with this ID made, and sets
+/// `inspectedPoint` to the point the last one inspected (x and y -1 for none). Main thread only.
+size_t BowEngineDevToolsRequests(uint64_t tabID, CGPoint* inspectedPoint);
+
 #endif  // BOW_E2E

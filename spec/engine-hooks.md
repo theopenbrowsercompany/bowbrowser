@@ -28,6 +28,14 @@ This spec covers what those hooks promise; the features that use them have their
 - Sound: a tab never reports playing sound yet, because the engine version Bow uses gives no signal for it.
 - Camera and microphone: a tab reports while its page uses a camera or a microphone (or captures the screen).
 - Sign in and certificates: a site asking for a user name and password, or a page whose certificate fails to verify, asks the app; with no answer the sign in is cancelled and the page fails with the engine's error page.
+- Context menus: a right click (or Control-click) in a page asks the app what to show, with what is under the pointer: the link and its address, an image's address, the selected text, whether it is a field the person can type in and what that field can do now (undo, cut, copy, paste and so on), the frame's address, the position and the tab's profile.
+  The app answers with its own items, the engine's own menu, or nothing; either menu shows as a native macOS menu at the pointer.
+  With no feature answering, a window shows Bow's own menu, built the way Chromium based browsers and Arc build theirs: Open Link in New Tab and Copy Link Address on a link, Copy Image Address on an image, editing items in a field, Copy on a selection, Back, Forward and Reload on a bare page, and Inspect last.
+  The chosen item goes to the app first and otherwise runs in the engine.
+  Open Link in New Tab opens the link as a new today tab right after the tab, in the background, as a Cmd-click does.
+- DevTools: Inspect opens DevTools for the tab and inspects the element under the pointer.
+  It opens in a window of its own, since the engine version Bow uses supports DevTools only as a Chrome style window, which cannot be docked into Bow's window.
+  DevTools closes with its tab, and quitting closes it.
 
 ## Edge cases
 
@@ -38,6 +46,10 @@ This spec covers what those hooks promise; the features that use them have their
 - A modified click on a link (Cmd-click, also on a `target="_blank"` link) is not a new page request yet: the engine version Bow uses reports it on a different path the app does not handle, so it reaches no feature.
 - A `target="_blank"` link keeps `window.opener` only when it asks for it (`rel="opener"`); otherwise the new page is not connected to its opener, as in every current browser.
 - A window that starts closing between a new page's decision and its arrival takes no new tab; the new tab is closed.
+- A choice made after the page moved to another address, or closed, while its menu was open is dropped.
+- A context menu from a tab the window does not own gets the engine's own menu.
+- Inspect on a tab with no page (closed or unloaded) does nothing.
+- The link text is not part of a context menu request yet: the engine version Bow uses does not report it.
 
 ## Acceptance checks
 
@@ -45,9 +57,13 @@ This spec covers what those hooks promise; the features that use them have their
 2. `engine.key` prints the keys the page saw: `page-down` and `page-up` hold only `j`, never `k`.
 3. Run `make e2e E2E=window`: a `target="_blank"` link clicked in tab A becomes the sidebar tab after A, shown and still connected to A, printing `PASS window.adopt: tabs=[A,B] opener=kept`.
 4. `make test` checks that no app shortcut is claimed by two features.
+5. Run `make e2e E2E=window`: right clicking a link reaches the app with its address, and choosing Open Link in New Tab opens it as the next tab, printing `PASS window.context-menu: link=opened.html tabs=[A,B]` followed by the items shown; choosing Inspect asks the tab's DevTools to inspect the element under the pointer with nothing shown on screen, printing `PASS window.inspect: requests=1 at-element=true`.
+6. `make test` checks Bow's menu for links, images, fields, selections and bare pages.
 
 ## Out of scope
 
 - Sign in, certificate errors and camera or microphone state have no `make e2e` check yet: the test server serves neither a password protected page nor a bad certificate, and no fixture captures media.
 - The keys still held when a script opens a page from a click (`window.open` in a click handler) have no `make e2e` check: test clicks come through DevTools, which holds no real keys; modified link clicks are checked in `popups.md`.
+- DevTools opening and closing with its tab has no `make e2e` check: e2e runs record the request instead, because the DevTools window would show on screen and take focus.
+- Docking DevTools inside the window is later work.
 - Quitting while an unload is pending has no `make e2e` check: quitting ends the run, and the window in which an unload's answer can race the quit is a fraction of a second that a test cannot hold open.

@@ -5,9 +5,10 @@ import BowCore
 /// merges what they report into `TabEvent` values for its one `EngineTabDelegate`. Whoever holds the adapter keeps
 /// receiving events; the page itself lives until it closes, held or not.
 ///
-/// JavaScript dialogs and context menus need answers the BowCore contract has no API for yet, so the adapter leaves
-/// those UI delegate methods out and the engine handles them its own way (its own dialogs, the tab's own "leave
-/// this site?" sheet, its own context menu). Permission requests go to the delegate's `decidePermission`.
+/// JavaScript dialogs need answers the BowCore contract has no API for yet, so the adapter leaves that UI delegate
+/// method out and the engine handles them its own way (its own dialogs, the tab's own "leave this site?" sheet).
+/// Permission requests go to the delegate's `decidePermission`, and context menus to its `decideContextMenu`
+/// (CEFTab+ContextMenu.swift).
 @MainActor
 final class CEFTab: NSObject, EngineTab {
     /// Read only by the host view seam below, never by app logic.
