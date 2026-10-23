@@ -8,8 +8,10 @@
 /// Serves the files in `directory` at `https://bow.test/<path>` for every browser in `context`.
 /// A path ending in `/` serves that folder's `index.html` (for example `/app/` serves `app/index.html`; the
 /// fixtures have one folder per area and no root page). Paths containing `..` and missing files answer 404.
-/// Three reserved prefixes need no file: `/_redirect/<path>` answers 302 Found to `https://bow.test/<path>`,
-/// `/_204/<anything>` answers 204 No Content, and `/_error/<anything>` fails to connect (ERR_CONNECTION_REFUSED).
+/// Reserved prefixes need no file: `/_redirect/<path>` answers 302 Found to `https://bow.test/<path>`,
+/// `/_204/<anything>` answers 204 No Content, `/_error/<anything>` fails to connect (ERR_CONNECTION_REFUSED),
+/// `/_hang/<anything>` never answers, `/_slow/[<bytes>/]<name>` is a slow download, and
+/// `/_held/<key>/<bytes>/<name>` is a download that holds after its first chunk until `key` is released.
 /// BowFixtureServer.serveDirectory calls it for every profile through BowEngineObserveProfileContexts.
 /// Call on the main thread after the engine has started.
 void BowServeFixtures(CefRefPtr<CefRequestContext> context, NSString* _Nonnull directory);

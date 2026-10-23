@@ -210,15 +210,17 @@ struct TabsOrphanClosedTest: E2ETest {
 
 /// Changes a page's title several times after it loaded: the sidebar file is not written for each change, and is
 /// written once, no sooner than the save delay after the first change, holding the last title. Waits first for the
-/// write of the load itself to land and settle, so a slow machine cannot mistake that write for an early one.
+/// write of the load itself to land and settle, so a slow machine cannot mistake that write for an early one. E2e runs
+/// shorten the save delay (E2EAppAdapter), so all of this takes a fraction of a second.
 struct TabsRecordDebouncedTest: E2ETest {
     let name = "tabs.record_debounced"
 
     func run(_ run: E2ERun) async throws {
         let edges = try TabEdgesTests.edges(run)
+        let delay = edges.recordSaveDelay
         let page = try await TabEdgesTests.openWindow(run, "record")
         let settled = try await run.step("wait for the load's write", timeout: E2ETimeouts.step) {
-            // The file stays unchanged for longer than the save delay once the load's own write has landed.
+            // The file holds the loaded page's title, then stays unchanged for a save delay, so no write is pending.
             var last = try edges.sidebarFileModified(of: page)
             var since = Date()
             let found = try await TabEdgesTests.until {
@@ -227,12 +229,13 @@ struct TabsRecordDebouncedTest: E2ETest {
                     last = now
                     since = Date()
                 }
-                return now != nil && Date().timeIntervalSince(since) > edges.recordSaveDelay * 1.5
+                guard now != nil, Date().timeIntervalSince(since) > delay else { return false }
+                return try edges.sidebarFile(of: page).contains("Tab record")
             }
-            guard found else { throw E2EError("the sidebar file never settled") }
+            guard found else { throw E2EError("the sidebar file never settled on the loaded page's title") }
             return last
         }
-        let (start, writes) = try await run.step("change the title", timeout: E2ETimeouts.step) {
+        let (start, lastChange, writes) = try await run.step("change the title", timeout: E2ETimeouts.step) {
             let start = Date()
             var writes: [Date] = []
             var last = settled
@@ -246,23 +249,25 @@ struct TabsRecordDebouncedTest: E2ETest {
             for index in 1...5 {
                 _ = try await page.evaluate("document.title = 'bow-record-\(index)'")
                 try note()
-                try await Task.sleep(nanoseconds: 30_000_000)
+                try await Task.sleep(nanoseconds: 10_000_000)
             }
+            let lastChange = Date().timeIntervalSince(start)
             let written = try await TabEdgesTests.until {
                 try note()
                 return try edges.sidebarFile(of: page).contains("bow-record-5")
             }
             guard written else { throw E2EError("the sidebar file never held the last title") }
-            // Long enough for a second write to show up.
-            try await Task.sleep(nanoseconds: 300_000_000)
+            // A second write would come within a save delay of the change that asked for it.
+            try await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
             try note()
-            return (start, writes)
+            return (start, lastChange, writes)
         }
         let first = writes.first.map { $0.timeIntervalSince(start) } ?? -1
         // A little slack for the file system's clock against this one.
         run.check(
-            name, passed: writes.count == 1 && first >= edges.recordSaveDelay - 0.05,
-            "writes=\(writes.count) first_write_after=\(String(format: "%.2f", first))s")
+            name, passed: writes.count == 1 && first >= delay - 0.05,
+            "writes=\(writes.count) first_write_after=\(String(format: "%.2f", first))s"
+                + " last_change_after=\(String(format: "%.2f", lastChange))s delay=\(delay)s")
     }
 }
 

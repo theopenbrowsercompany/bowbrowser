@@ -9,15 +9,18 @@ enum DownloadsTests {
     ]
 }
 
-/// Opens a slow download of known size in a second tab and closes that tab mid download. The tab leaves at once,
-/// but its browser stays alive, out of sight, so the download goes on to complete (CEF would cancel it with the
-/// browser); while it runs its name stays held. The parked browser closes once the download ends, which the runner's
-/// `e2e.isolation` check sees.
+/// Opens a held download of known size in a second tab and closes that tab mid download: the fixture server sends
+/// its first chunk and holds the rest until the test releases it, so the close provably comes first. The tab leaves
+/// at once, but its browser stays alive, out of sight, so the download goes on to complete once released (CEF would
+/// cancel it with the browser); while it runs its name stays held. The parked browser closes once the download ends,
+/// which the runner's `e2e.isolation` check sees.
 struct DownloadsTabClosedTest: E2ETest {
     let name = "downloads.tab-closed"
     let checks = ["downloads.tab-closed"]
-    /// About six seconds at the fixture's pace (1 KB every 20 ms), so the tab closes well before half of it under load.
-    static let size: Int64 = 320_000
+    static let size: Int64 = 100_000
+    /// The held download whose tab closes, and the second one of the same name that shows its name is taken.
+    static let closedKey = "tab-closed"
+    static let againKey = "tab-closed-again"
 
     func run(_ run: E2ERun) async throws {
         let page = try await run.step("open window", timeout: E2ETimeouts.step) {
@@ -31,7 +34,8 @@ struct DownloadsTabClosedTest: E2ETest {
         let earlier = Set(try await run.app.downloads().map(\.id))
         let closing = try await run.step("start the download in a second tab and close it", timeout: E2ETimeouts.step) {
             let tab = try run.app.openTab(
-                at: E2EFixture.url("_slow/\(Self.size)/tab-closed.bin"), besides: page, select: false)
+                at: E2EFixture.heldDownload(key: Self.closedKey, bytes: Self.size, fileName: "tab-closed.bin"),
+                besides: page, select: false)
             let row = try await waitFor(run) {
                 $0.first {
                     !earlier.contains($0.id) && $0.fileName == "tab-closed.bin" && $0.state == "inProgress"
@@ -54,10 +58,11 @@ struct DownloadsTabClosedTest: E2ETest {
         }
 
         do {
-            try await run.step("follow the download to its end and clear it", timeout: E2ETimeouts.step * 4) {
+            try await run.step("follow the download to its end and clear it", timeout: E2ETimeouts.step) {
                 // While the closed tab's download runs, it holds its name: the same file again is numbered.
                 let again = try run.app.openTab(
-                    at: E2EFixture.url("_slow/\(Self.size)/tab-closed.bin"), besides: page, select: false)
+                    at: E2EFixture.heldDownload(key: Self.againKey, bytes: Self.size, fileName: "tab-closed.bin"),
+                    besides: page, select: false)
                 let next = try await waitFor(run) {
                     $0.first {
                         !earlier.contains($0.id) && $0.id != atClose.id && $0.state == "inProgress"
@@ -68,7 +73,9 @@ struct DownloadsTabClosedTest: E2ETest {
                 _ = try await waitFor(run) { [id = next.id] in $0.first { $0.id == id && $0.state == "cancelled" } }
                 _ = try await run.app.closeTab(again)
 
-                // The download outlives its tab and completes; any other end means its browser was destroyed.
+                // Only now may the closed tab's download finish. It outlives its tab and completes; any other end
+                // means its browser was destroyed.
+                E2EFixture.releaseHeld(Self.closedKey)
                 let done = try await waitFor(run) { [id = atClose.id] rows -> E2EDownload? in
                     guard let row = rows.first(where: { $0.id == id }) else { return nil }
                     return row.state == "inProgress" || row.state == "paused" ? nil : row

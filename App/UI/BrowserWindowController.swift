@@ -63,7 +63,11 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
     /// Writes the sidebar a short while after the last page it recorded, so a page changing its title or address
     /// many times writes the file once. Window close and quit write what is left.
     private var pendingSave: Timer?
-    static let recordSaveDelay: TimeInterval = 1
+    #if BOW_E2E  // E2E seam: e2e runs shorten the delay, so the test of it waits a fraction of a second.
+        static var recordSaveDelay: TimeInterval = 1
+    #else
+        static let recordSaveDelay: TimeInterval = 1
+    #endif
     /// The Space the features were last told is on screen.
     private var shownSpaceID: SidebarSpaceID?
     /// What the New Tab button and New Tab menu item open.
