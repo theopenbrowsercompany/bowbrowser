@@ -119,7 +119,9 @@ enum SpaceProfileMenuItems: SidebarMenuItems {
                 }
                 guard await tab.close() else { break }
             }
-            // Stopped: the pages that closed load again in the Space's own profile, the active one now.
+            // Stopped: the pages that closed load again in the Space's own profile, the active one now. Quitting
+            // loads nothing, so the sidebar keeps its active tab as it was.
+            guard !BowEngine.isQuitting else { return }
             for window in windows(on: store) where !window.isClosing { window.changeSidebar { _ in } }
         }
     }
