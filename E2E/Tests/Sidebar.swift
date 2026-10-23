@@ -61,6 +61,7 @@ enum SidebarWaits {
 /// page without reloading it. Then closes a tab with its row's close button and another with Command-W.
 struct SidebarTabsTest: E2ETest {
     let name = "sidebar.tabs"
+    let checks = ["sidebar.tabs", "sidebar.close"]
 
     func run(_ run: E2ERun) async throws {
         let app = try SidebarWaits.app(run)
