@@ -107,9 +107,9 @@ final class SpaceThemeFeature: NSResponder, BrowserWindowFeature {
 /// (eased in and out, from 0 to 1) to `step`; the last frame is always 1.
 @MainActor
 private final class TintAnimation: NSAnimation {
-    private let step: @MainActor (Double) -> Void
+    private nonisolated let step: @MainActor @Sendable (Double) -> Void
 
-    init(duration: TimeInterval, step: @escaping @MainActor (Double) -> Void) {
+    init(duration: TimeInterval, step: @escaping @MainActor @Sendable (Double) -> Void) {
         self.step = step
         super.init(duration: duration, animationCurve: .easeInOut)
         animationBlockingMode = .nonblocking
@@ -123,6 +123,10 @@ private final class TintAnimation: NSAnimation {
 
     override var currentProgress: NSAnimation.Progress {
         // A nonblocking animation sets its progress from the main run loop.
-        didSet { MainActor.assumeIsolated { step(Double(currentValue)) } }
+        didSet {
+            let value = Double(currentValue)
+            let step = self.step
+            MainActor.assumeIsolated { step(value) }
+        }
     }
 }
