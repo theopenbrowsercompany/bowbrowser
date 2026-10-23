@@ -86,10 +86,10 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
 
     /// The window's tabs as the sidebar lists them: the Favorites the active Space shows, then the active Space's tabs
     /// in sidebar order, with what each page last reported, and the active tab. Saved tabs that have not loaded show
-    /// their saved address and title.
+    /// their saved address and title. An empty Space still lists the Favorites it shows, with no tab active.
     var tabList: TabList {
         let tabs = listedTabIDs.compactMap { runtimeTabs[$0] }
-        // With none active, the Space's first own tab stands in, never a Favorite, so an empty Space stays empty.
+        // With none active, the Space's first own tab stands in, never a Favorite, so an empty Space has none active.
         let active =
             activeItemID.flatMap { runtimeTabs[$0]?.id } ?? activeSpaceTabIDs.first.flatMap { runtimeTabs[$0]?.id }
         return TabList(tabs: tabs, activeID: active) ?? TabList()

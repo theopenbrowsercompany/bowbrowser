@@ -72,17 +72,9 @@ final class EmptySpaceFeature: NSResponder, BrowserWindowFeature {
         }
     }
 
-    /// A quick link: shows the Favorite in place, as clicking its tile in the sidebar does. With no tab active the
-    /// window lists no tabs, so the sidebar's way finds none; the Favorite is then made the active tab through the
-    /// store, which loads its saved address as its page the same way.
+    /// A quick link: shows the Favorite in place, as clicking its tile in the sidebar does.
     private func openFavorite(_ item: SidebarItemID) {
-        guard let window else { return }
-        if window.feature(SidebarFeature.self)?.open(favorite: item) == true { return }
-        let graph = window.store.graph
-        guard let space = graph.activeSpaceID, graph.isInFavorites(item, shownBy: space),
-            graph[item]?.tab?.savedPageURL != nil
-        else { return }
-        _ = window.changeSidebar { try $0.selectTab(item) }
+        window?.feature(SidebarFeature.self)?.open(favorite: item)
     }
 
     /// Loads the active tab the unloaded state stands for, as choosing its row does.

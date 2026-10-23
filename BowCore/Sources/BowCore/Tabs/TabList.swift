@@ -9,8 +9,10 @@ public enum TabInsertion: Equatable, Sendable, Codable {
 
 /// The ordered tabs of one window and which one is active.
 ///
-/// Invariants, kept by every operation and checked when decoding: tab IDs are unique, the active
-/// ID is nil exactly when the list is empty, and otherwise it names a tab in the list.
+/// Invariants, kept by every operation and checked when decoding: tab IDs are unique, and the active ID
+/// is nil or names a tab in the list. An empty list has no active tab; a list with tabs may have none
+/// too, as a window does when its Space on screen has no tab of its own selected but still lists the
+/// Favorites it shows.
 public struct TabList: Equatable, Sendable {
     public private(set) var tabs: [BrowserTab]
     public private(set) var activeID: BrowserTabID?
@@ -20,14 +22,12 @@ public struct TabList: Equatable, Sendable {
         self.activeID = nil
     }
 
-    /// Builds a list from saved tabs. Returns nil when the IDs repeat or `activeID` is not in the
-    /// tabs (or is nil for a non-empty list, or set for an empty one).
+    /// Builds a list from saved tabs, with no active tab when `activeID` is nil. Returns nil when the
+    /// IDs repeat or `activeID` is set but not in the tabs.
     public init?(tabs: [BrowserTab], activeID: BrowserTabID?) {
         guard Set(tabs.map(\.id)).count == tabs.count else { return nil }
-        if tabs.isEmpty {
-            guard activeID == nil else { return nil }
-        } else {
-            guard let activeID, tabs.contains(where: { $0.id == activeID }) else { return nil }
+        if let activeID {
+            guard tabs.contains(where: { $0.id == activeID }) else { return nil }
         }
         self.tabs = tabs
         self.activeID = activeID
@@ -53,7 +53,8 @@ public struct TabList: Equatable, Sendable {
     }
 
     /// Opens a tab. By default it becomes the active tab; pass `activate: false` for a background
-    /// tab. Returns nil, changing nothing, when a tab with the same ID is already in the list.
+    /// tab, which still becomes active when no tab is. Returns nil, changing nothing, when a tab with
+    /// the same ID is already in the list.
     @discardableResult
     public mutating func open(
         _ tab: BrowserTab = BrowserTab(),
@@ -67,7 +68,7 @@ public struct TabList: Equatable, Sendable {
         case .end: position = tabs.count
         }
         tabs.insert(tab, at: position)
-        // The first tab of an empty list is always active, so the invariant holds.
+        // A list with no active tab gets one, as the first tab of an empty list always did.
         if activate || activeID == nil {
             activeID = tab.id
         }
@@ -76,9 +77,9 @@ public struct TabList: Equatable, Sendable {
 
     /// Closes a tab. Returns false when the ID is unknown.
     ///
-    /// Closing a tab that is not active leaves the active tab alone. Closing the active tab selects
-    /// the tab that was right after it, or the one before it when it was last. Closing the only tab
-    /// leaves an empty list with no active tab.
+    /// Closing a tab that is not active leaves the active tab alone (also when no tab is active).
+    /// Closing the active tab selects the tab that was right after it, or the one before it when it
+    /// was last. Closing the only tab leaves an empty list with no active tab.
     @discardableResult
     public mutating func close(_ id: BrowserTabID) -> Bool {
         guard let index = index(of: id) else { return false }
