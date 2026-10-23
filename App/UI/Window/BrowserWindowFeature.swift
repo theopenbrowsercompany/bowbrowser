@@ -65,6 +65,10 @@ protocol BrowserWindowFeature: NSResponder {
     /// answer the load is cancelled and the engine shows its error page.
     func decideCertificateError(_ error: CertificateError, for tab: any EngineTab) async -> CertificateErrorDecision?
 
+    /// The answer to an alert, confirm or prompt from `tab`'s page, or nil to leave it to another feature. With no
+    /// answer the dialog is cancelled. It may take as long as the person needs.
+    func runDialog(_ dialog: PageDialog, for tab: any EngineTab) async -> PageDialogAnswer?
+
     /// What the context menu `tab`'s page asked for shows, or nil to leave it to another feature. Asked
     /// synchronously. With no answer the window shows Bow's own menu (`ContextMenuPolicy.defaultDecision(for:)`).
     func decideContextMenu(_ request: ContextMenuRequest, for tab: any EngineTab) -> ContextMenuDecision?
@@ -96,6 +100,7 @@ extension BrowserWindowFeature {
     func decideCertificateError(_ error: CertificateError, for tab: any EngineTab) async -> CertificateErrorDecision? {
         nil
     }
+    func runDialog(_ dialog: PageDialog, for tab: any EngineTab) async -> PageDialogAnswer? { nil }
     func decideContextMenu(_ request: ContextMenuRequest, for tab: any EngineTab) -> ContextMenuDecision? { nil }
     func runContextMenuCommand(_ command: ContextMenuCommand, request: ContextMenuRequest, in tab: any EngineTab)
         -> Bool
