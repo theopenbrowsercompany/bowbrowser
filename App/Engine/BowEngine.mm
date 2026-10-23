@@ -181,6 +181,11 @@ void BowEngineDidShutDown() {
 
 @interface BowEngine ()
 - (instancetype)initEngine NS_DESIGNATED_INITIALIZER;
+#if BOW_E2E  // E2E seam
+- (BowProfile*)registerSpikeProfileWithID:(NSString*)profileID
+                               persistent:(BOOL)persistent
+                           requestContext:(CefRefPtr<CefRequestContext>)context;
+#endif
 @end
 
 @implementation BowEngine {
@@ -253,6 +258,17 @@ void BowEngineDidShutDown() {
   return _profiles.allValues;
 }
 
+#if BOW_E2E  // E2E seam: spike S2 registers its own contexts.
+- (BowProfile*)registerSpikeProfileWithID:(NSString*)profileID
+                               persistent:(BOOL)persistent
+                           requestContext:(CefRefPtr<CefRequestContext>)context {
+  BowProfile* profile = [[BowProfile alloc] initWithProfileID:profileID persistent:persistent requestContext:context];
+  _profiles[profileID] = profile;
+  for (const auto& observer : gProfileContextObservers) observer(context);
+  return profile;
+}
+#endif
+
 + (int)exitCode {
   return gExitCode;
 }
@@ -303,6 +319,28 @@ bool BowEngineTabIsOpening(uint64_t tabID) {
 void BowEngineObserveProfileContexts(std::function<void(CefRefPtr<CefRequestContext>)> observer) {
   for (BowProfile* profile in [BowEngine.shared allProfiles]) observer(profile.requestContext);
   gProfileContextObservers.push_back(std::move(observer));
+}
+
+BowProfile* BowEngineCreateSpikeProfile(NSString* profileID, NSString* cachePath, NSString* sharedWithID,
+                                        CefRefPtr<CefRequestContextHandler> handler) {
+  BowEngine* engine = BowEngine.shared;
+  if ([engine profileWithID:profileID]) return nil;
+  CefRefPtr<CefRequestContext> context;
+  if (sharedWithID) {
+    BowProfile* other = [engine profileWithID:sharedWithID];
+    if (!other) return nil;
+    context = CefRequestContext::CreateContext(other.requestContext, handler);
+  } else {
+    CefRequestContextSettings settings;
+    if (cachePath) CefString(&settings.cache_path) = cachePath.UTF8String;
+    context = CefRequestContext::CreateContext(settings, handler);
+  }
+  return [engine registerSpikeProfileWithID:profileID persistent:cachePath != nil requestContext:context];
+}
+
+CefRefPtr<CefRequestContext> BowEngineRequestContextForProfile(NSString* profileID) {
+  BowProfile* profile = [BowEngine.shared profileWithID:profileID];
+  return profile ? profile.requestContext : nullptr;
 }
 
 void BowEngineParkPopups() {

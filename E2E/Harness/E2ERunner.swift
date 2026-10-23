@@ -232,7 +232,8 @@ final class E2ERunner {
 
     private static func tests(named selection: String) throws -> [any E2ETest] {
         if selection == "all" { return E2ETests.all }
-        let matching = E2ETests.all.filter { $0.name == selection }
+        // Spike tests run only when named, never with all.
+        let matching = (E2ETests.all + E2ETests.spikes).filter { $0.name == selection }
         guard !matching.isEmpty else {
             let known = E2ETests.all.map(\.name).joined(separator: ", ")
             throw E2EError("--e2e=\(selection) is not a test; use all or one of: \(known)")

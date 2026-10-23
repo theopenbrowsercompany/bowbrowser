@@ -12,6 +12,9 @@
 
 #include "include/cef_browser.h"
 #include "include/cef_request_context.h"
+#include "include/cef_request_context_handler.h"
+
+@class BowProfile;
 
 /// The browser of the open tab with this ID, or null when no open tab has it. Call on the main thread.
 CefRefPtr<CefBrowser> BowEngineBrowserForTabID(uint64_t tabID);
@@ -38,5 +41,15 @@ bool BowEngineParksPopups();
 /// page can ask.
 void BowEngineAnswerLeavePrompts(
     std::function<void(uint64_t tabID, bool isReload, std::function<void(bool leave)> answer)> answerer);
+
+/// Spike S2 only: creates and registers a profile like createProfileWithID, but with an explicit `cachePath` (nil
+/// keeps it in memory, any path is passed to Chromium unchecked), or sharing storage with the existing profile
+/// `sharedWithID` through CefRequestContext::CreateContext(other, handler), and with `handler`. Nil when the ID is
+/// taken or the shared profile does not exist. Call on the main thread.
+BowProfile* BowEngineCreateSpikeProfile(NSString* profileID, NSString* cachePath, NSString* sharedWithID,
+                                        CefRefPtr<CefRequestContextHandler> handler);
+
+/// Spike S2 only: the request context of the profile with this ID, or null.
+CefRefPtr<CefRequestContext> BowEngineRequestContextForProfile(NSString* profileID);
 
 #endif  // BOW_E2E

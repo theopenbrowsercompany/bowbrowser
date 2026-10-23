@@ -61,6 +61,57 @@ final class E2EAppAdapter: E2EApp {
         return page
     }
 
+    /// Spike S2: one off-screen window showing one page per existing profile, side by side, `urls[i]` in
+    /// `profileIDs[i]`. Each page gets its own window controller (one profile each); every controller but the
+    /// first keeps a window that is never ordered in, and its web view moves into the first window.
+    func openSplitWindow(at urls: [URL], profileIDs: [String]) async throws -> [any E2EPage] {
+        var controllers: [BrowserWindowController] = []
+        var opened: [any E2EPage] = []
+        for (url, id) in zip(urls, profileIDs) {
+            guard let profile = delegate.engine.profile(id: ProfileID(id)) else {
+                throw E2EError("no profile \(id)")
+            }
+            let window = OffscreenBrowserWindow(
+                contentRect: Self.windowFrame,
+                styleMask: BrowserWindowController.styleMask,
+                backing: .buffered,
+                defer: false
+            )
+            let controller = delegate.openWindow(url: url, profile: profile, window: window)
+            controller.onTabEvent = { [weak self] tab, event in
+                self?.pages[tab.tabID]?.tabDidReceive(event)
+                if event == .closed { self?.pages[tab.tabID] = nil }
+            }
+            controller.navigationPolicy = { [weak self] tab, navigation in
+                self?.pages[tab.tabID]?.decidePolicy(for: navigation) ?? .allow
+            }
+            guard let tab = controller.selectedTab else { throw E2EError("the window opened without a tab") }
+            opened.append(track(tab, in: controller))
+            controllers.append(controller)
+        }
+        guard let host = controllers.first?.window else { throw E2EError("no window") }
+        let size = Self.windowFrame.size
+        let container = NSView(frame: NSRect(origin: .zero, size: size))
+        let width = (size.width / CGFloat(controllers.count)).rounded(.down)
+        for (index, controller) in controllers.enumerated() {
+            let webView = controller.webView
+            controller.window?.contentView = NSView()
+            webView.frame = NSRect(x: width * CGFloat(index), y: 0, width: width, height: size.height)
+            webView.autoresizingMask = [.height]
+            container.addSubview(webView)
+        }
+        host.contentView = container
+        for controller in controllers {
+            guard let window = controller.window else { continue }
+            window.setFrame(window.frameRect(forContentRect: Self.windowFrame), display: false)
+            try await Self.checkInvisible(window)
+        }
+        host.orderFrontRegardless()
+        try await Self.checkInvisible(host)
+        lastOpenedPage = opened.first
+        return opened
+    }
+
     func openTab(at url: URL, besides page: any E2EPage, select: Bool) throws -> any E2EPage {
         let controller = try Self.tabPage(page).controller
         let tab = controller.openTab(url: url, select: select)

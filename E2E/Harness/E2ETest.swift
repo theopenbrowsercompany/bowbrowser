@@ -14,6 +14,8 @@ enum E2ETests {
     /// Every test, in the order `--e2e=all` runs them. Add each area's tests here.
     static let all: [any E2ETest] =
         AppTests.all + SandboxTests.all + InputTests.all + TabsTests.all + ProfilesTests.all + NavigationTests.all
+    /// Spike tests, run only when `--e2e=<name>` names one.
+    static let spikes: [any E2ETest] = SpikeS2Tests.all
 }
 
 /// Step timeouts shared by tests.
