@@ -4,7 +4,72 @@ import Foundation
 /// Fixtures in E2E/Fixtures/tabs/.
 @MainActor
 enum TabsTests {
-    static let all: [any E2ETest] = [TabsSwitchTest(), TabsCloseWindowTest()]
+    static let all: [any E2ETest] = [TabsSwitchTest(), TabsBeforeUnloadTest(), TabsCloseWindowTest()]
+}
+
+/// Closes a tab whose page has an unsaved draft and a beforeunload handler: staying at the leave prompt keeps the
+/// tab and the same live page, and closing again and leaving closes it. Then closes a tab whose page has no
+/// handler, which closes at once without a prompt. The harness answers each prompt, so none shows on screen.
+struct TabsBeforeUnloadTest: E2ETest {
+    let name = "tabs.beforeunload"
+
+    func run(_ run: E2ERun) async throws {
+        let plain = try await run.step("open window", timeout: E2ETimeouts.step) {
+            try await run.app.openWindow(at: E2EFixture.url("tabs/counter.html?name=plain"))
+        }
+        let draft = try await run.step("open draft tab", timeout: E2ETimeouts.firstLoad) {
+            _ = try await plain.waitForLoad(after: 0)
+            let draft = try run.app.openTab(at: E2EFixture.url("tabs/leave.html"), besides: plain, select: true)
+            let status = try await draft.waitForLoad(after: 0)
+            guard status == 200 else { throw E2EError("the draft tab loaded with status \(status)") }
+            return draft
+        }
+        // Chromium asks before leaving only a page the person has interacted with.
+        let loadID = try await run.step("type a draft", timeout: E2ETimeouts.step) {
+            try await draft.click("textarea")
+            try await draft.type("unsaved words")
+            guard try await draft.evaluate("navigator.userActivation.hasBeenActive") as? Bool == true else {
+                throw E2EError("the page has no user activation after typing")
+            }
+            return try await draft.string("window.bowLoadID")
+        }
+        let loads = draft.finishedLoads
+
+        let stay = try await run.step("close and stay", timeout: E2ETimeouts.step) {
+            draft.leavePromptAnswer = false
+            let closed = try await run.app.closeTab(draft)
+            var problems: [String] = []
+            if closed || draft.isClosed { problems.append("the tab closed") }
+            if draft.leavePrompts != 1 { problems.append("prompts=\(draft.leavePrompts)") }
+            if !problems.isEmpty { return problems.joined(separator: ", ") }
+            if !draft.isShown { problems.append("the tab is no longer shown") }
+            if try await draft.string("window.bowLoadID") != loadID { problems.append("a new document") }
+            if draft.finishedLoads != loads { problems.append("loads \(loads) to \(draft.finishedLoads)") }
+            let text = try await draft.string("document.querySelector('textarea').value")
+            if text != "unsaved words" { problems.append("the draft reads \"\(text)\"") }
+            return problems.isEmpty ? "kept" : problems.joined(separator: ", ")
+        }
+        let leave = try await run.step("close and leave", timeout: E2ETimeouts.step) {
+            draft.leavePromptAnswer = true
+            let closed = try await run.app.closeTab(draft)
+            var problems: [String] = []
+            if !closed || !draft.isClosed { problems.append("the tab stayed open") }
+            if draft.leavePrompts != 2 { problems.append("prompts=\(draft.leavePrompts)") }
+            return problems.isEmpty ? "closed" : problems.joined(separator: ", ")
+        }
+        run.check(name, passed: stay == "kept" && leave == "closed", "stay=\(stay) leave=\(leave)")
+
+        try await run.step("close a tab without a handler", timeout: E2ETimeouts.step) {
+            let neighbor = plain.isShown ? "shown" : "hidden"
+            let closed = try await run.app.closeTab(plain) && plain.isClosed
+            let passed = neighbor == "shown" && closed && plain.leavePrompts == 0
+            run.check(
+                "tabs.close",
+                passed: passed,
+                "neighbor=\(neighbor) closed=\(closed) prompts=\(plain.leavePrompts)"
+            )
+        }
+    }
 }
 
 /// Closes a window holding three tabs, one shown and two parked, and checks that every tab closes and the window

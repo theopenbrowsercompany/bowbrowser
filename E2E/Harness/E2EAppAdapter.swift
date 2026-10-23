@@ -2,7 +2,7 @@ import AppKit
 import BowCore
 
 // The only e2e file that knows the app's engine (the BowCore protocols the app drives it through), the window
-// controllers and the bridge's BowDevToolsSession. When those change shape, rewrite this file to keep E2EApp and
+// controllers and the bridge's BowDevToolsSession and BowLeavePrompts. When those change shape, rewrite this file to keep E2EApp and
 // E2EPage working; tests stay as they are.
 
 @MainActor
@@ -18,6 +18,13 @@ final class E2EAppAdapter: E2EApp {
 
     init(delegate: AppDelegate) {
         self.delegate = delegate
+        // The tabs' own leave prompts go to their pages instead of the screen. A tab with no page (a popup) leaves.
+        BowLeavePrompts.answer { [weak self] tabID, _, answer in
+            MainActor.assumeIsolated {
+                guard let page = self?.pages[TabID(rawValue: tabID)] else { return answer(true) }
+                answer(page.answerLeavePrompt())
+            }
+        }
     }
 
     func openWindow(at url: URL, newProfile profile: E2EProfile?) async throws -> any E2EPage {
@@ -71,6 +78,11 @@ final class E2EAppAdapter: E2EApp {
         let page = try Self.tabPage(page)
         page.controller.select(page.tab)
         guard page.isShown else { throw E2EError("tab \(page.tab.tabID) is not shown after selecting it") }
+    }
+
+    func closeTab(_ page: any E2EPage) async throws -> Bool {
+        let page = try Self.tabPage(page)
+        return await page.controller.closeTab(page.tab)
     }
 
     func closeWindow(of page: any E2EPage) async throws {
@@ -138,6 +150,14 @@ private final class TabPage: E2EPage {
     private var loadWaiters: [(load: Int, continuation: CheckedContinuation<Int, Error>)] = []
     private(set) var navigationEvents: [E2ENavigationEvent] = []
     var navigationPolicy: ((URL) -> Bool)?
+    var leavePromptAnswer = true
+    private(set) var leavePrompts = 0
+
+    /// Counts a leave prompt the page's tab asked and returns its answer.
+    func answerLeavePrompt() -> Bool {
+        leavePrompts += 1
+        return leavePromptAnswer
+    }
 
     init(tab: any EngineTab, controller: BrowserWindowController) {
         self.tab = tab

@@ -14,6 +14,9 @@ protocol E2EApp: AnyObject {
     func openTab(at url: URL, besides page: any E2EPage, select: Bool) throws -> any E2EPage
     /// Selects the tab `page` is in, showing it in its window.
     func select(_ page: any E2EPage) throws
+    /// Closes the tab `page` is in, running its page's beforeunload handler. Returns true once the tab has closed,
+    /// and false when the page's leave prompt was answered with stay (see `E2EPage.leavePromptAnswer`).
+    func closeTab(_ page: any E2EPage) async throws -> Bool
     /// Closes the window `page` is in the way its close button does, and returns once the window has closed.
     func closeWindow(of page: any E2EPage) async throws
     /// The first page of the window opened last, which the run's final.png shows when that page is still the one
@@ -56,6 +59,11 @@ protocol E2EPage: AnyObject {
     /// Asked before every main frame navigation and redirect, with its URL: false cancels it, and the canceled
     /// navigation reports no events. Nil allows every navigation.
     var navigationPolicy: ((URL) -> Bool)? { get set }
+    /// How the page's "leave this site?" prompt is answered when its beforeunload handler asks: true leaves (the
+    /// default, so quitting never waits on a prompt), false stays. The prompt never shows on screen.
+    var leavePromptAnswer: Bool { get set }
+    /// How many leave prompts the page's tab has asked so far.
+    var leavePrompts: Int { get }
     /// Calls a Chrome DevTools protocol method and returns its result object.
     func devTools(_ method: String, _ params: [String: Any]) async throws -> [String: Any]
     /// The view that shows the page's web content, for screenshots; nil while another tab of its window is shown

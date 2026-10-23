@@ -26,6 +26,10 @@ NSURL* _Nullable ToNSURL(const CefString& value) {
 // Tab IDs are unique for the life of the engine and never reused.
 uint64_t gNextTabID = 1;
 
+#if BOW_E2E  // E2E seam: set by BowEngineAnswerLeavePrompts, so e2e runs answer leave prompts off screen.
+std::function<void(uint64_t, bool, std::function<void(bool)>)> gLeavePromptAnswerer;
+#endif
+
 // The text of the ERR_ABORTED failures the tab reports itself, matching how the engine names its errors.
 NSString* const kAbortedText = @"ERR_ABORTED";
 
@@ -1001,6 +1005,16 @@ class BowTabClient : public CefClient,
 // The tab's own "leave this site?" prompt, used when the UI delegate takes no dialogs: a sheet on the window
 // showing the tab, or a free-floating alert while the tab is detached.
 - (void)runLeavePrompt:(BowJSDialogRequest*)request answer:(void (^)(BOOL, NSString* _Nullable))answer {
+#if BOW_E2E  // E2E seam: an e2e run answers the prompt itself instead of showing it, outside the CEF callback.
+  if (gLeavePromptAnswerer) {
+    const uint64_t tabID = self.tabID;
+    const bool isReload = request.isReload;
+    dispatch_async(dispatch_get_main_queue(), ^{
+      gLeavePromptAnswerer(tabID, isReload, [answer](bool leave) { answer(leave, nil); });
+    });
+    return;
+  }
+#endif
   NSAlert* alert = [[NSAlert alloc] init];
   alert.messageText = request.isReload ? @"Reload this site?" : @"Leave this site?";
   alert.informativeText = @"Changes you made may not be saved.";
@@ -1122,3 +1136,10 @@ class BowTabClient : public CefClient,
 }
 
 @end
+
+#if BOW_E2E  // E2E seam: the leave prompt hook declared in BowE2EHooks.h.
+void BowEngineAnswerLeavePrompts(
+    std::function<void(uint64_t tabID, bool isReload, std::function<void(bool leave)> answer)> answerer) {
+  gLeavePromptAnswerer = std::move(answerer);
+}
+#endif

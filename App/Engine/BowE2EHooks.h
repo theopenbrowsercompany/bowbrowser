@@ -30,4 +30,12 @@ void BowEngineParkPopups();
 /// True once BowEngineParkPopups has been called.
 bool BowEngineParksPopups();
 
+/// From now on, a tab's own "leave this site?" prompt (shown when its UI delegate takes no JavaScript dialogs) is
+/// never put on screen: `answerer` is called instead, on a later main thread task, with the tab's ID and whether
+/// the page is being reloaded, and must call `answer` exactly once, on the main thread, with true to leave or false
+/// to stay. Everything around the prompt (cancelling the close or quit on stay) runs as usual. Call on the main
+/// thread.
+void BowEngineAnswerLeavePrompts(
+    std::function<void(uint64_t tabID, bool isReload, std::function<void(bool leave)> answer)> answerer);
+
 #endif  // BOW_E2E
