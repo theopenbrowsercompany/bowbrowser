@@ -26,6 +26,26 @@ enum AppSettings {
     static let windowLayoutChanged = Notification.Name("dev.bowbrowser.window-layout-changed")
     static let windowLayoutKey = "windowLayout"
 
+    static let peekShiftClickKey = "peekOnShiftClick"
+    static let peekOffSiteLinksKey = "peekOffSiteLinks"
+
+    /// Arc's two Peek settings (Settings > Links in Arc), both on until the person turns one off; kept across
+    /// launches and read at each click, so every window follows at once.
+    static var peekSettings: PeekSettings {
+        get {
+            let defaults = PeekSettings.arcDefault
+            return PeekSettings(
+                shiftClickOpensPeek: self.defaults.object(forKey: peekShiftClickKey) as? Bool
+                    ?? defaults.shiftClickOpensPeek,
+                offSiteLinksOpenPeek: self.defaults.object(forKey: peekOffSiteLinksKey) as? Bool
+                    ?? defaults.offSiteLinksOpenPeek)
+        }
+        set {
+            defaults.set(newValue.shiftClickOpensPeek, forKey: peekShiftClickKey)
+            defaults.set(newValue.offSiteLinksOpenPeek, forKey: peekOffSiteLinksKey)
+        }
+    }
+
     /// Where windows keep their tabs: the sidebar (the default) or the top tabs layout, chosen with View > Use Top
     /// Tabs. One setting for every window, kept across launches.
     static var windowLayout: WindowLayout {

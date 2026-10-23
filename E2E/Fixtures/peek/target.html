@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>B</title>
+  <style>
+    body { margin: 0; font: 16px -apple-system, sans-serif; background: #fff; color: #111; }
+    h1 { margin: 0; padding: 24px; background: #15803d; color: #fff; }
+    textarea { display: block; margin: 24px; width: 480px; height: 120px; font: inherit; }
+  </style>
+  <script>
+    // bowLoadID changes with every new document, and bowLoads counts this tab's loads of the page (sessionStorage
+    // lives as long as the tab), so a reload after moving the page into a tab shows up either way. Once something is
+    // typed the page asks before it goes away.
+    window.bowLoadID = String(Math.random()).slice(2) + "-" + Date.now();
+    sessionStorage.bowLoads = String(Number(sessionStorage.bowLoads || 0) + 1);
+    window.bowLoads = Number(sessionStorage.bowLoads);
+    window.addEventListener("beforeunload", event => {
+      if (document.querySelector("textarea").value === "") return;
+      event.preventDefault();
+      event.returnValue = "";
+    });
+  </script>
+</head>
+<body>
+  <h1>B</h1>
+  <textarea placeholder="Type to leave an unsaved draft"></textarea>
+</body>
+</html>

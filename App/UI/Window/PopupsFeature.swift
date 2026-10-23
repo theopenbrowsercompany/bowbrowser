@@ -8,7 +8,8 @@ import BowCore
 /// A link meant for a new tab and a script's `window.open` after a click arrive as popups with `window.opener` kept; a
 /// Cmd-click, Cmd-Shift-click, Shift-click or middle click on a link arrives the same way without an opener. A sized
 /// popup or an identity provider's sign in page is answered `.popupPanel`, which `PopupPanelFeature` takes, and a page
-/// that opens one without a click opens nothing. New kinds of answer (Peek) go into `PopupDecision`.
+/// that opens one without a click opens nothing. A Shift-click is answered `.peek` (under the Peek settings), which
+/// `PeekFeature` takes.
 @MainActor
 final class PopupsFeature: NSResponder, BrowserWindowFeature {
     private weak var window: BrowserWindowController?
@@ -25,13 +26,20 @@ final class PopupsFeature: NSResponder, BrowserWindowFeature {
 
     func decidePopup(_ request: PopupRequest, from tab: any EngineTab) -> PopupDecision? {
         guard let window else { return nil }
-        return PopupPolicy.outcome(for: request, openerZone: Self.zone(of: tab, in: window)).decision
+        return PopupPolicy.outcome(for: request, openerZone: Self.zone(of: tab, in: window), peek: peek(in: window))
+            .decision
+    }
+
+    /// The Peek settings and whether the window shows a Peek, which decide a Shift-click (`PeekFeature` takes a Peek).
+    private func peek(in window: BrowserWindowController) -> PeekContext {
+        window.feature(PeekFeature.self)?.context ?? PeekContext(settings: AppSettings.peekSettings)
     }
 
     func didOpenPopup(_ newTab: any EngineTab, from tab: any EngineTab, request: PopupRequest) -> Bool {
         guard let window else { return false }
         // The same pure policy answered the decision a moment ago, so it gives the same outcome now.
-        let outcome = PopupPolicy.outcome(for: request, openerZone: Self.zone(of: tab, in: window))
+        let outcome = PopupPolicy.outcome(
+            for: request, openerZone: Self.zone(of: tab, in: window), peek: peek(in: window))
         let select: Bool
         switch outcome.decision {
         case .foregroundTab: select = true

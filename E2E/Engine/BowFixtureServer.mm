@@ -22,6 +22,8 @@
 namespace {
 
 const char kFixtureHost[] = "bow.test";
+// The same files at a second host, another site than bow.test, for tests of links that leave a site (Peek).
+const char kOtherSiteHost[] = "other.bow.test";
 
 const char kNotFoundBody[] = "Not found";
 
@@ -412,6 +414,7 @@ class FixtureHandlerFactory : public CefSchemeHandlerFactory {
 void BowServeFixtures(CefRefPtr<CefRequestContext> context, NSString* directory) {
   std::string root = directory.stringByStandardizingPath.UTF8String;
   context->RegisterSchemeHandlerFactory("https", kFixtureHost, new FixtureHandlerFactory(root));
+  context->RegisterSchemeHandlerFactory("https", kOtherSiteHost, new FixtureHandlerFactory(root));
 }
 
 @implementation BowFixtureServer

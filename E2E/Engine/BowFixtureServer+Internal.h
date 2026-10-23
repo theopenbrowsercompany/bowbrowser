@@ -5,7 +5,8 @@
 
 #include "include/cef_request_context.h"
 
-/// Serves the files in `directory` at `https://bow.test/<path>` for every browser in `context`.
+/// Serves the files in `directory` at `https://bow.test/<path>` for every browser in `context`, and the same files at
+/// `https://other.bow.test/<path>`, another site, for tests of links that leave a site.
 /// A path ending in `/` serves that folder's `index.html` (for example `/app/` serves `app/index.html`; the
 /// fixtures have one folder per area and no root page). Paths containing `..` and missing files answer 404.
 /// Reserved prefixes need no file: `/_redirect/<path>` answers 302 Found to `https://bow.test/<path>`,

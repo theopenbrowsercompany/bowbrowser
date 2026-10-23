@@ -97,6 +97,11 @@ enum E2EFixture {
     static func url(_ path: String) -> URL {
         URL(string: "https://bow.test/\(path)")!
     }
+
+    /// The same fixture at `https://other.bow.test/`, which serves the same files as another site.
+    static func otherSiteURL(_ path: String) -> URL {
+        URL(string: "https://other.bow.test/\(path)")!
+    }
 }
 
 /// Waits and assertions shared by tests. Every wait gives up on its own shortly before the running step's limit,
