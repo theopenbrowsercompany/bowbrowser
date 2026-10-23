@@ -8,6 +8,7 @@ enum E2EAreas {
         SandboxTests.all,
         InputTests.all,
         TabsTests.all,
+        TabEdgesTests.all,
         ProfilesTests.all,
         NavigationTests.all,
         FindTests.all,

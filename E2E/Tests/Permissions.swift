@@ -6,7 +6,7 @@ import Foundation
 /// Fixtures in E2E/Fixtures/permissions/.
 @MainActor
 enum PermissionsTests {
-    static let all: [any E2ETest] = [PermissionsPromptTest()]
+    static let all: [any E2ETest] = [PermissionsPromptTest(), PermissionsPerProfileTest()]
 }
 
 /// Asks for the camera in the default profile, allows it at the prompt and checks the page gets a live track; asks
@@ -79,9 +79,63 @@ struct PermissionsPromptTest: E2ETest {
     }
 
     /// The prompt is a window of its own; like the browser window, it must never show on a screen.
-    private static func checkOffScreen(_ prompt: E2EPermissionPrompt) throws {
+    static func checkOffScreen(_ prompt: E2EPermissionPrompt) throws {
         if let screen = NSScreen.screens.first(where: { $0.frame.intersects(prompt.frame) }) {
             throw E2EError("the permission prompt at \(prompt.frame) shows on screen \(screen.frame)")
         }
+    }
+}
+
+/// Opens a window on a personal profile and, in the same window, a Space on a work profile. The camera allowed in the
+/// work Space's tab is remembered for the work profile only: the personal Space's tab is asked again, since each tab
+/// reads and writes its own profile's answers.
+struct PermissionsPerProfileTest: E2ETest {
+    let name = "permissions.per_profile"
+
+    func run(_ run: E2ERun) async throws {
+        guard let edges = (run.app as? any E2EWindowEdgesApp)?.windowEdges else {
+            throw E2EError("the app has no window edges to drive")
+        }
+        let url = E2EFixture.url("permissions/index.html")
+        let personal = try await run.step("open windows", timeout: E2ETimeouts.firstLoad) {
+            // The work window only creates the work profile; the personal window then shows it in a second Space.
+            let work = try await run.app.openWindow(
+                at: url, newProfile: E2EProfile(id: "e2e-work", isPersistent: false))
+            _ = try await work.waitForLoad(after: 0)
+            try await run.app.closeWindow(of: work)
+            let personal = try await run.app.openWindow(
+                at: url, newProfile: E2EProfile(id: "e2e-personal", isPersistent: false))
+            _ = try await personal.waitForLoad(after: 0)
+            return personal
+        }
+        let work = try await run.step("open the work Space", timeout: E2ETimeouts.firstLoad) {
+            _ = try edges.createSpace(besides: personal, profileID: "e2e-work")
+            let work = try edges.openTab(at: url, besides: personal)
+            _ = try await work.waitForLoad(after: 0)
+            return work
+        }
+        let granted = try await run.step("allow in the work Space", timeout: E2ETimeouts.step) {
+            _ = try await work.evaluate("startCamera()")
+            let prompt = try await work.waitForPermissionPrompt()
+            try PermissionsPromptTest.checkOffScreen(prompt)
+            try prompt.answer(true)
+            return try await work.string("window.cameraResult")
+        }
+        let asked = try await run.step("ask in the personal Space", timeout: E2ETimeouts.step) {
+            try run.app.select(personal)
+            _ = try await personal.evaluate("startCamera()")
+            // A prompt means the personal profile was asked; a remembered answer settles without one.
+            while true {
+                if let prompt = personal.permissionPrompt {
+                    try prompt.answer(false)
+                    return "asked"
+                }
+                let settled = try await personal.string(
+                    "Promise.race([window.cameraResult, new Promise((r) => setTimeout(() => r('pending'), 50))])")
+                if settled != "pending" { return "not asked (\(settled))" }
+            }
+        }
+        run.check(
+            name, passed: granted == "granted" && asked == "asked", "work=\(granted) personal=\(asked)")
     }
 }
