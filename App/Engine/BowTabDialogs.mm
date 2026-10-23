@@ -20,7 +20,7 @@ bool BowTabClient::OnJSDialog(CefRefPtr<CefBrowser> browser,
                               const CefString& defaultPromptText,
                               CefRefPtr<CefJSDialogCallback> callback,
                               bool& suppressMessage) {
-  if (browser->IsPopup() || ![tab_ takesUIRequest:@selector(tab:runJavaScriptDialog:completionHandler:)]) {
+  if (!IsOwn(browser) || ![tab_ takesUIRequest:@selector(tab:runJavaScriptDialog:completionHandler:)]) {
     return false;
   }
   BowJSDialogKind kind = BowJSDialogKindAlert;
@@ -41,7 +41,7 @@ bool BowTabClient::OnBeforeUnloadDialog(CefRefPtr<CefBrowser> browser,
                                         const CefString& messageText,
                                         bool isReload,
                                         CefRefPtr<CefJSDialogCallback> callback) {
-  if (browser->IsPopup()) return false;
+  if (!IsOwn(browser)) return false;
   BowJSDialogRequest* request = [[BowJSDialogRequest alloc] initWithKind:BowJSDialogKindBeforeUnload
                                                                originURL:nil
                                                                  message:BowToNSString(messageText)
@@ -72,9 +72,18 @@ bool BowTabClient::OnBeforeUnloadDialog(CefRefPtr<CefBrowser> browser,
     callback->Continue(leave, CefString());
     // Staying on a reload prompt keeps the page; it says nothing about a pending close.
     if (!leave && !isReload && browser && BowEngineBrowserCloseCancelled(browser)) {
-      [weakSelf finishCloseCompletions:NO];
+      BowTab* tab = weakSelf;
+      if (tab) tab->_unloading = NO;
+      [tab finishCloseCompletions:NO];
     }
   };
+  if (_unloading && !isReload) {
+    // An unload never prompts: a page that would ask to stay keeps its tab loaded. Answered outside the callback.
+    dispatch_async(dispatch_get_main_queue(), ^{
+      answer(NO, nil);
+    });
+    return;
+  }
   if (![self takesUIRequest:@selector(tab:runJavaScriptDialog:completionHandler:)]) {
     [self runLeavePrompt:request answer:answer];
     return;

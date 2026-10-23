@@ -1,8 +1,8 @@
-// The tab's CefDisplayHandler: title, address, favicon and fullscreen.
+// The tab's CefDisplayHandler: title, address, favicon, fullscreen and camera and microphone use.
 #import "BowTab+Internal.h"
 
 void BowTabClient::OnTitleChange(CefRefPtr<CefBrowser> browser, const CefString& title) {
-  if (browser->IsPopup()) return;
+  if (!IsOwn(browser)) return;
   NSString* newTitle = BowToNSString(title);
   [tab_ updateState:^(NSURL* __strong*, NSString* __strong* title, NSURL* __strong*, BOOL*, BOOL*, BOOL*) {
     *title = newTitle;
@@ -12,7 +12,7 @@ void BowTabClient::OnTitleChange(CefRefPtr<CefBrowser> browser, const CefString&
 void BowTabClient::OnAddressChange(CefRefPtr<CefBrowser> browser,
                                    CefRefPtr<CefFrame> frame,
                                    const CefString& url) {
-  if (browser->IsPopup() || !frame->IsMain()) return;
+  if (!IsOwn(browser) || !frame->IsMain()) return;
   NSURL* newURL = BowToNSURL(url);
   [tab_ updateState:^(NSURL* __strong* url, NSString* __strong*, NSURL* __strong*, BOOL*, BOOL*, BOOL*) {
     *url = newURL;
@@ -20,7 +20,7 @@ void BowTabClient::OnAddressChange(CefRefPtr<CefBrowser> browser,
 }
 
 void BowTabClient::OnFaviconURLChange(CefRefPtr<CefBrowser> browser, const std::vector<CefString>& iconURLs) {
-  if (browser->IsPopup()) return;
+  if (!IsOwn(browser)) return;
   NSURL* newFaviconURL = iconURLs.empty() ? nil : BowToNSURL(iconURLs.front());
   [tab_ updateState:^(NSURL* __strong*, NSString* __strong*, NSURL* __strong* faviconURL, BOOL*, BOOL*, BOOL*) {
     *faviconURL = newFaviconURL;
@@ -28,8 +28,13 @@ void BowTabClient::OnFaviconURLChange(CefRefPtr<CefBrowser> browser, const std::
 }
 
 void BowTabClient::OnFullscreenModeChange(CefRefPtr<CefBrowser> browser, bool fullscreen) {
-  if (browser->IsPopup()) return;
+  if (!IsOwn(browser)) return;
   [tab_ fullscreenChanged:fullscreen];
+}
+
+void BowTabClient::OnMediaAccessChange(CefRefPtr<CefBrowser> browser, bool hasVideoAccess, bool hasAudioAccess) {
+  if (!IsOwn(browser)) return;
+  [tab_ mediaCaptureChangedVideo:hasVideoAccess audio:hasAudioAccess];
 }
 
 @implementation BowTab (Display)

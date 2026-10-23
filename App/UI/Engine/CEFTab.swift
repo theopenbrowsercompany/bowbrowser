@@ -46,6 +46,17 @@ final class CEFTab: NSObject, EngineTab {
         }
     }
 
+    func unload() async -> Bool {
+        await withCheckedContinuation { continuation in
+            tab.unload { unloaded in
+                continuation.resume(returning: unloaded)
+            }
+        }
+    }
+
+    var zoomLevel: Double { tab.zoomLevel }
+    func setZoomLevel(_ level: Double) { tab.zoomLevel = level }
+
     func send(_ event: TabEvent) {
         delegate?.tab(self, didReceive: event)
     }

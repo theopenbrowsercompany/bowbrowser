@@ -1,4 +1,4 @@
-// The tab's CefRequestHandler: the navigation policy and render process exits.
+// The tab's CefRequestHandler: the navigation policy, HTTP sign in, certificate errors and render process exits.
 #import "BowTab+Internal.h"
 
 namespace {
@@ -27,7 +27,7 @@ bool BowTabClient::OnBeforeBrowse(CefRefPtr<CefBrowser> browser,
                                   CefRefPtr<CefRequest> request,
                                   bool userGesture,
                                   bool isRedirect) {
-  if (browser->IsPopup() || !frame->IsMain()) return false;
+  if (!IsOwn(browser) || !frame->IsMain()) return false;
   NSURL* url = BowToNSURL(request->GetURL());
   if (!url) return false;
   BOOL allowed = [tab_ navigationWillStart:url
@@ -41,8 +41,38 @@ void BowTabClient::OnRenderProcessTerminated(CefRefPtr<CefBrowser> browser,
                                              TerminationStatus status,
                                              int errorCode,
                                              const CefString& errorString) {
-  if (browser->IsPopup()) return;
+  if (!IsOwn(browser)) return;
   [tab_ renderProcessTerminated:ToProcessGoneReason(status)];
+}
+
+bool BowTabClient::GetAuthCredentials(CefRefPtr<CefBrowser> browser,
+                                      const CefString& originURL,
+                                      bool isProxy,
+                                      const CefString& host,
+                                      int port,
+                                      const CefString& realm,
+                                      const CefString& scheme,
+                                      CefRefPtr<CefAuthCallback> callback) {
+  if (!IsOwn(browser) || ![tab_ takesUIRequest:@selector(tab:answerAuthChallenge:completionHandler:)]) return false;
+  BowAuthChallenge* challenge = [[BowAuthChallenge alloc] initWithURL:BowToNSURL(originURL)
+                                                                 host:BowToNSString(host)
+                                                                 port:port
+                                                                realm:BowToNSString(realm)
+                                                               scheme:BowToNSString(scheme)
+                                                              fromProxy:isProxy];
+  [tab_ answerAuthChallenge:challenge callback:callback];
+  return true;
+}
+
+bool BowTabClient::OnCertificateError(CefRefPtr<CefBrowser> browser,
+                                      cef_errorcode_t certError,
+                                      const CefString& requestURL,
+                                      CefRefPtr<CefSSLInfo> sslInfo,
+                                      CefRefPtr<CefCallback> callback) {
+  if (!IsOwn(browser) || ![tab_ takesUIRequest:@selector(tab:decideCertificateError:decisionHandler:)]) return false;
+  BowCertificateError* error = [[BowCertificateError alloc] initWithURL:BowToNSURL(requestURL) code:certError];
+  [tab_ decideCertificateError:error callback:callback];
+  return true;
 }
 
 @implementation BowTab (Requests)
@@ -55,6 +85,62 @@ void BowTabClient::OnRenderProcessTerminated(CefRefPtr<CefBrowser> browser,
                          [delegate tab:tab renderProcessDidTerminate:reason];
                        }
                  otherwise:nil];
+}
+
+- (void)answerAuthChallenge:(BowAuthChallenge*)challenge callback:(CefRefPtr<CefAuthCallback>)callback {
+  void (^answer)(NSString*, NSString*) = ^(NSString* user, NSString* password) {
+    if (user && password) {
+      callback->Continue(user.UTF8String, password.UTF8String);
+    } else {
+      callback->Cancel();
+    }
+  };
+  [self askUIDelegateLater:@selector(tab:answerAuthChallenge:completionHandler:)
+      ask:^(BowTab* tab, id<BowTabUIDelegate> delegate) {
+        BowAnswerOnce* once = [[BowAnswerOnce alloc] initWithFallback:^{
+          answer(nil, nil);
+        }];
+        [delegate tab:tab
+            answerAuthChallenge:challenge
+              completionHandler:^(NSString* user, NSString* password) {
+                if (![once claim]) return;
+                NSString* userCopy = [user copy];
+                NSString* passwordCopy = [password copy];
+                BowRunOnMain(^{
+                  answer(userCopy, passwordCopy);
+                });
+              }];
+      }
+      otherwise:^{
+        answer(nil, nil);
+      }];
+}
+
+- (void)decideCertificateError:(BowCertificateError*)error callback:(CefRefPtr<CefCallback>)callback {
+  void (^answer)(BOOL) = ^(BOOL proceed) {
+    if (proceed) {
+      callback->Continue();
+    } else {
+      callback->Cancel();
+    }
+  };
+  [self askUIDelegateLater:@selector(tab:decideCertificateError:decisionHandler:)
+      ask:^(BowTab* tab, id<BowTabUIDelegate> delegate) {
+        BowAnswerOnce* once = [[BowAnswerOnce alloc] initWithFallback:^{
+          answer(NO);
+        }];
+        [delegate tab:tab
+            decideCertificateError:error
+                   decisionHandler:^(BOOL proceed) {
+                     if (![once claim]) return;
+                     BowRunOnMain(^{
+                       answer(proceed);
+                     });
+                   }];
+      }
+      otherwise:^{
+        answer(NO);
+      }];
 }
 
 @end

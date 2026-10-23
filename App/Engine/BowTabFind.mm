@@ -7,7 +7,7 @@ void BowTabClient::OnFindResult(CefRefPtr<CefBrowser> browser,
                                 const CefRect& selectionRect,
                                 int activeMatchOrdinal,
                                 bool finalUpdate) {
-  if (browser->IsPopup()) return;
+  if (!IsOwn(browser)) return;
   [tab_ findResultForSearch:identifier count:count activeMatch:activeMatchOrdinal finalUpdate:finalUpdate];
 }
 

@@ -12,7 +12,10 @@ extension EngineTabState {
             faviconURL: state.faviconURL,
             isLoading: state.isLoading,
             canGoBack: state.canGoBack,
-            canGoForward: state.canGoForward
+            canGoForward: state.canGoForward,
+            isAudible: state.isAudible,
+            isCapturingVideo: state.isCapturingVideo,
+            isCapturingAudio: state.isCapturingAudio
         )
     }
 }
@@ -45,8 +48,70 @@ extension PopupRequest {
             targetURL: request.targetURL,
             disposition: disposition,
             isUserGesture: request.isUserGesture,
-            requestedSize: request.requestedSize.map { PopupSize(width: $0.width, height: $0.height) }
+            requestedSize: request.requestedSize.map { PopupSize(width: $0.width, height: $0.height) },
+            windowFeatures: PopupWindowFeatures(
+                x: request.windowFeatures.x?.intValue,
+                y: request.windowFeatures.y?.intValue,
+                width: request.windowFeatures.width?.intValue,
+                height: request.windowFeatures.height?.intValue,
+                isPopup: request.windowFeatures.isPopup
+            )
         )
+    }
+}
+
+extension BowPopupRequest.Decision {
+    init(_ decision: PopupDecision) {
+        self =
+            switch decision {
+            case .foregroundTab: .foregroundTab
+            case .backgroundTab: .backgroundTab
+            case .window: .window
+            case .block: .block
+            }
+    }
+}
+
+extension EngineKeyEvent {
+    init(_ event: BowKeyEvent) {
+        let kind: Kind =
+            switch event.kind {
+            case .keyDown: .keyDown
+            case .keyUp: .keyUp
+            case .character: .character
+            }
+        var modifiers: KeyModifiers = []
+        if event.modifiers.contains(.shift) { modifiers.insert(.shift) }
+        if event.modifiers.contains(.control) { modifiers.insert(.control) }
+        if event.modifiers.contains(.option) { modifiers.insert(.option) }
+        if event.modifiers.contains(.command) { modifiers.insert(.command) }
+        self.init(
+            kind: kind,
+            keyCode: event.keyCode,
+            characters: event.characters,
+            charactersIgnoringModifiers: event.charactersIgnoringModifiers,
+            modifiers: modifiers,
+            isInEditableField: event.isInEditableField
+        )
+    }
+}
+
+extension AuthChallenge {
+    init(_ challenge: BowAuthChallenge) {
+        self.init(
+            url: challenge.url,
+            host: challenge.host,
+            port: challenge.port,
+            realm: challenge.realm,
+            scheme: challenge.scheme,
+            isProxy: challenge.fromProxy
+        )
+    }
+}
+
+extension CertificateError {
+    init(_ error: BowCertificateError) {
+        self.init(url: error.url, code: error.code)
     }
 }
 

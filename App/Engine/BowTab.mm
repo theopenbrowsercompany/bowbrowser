@@ -131,7 +131,10 @@ void BowTearDownBrowserView(CefRefPtr<CefBrowser> browser) {
                    faviconURL:(NSURL*)faviconURL
                       loading:(BOOL)loading
                     canGoBack:(BOOL)canGoBack
-                 canGoForward:(BOOL)canGoForward {
+                 canGoForward:(BOOL)canGoForward
+                      audible:(BOOL)audible
+               capturingVideo:(BOOL)capturingVideo
+               capturingAudio:(BOOL)capturingAudio {
   self = [super init];
   if (self) {
     _tabID = tabID;
@@ -141,6 +144,9 @@ void BowTearDownBrowserView(CefRefPtr<CefBrowser> browser) {
     _loading = loading;
     _canGoBack = canGoBack;
     _canGoForward = canGoForward;
+    _audible = audible;
+    _capturingVideo = capturingVideo;
+    _capturingAudio = capturingAudio;
   }
   return self;
 }
@@ -191,7 +197,10 @@ void BowTearDownBrowserView(CefRefPtr<CefBrowser> browser) {
                                      faviconURL:nil
                                         loading:NO
                                       canGoBack:NO
-                                   canGoForward:NO];
+                                   canGoForward:NO
+                                        audible:NO
+                                 capturingVideo:NO
+                                 capturingAudio:NO];
     _client = new BowTabClient(self, profile.downloads.handler);
 
     // The browser starts out detached, in the engine's parking view, until a host view attaches the tab.
@@ -214,6 +223,37 @@ void BowTearDownBrowserView(CefRefPtr<CefBrowser> browser) {
     }
   }
   return self;
+}
+
+- (instancetype)initForPopupWithProfileID:(NSString*)profileID
+                          downloadHandler:(CefRefPtr<CefDownloadHandler>)downloadHandler {
+  self = [super init];
+  if (self) {
+    _tabID = gNextTabID++;
+    _profileID = [profileID copy];
+    _closeCompletions = [NSMutableArray array];
+    _state = [[BowTabState alloc] initWithTabID:_tabID
+                                            url:nil
+                                          title:@""
+                                     faviconURL:nil
+                                        loading:NO
+                                      canGoBack:NO
+                                   canGoForward:NO
+                                        audible:NO
+                                 capturingVideo:NO
+                                 capturingAudio:NO];
+    _client = new BowTabClient(self, downloadHandler);
+    BowEngineBrowserCreationStarted(self);
+  }
+  return self;
+}
+
+- (void)popupCreationFailed {
+  if (self.closed) return;
+  BowEngineBrowserCreationFailed(self);
+  self.closed = YES;
+  [self finishCloseCompletions:YES];
+  [self reportClosed];
 }
 
 - (CefRefPtr<CefBrowser>)browser {
@@ -267,7 +307,11 @@ void BowTearDownBrowserView(CefRefPtr<CefBrowser> browser) {
   dispatch_async(dispatch_get_main_queue(), ^{
     BowTab* tab = weakSelf;
     id<BowTabUIDelegate> delegate = tab.uiDelegate;
-    if ([delegate respondsToSelector:@selector(tabDidClose:)]) [delegate tabDidClose:tab];
+    if (tab && tab->_unloading) {
+      if ([delegate respondsToSelector:@selector(tabDidUnload:)]) [delegate tabDidUnload:tab];
+    } else if ([delegate respondsToSelector:@selector(tabDidClose:)]) {
+      [delegate tabDidClose:tab];
+    }
   });
 }
 
@@ -306,7 +350,10 @@ void BowTearDownBrowserView(CefRefPtr<CefBrowser> browser) {
                                        faviconURL:faviconURL
                                           loading:loading
                                         canGoBack:canGoBack
-                                     canGoForward:canGoForward];
+                                     canGoForward:canGoForward
+                                          audible:old.audible
+                                   capturingVideo:old.capturingVideo
+                                   capturingAudio:old.capturingAudio];
   id<BowTabUIDelegate> delegate = self.uiDelegate;
   if ([delegate respondsToSelector:@selector(tab:didChangeState:)]) [delegate tab:self didChangeState:self.state];
 }
@@ -405,6 +452,47 @@ void BowTearDownBrowserView(CefRefPtr<CefBrowser> browser) {
   _browser->StopLoad();
 }
 
+- (void)mediaCaptureChangedVideo:(BOOL)video audio:(BOOL)audio {
+  BowTabState* old = self.state;
+  if (old.capturingVideo == video && old.capturingAudio == audio) return;
+  self.state = [[BowTabState alloc] initWithTabID:_tabID
+                                              url:old.url
+                                            title:old.title
+                                       faviconURL:old.faviconURL
+                                          loading:old.loading
+                                        canGoBack:old.canGoBack
+                                     canGoForward:old.canGoForward
+                                          audible:old.audible
+                                   capturingVideo:video
+                                   capturingAudio:audio];
+  id<BowTabUIDelegate> delegate = self.uiDelegate;
+  if ([delegate respondsToSelector:@selector(tab:didChangeState:)]) [delegate tab:self didChangeState:self.state];
+}
+
+- (double)zoomLevel {
+  return _browser && !self.willClose ? _browser->GetHost()->GetZoomLevel() : 0;
+}
+
+- (void)setZoomLevel:(double)zoomLevel {
+  if (_browser && !self.willClose) _browser->GetHost()->SetZoomLevel(zoomLevel);
+}
+
+- (void)unloadWithCompletion:(void (^)(BOOL))completion {
+  if (self.closed) {
+    dispatch_async(dispatch_get_main_queue(), ^{
+      completion(NO);
+    });
+    return;
+  }
+  _unloading = YES;
+  [_closeCompletions addObject:[completion copy]];
+  if (!_browser) {
+    _closeWhenCreated = YES;
+    return;
+  }
+  BowEngineCloseBrowser(_browser, true);
+}
+
 - (void)closeWithCompletion:(void (^)(BOOL))completion {
   if (self.closed) {
     dispatch_async(dispatch_get_main_queue(), ^{
@@ -412,6 +500,8 @@ void BowTearDownBrowserView(CefRefPtr<CefBrowser> browser) {
     });
     return;
   }
+  // A close asked for while an unload is pending wins: the tab then reports a close, and its page may prompt.
+  _unloading = NO;
   [_closeCompletions addObject:[completion copy]];
   if (!_browser) {
     _closeWhenCreated = YES;
