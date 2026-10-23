@@ -31,6 +31,9 @@ public enum SidebarStoreError: Error, Equatable, CustomStringConvertible {
     /// The sidebar file was written by a newer Bow, in format `version`, while this build reads up to `readable`.
     /// The store refuses to open it and leaves it where it is, so the newer Bow still finds it.
     case fileFromNewerBuild(version: Int, readable: Int)
+    /// The move would carry the item into Favorites or a Space of another profile, whose storage its page cannot
+    /// take along. Favorites refuse it; a tab moves between profiles only through "Move to Space", which asks first.
+    case crossProfileMove(SidebarItemID)
 
     public var description: String {
         switch self {
@@ -53,6 +56,7 @@ public enum SidebarStoreError: Error, Equatable, CustomStringConvertible {
             return "the sidebar file could not be copied before changing it: \(reason)"
         case .fileFromNewerBuild(let version, let readable):
             return "the sidebar file is format \(version), from a newer Bow; this build reads up to \(readable)"
+        case .crossProfileMove(let id): return "\(id) belongs to another profile"
         }
     }
 }
