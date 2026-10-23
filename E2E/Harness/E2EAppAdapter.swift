@@ -10,11 +10,15 @@ final class E2EAppAdapter: E2EApp {
     /// Far from every screen. The window subclass keeps AppKit from moving it back on screen.
     static let windowFrame = NSRect(x: -20_000, y: -20_000, width: 1280, height: 800)
 
-    private(set) var lastOpenedPage: (any E2EPage)?
     private unowned let delegate: AppDelegate
     /// Every open page, by tab, so each window's tab events and policy questions reach their page. A page leaves
     /// when its tab closes.
     private var pages: [TabID: TabPage] = [:]
+    /// The running test's windows and pages, in the order they opened, and its own profile once a window used it.
+    private var testControllers: [BrowserWindowController] = []
+    private var testPages: [TabPage] = []
+    private var testProfile: (any EngineProfile)?
+    private var testProfileID = ""
 
     init(delegate: AppDelegate) {
         self.delegate = delegate
@@ -28,9 +32,16 @@ final class E2EAppAdapter: E2EApp {
         }
     }
 
-    func openWindow(at url: URL, newProfile profile: E2EProfile?) async throws -> any E2EPage {
-        let engineProfile = try profile.map {
-            try delegate.engine.createProfile(id: ProfileID($0.id), isPersistent: $0.isPersistent)
+    func openWindow(at url: URL, profile: E2EWindowProfile) async throws -> any E2EPage {
+        let engineProfile: (any EngineProfile)?
+        switch profile {
+        case .appDefault:
+            engineProfile = nil
+        case .test:
+            if testProfile == nil { testProfile = try createProfile(id: testProfileID, isPersistent: false) }
+            engineProfile = testProfile
+        case .new(let profile):
+            engineProfile = try createProfile(id: profile.id, isPersistent: profile.isPersistent)
         }
         let window = OffscreenBrowserWindow(
             contentRect: Self.windowFrame,
@@ -39,6 +50,7 @@ final class E2EAppAdapter: E2EApp {
             defer: false
         )
         let controller = delegate.openWindow(url: url, profile: engineProfile, window: window)
+        testControllers.append(controller)
         controller.onTabEvent = { [weak self, unowned controller] tab, event in
             if case .stateChanged = event, let row = Self.sidebarRow(of: tab, in: controller) {
                 self?.pages[tab.tabID]?.sidebarRowHistory.append(row)
@@ -60,8 +72,67 @@ final class E2EAppAdapter: E2EApp {
         // Ordered in without activating the app or becoming key, so it composites like a visible window.
         window.orderFrontRegardless()
         try await Self.checkInvisible(window)
-        lastOpenedPage = page
         return page
+    }
+
+    private func createProfile(id: String, isPersistent: Bool) throws -> any EngineProfile {
+        do {
+            return try delegate.engine.createProfile(id: ProfileID(id), isPersistent: isPersistent)
+        } catch EngineError.profileExists(let existing) {
+            throw E2EError("the profile ID \(id) is taken by \(existing.rawValue)", reason: .profileTaken)
+        } catch {
+            throw E2EError("cannot create the profile \(id): \(error)")
+        }
+    }
+
+    // MARK: The runner's side: one test at a time
+
+    /// Starts a test: its windows and pages are tracked from now on, and its first `.test` window creates a fresh
+    /// in-memory profile named after `index`.
+    func beginTest(index: Int) {
+        testControllers.removeAll()
+        testPages.removeAll()
+        testProfile = nil
+        testProfileID = "e2e-test-\(index)"
+    }
+
+    /// How many browsers the engine has open or is creating, popups included.
+    var openBrowserCount: Int { BowOpenBrowsers.count() }
+
+    /// The page to screenshot as evidence for the running test: the page it opened last while its window still
+    /// shows it, or else the shown tab of the test's last window that is still open.
+    var evidencePage: (any E2EPage)? {
+        if let page = testPages.last(where: { $0.contentView != nil }) { return page }
+        for controller in testControllers.reversed() where controller.window?.isVisible == true {
+            if let tab = controller.selectedTab, let page = pages[tab.tabID], page.contentView != nil { return page }
+        }
+        return nil
+    }
+
+    /// Closes every window the running test opened, leaving each page without asking (leave prompts answer
+    /// leave), then waits until the engine has no more browsers open than `baseline` (the count before the test),
+    /// popups included, or `timeout` runs out. Returns nil when nothing is left, or what is left.
+    func closeTestWindows(timeout: TimeInterval, baseline: Int) async -> String? {
+        let controllers = testControllers
+        testControllers.removeAll()
+        testPages.removeAll()
+        for page in pages.values where controllers.contains(where: { $0 === page.controller }) {
+            page.leavePromptAnswer = true
+        }
+        for controller in controllers where controller.window?.isVisible == true {
+            controller.window?.performClose(nil)
+        }
+        let deadline = Date().addingTimeInterval(timeout)
+        while true {
+            let windows = controllers.filter { $0.window?.isVisible == true }.count
+            let browsers = openBrowserCount - baseline
+            if windows == 0 && browsers <= 0 { return nil }
+            if Date() >= deadline {
+                return
+                    "windows=\(windows) browsers=\(browsers) still open \(Int(timeout)) s after closing the test's windows"
+            }
+            try? await Task.sleep(nanoseconds: 20_000_000)
+        }
     }
 
     func openTab(at url: URL, besides page: any E2EPage, select: Bool) throws -> any E2EPage {
@@ -75,6 +146,7 @@ final class E2EAppAdapter: E2EApp {
     private func track(_ tab: any EngineTab, in controller: BrowserWindowController) -> TabPage {
         let page = TabPage(tab: tab, controller: controller)
         pages[tab.tabID] = page
+        testPages.append(page)
         return page
     }
 
@@ -199,7 +271,8 @@ final class E2EAppAdapter: E2EApp {
     func quit() {
         // Tests no longer hold their pages; releasing them here frees their DevTools sessions (and the Chromium
         // objects they hold) while the engine still runs.
-        lastOpenedPage = nil
+        testControllers.removeAll()
+        testPages.removeAll()
         pages.removeAll()
         NSApp.terminate(nil)
     }

@@ -6,10 +6,11 @@ import AppKit
 /// The app as a test sees it.
 @MainActor
 protocol E2EApp: AnyObject {
-    /// Opens a browser window on `url`, off screen and never key, and returns its page (the window's first tab).
-    /// `profile` names a profile to create for the window; nil uses the default profile.
-    /// Throws when the window would be visible on a screen or the app could take focus.
-    func openWindow(at url: URL, newProfile profile: E2EProfile?) async throws -> any E2EPage
+    /// Opens a browser window on `url`, off screen and never key, in `profile`, and returns its page (the window's
+    /// first tab). Throws when the window would be visible on a screen or the app could take focus, and throws an
+    /// error with reason `.profileTaken` when a new profile's ID is taken.
+    /// The runner closes every window a test opened once the test ends, so tests need not close their own.
+    func openWindow(at url: URL, profile: E2EWindowProfile) async throws -> any E2EPage
     /// Opens `url` in a new tab of the window `page` is in, selected unless `select` is false.
     func openTab(at url: URL, besides page: any E2EPage, select: Bool) throws -> any E2EPage
     /// Selects the tab `page` is in, showing it in its window.
@@ -26,17 +27,31 @@ protocol E2EApp: AnyObject {
     /// Sends `shortcut` to the window `page` is in the way pressing its keys does: through the app's menu, to the
     /// menu item that has the shortcut. Throws when no menu item has it or the item is disabled.
     func press(_ shortcut: E2EShortcut, in page: any E2EPage) throws
-    /// The first page of the window opened last, which the run's final.png shows when that page is still the one
-    /// its window shows; nil before any window opened and after quit().
-    var lastOpenedPage: (any E2EPage)? { get }
     /// Quits the way the app's Quit menu item does.
     func quit()
 }
 
 extension E2EApp {
+    /// Opens a window in the test's own fresh in-memory profile (see `E2EWindowProfile.test`).
     func openWindow(at url: URL) async throws -> any E2EPage {
-        try await openWindow(at: url, newProfile: nil)
+        try await openWindow(at: url, profile: .test)
     }
+
+    /// Opens a window in a profile created for it.
+    func openWindow(at url: URL, newProfile profile: E2EProfile) async throws -> any E2EPage {
+        try await openWindow(at: url, profile: .new(profile))
+    }
+}
+
+/// The profile a window opens in.
+enum E2EWindowProfile {
+    /// The running test's own profile: in memory, made fresh for each test and shared by that test's windows, so
+    /// no storage or permission leaks from one test to the next. The default.
+    case test
+    /// The app's default profile, shared by every test that asks for it for the whole run.
+    case appDefault
+    /// A profile created for this window: on disk when persistent, in memory otherwise.
+    case new(E2EProfile)
 }
 
 /// A navigation button in a browser window's toolbar.
@@ -179,11 +194,20 @@ struct E2ENavigationEvent: Equatable, CustomStringConvertible {
     }
 }
 
-/// A failed e2e step, with a message for its FAIL line.
+/// A failed e2e step, with a message for its FAIL line and, for failures a test tells apart, a reason.
 struct E2EError: Error, CustomStringConvertible {
-    let description: String
+    enum Reason: Equatable {
+        /// `openWindow` was asked for a new profile whose ID another profile has (IDs are compared ignoring case).
+        case profileTaken
+        /// A step or test ran past its limit.
+        case timeout
+    }
 
-    init(_ description: String) {
+    let description: String
+    let reason: Reason?
+
+    init(_ description: String, reason: Reason? = nil) {
         self.description = description
+        self.reason = reason
     }
 }

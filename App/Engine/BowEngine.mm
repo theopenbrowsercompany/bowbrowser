@@ -293,6 +293,10 @@ CefRefPtr<CefBrowser> BowEngineBrowserForTabID(uint64_t tabID) {
   return tab ? tab.browser : nullptr;
 }
 
+size_t BowEngineOpenBrowserCount() {
+  return gBrowsers.size() + gOpeningTabs.count;
+}
+
 bool BowEngineTabIsOpening(uint64_t tabID) {
   for (BowTab* tab in gOpeningTabs) {
     if (tab.tabID == tabID) return true;
