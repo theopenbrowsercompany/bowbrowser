@@ -58,33 +58,50 @@ enum E2EChromiumErrorContext {
     static let radius = 20
     /// Stretches written; a run with more says how many unexpected lines it left out.
     static let maxStretches = 10
+    /// Lines written from each end of a stretch longer than twice this; the lines between are counted, not written.
+    /// With `maxStretches` this bounds the file at 4000 log lines however much the log holds.
+    static let maxEdgeLines = 200
 
     /// `lines` is the whole log; `unexpected` and `marks` are the indexes of its unexpected lines and marks, in order.
     static func text(lines: [Substring], unexpected: [Int], marks: [Int]) -> String {
-        // Each stretch is a range of lines and the unexpected lines in it.
-        var stretches: [(range: ClosedRange<Int>, unexpected: [Int])] = []
+        // Each stretch is a range of lines with its first and last unexpected line and how many there are.
+        // Merging only extends the last stretch in place, so the work is linear in the number of unexpected lines.
+        struct Stretch {
+            var range: ClosedRange<Int>
+            var first: Int
+            var last: Int
+            var count: Int
+        }
+        var stretches: [Stretch] = []
         for index in unexpected {
             let range = max(0, index - radius)...min(lines.count - 1, index + radius)
             if let last = stretches.last, range.lowerBound <= last.range.upperBound + 1 {
-                stretches[stretches.count - 1] = (last.range.lowerBound...range.upperBound, last.unexpected + [index])
+                stretches[stretches.count - 1].range = last.range.lowerBound...range.upperBound
+                stretches[stretches.count - 1].last = index
+                stretches[stretches.count - 1].count += 1
             } else {
-                stretches.append((range, [index]))
+                stretches.append(Stretch(range: range, first: index, last: index, count: 1))
             }
         }
         var text = ""
         for (number, stretch) in stretches.prefix(maxStretches).enumerated() {
-            let before = marks.last { $0 < stretch.unexpected[0] }.map { String(lines[$0]) } ?? "none"
-            let after =
-                marks.first { $0 > stretch.unexpected[stretch.unexpected.count - 1] }
-                .map { String(lines[$0]) } ?? "none"
-            text += "== stretch \(number + 1) of \(stretches.count): \(stretch.unexpected.count) unexpected lines\n"
+            let before = marks.last { $0 < stretch.first }.map { String(lines[$0]) } ?? "none"
+            let after = marks.first { $0 > stretch.last }.map { String(lines[$0]) } ?? "none"
+            text += "== stretch \(number + 1) of \(stretches.count): \(stretch.count) unexpected lines\n"
             text += "mark before: \(before)\nmark after: \(after)\n"
-            for line in lines[stretch.range] {
-                text += line + "\n"
+            let length = stretch.range.count
+            if length > 2 * maxEdgeLines {
+                let start = stretch.range.lowerBound
+                let end = stretch.range.upperBound
+                for line in lines[start..<(start + maxEdgeLines)] { text += line + "\n" }
+                text += "... \(length - 2 * maxEdgeLines) lines left out ...\n"
+                for line in lines[(end - maxEdgeLines + 1)...end] { text += line + "\n" }
+            } else {
+                for line in lines[stretch.range] { text += line + "\n" }
             }
             text += "\n"
         }
-        let left = stretches.dropFirst(maxStretches).reduce(0) { $0 + $1.unexpected.count }
+        let left = stretches.dropFirst(maxStretches).reduce(0) { $0 + $1.count }
         if left > 0 {
             text += "\(left) more unexpected lines are not shown\n"
         }
@@ -191,6 +208,7 @@ final class E2EChromiumLog: Sendable {
             }
         }
         Self.writeAll(echo, to: terminal)
+        // A run that timed out gets the file too, because the watchdog calls this method as well.
         if !unexpectedIndexes.isEmpty {
             let context = E2EChromiumErrorContext.text(lines: lines, unexpected: unexpectedIndexes, marks: markIndexes)
             let contextURL = url.deletingLastPathComponent().appendingPathComponent(E2EChromiumErrorContext.fileName)
