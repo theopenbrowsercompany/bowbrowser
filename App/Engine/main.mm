@@ -48,6 +48,10 @@ class BowCefApp : public CefApp, public CefBrowserProcessHandler {
                                      CefRefPtr<CefCommandLine> commandLine) override {
     // Keep Chromium out of the login keychain until saved passwords are designed.
     commandLine->AppendSwitch("use-mock-keychain");
+    // Sign in requests go to the tab's GetAuthCredentials (and so to the app). Without this switch CEF hands them to
+    // Chrome's own login prompt instead, which never calls the handler, fails the load with
+    // ERR_INVALID_AUTH_CREDENTIALS and leaves a Chrome window behind that crashes the app when it quits.
+    commandLine->AppendSwitch("disable-chrome-login-prompt");
     [configuration_.extraSwitches enumerateKeysAndObjectsUsingBlock:^(NSString* name, NSString* value, BOOL*) {
       if (value.length == 0) {
         commandLine->AppendSwitch(name.UTF8String);
