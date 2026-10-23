@@ -18,7 +18,7 @@ People set it up once as an ordered list of rules plus a default.
   Bow records that app by its bundle identifier, and a helper process inside an app (for example "Slack Helper" inside Slack) counts as that app.
   A sender that is no app (a command line tool such as `open`) or a request with no sender leaves the link with no source app.
 - Every link goes through the routing rules below before anything opens for it.
-  With no rules (the starting state) the default is Little Arc, so a link opens in Little Arc while "Links from other apps open in Little Arc" is on (the default) and a window is open (see `spec/little-arc.md`); otherwise in a new tab of the most recently used window, in the Space on screen there, as Arc does without rules.
+  With no rules (the starting state) the default is Little Arc, so a link opens in Little Arc while "Links from other apps open in Little Arc" is on (the default) and a Space can give its page a profile, a window being open or not (see `spec/little-arc.md`); otherwise in a new tab of the most recently used window, in the Space on screen there, as Arc does without rules.
 - Links that arrive before Bow can open them are kept, in the order they came, and open once the first window is open.
   In practice the engine is ready before the system hands Bow its first link, so links that launch Bow open right away.
 - Links that arrive while Bow is quitting are dropped, so quitting never opens a new window; if a page cancels the quit, later links open again.
@@ -56,7 +56,7 @@ People set it up once as an ordered list of rules plus a default.
   The window chosen is the most recently used one; with no window open, a new window opens with that Space on screen.
 - A profile destination opens the link in a Space of that profile: the Space on screen when it shows that profile, else the first such Space in sidebar order.
 - A Little Arc destination named by a rule opens Little Arc whatever the "Links from other apps open in Little Arc" setting says, because the person asked for it in that rule; the default being Little Arc follows the setting.
-  Little Arc needs a browser window for its page's profile, so with none open the link opens in a browser window.
+  Little Arc needs a Space for its page's profile: the Space on screen in the browser window, or with none open the Space shown last; only with neither does the link open in a browser window.
 - The most recent window destination opens a new tab in the Space on screen of the most recently used window.
 - A rule (or the "no source" destination) naming a Space or profile that no longer exists, because it was deleted, gives way to the default; a default that no longer exists gives way to the most recent window, so a link always opens somewhere.
 - Links that arrive while the rule editor is open follow the rules as they are saved at that moment.
