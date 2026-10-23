@@ -31,12 +31,17 @@ struct AppQuitTest: E2ETest {
     }
 }
 
-/// The built app carries CEF's license, Chromium's credits and Bow's license in its Resources, and the app menu
-/// offers them through About Bow.
+/// The built app carries CEF's license, Chromium's credits and Bow's license in its Resources, and Bow > About Bow,
+/// chosen through the app menu, opens the About panel with a link to each that points at a file in the built app.
 struct AppLicensesTest: E2ETest {
     let name = "app.licenses"
+    let checks = ["app.licenses", "app.licenses.menu", "app.licenses.about", "app.licenses.links"]
 
     func run(_ run: E2ERun) async throws {
+        guard let app = run.app as? any E2ELicensesApp else { throw E2EError("the app has no About Bow check") }
+        let page = try await run.step("open window", timeout: E2ETimeouts.firstLoad) {
+            try await run.app.openWindow(at: E2EFixture.url("app/index.html"))
+        }
         try await run.step("read license files", timeout: E2ETimeouts.step) {
             func has(_ file: String, _ text: String) -> Bool {
                 guard let url = Bundle.main.url(forResource: file, withExtension: nil),
@@ -47,11 +52,52 @@ struct AppLicensesTest: E2ETest {
             let cef = has("CEF-LICENSE.txt", "Marshall A. Greenblatt")
             let chromium = has("Chromium-Credits.html", "<html")
             let bow = has("Bow-LICENSE.txt", "MIT License")
-            let menu = await MainActor.run { NSApp.mainMenu?.items.first?.submenu?.items.first?.title == "About Bow" }
             func word(_ value: Bool) -> String { value ? "yes" : "no" }
             run.check(
-                name, passed: cef && chromium && bow && menu,
-                "cef=\(word(cef)) chromium=\(word(chromium)) bow=\(word(bow)) menu=\(word(menu))")
+                name, passed: cef && chromium && bow, "cef=\(word(cef)) chromium=\(word(chromium)) bow=\(word(bow))")
+        }
+        try await run.step("About Bow item", timeout: E2ETimeouts.step) {
+            let item = NSApp.mainMenu?.items.first?.submenu?.items.first
+            item?.menu?.update()
+            let wired =
+                item?.title == "About Bow" && item?.action == #selector(Licenses.showAbout(_:))
+                && item?.target === Licenses.self && item?.isEnabled == true
+            run.check(
+                "app.licenses.menu", passed: wired,
+                "title=\(item?.title ?? "none") action=\(item?.action.map { "\($0)" } ?? "none") enabled=\(item?.isEnabled == true)"
+            )
+        }
+        try await run.step("choose About Bow", timeout: E2ETimeouts.step) {
+            let options = try app.chooseAbout(in: page)
+            let credits = options?[.credits] as? NSAttributedString
+            run.check(
+                "app.licenses.about", passed: credits != nil,
+                credits == nil ? "choosing About Bow did not ask for the About panel" : "the About panel was asked for")
+            guard let credits else {
+                run.check("app.licenses.links", passed: false, "no credits to read")
+                return
+            }
+            var links: [String: URL] = [:]
+            credits.enumerateAttribute(.link, in: NSRange(location: 0, length: credits.length)) { value, range, _ in
+                if let url = value as? URL { links[credits.attributedSubstring(from: range).string] = url }
+            }
+            let resources = Bundle.main.resourceURL?.standardizedFileURL.path ?? ""
+            var problems: [String] = []
+            for file in Licenses.files {
+                guard let url = links[file.label] else {
+                    problems.append("\(file.label): no link")
+                    continue
+                }
+                let size = (try? Data(contentsOf: url).count) ?? 0
+                if !url.isFileURL || url.lastPathComponent != file.name
+                    || !url.standardizedFileURL.path.hasPrefix(resources) || size == 0
+                {
+                    problems.append("\(file.label): \(url.path) is not a file of the app")
+                }
+            }
+            run.check(
+                "app.licenses.links", passed: problems.isEmpty,
+                problems.isEmpty ? "3 links read from the app's Resources" : problems.joined(separator: "; "))
         }
     }
 }

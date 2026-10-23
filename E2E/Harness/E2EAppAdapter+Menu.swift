@@ -122,7 +122,9 @@ extension E2EAppAdapter {
     /// Chooses the main menu item at `path` (menu titles from the menu bar down, ending with the item's title, such
     /// as ["View", "Spaces", "New Space"]) in `page`'s window, the way `chooseMenuItem(key:modifiers:in:)` sends a
     /// shortcut's item, for items that have no shortcut. Throws when no item is at that path, and as that method does.
-    func chooseMenuItem(path: [String], in page: any E2EPage) throws {
+    /// `allowAppTarget` lets an app level item through whose target is not in the window (such as About Bow, which
+    /// works with no window open); it still validates and sends to that target.
+    func chooseMenuItem(path: [String], in page: any E2EPage, allowAppTarget: Bool = false) throws {
         let window = try Self.window(of: page)
         let name = path.joined(separator: " > ")
         var menu = NSApp.mainMenu
@@ -132,17 +134,21 @@ extension E2EAppAdapter {
             menu = found?.submenu
         }
         guard let item = found else { throw E2EError("no menu item is at \(name)") }
-        try Self.choose(item, named: name, in: window)
+        try Self.choose(item, named: name, in: window, allowAppTarget: allowAppTarget)
     }
 
     /// Sends `item`'s action to the object `route(of:action:in:)` picks in `window`, after that object validates the
     /// item. `shortcut` names the item in errors.
-    private static func choose(_ item: NSMenuItem, named shortcut: String, in window: NSWindow) throws {
+    private static func choose(
+        _ item: NSMenuItem, named shortcut: String, in window: NSWindow, allowAppTarget: Bool = false
+    ) throws {
         guard let action = item.action else { throw E2EError("\"\(item.title)\" (\(shortcut)) has no action") }
         let target: AnyObject
         switch route(of: item, action: action, in: window) {
         case .refused(let reason):
             throw E2EError("refused to choose \"\(item.title)\" (\(shortcut)) in a test: \(reason)")
+        case .outside(let other) where allowAppTarget && other.responds(to: action):
+            target = other
         case .outside(let other):
             throw E2EError(
                 "\"\(item.title)\" (\(shortcut)) targets \(type(of: other)), which is not in the test window")
