@@ -16,27 +16,36 @@ final class OffscreenBrowserWindow: BrowserWindow {
         frameRect
     }
 
-    // AppKit also moves a window onto a screen to show a sheet on it; keep it off every screen.
+    // AppKit also slides a window onto a screen to show a sheet on it; keep it off every screen.
     override func setFrame(_ frameRect: NSRect, display flag: Bool) {
-        super.setFrame(E2EOffscreenFrame.kept(frameRect), display: flag)
+        super.setFrame(E2EOffscreenFrame.kept(frameRect, for: self), display: flag)
     }
 
     override func setFrame(_ frameRect: NSRect, display displayFlag: Bool, animate animateFlag: Bool) {
-        super.setFrame(E2EOffscreenFrame.kept(frameRect), display: displayFlag, animate: animateFlag)
+        super.setFrame(E2EOffscreenFrame.kept(frameRect, for: self), display: displayFlag, animate: animateFlag)
     }
 
     override func setFrameOrigin(_ point: NSPoint) {
-        super.setFrameOrigin(E2EOffscreenFrame.kept(NSRect(origin: point, size: frame.size)).origin)
+        super.setFrameOrigin(E2EOffscreenFrame.kept(NSRect(origin: point, size: frame.size), for: self).origin)
     }
 }
 
 /// Where an e2e window may go: anywhere off every screen.
 @MainActor
 enum E2EOffscreenFrame {
-    /// `frame`, or the same size at the e2e windows' place far from every screen when any part of it would show on
-    /// one.
-    static func kept(_ frame: NSRect) -> NSRect {
-        guard NSScreen.screens.contains(where: { $0.frame.intersects(frame) }) else { return frame }
+    /// `frame` for `window` when no part of it, or of the child windows that move along with it, would be on a
+    /// screen. Otherwise the move is refused: the window keeps its place with the new size, or goes to the e2e
+    /// windows' place far from every screen if even that would show.
+    static func kept(_ frame: NSRect, for window: NSWindow) -> NSRect {
+        let current = window.frame
+        func shows(_ candidate: NSRect) -> Bool {
+            let dx = candidate.minX - current.minX
+            let dy = candidate.minY - current.minY
+            let moved = [candidate] + (window.childWindows ?? []).map { $0.frame.offsetBy(dx: dx, dy: dy) }
+            return moved.contains { rect in NSScreen.screens.contains { $0.frame.intersects(rect) } }
+        }
+        let resized = NSRect(origin: current.origin, size: frame.size)
+        for candidate in [frame, resized] where !shows(candidate) { return candidate }
         return NSRect(origin: E2EAppAdapter.windowFrame.origin, size: frame.size)
     }
 }
