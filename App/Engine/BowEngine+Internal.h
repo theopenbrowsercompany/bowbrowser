@@ -5,10 +5,12 @@
 
 #include <cstdint>
 
+#import "BowDownloads.h"
 #import "BowEngineConfiguration.h"
 #import "BowProfile.h"
 #import "BowTab.h"
 #include "include/cef_browser.h"
+#include "include/cef_download_handler.h"
 #include "include/cef_request_context.h"
 
 NS_ASSUME_NONNULL_BEGIN
@@ -60,6 +62,12 @@ BowTab* _Nullable BowEngineTabWithID(uint64_t tabID);
                    requestContext:(CefRefPtr<CefRequestContext>)requestContext;
 /// The request context every tab of this profile is created in.
 @property(nonatomic, readonly) CefRefPtr<CefRequestContext> requestContext;
+@end
+
+@interface BowDownloads ()
+- (instancetype)initWithProfileID:(NSString*)profileID;
+/// The download handler every tab of the profile hands to Chromium.
+@property(nonatomic, readonly) CefRefPtr<CefDownloadHandler> handler;
 @end
 
 @interface BowTab ()

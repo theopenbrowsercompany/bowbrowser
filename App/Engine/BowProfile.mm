@@ -14,6 +14,7 @@
     _profileID = [profileID copy];
     _isPersistent = persistent;
     _requestContext = requestContext;
+    _downloads = [[BowDownloads alloc] initWithProfileID:profileID];
   }
   return self;
 }

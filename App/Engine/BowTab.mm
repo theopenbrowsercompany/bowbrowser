@@ -430,7 +430,8 @@ class BowTabClient : public CefClient,
                      public CefContextMenuHandler,
                      public CefFindHandler {
  public:
-  explicit BowTabClient(BowTab* tab) : tab_(tab) {}
+  BowTabClient(BowTab* tab, CefRefPtr<CefDownloadHandler> downloadHandler)
+      : tab_(tab), downloadHandler_(downloadHandler) {}
 
   CefRefPtr<CefLifeSpanHandler> GetLifeSpanHandler() override { return this; }
   CefRefPtr<CefLoadHandler> GetLoadHandler() override { return this; }
@@ -440,6 +441,8 @@ class BowTabClient : public CefClient,
   CefRefPtr<CefPermissionHandler> GetPermissionHandler() override { return this; }
   CefRefPtr<CefContextMenuHandler> GetContextMenuHandler() override { return this; }
   CefRefPtr<CefFindHandler> GetFindHandler() override { return this; }
+  // The profile's downloads handle downloads from every tab and popup of the profile.
+  CefRefPtr<CefDownloadHandler> GetDownloadHandler() override { return downloadHandler_; }
 
   // CefLifeSpanHandler
 
@@ -731,6 +734,7 @@ class BowTabClient : public CefClient,
 
  private:
   __weak BowTab* tab_;
+  CefRefPtr<CefDownloadHandler> downloadHandler_;
   // Identifiers of this tab's popups that were created in no window.
   std::set<int> windowlessPopups_;
 
@@ -752,7 +756,7 @@ class BowTabClient : public CefClient,
                                         loading:NO
                                       canGoBack:NO
                                    canGoForward:NO];
-    _client = new BowTabClient(self);
+    _client = new BowTabClient(self, profile.downloads.handler);
 
     // The browser starts out detached, in the engine's parking view, until a host view attaches the tab.
     NSView* parkingView = BowEngineParkingView();

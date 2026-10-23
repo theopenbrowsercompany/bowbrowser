@@ -72,6 +72,8 @@ final class CEFProfile: EngineProfile {
         guard !kinds.isEmpty else { return }
         profile.setPermission(allowed: setting == .allow, kinds: kinds, origin: site.url)
     }
+
+    private(set) lazy var downloads: any EngineDownloads = CEFDownloads(profile.downloads)
 }
 
 /// One bridge tab as an `EngineTab`. The adapter is both of the bridge tab's delegates (navigation and UI) and

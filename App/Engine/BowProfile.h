@@ -2,6 +2,7 @@
 
 #import "BowTabUIRequests.h"
 
+@class BowDownloads;
 @class BowTab;
 
 NS_ASSUME_NONNULL_BEGIN
@@ -15,6 +16,8 @@ NS_SWIFT_UI_ACTOR
 
 @property(nonatomic, readonly, copy) NSString *profileID;
 @property(nonatomic, readonly) BOOL isPersistent;
+/// Every download started in this profile's tabs.
+@property(nonatomic, readonly) BowDownloads *downloads;
 
 /// Creates a tab in this profile and starts loading `url`. The tab's ID is assigned now; it is not attached to
 /// any view until a `BowWebView` attaches it, and it lives until it is closed or the engine quits.
