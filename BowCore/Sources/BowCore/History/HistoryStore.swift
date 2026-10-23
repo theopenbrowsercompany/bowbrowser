@@ -16,6 +16,8 @@ public final class HistoryStore: @unchecked Sendable {
 
     private let lock = NSLock()
     private var db: OpaquePointer?
+    /// Titles that arrived before their page's commit, applied when the commit lands.
+    private var pendingTitles: [String: String] = [:]
 
     /// Opens the history of `profileID`. Persistent history lives in
     /// `<directory>/<profile>/history.sqlite`; the folder is created when missing.
@@ -24,8 +26,9 @@ public final class HistoryStore: @unchecked Sendable {
         self.isPersistent = isPersistent
         var handle: OpaquePointer?
         if isPersistent {
-            let name = profileID.rawValue.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? ""
-            let folder = directory.appendingPathComponent(name.isEmpty ? "profile" : name, isDirectory: true)
+            // Lowercase hex of the name: unambiguous, and safe on case insensitive volumes.
+            let name = "p" + profileID.rawValue.utf8.map { String(format: "%02x", $0) }.joined()
+            let folder = directory.appendingPathComponent(name, isDirectory: true)
             try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
             let file = folder.appendingPathComponent("history.sqlite")
             fileURL = file
@@ -46,7 +49,10 @@ public final class HistoryStore: @unchecked Sendable {
         }
         db = handle
         do {
+            sqlite3_busy_timeout(handle, 5000)
             try execute("PRAGMA foreign_keys = ON")
+            try execute("PRAGMA secure_delete = ON")
+            if isPersistent { try execute("PRAGMA journal_mode = WAL") }
             try migrate()
         } catch {
             sqlite3_close(handle)
@@ -77,7 +83,10 @@ public final class HistoryStore: @unchecked Sendable {
         case .didCommit(let navigation):
             switch navigation.transition {
             case .reload, .backForward: return
-            default: try recordVisit(url: navigation.url, transition: navigation.transition, at: date)
+            default:
+                try recordVisit(
+                    url: navigation.url, title: takePendingTitle(for: navigation.url),
+                    transition: navigation.transition, at: date)
             }
         case .stateChanged(let state):
             if let url = state.url, !state.title.isEmpty { try setTitle(state.title, for: url) }
@@ -97,11 +106,14 @@ public final class HistoryStore: @unchecked Sendable {
             try transaction {
                 try run(
                     """
-                    INSERT INTO places (url, title, visit_count, typed_count, last_visit) VALUES (?1, ?2, 1, ?3, ?4)
+                    INSERT INTO places (url, title, visit_count, typed_count, last_visit, search_text)
+                    VALUES (?1, ?2, 1, ?3, ?4, ?5)
                     ON CONFLICT(url) DO UPDATE SET visit_count = visit_count + 1, typed_count = typed_count + ?3,
-                        last_visit = MAX(last_visit, ?4), title = CASE WHEN ?2 = '' THEN title ELSE ?2 END
+                        last_visit = MAX(last_visit, ?4),
+                        title = CASE WHEN ?2 = '' THEN title ELSE ?2 END,
+                        search_text = CASE WHEN ?2 = '' THEN search_text ELSE ?5 END
                     """,
-                    [.text(key), .text(title), .int(typed), .double(time)])
+                    [.text(key), .text(title), .int(typed), .double(time), .text(Self.searchText(key, title))])
                 try run(
                     "INSERT INTO visits (place_id, time, transition) VALUES ((SELECT id FROM places WHERE url = ?1), ?2, ?3)",
                     [.text(key), .double(time), .text(Self.name(of: transition))])
@@ -112,7 +124,26 @@ public final class HistoryStore: @unchecked Sendable {
     /// Updates the title of a page that is already in history; unknown pages are ignored.
     public func setTitle(_ title: String, for url: URL) throws {
         guard Self.isRecordable(url), !title.isEmpty else { return }
-        try locked { try run("UPDATE places SET title = ?1 WHERE url = ?2", [.text(title), .text(Self.key(url))]) }
+        let key = Self.key(url)
+        try locked {
+            try run(
+                "UPDATE places SET title = ?1, search_text = ?3 WHERE url = ?2",
+                [.text(title), .text(key), .text(Self.searchText(key, title))])
+            if sqlite3_changes(db) == 0 {
+                if pendingTitles.count >= 64 { pendingTitles.removeAll() }
+                pendingTitles[key] = title
+            }
+        }
+    }
+
+    private func takePendingTitle(for url: URL) -> String {
+        lock.lock()
+        defer { lock.unlock() }
+        return pendingTitles.removeValue(forKey: Self.key(url)) ?? ""
+    }
+
+    private static func searchText(_ key: String, _ title: String) -> String {
+        (key + " " + title).lowercased()
     }
 
     // MARK: Querying
@@ -132,11 +163,11 @@ public final class HistoryStore: @unchecked Sendable {
         guard !words.isEmpty else { return [] }
         var args: [Binding] = []
         var clauses: [String] = []
-        for word in words {
+        for word in words.map({ $0.lowercased() }) {
             let escaped = word.replacingOccurrences(of: "\\", with: "\\\\")
                 .replacingOccurrences(of: "%", with: "\\%").replacingOccurrences(of: "_", with: "\\_")
             args.append(.text("%" + escaped + "%"))
-            clauses.append("(url LIKE ?\(args.count) ESCAPE '\\' OR title LIKE ?\(args.count) ESCAPE '\\')")
+            clauses.append("search_text LIKE ?\(args.count) ESCAPE '\\'")
         }
         args.append(.int(max(0, limit)))
         let sql =
@@ -186,14 +217,19 @@ public final class HistoryStore: @unchecked Sendable {
         let upper = range.upperBound.timeIntervalSince1970
         try locked {
             try transaction {
+                // Mark the pages that lose visits (last_visit -1), so only they are recounted.
+                try run(
+                    "UPDATE places SET last_visit = -1 WHERE id IN (SELECT place_id FROM visits WHERE time >= ?1 AND time <= ?2)",
+                    [.double(lower), .double(upper)])
                 try run("DELETE FROM visits WHERE time >= ?1 AND time <= ?2", [.double(lower), .double(upper)])
-                try run("DELETE FROM places WHERE id NOT IN (SELECT place_id FROM visits)", [])
+                try run("DELETE FROM places WHERE last_visit = -1 AND id NOT IN (SELECT place_id FROM visits)", [])
                 try run(
                     """
                     UPDATE places SET
                         visit_count = (SELECT COUNT(*) FROM visits WHERE place_id = places.id),
                         typed_count = (SELECT COUNT(*) FROM visits WHERE place_id = places.id AND transition = 'typed'),
                         last_visit = (SELECT MAX(time) FROM visits WHERE place_id = places.id)
+                    WHERE last_visit = -1
                     """, [])
             }
         }
@@ -223,15 +259,18 @@ public final class HistoryStore: @unchecked Sendable {
     }
 
     private static func text(_ stmt: OpaquePointer, _ column: Int32) -> String {
-        sqlite3_column_text(stmt, column).map { String(cString: $0) } ?? ""
+        guard let bytes = sqlite3_column_text(stmt, column) else { return "" }
+        let count = Int(sqlite3_column_bytes(stmt, column))
+        return String(decoding: UnsafeBufferPointer(start: bytes, count: count), as: UTF8.self)
     }
 
     /// The fragment is not part of what a person visited: `/a#x` and `/a#y` are one page.
     private static func key(_ url: URL) -> String {
-        guard url.fragment != nil, var parts = URLComponents(url: url, resolvingAgainstBaseURL: false) else {
-            return url.absoluteString
-        }
+        guard var parts = URLComponents(url: url, resolvingAgainstBaseURL: false) else { return url.absoluteString }
         parts.fragment = nil
+        parts.scheme = parts.scheme?.lowercased()
+        parts.host = parts.host?.lowercased()
+        if parts.host != nil, parts.path.isEmpty { parts.path = "/" }
         return parts.string ?? url.absoluteString
     }
 
@@ -262,7 +301,7 @@ public final class HistoryStore: @unchecked Sendable {
     private func migrate() throws {
         let version = try rows("PRAGMA user_version", []) { Int(sqlite3_column_int($0, 0)) }.first ?? 0
         if version > Self.schemaVersion {
-            throw HistoryError.database(code: SQLITE_MISMATCH, message: "history was written by a newer version")
+            throw HistoryError.newerVersion
         }
         if version < 1 {
             try transaction {
@@ -274,7 +313,8 @@ public final class HistoryStore: @unchecked Sendable {
                         title TEXT NOT NULL DEFAULT '',
                         visit_count INTEGER NOT NULL DEFAULT 0,
                         typed_count INTEGER NOT NULL DEFAULT 0,
-                        last_visit REAL NOT NULL
+                        last_visit REAL NOT NULL,
+                        search_text TEXT NOT NULL DEFAULT ''
                     );
                     CREATE INDEX places_last_visit ON places (last_visit);
                     CREATE TABLE visits (
@@ -333,11 +373,14 @@ public final class HistoryStore: @unchecked Sendable {
         defer { sqlite3_finalize(stmt) }
         for (index, arg) in args.enumerated() {
             let position = Int32(index + 1)
+            let bound: Int32
             switch arg {
-            case .text(let value): sqlite3_bind_text(stmt, position, value, -1, sqliteTransient)
-            case .int(let value): sqlite3_bind_int64(stmt, position, Int64(value))
-            case .double(let value): sqlite3_bind_double(stmt, position, value)
+            case .text(let value):
+                bound = sqlite3_bind_text(stmt, position, value, Int32(value.utf8.count), sqliteTransient)
+            case .int(let value): bound = sqlite3_bind_int64(stmt, position, Int64(value))
+            case .double(let value): bound = sqlite3_bind_double(stmt, position, value)
             }
+            try Self.check(bound, db)
         }
         var result: [T] = []
         while true {

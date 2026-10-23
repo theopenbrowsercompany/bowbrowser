@@ -180,6 +180,52 @@ import Testing
         #expect(try again.count() == 0)
     }
 
+    @Test func searchIgnoresCaseOutsideASCIIToo() throws {
+        let store = try store()
+        try store.recordVisit(url: a, title: "Übersicht Москва", at: t0)
+        #expect(try store.search("übersicht").count == 1)
+        #expect(try store.search("МОСКВА").count == 1)
+    }
+
+    @Test func titleThatArrivesBeforeTheCommitIsKept() throws {
+        let store = try store()
+        try store.handle(.stateChanged(EngineTabState(tabID: 1, url: a, title: "Early")), at: t0)
+        try store.handle(commit(a), at: t0 + 1)
+        #expect(try store.entry(for: a)?.title == "Early")
+        #expect(try store.search("early").count == 1)
+    }
+
+    @Test func schemeAndHostCaseAndBareHostSlashAreOnePage() throws {
+        let store = try store()
+        try store.recordVisit(url: URL(string: "https://Example.com")!, at: t0)
+        try store.recordVisit(url: URL(string: "HTTPS://example.com/")!, at: t0 + 1)
+        #expect(try store.count() == 1)
+        #expect(try store.entry(for: URL(string: "https://example.com")!)?.visitCount == 2)
+    }
+
+    @Test func profilesDifferingOnlyByCaseGetSeparateFiles() throws {
+        let dir = try tempDirectory()
+        let upper = try store(in: dir, profile: "Work")
+        let lower = try store(in: dir, profile: "work")
+        try upper.recordVisit(url: a, at: t0)
+        #expect(try lower.count() == 0)
+    }
+
+    @Test func titleWithEmbeddedNULIsStoredWhole() throws {
+        let store = try store()
+        try store.recordVisit(url: a, title: "ab\u{0}cd", at: t0)
+        #expect(try store.entry(for: a)?.title == "ab\u{0}cd")
+    }
+
+    @Test func twoStoresOnOneFileBothWrite() throws {
+        let dir = try tempDirectory()
+        let first = try store(in: dir)
+        let second = try store(in: dir)
+        try first.recordVisit(url: a, at: t0)
+        try second.recordVisit(url: b, at: t0 + 1)
+        #expect(try first.count() == 2)
+    }
+
     @Test func concurrentRecordingIsSafe() async throws {
         let store = try store()
         let url = a
