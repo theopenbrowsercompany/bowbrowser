@@ -19,7 +19,7 @@ They come up as a sheet on the window showing that tab and never freeze the rest
 - A new dialog from a tab replaces the tab's earlier one, which is cancelled.
 - A tab that starts going to another page, closes, or is in a window that closes has its dialog taken down and cancelled; quitting cancels every dialog, so a dialog never holds up a close or a quit.
 - A tab whose alert waits for it to be shown is not unloaded to save memory (see unload.md), so the alert is never lost unseen.
-- A sized popup window (a `window.open` with a size, which stays a window of its own) asks on its own window, as a sheet there, with the same title, buttons and answers as a tab's dialog.
+- A popup window of its own (one a popup panel's page or another popup window opens) asks on its own window, as a sheet there, with the same title, buttons and answers as a tab's dialog.
 - A popup window that closes (the page closes it, or a quit asks every page to close) takes its sheet down first, answered as cancelled, so its window closes and the sheet never holds up a quit.
 - The "leave this site?" prompt is not one of these dialogs: the tab asks it itself, as before (see quit.md and tabs.md).
 - No page dialog is ever an app modal panel: other tabs keep running and other windows stay usable.
@@ -40,7 +40,7 @@ They come up as a sheet on the window showing that tab and never freeze the rest
 5. Have a background tab call `confirm()` and `prompt()`: they return `false` and `null` at once, and showing the tab shows nothing.
 6. With a confirm up, switch tabs: the page gets `false` and the sheet goes; with an alert up, switch away and back: the alert comes back.
 7. With a dialog up, go to another address, close the tab, or close the window: each happens at once and the sheet goes.
-8. Open a sized popup window that asks an alert, two confirms and a prompt: each comes up as a sheet on the popup's window, and the page gets `undefined`, `true` for OK, `false` for Cancel and the typed text; with its alert up, quitting closes the popup and its sheet.
+8. From a popup panel's page, open a popup window that asks an alert, two confirms and a prompt: each comes up as a sheet on the popup's window, and the page gets `undefined`, `true` for OK, `false` for Cancel and the typed text; with its alert up, quitting closes the popup and its sheet.
 9. Run `make e2e E2E=dialogs`: `PASS dialogs.alert`, `PASS dialogs.confirm`, `PASS dialogs.prompt`, `PASS dialogs.background_alert`, `PASS dialogs.background_confirm`, `PASS dialogs.switch_away`, `PASS dialogs.navigate`, `PASS dialogs.close_tab`, `PASS dialogs.close_window`, `PASS dialogs.popup_window`, `PASS dialogs.popup_sheet.alert`, `PASS dialogs.popup_sheet.confirm`, `PASS dialogs.popup_sheet.prompt`, `PASS dialogs.popup_sheet.answers` and `PASS dialogs.popup_sheet_quit`.
 
 ## Out of scope

@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Dialogs relay</title>
+</head>
+<body>
+  <h1>Relay</h1>
+  <button id="open">Open the popup window</button>
+  <script>
+    // A sized window.open from a click opens in a popup panel, and the pages a panel's page opens open in popup
+    // windows of the engine's own: this page, in the panel, opens `?open=<page>` as a sized popup window when #open
+    // is clicked, and passes messages along, from that popup to its own opener and from its opener to that popup.
+    const target = new URLSearchParams(location.search).get("open");
+    window.bowChild = null;
+    document.getElementById("open").addEventListener("click", () => {
+      window.bowChild = window.open(target, "", "width=320,height=240");
+      if (!window.bowChild) window.opener.postMessage("relay:no-popup", "*");
+    });
+    window.addEventListener("message", (event) => {
+      const child = window.bowChild;
+      if (child && event.source === child) window.opener.postMessage(event.data, "*");
+      else if (child && event.source === window.opener) child.postMessage(event.data, "*");
+    });
+  </script>
+</body>
+</html>
