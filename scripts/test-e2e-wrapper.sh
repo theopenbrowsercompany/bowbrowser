@@ -155,6 +155,7 @@ check() { # check <description> <condition command...>
   if "$@"; then echo "ok   $what"; else echo "FAIL $what"; failed=1; fi
 }
 is() { [ "$1" = "$2" ]; }
+not() { ! "$@"; }
 has() { grep -q -- "$2" "$1"; }
 valid_json() { perl -MJSON::PP -e 'local $/; decode_json(<STDIN>)' < "$1"; }
 field() { plutil -extract "$2" raw -o - "$1" 2>/dev/null; }
@@ -332,16 +333,47 @@ check "an app that ignores TERM: the build lock slot is given back" is "$(ls "$B
 check "an app that ignores TERM: no build lock ticket is left" is "$(ls "$BOW_LOCK_DIR/e2e/queue" | wc -l | tr -d ' ')" 0
 
 # A signal while the wrapper lists tests (the app's list hangs) or sweeps processes (the first ps takes 5 seconds)
-# stops it at once, not after that command ends.
+# stops it at once, not after that command ends, and the summary is still the last line on the terminal, not in the
+# file the list's output goes to. (A regression guard: the stop alone passed before the summary moved to the real
+# stdout; the `last` checks are what tell old from new.)
 interrupt TERM listhang 30 latest/list.txt
 check "a signal while listing tests: the wrapper stops at once" is "$stopped" yes
 check "a signal while listing tests: exit 130" is "$code" 130
+check "a signal while listing tests: the summary is the last terminal line" is "$last" "E2E: ERROR interrupted"
+check "a signal while listing tests: the summary is not in the list file" not has "$iroot/latest/list.txt" "E2E: ERROR interrupted"
 mkdir -p "$tmp/slowps"
 printf '#!/bin/sh\n[ -e "%s/ps-mark" ] || { echo x > "%s/ps-mark"; sleep 5; }\nexec /bin/ps "$@"\n' "$tmp" "$tmp" > "$tmp/slowps/ps"
 chmod +x "$tmp/slowps/ps"
 ipath="$tmp/slowps:$PATH" interrupt TERM pass 30 ../ps-mark
 check "a signal while sweeping: the wrapper stops at once" is "$stopped" yes
 check "a signal while sweeping: exit 130" is "$code" 130
+check "a signal while sweeping: the summary is the last terminal line" is "$last" "E2E: ERROR interrupted"
+
+# is_build_lock refuses a process that is not exactly this run's build lock: one for the same repo whose run folder
+# differs only by a suffix ($run against $run/retry), and one from another repo path. The function is taken from the
+# wrapper as written.
+ibl="$tmp/ibl"
+mkdir -p "$ibl/repo/scripts" "$ibl/other/scripts"
+for d in repo other; do
+  printf '#!/bin/bash\nsleep 30 &\nwait\n' > "$ibl/$d/scripts/build-lock.sh"
+  chmod +x "$ibl/$d/scripts/build-lock.sh"
+done
+"$ibl/repo/scripts/build-lock.sh" --pool e2e x "--e2e-out=$ibl/run" & ibl_run=$!
+"$ibl/repo/scripts/build-lock.sh" --pool e2e x "--e2e-out=$ibl/run/retry" & ibl_retry=$!
+"$ibl/other/scripts/build-lock.sh" --pool e2e x "--e2e-out=$ibl/run" & ibl_other=$!
+sleep 0.5
+eval "$(sed -n '/^is_build_lock() {/,/^}/p' scripts/e2e.sh)"
+repo="$ibl/repo"
+current="$ibl/run"
+check "is_build_lock: accepts this run's build lock" is_build_lock "$ibl_run"
+check "is_build_lock: refuses the same command for a run folder that differs by a suffix" not is_build_lock "$ibl_retry"
+current="$ibl/run/retry"
+check "is_build_lock: refuses a shorter run folder when the current one is longer" not is_build_lock "$ibl_run"
+check "is_build_lock: accepts the retry's own build lock" is_build_lock "$ibl_retry"
+current="$ibl/run"
+check "is_build_lock: refuses a build lock of another repo path" not is_build_lock "$ibl_other"
+kill "$ibl_run" "$ibl_retry" "$ibl_other" 2>/dev/null
+wait "$ibl_run" "$ibl_retry" "$ibl_other" 2>/dev/null
 
 # The final KILL guard: a build lock that ignores TERM is killed only when it is this run's, matched exactly. A copy
 # of the wrapper beside a stand-in build lock does it.
@@ -391,7 +423,6 @@ package() {
     TARGET_TEMP_DIR="$pc/temp" ./scripts/package-cef.sh 2>&1
 }
 skips() { package | grep -q "unchanged; skipping"; }
-not() { ! "$@"; }
 package > "$tmp/package.out"
 check "package-cef: packages a fake CEF build" is "$(cat "$pc/products/Bow.app/Contents/Frameworks/Chromium Embedded Framework.framework/Resources/en.lproj/locale.pak" 2>/dev/null)" pak
 check "package-cef: an unchanged build skips the copy" skips
