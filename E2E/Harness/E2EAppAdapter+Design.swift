@@ -82,7 +82,7 @@ extension E2EAppAdapter {
         let topPoint = NSPoint(x: pageInWindow.midX, y: pageInWindow.maxY - 4)
         let pageTopClickable =
             content.superview?.hitTest(topPoint).map { $0 === pageArea || $0.isDescendant(of: pageArea) } ?? false
-        let shadowView = controller.feature(WindowLookFeature.self)?.shadowView
+        let shadowView = controller.pageShadowContainer
         let shadowLayer = shadowView?.layer
         let insets = controller.pageInsets
         let rowView = controller.tabList.activeID
