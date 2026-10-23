@@ -26,5 +26,6 @@ enum WindowFeatures {
         ZoomFeature.self,
         CrashedTabFeature.self,
         PopupPanelFeature.self,
+        RecentTabsFeature.self,
     ]
 }
