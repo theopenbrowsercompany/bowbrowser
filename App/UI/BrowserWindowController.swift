@@ -20,8 +20,9 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, Engin
 
     private let profile: any EngineProfile
 
-    /// The tab `webView` shows, kept here rather than read back from the view.
-    private(set) var selectedTab: (any EngineTab)?
+    /// The tab `webView` shows, read back from the view so it always matches the screen (the view refuses a tab
+    /// that is closing).
+    var selectedTab: (any EngineTab)? { tabs.first { webView.isShowing($0) } }
 
     /// Opens `url` in a new centered window on `profile`, or in `window` when given (e2e runs pass an off-screen
     /// one), which is not cascaded: the caller places it.
@@ -68,7 +69,6 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, Engin
     /// Shows `tab`, one of this window's tabs.
     func select(_ tab: any EngineTab) {
         guard tabs.contains(where: { $0 === tab }) else { return }
-        selectedTab = tab
         webView.show(tab)
         updateTitle()
     }
@@ -93,7 +93,6 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, Engin
     private func tabClosed(_ tab: any EngineTab) {
         guard let index = tabs.firstIndex(where: { $0 === tab }) else { return }
         tabs.remove(at: index)
-        if selectedTab === tab { selectedTab = nil }
         if selectedTab == nil, !tabs.isEmpty {
             select(tabs[min(index, tabs.count - 1)])
         }

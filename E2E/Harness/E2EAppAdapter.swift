@@ -190,6 +190,7 @@ private final class TabPage: E2EPage {
     func waitForLoad(after finishedLoads: Int) async throws -> Int {
         let load = finishedLoads + 1
         if load <= loads.count { return try loads[load - 1].get() }
+        if tab.isClosed { throw E2EError("the tab closed") }
         return try await withCheckedThrowingContinuation { loadWaiters.append((load, $0)) }
     }
 

@@ -53,7 +53,8 @@ import Foundation
 
     /// Closes the tab after running the page's beforeunload handler. Returns true when the tab
     /// closed (at once when it already had) and false when the page (or the person, at its prompt)
-    /// kept it open. A tab that closes also sends `TabEvent.closed`.
+    /// kept it open. A tab that closes also sends `TabEvent.closed`, which may come before or after
+    /// this returns (the mock sends it first, the CEF engine on a later main thread task).
     func close() async -> Bool
 }
 
