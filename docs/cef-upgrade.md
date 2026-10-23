@@ -26,6 +26,7 @@ Until the maintainer decides, follow the current practice above and do not chang
 - `CEF_SHA1`: the SHA-1 of the archive, copied from the index and checked by `make bootstrap`.
 
 `make bootstrap` downloads the archive into the shared cache (`~/Library/Caches/bowbrowser`), checks `CEF_SHA1`, builds CEF's small C++ wrapper library once, and links `Vendor/cef` to it.
+Every build (`make build`, `make e2e`, `make release`) relinks `Vendor/cef` automatically after a `cef.lock` change, printing `cef: Vendor/cef was <old>, relinked to <new> per cef.lock`, so a worktree bootstrapped earlier never builds against the old CEF.
 Each CEF build gets its own folder in the cache, so other worktrees still pinned to the old build keep working; leave the old folder in place until every open branch has moved.
 
 ## Finding the target build
