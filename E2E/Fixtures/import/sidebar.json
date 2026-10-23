@@ -1,0 +1,535 @@
+{
+ "sidebar": {
+  "containers": [
+   {
+    "global": {},
+    "items": [
+     "tab01",
+     {
+      "id": "tab01",
+      "title": null,
+      "parentID": "pin-a",
+      "childrenIds": [],
+      "data": {
+       "tab": {
+        "savedURL": "https://site01.example.com/",
+        "savedTitle": "Site 01"
+       }
+      },
+      "createdAt": 700000000,
+      "isUnread": false
+     },
+     "tab02",
+     {
+      "id": "tab02",
+      "title": null,
+      "parentID": "pin-a",
+      "childrenIds": [],
+      "data": {
+       "tab": {
+        "savedURL": "https://site02.example.com/",
+        "savedTitle": "Site 02"
+       }
+      },
+      "createdAt": 700000000,
+      "isUnread": false
+     },
+     "tab03",
+     {
+      "id": "tab03",
+      "title": null,
+      "parentID": "f1",
+      "childrenIds": [],
+      "data": {
+       "tab": {
+        "savedURL": "https://site03.example.com/",
+        "savedTitle": "Site 03"
+       }
+      },
+      "createdAt": 700000000,
+      "isUnread": false
+     },
+     "tab04",
+     {
+      "id": "tab04",
+      "title": null,
+      "parentID": "f2",
+      "childrenIds": [],
+      "data": {
+       "tab": {
+        "savedURL": "https://site04.example.com/",
+        "savedTitle": "Site 04"
+       }
+      },
+      "createdAt": 700000000,
+      "isUnread": false
+     },
+     "tab05",
+     {
+      "id": "tab05",
+      "title": null,
+      "parentID": "f3",
+      "childrenIds": [],
+      "data": {
+       "tab": {
+        "savedURL": "https://site05.example.com/",
+        "savedTitle": "Site 05"
+       }
+      },
+      "createdAt": 700000000,
+      "isUnread": false
+     },
+     "tab06",
+     {
+      "id": "tab06",
+      "title": null,
+      "parentID": "f3",
+      "childrenIds": [],
+      "data": {
+       "tab": {
+        "savedURL": "https://site06.example.com/",
+        "savedTitle": "Site 06"
+       }
+      },
+      "createdAt": 700000000,
+      "isUnread": false
+     },
+     "f3",
+     {
+      "id": "f3",
+      "title": "Phases",
+      "parentID": "f2",
+      "childrenIds": [
+       "tab05",
+       "tab06"
+      ],
+      "data": {
+       "list": {
+        "customInfo": {}
+       }
+      },
+      "createdAt": 700000000,
+      "isUnread": false
+     },
+     "f2",
+     {
+      "id": "f2",
+      "title": "Clients",
+      "parentID": "f1",
+      "childrenIds": [
+       "tab04",
+       "f3"
+      ],
+      "data": {
+       "list": {
+        "customInfo": {}
+       }
+      },
+      "createdAt": 700000000,
+      "isUnread": false
+     },
+     "f1",
+     {
+      "id": "f1",
+      "title": "Projects",
+      "parentID": "pin-a",
+      "childrenIds": [
+       "tab03",
+       "f2"
+      ],
+      "data": {
+       "list": {
+        "customInfo": {}
+       }
+      },
+      "createdAt": 700000000,
+      "isUnread": false
+     },
+     "pin-a",
+     {
+      "id": "pin-a",
+      "title": null,
+      "parentID": null,
+      "childrenIds": [
+       "tab01",
+       "tab02",
+       "f1"
+      ],
+      "data": {
+       "itemContainer": {
+        "containerType": {
+         "spaceItems": {
+          "_0": "space-a"
+         }
+        }
+       }
+      },
+      "createdAt": 700000000,
+      "isUnread": false
+     },
+     "today-a",
+     {
+      "id": "today-a",
+      "title": null,
+      "parentID": null,
+      "childrenIds": [],
+      "data": {
+       "itemContainer": {
+        "containerType": {
+         "spaceItems": {
+          "_0": "space-a"
+         }
+        }
+       }
+      },
+      "createdAt": 700000000,
+      "isUnread": false
+     },
+     "tab07",
+     {
+      "id": "tab07",
+      "title": null,
+      "parentID": "pin-b",
+      "childrenIds": [],
+      "data": {
+       "tab": {
+        "savedURL": "https://site07.example.com/",
+        "savedTitle": "Site 07"
+       }
+      },
+      "createdAt": 700000000,
+      "isUnread": false
+     },
+     "tab08",
+     {
+      "id": "tab08",
+      "title": null,
+      "parentID": "pin-b",
+      "childrenIds": [],
+      "data": {
+       "tab": {
+        "savedURL": "https://site08.example.com/",
+        "savedTitle": "Site 08"
+       }
+      },
+      "createdAt": 700000000,
+      "isUnread": false
+     },
+     "tab09",
+     {
+      "id": "tab09",
+      "title": null,
+      "parentID": "f4",
+      "childrenIds": [],
+      "data": {
+       "tab": {
+        "savedURL": "https://site09.example.com/",
+        "savedTitle": "Site 09"
+       }
+      },
+      "createdAt": 700000000,
+      "isUnread": false
+     },
+     "tab10",
+     {
+      "id": "tab10",
+      "title": null,
+      "parentID": "f4",
+      "childrenIds": [],
+      "data": {
+       "tab": {
+        "savedURL": "https://site10.example.com/",
+        "savedTitle": "Site 10"
+       }
+      },
+      "createdAt": 700000000,
+      "isUnread": false
+     },
+     "tab11",
+     {
+      "id": "tab11",
+      "title": null,
+      "parentID": "f4",
+      "childrenIds": [],
+      "data": {
+       "tab": {
+        "savedURL": "https://site11.example.com/",
+        "savedTitle": "Site 11"
+       }
+      },
+      "createdAt": 700000000,
+      "isUnread": false
+     },
+     "f4",
+     {
+      "id": "f4",
+      "title": "Reading",
+      "parentID": "pin-b",
+      "childrenIds": [
+       "tab09",
+       "tab10",
+       "tab11"
+      ],
+      "data": {
+       "list": {
+        "customInfo": {}
+       }
+      },
+      "createdAt": 700000000,
+      "isUnread": false
+     },
+     "tab12",
+     {
+      "id": "tab12",
+      "title": null,
+      "parentID": "pin-b",
+      "childrenIds": [],
+      "data": {
+       "tab": {
+        "savedURL": "https://site12.example.com/",
+        "savedTitle": "Site 12"
+       }
+      },
+      "createdAt": 700000000,
+      "isUnread": false
+     },
+     "pin-b",
+     {
+      "id": "pin-b",
+      "title": null,
+      "parentID": null,
+      "childrenIds": [
+       "tab07",
+       "tab08",
+       "f4",
+       "tab12"
+      ],
+      "data": {
+       "itemContainer": {
+        "containerType": {
+         "spaceItems": {
+          "_0": "space-b"
+         }
+        }
+       }
+      },
+      "createdAt": 700000000,
+      "isUnread": false
+     },
+     "today-b",
+     {
+      "id": "today-b",
+      "title": null,
+      "parentID": null,
+      "childrenIds": [],
+      "data": {
+       "itemContainer": {
+        "containerType": {
+         "spaceItems": {
+          "_0": "space-b"
+         }
+        }
+       }
+      },
+      "createdAt": 700000000,
+      "isUnread": false
+     },
+     "tab13",
+     {
+      "id": "tab13",
+      "title": null,
+      "parentID": "pin-c",
+      "childrenIds": [],
+      "data": {
+       "tab": {
+        "savedURL": "https://site13.example.com/",
+        "savedTitle": "Site 13"
+       }
+      },
+      "createdAt": 700000000,
+      "isUnread": false
+     },
+     "tab14",
+     {
+      "id": "tab14",
+      "title": null,
+      "parentID": "pin-c",
+      "childrenIds": [],
+      "data": {
+       "tab": {
+        "savedURL": "https://site14.example.com/",
+        "savedTitle": "Site 14"
+       }
+      },
+      "createdAt": 700000000,
+      "isUnread": false
+     },
+     "tab15",
+     {
+      "id": "tab15",
+      "title": null,
+      "parentID": "f5",
+      "childrenIds": [],
+      "data": {
+       "tab": {
+        "savedURL": "https://site15.example.com/",
+        "savedTitle": "Site 15"
+       }
+      },
+      "createdAt": 700000000,
+      "isUnread": false
+     },
+     "tab16",
+     {
+      "id": "tab16",
+      "title": null,
+      "parentID": "f5",
+      "childrenIds": [],
+      "data": {
+       "tab": {
+        "savedURL": "https://site16.example.com/",
+        "savedTitle": "Site 16"
+       }
+      },
+      "createdAt": 700000000,
+      "isUnread": false
+     },
+     "f5",
+     {
+      "id": "f5",
+      "title": "Misc",
+      "parentID": "pin-c",
+      "childrenIds": [
+       "tab15",
+       "tab16"
+      ],
+      "data": {
+       "list": {
+        "customInfo": {}
+       }
+      },
+      "createdAt": 700000000,
+      "isUnread": false
+     },
+     "tab17",
+     {
+      "id": "tab17",
+      "title": null,
+      "parentID": "pin-c",
+      "childrenIds": [],
+      "data": {
+       "tab": {
+        "savedURL": "https://site17.example.com/",
+        "savedTitle": "Site 17"
+       }
+      },
+      "createdAt": 700000000,
+      "isUnread": false
+     },
+     "tab18",
+     {
+      "id": "tab18",
+      "title": null,
+      "parentID": "pin-c",
+      "childrenIds": [],
+      "data": {
+       "tab": {
+        "savedURL": "https://site18.example.com/",
+        "savedTitle": "Site 18"
+       }
+      },
+      "createdAt": 700000000,
+      "isUnread": false
+     },
+     "pin-c",
+     {
+      "id": "pin-c",
+      "title": null,
+      "parentID": null,
+      "childrenIds": [
+       "tab13",
+       "tab14",
+       "f5",
+       "tab17",
+       "tab18"
+      ],
+      "data": {
+       "itemContainer": {
+        "containerType": {
+         "spaceItems": {
+          "_0": "space-c"
+         }
+        }
+       }
+      },
+      "createdAt": 700000000,
+      "isUnread": false
+     },
+     "today-c",
+     {
+      "id": "today-c",
+      "title": null,
+      "parentID": null,
+      "childrenIds": [],
+      "data": {
+       "itemContainer": {
+        "containerType": {
+         "spaceItems": {
+          "_0": "space-c"
+         }
+        }
+       }
+      },
+      "createdAt": 700000000,
+      "isUnread": false
+     }
+    ],
+    "spaces": [
+     "space-a",
+     {
+      "id": "space-a",
+      "title": "Work",
+      "profile": "default",
+      "containerIDs": [
+       "pinned",
+       "pin-a",
+       "unpinned",
+       "today-a"
+      ]
+     },
+     "space-b",
+     {
+      "id": "space-b",
+      "title": "Personal",
+      "profile": "default",
+      "containerIDs": [
+       "pinned",
+       "pin-b",
+       "unpinned",
+       "today-b"
+      ]
+     },
+     "space-c",
+     {
+      "id": "space-c",
+      "title": "Scratch",
+      "profile": "default",
+      "containerIDs": [
+       "pinned",
+       "pin-c",
+       "unpinned",
+       "today-c"
+      ]
+     }
+    ],
+    "topAppsContainerIDs": [],
+    "activeSpaceIDs": [
+     "space-a"
+    ]
+   },
+   {
+    "version": 1
+   }
+  ]
+ }
+}
