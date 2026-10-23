@@ -33,7 +33,8 @@ final class E2ERunner {
     /// always after the quit start timed here). Firing at 6 seconds prints the TIMEOUT line, the run's summary, at
     /// once; the stack sample and the Chromium log report then usually finish in the 4 seconds left, and if
     /// Chromium ends the process first the summary still stands. It stays above the quit check's own limit
-    /// (`stoppingWithin`, checked in `expectQuit`), so a quit slower than that check still reports its times.
+    /// (`closingWithin`, checked in `expectQuit`), so a close slower than that check still reports its times. It is
+    /// also the only limit on Chromium's part of quitting (spec/quit.md says why).
     static let quitHangTimeout: TimeInterval = 6
     /// While tests run, the run ends only when the main thread has not answered for this long.
     static let mainThreadStuckTimeout: TimeInterval = 10
@@ -64,7 +65,7 @@ final class E2ERunner {
     private let watchdog: E2EWatchdog
     private let chromiumLog: E2EChromiumLog
     private var checks: [(name: String, passed: Bool)] = []
-    private var quitCheck: (name: String, closeLimit: TimeInterval, stopLimit: TimeInterval)?
+    private var quitCheck: (name: String, closeLimit: TimeInterval)?
     /// The error of a quit test that failed after expecting quit, which fails the quit check.
     private var quitFailure: String?
     /// The test running now, which the heartbeat names if the main thread gets stuck.
@@ -322,13 +323,23 @@ final class E2ERunner {
         watchdog.disarm()
         E2ELoopback.stop()
         if let quitCheck {
-            // Two times: the app closing every page and ending its message loop, which a person waits for, and
-            // the quit up to the end of Chromium's own shutdown, which grows with machine load (spec/quit.md).
+            // The check judges what a person sees. By `closed` every page has closed, the message loop has ended
+            // (the app takes no more clicks or keys) and main has taken every window off screen; `windows` asks
+            // the window server, after Chromium's shutdown, that none came back or stayed. That is the app's own
+            // work and takes a few hundredths of a second, so it has a limit.
+            // `stopped` adds Chromium's own shutdown (CefShutdown), which runs no Bow code and which nobody
+            // watches, since no window is left; only the Dock icon stays until the process exits, as in other
+            // Chromium browsers. It mostly waits on Chromium's other threads and processes, so it stretches with
+            // machine load: about 0.05 s for the quit test alone, but 3.3 s and 5.4 s in single runs with other
+            // worktrees building. A limit on it measured the machine and flaked, so it is printed as information only.
+            // A shutdown that hangs still fails: the quit hang watchdog (`quitHangTimeout`) ends the run with a
+            // TIMEOUT, before Chromium's own teardown watchdog would (spec/quit.md).
             let closed = BowQuitTiming.closeDuration()
             let stopped = BowEngine.quitDuration
+            let windows = Self.onScreenWindowCount()
             let times =
                 "closed=\(Self.preciseSeconds(closed)) limit \(Self.format(quitCheck.closeLimit)), "
-                + "stopped=\(Self.preciseSeconds(stopped)) limit \(Self.format(quitCheck.stopLimit))"
+                + "windows=\(windows), stopped=\(Self.preciseSeconds(stopped)) (no limit)"
             if let quitFailure {
                 record(quitCheck.name, passed: false, detail: stopped > 0 ? "\(quitFailure) (\(times))" : quitFailure)
             } else if stopped <= 0 {
@@ -340,8 +351,8 @@ final class E2ERunner {
                         + "or the quit clock started after the message loop ended")
             } else if closed >= quitCheck.closeLimit {
                 record(quitCheck.name, passed: false, detail: "closing took too long: \(times)")
-            } else if stopped >= quitCheck.stopLimit {
-                record(quitCheck.name, passed: false, detail: "Chromium's shutdown took too long: \(times)")
+            } else if windows > 0 {
+                record(quitCheck.name, passed: false, detail: "a window is still on screen after quitting: \(times)")
             } else {
                 record(quitCheck.name, passed: true, detail: times)
             }
@@ -403,10 +414,8 @@ final class E2ERunner {
         output.line("\(passed ? "PASS" : "FAIL") \(name): \(detail)")
     }
 
-    fileprivate func expectQuit(
-        _ name: String, closingWithin closeLimit: TimeInterval, stoppingWithin stopLimit: TimeInterval
-    ) {
-        quitCheck = (name, closeLimit, stopLimit)
+    fileprivate func expectQuit(_ name: String, closingWithin closeLimit: TimeInterval) {
+        quitCheck = (name, closeLimit)
     }
 
     /// Fails the check `name` that the running test recorded (at or after index `start` of `checks`), printing a
@@ -492,6 +501,16 @@ final class E2ERunner {
             UserDefaults.standard.removePersistentDomain(forName: suite)
             try? fileManager.removeItem(at: preferences.appendingPathComponent(file))
         }
+    }
+
+    /// How many of this process's normal windows the window server has on screen: what a person would still see.
+    /// Asked of the window server rather than AppKit, so a window AppKit thinks hidden but still drawn counts.
+    private static func onScreenWindowCount() -> Int {
+        let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly], kCGNullWindowID) as? [[String: Any]] ?? []
+        let pid = Int(ProcessInfo.processInfo.processIdentifier)
+        return list.filter {
+            ($0[kCGWindowOwnerPID as String] as? Int) == pid && ($0[kCGWindowLayer as String] as? Int) == 0
+        }.count
     }
 
     /// Seconds with three decimals, so a close of a few milliseconds does not read as zero.
@@ -599,24 +618,25 @@ final class E2ERun {
         }
     }
 
-    /// Checks, after the engine has shut down, that every page closed and the message loop ended in less than
-    /// `closeLimit` seconds, and that the quit up to the end of Chromium's shutdown took less than `stopLimit`.
+    /// Checks, after the engine has shut down, that every page closed, every window is gone and the message loop
+    /// ended in less than `closeLimit` seconds. The time until Chromium's shutdown returned is reported, not
+    /// limited; a quit that hangs there ends the run with the quit hang watchdog (`E2ERunner.quitHangTimeout`).
     /// Only the test whose `quitsApp` is true may call it; it runs last and keeps its windows, so quitting is timed
     /// with them alone.
-    func expectQuit(_ name: String, closingWithin closeLimit: TimeInterval, stoppingWithin stopLimit: TimeInterval) {
+    func expectQuit(_ name: String, closingWithin closeLimit: TimeInterval) {
         guard !finished else { return }
         guard test.quitsApp else {
             check(name, passed: false, "expectQuit needs quitsApp in \(test.name)")
             return
         }
-        guard stopLimit < E2ERunner.quitHangTimeout else {
+        guard closeLimit < E2ERunner.quitHangTimeout else {
             // A quit slower than the hang watchdog ends the run before this check could report it.
             let limit = E2ERunner.quitHangTimeout
-            check(name, passed: false, "stoppingWithin must be below the quit hang limit (\(limit) s)")
+            check(name, passed: false, "closingWithin must be below the quit hang limit (\(limit) s)")
             return
         }
         recorded.insert(name)
-        runner.expectQuit(name, closingWithin: closeLimit, stoppingWithin: stopLimit)
+        runner.expectQuit(name, closingWithin: closeLimit)
     }
 
     /// Ends the test: checks from steps still running after a timeout are ignored from now on.
