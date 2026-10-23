@@ -183,11 +183,13 @@ struct SidebarLongTitleTest: E2ETest {
 }
 
 /// Chooses menu items by shortcut with their modifiers: closes tab B with Command-W, finds the Option-Command,
-/// Shift-Command and uppercase key items by their shortcut and none for a combination no item has, then closes the
-/// window with Shift-Command-W. Every shortcut goes through the app's main menu, never DevTools.
+/// Shift-Command, uppercase, symbol and arrow key items by their shortcut and none for a combination no item has,
+/// checks where every shortcut would go (each to the test window, the app's quit, hide and minimize refused) and
+/// that choosing Quit or Minimize is refused, then closes the window with Shift-Command-W. Every shortcut goes
+/// through the app's main menu, never DevTools.
 struct SidebarMenuShortcutsTest: E2ETest {
     let name = "sidebar.menu"
-    let checks = ["sidebar.menu-command", "sidebar.menu-modifiers"]
+    let checks = ["sidebar.menu-command", "sidebar.menu-modifiers", "sidebar.menu-routes"]
 
     func run(_ run: E2ERun) async throws {
         let sidebar = try SidebarWaits.app(run)
@@ -207,13 +209,19 @@ struct SidebarMenuShortcutsTest: E2ETest {
         }
         run.check("sidebar.menu-command", passed: command == "tabs=[A] active=A", command)
 
-        // What each lookup should find; nil where no item has the shortcut (an exact match, not a subset).
+        // What each lookup should find; nil where no item has the shortcut (an exact match, not a subset). Only
+        // letters fold Shift: "{" is not "[" with Shift.
         let lookups: [(key: String, modifiers: E2EKeyModifiers, title: String?)] = [
             ("l", [.option, .command], "Downloads"),
             ("w", [.shift, .command], "Close Window"),
             ("W", .command, "Close Window"),
             ("w", .command, "Close Tab"),
             ("w", [.control, .option, .shift, .command], nil),
+            ("[", .command, "Back"),
+            ("[", [.shift, .command], nil),
+            ("{", .command, nil),
+            (E2EMenuKey.upArrow, .command, nil),
+            (E2EMenuKey.function(5), [], nil),
         ]
         var problems: [String] = []
         for lookup in lookups {
@@ -222,6 +230,18 @@ struct SidebarMenuShortcutsTest: E2ETest {
                 problems.append("\(lookup.modifiers.shortcut(lookup.key))=\(title ?? "none")")
             }
         }
+        // Keys without a printable character show by name.
+        let names = [E2EKeyModifiers.command.shortcut(E2EMenuKey.upArrow), E2EKeyModifiers().shortcut(E2EMenuKey.function(5))]
+        if names != ["Cmd+Up", "F5"] { problems.append("names=\(names)") }
+
+        let routes = try await run.step("menu routes", timeout: E2ETimeouts.step) {
+            try Self.routeProblems(app: app, in: a)
+        }
+        run.check(
+            "sidebar.menu-routes", passed: routes.problems.isEmpty,
+            routes.problems.isEmpty
+                ? routes.routes.map(\.description).joined(separator: " ") : routes.problems.joined(separator: " "))
+
         try await run.step("close the window with Shift-Command-W", timeout: E2ETimeouts.step) {
             try app.chooseMenuItem(key: "w", modifiers: [.shift, .command], in: a)
             while !a.isClosed { try await Task.sleep(nanoseconds: 10_000_000) }
@@ -229,20 +249,55 @@ struct SidebarMenuShortcutsTest: E2ETest {
         let detail = problems.isEmpty ? "lookups=\(lookups.count) shift-cmd-w=closed" : problems.joined(separator: " ")
         run.check("sidebar.menu-modifiers", passed: problems.isEmpty, detail)
     }
+
+    /// Where every shortcut goes in `page`'s window, and what is wrong with it: Quit, Hide and Minimize must be
+    /// refused, Close Tab must reach the window's controller, nothing may go to the application or its delegate, and
+    /// choosing Quit or Minimize must throw a refusal and leave the window open.
+    @MainActor
+    private static func routeProblems(app: any E2EMenuApp, in page: any E2EPage) throws
+        -> (routes: [E2EMenuRoute], problems: [String])
+    {
+        let routes = try app.menuRoutes(in: page)
+        var problems: [String] = []
+        let expected = [
+            ("Cmd+q", "refused"), ("Cmd+h", "refused"), ("Cmd+m", "refused"), ("Cmd+w", "BrowserWindowController"),
+        ]
+        for (shortcut, handler) in expected
+        where !routes.contains(where: { $0.shortcut == shortcut && $0.handler == handler }) {
+            problems.append("\(shortcut) not \(handler): \(routes.filter { $0.shortcut == shortcut })")
+        }
+        problems += routes.filter { $0.handler.hasSuffix("Application") || $0.handler == "AppDelegate" }.map(
+            \.description)
+        for key in ["q", "m"] {
+            do {
+                try app.chooseMenuItem(key: key, modifiers: .command, in: page)
+                problems.append("Cmd+\(key) was chosen")
+            } catch let error as E2EError where error.reason == .testEnded {
+                throw error
+            } catch {
+                if !"\(error)".contains("refused") { problems.append("Cmd+\(key): \(error)") }
+            }
+        }
+        if page.isClosed { problems.append("the window closed") }
+        return (routes, problems)
+    }
 }
 
 /// Seeds two Spaces before the window opens: Work, on the test's profile, with a pinned folder holding a tab and a
-/// nested folder, a pinned tab and two today tabs, and Home on a profile of its own with one today tab. Checks the
-/// window shows Work laid out as seeded, and that every created Space, folder and tab came back with its own ID.
+/// nested folder, a pinned tab and two today tabs, and Home on a new profile named after the test with one today
+/// tab. Checks the window shows Work nested as seeded, that every created Space, folder and tab resolves in the
+/// window's sidebar store with its title, parent, Space and profile, and that a seed naming one new profile both
+/// persistent and in memory is refused.
 struct SidebarSeedTest: E2ETest {
     let name = "sidebar.seed"
-    let checks = ["sidebar.seed", "sidebar.seed-ids"]
+    let checks = ["sidebar.seed", "sidebar.seed-ids", "sidebar.seed-refused"]
 
     func run(_ run: E2ERun) async throws {
         guard let app = run.app as? any E2EZonesApp & E2EStoreSeedApp else {
             throw E2EError("the app cannot seed a sidebar")
         }
         let url = { (name: String) in E2EFixture.url("sidebar/page.html?name=\(name)") }
+        let homeProfile = app.testProfileID + "-home"
         let seed = E2ESeed(
             spaces: [
                 E2ESeedSpace(
@@ -254,7 +309,7 @@ struct SidebarSeedTest: E2ETest {
                     today: [.tab("T1", url: url("T1")), .tab("T2", url: url("T2"))]
                 ),
                 E2ESeedSpace(
-                    "Home", profile: .new(E2EProfile(id: "e2e-seed-home", isPersistent: false)),
+                    "Home", profile: .new(E2EProfile(id: homeProfile, isPersistent: false)),
                     today: [.tab("H1", url: url("H1"))]),
             ],
             activeSpace: "Work"
@@ -264,25 +319,91 @@ struct SidebarSeedTest: E2ETest {
             _ = try await window.page.waitForLoad(after: 0)
             return window
         }
-        let expected = ["favorites", "pinned", "Docs", "P1", "Inner", "P2", "P3", "divider", "today", "T1", "T2"]
+        // Each row's depth: sections at 0, items in a section at 1, and one deeper per folder.
+        let expected = [
+            ("favorites", 0), ("pinned", 0), ("Docs", 1), ("P1", 2), ("Inner", 2), ("P2", 3), ("P3", 1),
+            ("divider", 0), ("today", 0), ("T1", 1), ("T2", 1),
+        ].map { E2EOutlineRow(title: $0.0, level: $0.1) }
         // The outline once it reads as seeded, or what it read last shortly before the step's limit.
         let outline = try await run.step("outline", timeout: E2ETimeouts.step) {
             let deadline = Date().addingTimeInterval(E2EWaits.budget())
             while true {
-                let outline = try app.sidebarOutline(of: window.page)
+                let outline = try app.sidebarOutlineRows(of: window.page)
                 if outline == expected || Date() >= deadline { return outline }
                 try await Task.sleep(nanoseconds: 10_000_000)
             }
         }
-        run.check("sidebar.seed", passed: outline == expected, outline.joined(separator: " | "))
+        run.check("sidebar.seed", passed: outline == expected, outline.map(\.description).joined(separator: " | "))
 
-        let items = ["Docs", "P1", "Inner", "P2", "P3", "T1", "T2", "H1"]
+        let problems = try await run.step("resolve the IDs", timeout: E2ETimeouts.step) {
+            try Self.idProblems(of: window, homeProfile: homeProfile, app: app)
+        }
         let ids = Array(window.spaceIDs.values) + Array(window.itemIDs.values)
-        let complete =
-            Set(window.spaceIDs.keys) == ["Work", "Home"] && Set(window.itemIDs.keys) == Set(items)
-            && Set(ids).count == ids.count && !ids.contains("")
         run.check(
-            "sidebar.seed-ids", passed: complete,
-            "spaces=\(window.spaceIDs.keys.sorted()) items=\(window.itemIDs.keys.sorted()) distinct=\(Set(ids).count)")
+            "sidebar.seed-ids", passed: problems.isEmpty,
+            problems.isEmpty
+                ? "resolved=\(ids.count) distinct=\(Set(ids).count) home=\(homeProfile)"
+                : problems.joined(separator: " "))
+
+        let refusal = try await run.step("refuse a profile both persistent and in memory", timeout: E2ETimeouts.step) {
+            let id = app.testProfileID + "-clash"
+            let clash = E2ESeed(spaces: [
+                E2ESeedSpace("A", profile: .new(E2EProfile(id: id, isPersistent: false))),
+                E2ESeedSpace("B", profile: .new(E2EProfile(id: id, isPersistent: true))),
+            ])
+            do {
+                _ = try await app.openWindow(seeded: clash)
+                return "opened"
+            } catch let error as E2EError where error.reason == .testEnded {
+                throw error
+            } catch {
+                return "\(error)"
+            }
+        }
+        run.check("sidebar.seed-refused", passed: refusal.contains("both persistent and in memory"), refusal)
+    }
+
+    /// Everything wrong with the seeded window's IDs as its sidebar store holds them: each Space, folder and tab
+    /// must resolve with its kind, title, parent, Space and profile.
+    @MainActor
+    private static func idProblems(
+        of window: E2ESeededWindow, homeProfile: String, app: any E2EStoreSeedApp
+    ) throws -> [String] {
+        var problems: [String] = []
+        let ids = Array(window.spaceIDs.values) + Array(window.itemIDs.values)
+        if Set(ids).count != ids.count { problems.append("ids repeat") }
+        if Set(window.spaceIDs.keys) != ["Work", "Home"] { problems.append("spaces=\(window.spaceIDs.keys.sorted())") }
+        let profiles = ["Work": app.testProfileID, "Home": homeProfile]
+        for (name, profile) in profiles.sorted(by: { $0.key < $1.key }) {
+            guard let id = window.spaceIDs[name], let entry = try app.storeEntry(id: id, in: window.page) else {
+                problems.append("\(name)=unresolved")
+                continue
+            }
+            if entry.kind != .space || entry.title != name || entry.profileID != profile {
+                problems.append("\(name)=\(entry)")
+            }
+        }
+        // Each item: its kind, its parent (a folder's name, or the section it sits in) and its Space.
+        let items: [(name: String, kind: E2EStoreEntry.Kind, parent: String, space: String)] = [
+            ("Docs", .folder, "pinned", "Work"), ("P1", .tab, "Docs", "Work"), ("Inner", .folder, "Docs", "Work"),
+            ("P2", .tab, "Inner", "Work"), ("P3", .tab, "pinned", "Work"), ("T1", .tab, "today", "Work"),
+            ("T2", .tab, "today", "Work"), ("H1", .tab, "today", "Home"),
+        ]
+        if Set(window.itemIDs.keys) != Set(items.map(\.name)) {
+            problems.append("items=\(window.itemIDs.keys.sorted())")
+        }
+        for item in items {
+            guard let id = window.itemIDs[item.name], let entry = try app.storeEntry(id: id, in: window.page) else {
+                problems.append("\(item.name)=unresolved")
+                continue
+            }
+            let parent = window.itemIDs[item.parent] ?? item.parent
+            if entry.kind != item.kind || entry.title != item.name || entry.parent != parent
+                || entry.spaceID != window.spaceIDs[item.space] || entry.profileID != profiles[item.space]
+            {
+                problems.append("\(item.name)=\(entry)")
+            }
+        }
+        return problems
     }
 }
