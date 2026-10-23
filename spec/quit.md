@@ -32,6 +32,7 @@ People rely on it every day, and every automated run relies on the app exiting o
 
 - Quitting while a page is still loading, or before its window has finished opening, still closes every page within 2 seconds and exits.
 - Popup windows a page opened close along with everything else when quitting, and closing one leaves its opener's window open.
+- Quitting while a tab is being unloaded (its page freed to save memory) closes that page too: if the page wants to ask "leave this page?", it asks as usual instead of silently staying, so an unload never cancels a quit, and no tab is unloaded once quitting has begun.
 - A page that loads more than once during a smoke run (a redirect or a script navigation) still produces one result line and keeps the first result's exit code.
 - A page that keeps its "leave this page?" prompt open blocks quitting until the person answers; a smoke run then fails with exit code 3 instead of hanging.
 - If Chromium's own shutdown has not finished 10 seconds after it began (only seen on a heavily loaded machine), Chromium ends the process itself with exit code 2 and logs `Teardown watchdog expired; recording dump and terminating.`; the app does not change this limit.

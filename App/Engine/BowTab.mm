@@ -188,7 +188,6 @@ void BowTearDownBrowserView(CefRefPtr<CefBrowser> browser) {
 - (instancetype)initWithProfile:(BowProfile*)profile url:(NSURL*)url {
   self = [self initWithProfileID:profile.profileID downloadHandler:profile.downloads.handler];
   if (self) {
-
     // The browser starts out detached, in the engine's parking view, until a host view attaches the tab.
     NSView* parkingView = BowEngineParkingView();
     CefWindowInfo windowInfo;
@@ -202,6 +201,7 @@ void BowTearDownBrowserView(CefRefPtr<CefBrowser> browser) {
     if (!CefBrowserHost::CreateBrowser(windowInfo, _client, url.absoluteString.UTF8String, settings, nullptr,
                                        profile.requestContext)) {
       BowEngineBrowserCreationFailed(self);
+      _closeReason = BowTabCloseReasonPage;
       _closed = YES;
       [self finishCloseCompletions:YES];
       [self reportClosed];
@@ -235,6 +235,7 @@ void BowTearDownBrowserView(CefRefPtr<CefBrowser> browser) {
 - (void)popupCreationFailed {
   if (self.closed || _browser) return;
   BowEngineBrowserCreationFailed(self);
+  _closeReason = BowTabCloseReasonPage;
   self.closed = YES;
   [self finishCloseCompletions:YES];
   [self reportClosed];
@@ -250,6 +251,14 @@ void BowTearDownBrowserView(CefRefPtr<CefBrowser> browser) {
 }
 
 - (void)browserCreated:(CefRefPtr<CefBrowser>)browser {
+  if (self.closed) {
+    // A popup browser CEF created after the tab had given up on it (its opener closed first) has no owner left:
+    // close it, still parked and never shown. Not from inside OnAfterCreated.
+    dispatch_async(dispatch_get_main_queue(), ^{
+      BowEngineCloseBrowser(browser, true);
+    });
+    return;
+  }
   _browser = browser;
   // Size Chromium's view without keeping a reference to it: its lifetime decides the browser's.
   NSView* browserView = (__bridge NSView*)browser->GetHost()->GetWindowHandle();
@@ -275,9 +284,18 @@ void BowTearDownBrowserView(CefRefPtr<CefBrowser> browser) {
 
 - (void)browserWillClose {
   _willClose = YES;
+  if (_unloading) return;
+  // A close the app asked for stays the app's even if the page also called window.close().
+  if (BowEngineIsQuitting()) {
+    _closeReason = BowTabCloseReasonQuit;
+  } else {
+    _closeReason = _closeCompletions.count > 0 ? BowTabCloseReasonApp : BowTabCloseReasonPage;
+  }
 }
 
 - (void)browserClosed {
+  // The ownerless popup browser browserCreated: closed: the tab reported its close already.
+  if (self.closed) return;
   _browser = nullptr;
   [self failNavigation:ERR_ABORTED text:kBowAbortedText];
   self.closed = YES;
@@ -341,8 +359,6 @@ void BowTearDownBrowserView(CefRefPtr<CefBrowser> browser) {
   id<BowTabUIDelegate> delegate = self.uiDelegate;
   if ([delegate respondsToSelector:@selector(tab:didChangeState:)]) [delegate tab:self didChangeState:self.state];
 }
-
-#pragma mark UI requests
 
 #pragma mark UI requests
 
@@ -462,7 +478,8 @@ void BowTearDownBrowserView(CefRefPtr<CefBrowser> browser) {
 }
 
 - (void)unloadWithCompletion:(void (^)(BOOL))completion {
-  if (self.closed) {
+  // A tab closing for good (the page called window.close(), or the engine quits) is never unloaded instead.
+  if (self.closed || self.willClose || BowEngineIsQuitting()) {
     dispatch_async(dispatch_get_main_queue(), ^{
       completion(NO);
     });
@@ -491,8 +508,13 @@ void BowTearDownBrowserView(CefRefPtr<CefBrowser> browser) {
     });
     return;
   }
-  // A close asked for while an unload is pending wins: the tab then reports a close, and its page may prompt.
-  _unloading = NO;
+  // A close asked for while an unload is pending wins: the unload answers NO (the tab reports a close, not an
+  // unload), and the page may prompt. Past DoClose the unload had already been accepted, so the close is the app's.
+  if (_unloading) {
+    _unloading = NO;
+    [self finishCloseCompletions:NO];
+    if (_willClose) _closeReason = BowEngineIsQuitting() ? BowTabCloseReasonQuit : BowTabCloseReasonApp;
+  }
   [_closeCompletions addObject:[completion copy]];
   if (!_browser) {
     _closeWhenCreated = YES;

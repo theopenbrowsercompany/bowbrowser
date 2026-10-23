@@ -37,9 +37,9 @@ bool BowTabClient::OnPreKeyEvent(CefRefPtr<CefBrowser> browser,
                                  bool* isKeyboardShortcut) {
   if (!IsOwn(browser)) return false;
   // The character and key up that follow a claimed key down are the same press: they never reach the page either.
-  if (claimedKeyCode_ != 0 && event.native_key_code == claimedKeyCode_ && event.type != KEYEVENT_RAWKEYDOWN &&
-      event.type != KEYEVENT_KEYDOWN) {
-    if (event.type == KEYEVENT_KEYUP) claimedKeyCode_ = 0;
+  const bool isKeyDown = event.type == KEYEVENT_RAWKEYDOWN || event.type == KEYEVENT_KEYDOWN;
+  if (!isKeyDown && claimedKeyCodes_.count(event.native_key_code) > 0) {
+    if (event.type == KEYEVENT_KEYUP) claimedKeyCodes_.erase(event.native_key_code);
     return true;
   }
   if (![tab_ takesUIRequest:@selector(tab:handleKeyBeforePage:)]) return false;
@@ -50,7 +50,13 @@ bool BowTabClient::OnPreKeyEvent(CefRefPtr<CefBrowser> browser,
                                                   modifiers:ToKeyModifiers(event.modifiers)
                                             inEditableField:event.focus_on_editable_field];
   const bool claimed = [tab_ handleKeyBeforePage:keyEvent];
-  if (event.type == KEYEVENT_RAWKEYDOWN || event.type == KEYEVENT_KEYDOWN) claimedKeyCode_ = claimed ? event.native_key_code : 0;
+  if (isKeyDown) {
+    if (claimed) {
+      claimedKeyCodes_.insert(event.native_key_code);
+    } else {
+      claimedKeyCodes_.erase(event.native_key_code);
+    }
+  }
   return claimed;
 }
 

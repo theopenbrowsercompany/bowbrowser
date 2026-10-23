@@ -21,6 +21,8 @@ An unloaded tab stays in the sidebar and loads again when you open it.
 - The idle times and loaded tab limits are settings, not fixed numbers, and are tuned from measurements.
 
 - Unloading a page lets its beforeunload handler run but never shows a prompt: a page that would ask to stay is left loaded.
+- A tab that is closing for good is never unloaded instead: not after its page closed itself, and not while the app quits.
+  Closing a tab whose unload is still under way turns it into a close: the unload reports that it did not happen, and the tab is closed by the app.
 
 ## Edge cases
 
@@ -42,7 +44,7 @@ An unloaded tab stays in the sidebar and loads again when you open it.
 
 These run as unit tests today (`UnloadPolicyTests`).
 
-8. Run `make e2e`: the `engine.unload` check unloads a tab through the engine and prints `PASS engine.unload: unloaded=true closed=true last=unloaded`.
+8. Run `make e2e`: the `engine.unload` check unloads a tab through the engine, then closes a tab whose slow beforeunload keeps its unload pending, and prints `PASS engine.unload: unloaded=true closed=true last=unloaded taken-over-unload=false close=true close-last=closed close-reason=app`.
 
 ## Out of scope
 

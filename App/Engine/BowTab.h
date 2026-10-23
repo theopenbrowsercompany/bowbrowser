@@ -44,6 +44,18 @@ NS_SWIFT_SENDABLE
 
 @end
 
+/// Why a tab closed (mirrors `TabCloseReason`).
+typedef NS_ENUM(NSInteger, BowTabCloseReason) {
+  /// Still open, or unloaded rather than closed.
+  BowTabCloseReasonNone,
+  /// The app closed it with `closeWithCompletion:`.
+  BowTabCloseReasonApp,
+  /// The engine closed it unasked: the page called `window.close()`, or its page could not be created.
+  BowTabCloseReasonPage,
+  /// Quitting the engine closed it.
+  BowTabCloseReasonQuit,
+};
+
 /// One web page for its whole life, independent of any view that shows it. Created by `BowProfile`; shown by
 /// attaching it to a `BowWebView`. The engine keeps the tab alive until it closes, so letting go of it does not
 /// close the page: call `closeWithCompletion:`.
@@ -61,6 +73,9 @@ NS_SWIFT_UI_ACTOR
 
 /// YES once the page has been destroyed. Navigation calls then do nothing.
 @property(nonatomic, readonly, getter=isClosed) BOOL closed;
+/// Why the tab closed: set once it has, before the UI delegate's `tabDidClose:`; `BowTabCloseReasonNone` while it
+/// is open or after an unload.
+@property(nonatomic, readonly) BowTabCloseReason closeReason;
 
 - (void)loadURL:(NSURL *)url;
 - (void)goBack;
@@ -84,7 +99,9 @@ NS_SWIFT_UI_ACTOR
 
 /// Destroys the page's browser to free its memory; the app keeps its own model of the tab. The page's beforeunload
 /// handler runs but never prompts: a page that would ask to stay keeps the tab, and the completion gets NO. On
-/// YES the tab is closed and its UI delegate gets `tabDidUnload:` instead of `tabDidClose:`. A closed tab answers NO.
+/// YES the tab is closed and its UI delegate gets `tabDidUnload:` instead of `tabDidClose:`. A tab that is closed or
+/// closing (the app's close, the page's `window.close()`) answers NO, and so does every tab while the engine quits.
+/// A close asked for while the unload is pending takes it over and answers the unload NO.
 - (void)unloadWithCompletion:(void (^)(BOOL unloaded))completion NS_SWIFT_NAME(unload(completion:));
 
 /// The page's zoom level (0 is 100%). Chromium keeps zoom per site in the profile, so setting it changes every tab

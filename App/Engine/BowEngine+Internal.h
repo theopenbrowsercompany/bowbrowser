@@ -41,6 +41,10 @@ void BowEngineBrowserCreated(CefRefPtr<CefBrowser> browser, BowTab* _Nullable ta
 /// (DoClose), and nothing if a close was already requested unless `askAgain` is true, so a page's leave prompt is
 /// not shown twice for one request.
 void BowEngineCloseBrowser(CefRefPtr<CefBrowser> browser, bool askAgain);
+/// YES once BowEngine.quit has started and no page has cancelled it: every browser is being closed.
+bool BowEngineIsQuitting();
+/// An unload's silent answer kept the page: the browser's pending close ends, but quitting is never cancelled.
+void BowEngineBrowserUnloadRefused(CefRefPtr<CefBrowser> browser);
 /// The person chose to stay at a page's leave prompt. A pending close of that browser is cancelled, and so is
 /// quitting. Returns true when a close was pending.
 bool BowEngineBrowserCloseCancelled(CefRefPtr<CefBrowser> browser);

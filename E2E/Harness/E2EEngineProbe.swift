@@ -28,6 +28,8 @@ final class E2EEngineProbe: EngineTabDelegate {
     var claimsKey: (EngineKeyEvent) -> Bool = { _ in false }
     private(set) var keyEvents: [EngineKeyEvent] = []
     private(set) var claimedKeys: [EngineKeyEvent] = []
+    /// The URL of every main frame navigation the tab asked about, in order (all are allowed).
+    private(set) var navigations: [URL] = []
 
     private init(tab: any EngineTab) {
         self.tab = tab
@@ -65,6 +67,17 @@ final class E2EEngineProbe: EngineTabDelegate {
         }
     }
 
+    /// Waits until `condition` holds, running `refresh` (which reads the page) before each look.
+    func until(_ what: String, _ condition: () -> Bool, refresh: () async throws -> Void) async throws {
+        let deadline = Date().addingTimeInterval(E2EWaits.budget())
+        while true {
+            try await refresh()
+            if condition() { return }
+            if Date() > deadline { throw E2EError("gave up waiting for \(what)") }
+            try await Task.sleep(nanoseconds: 50_000_000)
+        }
+    }
+
     /// Waits for load number `count` to finish and returns its status.
     func waitForLoad(_ count: Int) async throws -> Int {
         try await until("load \(count) of \(tab.state.url?.absoluteString ?? "the probe")") { loads.count >= count }
@@ -95,6 +108,18 @@ final class E2EEngineProbe: EngineTabDelegate {
         return (result["result"] as? [String: Any])?["value"]
     }
 
+    /// Turns on focus emulation, as the other e2e pages have it, and waits until the page has focus, so the key
+    /// events the app leaves to it reach it although the tab has no window.
+    func focusPage() async throws {
+        _ = try await devTools("Emulation.setFocusEmulationEnabled", ["enabled": true])
+        var focused = false
+        try await until("the page's focus") {
+            focused
+        } refresh: {
+            focused = try await evaluate("window.focus(); document.hasFocus()") as? Bool ?? false
+        }
+    }
+
     /// Presses and releases a character key, with Command when `command` is true.
     func pressKey(_ character: String, keyCode: Int, macKeyCode: Int, command: Bool = false) async throws {
         _ = try await devTools("Emulation.setFocusEmulationEnabled", ["enabled": true])
@@ -120,6 +145,11 @@ final class E2EEngineProbe: EngineTabDelegate {
         case .closed, .unloaded: devToolsSession.close()
         default: break
         }
+    }
+
+    func tab(_ tab: any EngineTab, decidePolicyFor navigation: EngineNavigation) -> NavigationPolicy {
+        navigations.append(navigation.url)
+        return .allow
     }
 
     func tab(_ tab: any EngineTab, decidePopup request: PopupRequest) -> PopupDecision {
