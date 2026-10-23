@@ -28,6 +28,14 @@ public enum SidebarRepair: Hashable, Sendable {
     /// The active Space was missing or gone, so the first Space became active.
     case resetActiveSpace(SidebarSpaceID)
     case clearedActiveTab
+    /// A split view with no tabs was removed.
+    case removedEmptySplit(SidebarItemID)
+    /// A split view left with one tab turned back into that plain tab, in the split's place.
+    case dissolvedSingleTabSplit(SidebarItemID, tab: SidebarItemID)
+    /// A split view held more than four tabs; this one moved out to sit after the split.
+    case movedExtraSplitPane(SidebarItemID, from: SidebarItemID)
+    /// A split view's width factors or focused pane did not fit its tabs, so they were reset.
+    case fixedSplitLayout(SidebarItemID)
 }
 
 extension SidebarGraph {
@@ -45,6 +53,7 @@ extension SidebarGraph {
         orphans += breakCycles(excluding: orphans, &log)
         repairActivePointers(&log)
         placeOrphans(orphans, &log)
+        repairSplits(&log)
         return log
     }
 

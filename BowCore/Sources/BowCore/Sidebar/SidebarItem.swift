@@ -63,8 +63,34 @@ public struct SidebarSplit: Codable, Hashable, Sendable {
     }
 
     public var orientation: Orientation
+    /// Each pane's share of the split along its orientation, one per child in order, summing to 1. Empty means all
+    /// panes are equal (what a split saved before widths existed has).
+    public var widthFactors: [Double]
+    /// The pane that has focus. Nil means the first pane.
+    public var focusedItemID: SidebarItemID?
 
-    public init(orientation: Orientation = .horizontal) { self.orientation = orientation }
+    public init(
+        orientation: Orientation = .horizontal,
+        widthFactors: [Double] = [],
+        focusedItemID: SidebarItemID? = nil
+    ) {
+        self.orientation = orientation
+        self.widthFactors = widthFactors
+        self.focusedItemID = focusedItemID
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case orientation, widthFactors, focusedItemID
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        orientation = try values.decode(Orientation.self, forKey: .orientation)
+        // Layout fields are optional so splits saved before they existed still open; damaged values fall back to
+        // equal panes and the first pane, and the cleanup pass tidies them.
+        widthFactors = (try? values.decodeIfPresent([Double].self, forKey: .widthFactors)) ?? []
+        focusedItemID = try? values.decodeIfPresent(SidebarItemID.self, forKey: .focusedItemID)
+    }
 }
 
 /// The root of one section of the sidebar. Containers have no parent and are owned by a Space or by a profile's

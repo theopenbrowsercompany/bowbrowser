@@ -15,7 +15,7 @@ Bow keeps it in one file of its own, separate from the engine's session data.
 - On launch only the tab that was selected loads its page right away.
   Every other tab appears in the sidebar with its saved title and loads when it is selected.
 - Folders nest to any depth and keep whether they were open or closed.
-  Split views keep their tabs and their orientation.
+  Split views keep their tabs, their orientation, each pane's width and which pane has focus.
 - A folder holds tabs, split views and other folders in the order the person set.
   It can be created (empty), renamed, opened or closed, and moved with everything inside it to another folder, another position or another Space's section.
   A folder cannot be moved into itself or into anything inside it; Bow refuses such a move and changes nothing.
@@ -64,6 +64,26 @@ Bow keeps it in one file of its own, separate from the engine's session data.
   Selecting it loads its saved address, not the page it was last showing.
   Closing any other tab removes it from the sidebar.
 
+### Split views
+
+- A split view shows two to four tabs side by side and is saved as one sidebar item that holds those tabs in pane order, with an orientation (side by side or stacked), each pane's share of the width and the pane that has focus.
+- A split is made from two to four tabs that sit in the same section (the same Space's pinned tabs, or the same Space's other tabs, folders included).
+  It takes the place of the first tab among its siblings, the panes start with equal widths, and the first pane (or the one chosen) has focus.
+  A Favorite, a tab already in a split, a folder, or tabs from different sections cannot be put into a split: Bow refuses and changes nothing, so a tab never becomes pinned or unpinned by joining a split.
+- A tab can be added to a split as a pane at any position until the split has four panes.
+  The new pane gets an equal share and the others shrink in proportion; focus stays where it was.
+  A fifth pane is refused.
+- A pane can leave the split, or be closed.
+  The other panes share the freed width in proportion and, if the pane with focus left, focus goes to its neighbour (the pane before it, or the first pane).
+  A pane that leaves without being closed becomes a plain tab right after the split.
+- A split left with one tab turns back into that plain tab, in the split's place: a split is for seeing two or more pages together, and one page is just a tab.
+- Separating a split gives its tabs back as plain tabs in the split's place, in their order, in the section the split was in (so a pinned split gives pinned tabs).
+- Widths are shares of the split and always add up to one whole: setting any positive numbers (for example 2 and 1) is saved as shares (two thirds and one third).
+  Bow refuses widths that are not positive numbers, that do not give every pane one number, or that leave a pane under a tenth of the split.
+  Dragging a divider changes only the two panes beside it and stops when one of them reaches a tenth.
+- Panes can be reordered, and a pane keeps its width when it moves.
+- Pinning, unpinning or reordering a single pane on its own is refused; the split moves as a whole.
+
 ## Edge cases
 
 - First launch, or the file is missing: Bow starts with one empty Space and empty Favorites, and writes the file once there is something to save.
@@ -91,6 +111,12 @@ Bow keeps it in one file of its own, separate from the engine's session data.
 - Hundreds of tabs: only the selected one loads at launch, so startup stays quick.
 - Pinning a tab that is already pinned, or unpinning one that is not, changes nothing; in particular pinning again never overwrites the saved address.
 - A pinned tab with no usable saved address has nothing to go back to: it never shows "Back to pinned URL" and loads nothing when selected.
+- A split with no tabs is not shown: Bow removes it when it opens the file, since it holds nothing.
+  A split with one tab turns back into that tab in the split's place, and the repair is kept in the copy of the file Bow makes before saving.
+- A split with more than four tabs keeps the first four; the others become plain tabs right after it, none are lost.
+- Widths that do not fit the panes (the wrong number, zero, negative or not a number) are reset to equal panes, widths that only do not add up to one are scaled to, and a focus on something that is not a pane goes back to the first pane.
+  A split saved before widths and focus existed opens with equal panes and focus on the first.
+- If a pane's tab goes away by some other path and leaves a split short of tabs, the same rules apply when Bow next opens the file.
 
 ## Acceptance checks
 
@@ -124,10 +150,23 @@ Bow keeps it in one file of its own, separate from the engine's session data.
 22. With a second Space that has its own folders, choose Collapse all in the first Space: the second Space's folders keep their state.
     Select a Favorite, then choose Collapse all: every folder of the current Space closes.
 23. Run `make e2e`: `collapse` prints `PASS collapse: collapsed=3 visible=A`.
+24. Make a split of three tabs A, B and C: the sidebar shows one split item holding A, B and C where A was, with equal widths and focus on A.
+    Quit and relaunch: the split, its order, orientation, widths and focus are the same.
+25. Set widths 2, 1 and 1 on the split of A, B and C: they read as one half and two quarters.
+    Drag the first divider far to the right: only A and B change, and B stops at a tenth of the split.
+26. Add D to the split: it takes a quarter and the others shrink in proportion.
+    Try to add E: Bow refuses and the split keeps four panes.
+27. Remove B from the four panes: B is a plain tab right after the split, the others share its width, and if B had focus, A has it.
+28. In a split of A and B, remove A (or close either tab): the split is gone and the remaining tab is a plain tab where the split was; if A only left, A follows it.
+29. Separate a split of three tabs: the three tabs sit where the split was, in order, and the split item is gone.
+30. Try to make a split from one tab, from five tabs, from a Favorite and a tab, from a pinned tab and an unpinned tab, or from a tab already in a split: Bow refuses each and changes nothing.
+31. Edit the file so a split has no tabs, and another has one tab, then relaunch: the empty split is gone, the one-tab split is a plain tab in its place, and the sidebar opens normally.
+32. Edit the file so a split has widths 1, 0 and 1: it opens with equal panes.
 
 ## Out of scope
 
 - How tabs, folders and Spaces look and how they are dragged in the sidebar.
+- How split panes are drawn in the window, the focus ring, and dragging tabs into a split.
 - How the Favorites icon grid looks, and dragging into, within and out of it.
 - Choosing a profile for a Space, and confirming a move between profiles.
 - Archiving closed tabs and the archive's own file.
