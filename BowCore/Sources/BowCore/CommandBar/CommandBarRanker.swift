@@ -14,7 +14,8 @@ import Foundation
 /// - A tab hides the history page and typed address for the same URL, and a history page hides the
 ///   typed address for its URL, so one URL shows once, as the most useful row.
 /// - Equal scores go to the most recently used, then to the provider registered first.
-/// - An empty query keeps only tabs and pages, most recently used first.
+/// - A command (an app action) shows only when the typed words start words of its name, scoring like a title
+///   match plus 10. An empty query keeps only tabs and pages, most recently used first.
 public struct CommandBarRanker: Sendable {
     public var maxResults: Int
 
@@ -44,6 +45,11 @@ public struct CommandBarRanker: Sendable {
                 case .search:
                     guard !text.isEmpty else { continue }
                     entries.append(Entry(candidate: candidate, score: 0, provider: provider))
+                case .command:
+                    // Only for typed text that matches the command's name; a blank bar lists tabs.
+                    guard !text.isEmpty, let match = Self.titleScore(candidate.title, text: Self.fold(text), words: words)
+                    else { continue }
+                    entries.append(Entry(candidate: candidate, score: match + 10, provider: provider))
                 case .openTab, .history:
                     let base = candidate.kind == .history ? 20 : 30
                     if text.isEmpty {
@@ -70,7 +76,7 @@ public struct CommandBarRanker: Sendable {
         entries = entries.filter { entry in
             let key = URLKey.make(entry.candidate.url)
             switch entry.candidate.kind {
-            case .openTab, .search:
+            case .openTab, .search, .command:
                 return true
             case .history:
                 guard !tabKeys.contains(key) else { return false }
@@ -113,6 +119,15 @@ public struct CommandBarRanker: Sendable {
         let haystackWords = haystack.split { !$0.isLetter && !$0.isNumber }.map(String.init)
         if words.allSatisfy({ word in haystackWords.contains { $0.hasPrefix(word) } }) { return 400 }
         if words.allSatisfy({ haystack.contains($0) }) { return 200 }
+        return nil
+    }
+
+    /// Match quality of a command's name against the typed text, or nil when it does not match.
+    private static func titleScore(_ title: String, text: String, words: [String]) -> Int? {
+        let title = fold(title)
+        if title.hasPrefix(text) { return 500 }
+        let titleWords = title.split { !$0.isLetter && !$0.isNumber }.map(String.init)
+        if words.allSatisfy({ word in titleWords.contains { $0.hasPrefix(word) } }) { return 400 }
         return nil
     }
 

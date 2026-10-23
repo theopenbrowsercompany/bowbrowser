@@ -32,6 +32,8 @@ public struct CommandBarCandidate: Equatable, Sendable {
         case navigation
         /// A web search for the typed text.
         case search
+        /// A command of the app (by its ID), such as collapsing every folder; choosing it runs it.
+        case command(String)
     }
 
     public var kind: Kind
@@ -57,6 +59,8 @@ public enum CommandBarAction: Equatable, Sendable {
     case switchToTab(UUID)
     /// Load this address (in a new tab or the current one, as the bar was opened).
     case navigate(URL)
+    /// Run the app command with this ID, in the window the bar belongs to.
+    case runCommand(String)
 }
 
 /// One row in the command bar after ranking.
@@ -75,6 +79,7 @@ public struct CommandBarResult: Equatable, Sendable, Identifiable {
         case .history: "history:\(url.absoluteString)"
         case .navigation: "navigate:\(url.absoluteString)"
         case .search: "search:\(url.absoluteString)"
+        case .command(let id): "command:\(id)"
         }
     }
 
@@ -86,7 +91,19 @@ public struct CommandBarResult: Equatable, Sendable, Identifiable {
         switch candidate.kind {
         case .openTab(let tab): action = .switchToTab(tab)
         case .history, .navigation, .search: action = .navigate(candidate.url)
+        case .command(let id): action = .runCommand(id)
         }
+    }
+}
+
+/// An app command the command bar offers by name. Its `title` is what the person types to find it.
+public struct CommandBarCommand: Equatable, Sendable {
+    public var id: String
+    public var title: String
+
+    public init(id: String, title: String) {
+        self.id = id
+        self.title = title
     }
 }
 

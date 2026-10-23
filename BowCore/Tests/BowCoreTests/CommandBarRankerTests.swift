@@ -216,3 +216,34 @@ import Testing
         return id
     }
 }
+
+/// Commands, the app's own actions, in the command bar.
+@Suite struct CommandBarCommandTests {
+    let collapse = CommandBarCommand(id: "collapse-all-folders", title: "Collapse All Folders")
+
+    func results(_ query: String, tabs: [CommandBarCandidate] = []) async -> [CommandBarResult] {
+        let commands = await CommandsProvider(commands: [collapse]).candidates(for: query)
+        return CommandBarRanker().rank(query: query, candidatesByProvider: [tabs, commands])
+    }
+
+    @Test func aTypedWordOfTheNameOffersTheCommandThatRunsIt() async {
+        let found = await results("collapse")
+        #expect(found.first?.action == .runCommand("collapse-all-folders"))
+        #expect(found.first?.kind == .command("collapse-all-folders"))
+        #expect(found.first?.id == "command:collapse-all-folders")
+        #expect(await results("all fol").first?.action == .runCommand("collapse-all-folders"))
+    }
+
+    @Test func aBlankBarAndUnrelatedTextOfferNoCommand() async {
+        #expect(await results("").isEmpty)
+        #expect(await results("zebra").allSatisfy { $0.kind != .command("collapse-all-folders") })
+    }
+
+    @Test func aTabWithTheSameMatchSortsBeforeTheCommand() async {
+        let tab = CommandBarCandidate(
+            kind: .openTab(UUID()), title: "Collapse notes", url: URL(string: "https://a.test/")!)
+        let found = await results("collapse", tabs: [tab])
+        #expect(found.first?.title == "Collapse notes")
+        #expect(found.contains { $0.action == .runCommand("collapse-all-folders") })
+    }
+}
