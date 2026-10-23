@@ -34,11 +34,14 @@ An unloaded tab stays in the sidebar and loads again when you open it.
   - a tab mid navigation, still loading its page;
   - any tab of a profile with a download under way, since destroying the page that started it would cancel it;
   - a tab using the camera or microphone;
+  - a tab you typed into, until it goes to another page: a key that enters or edits text in one of its fields (Command-V, Command-X and Command-Z included) keeps it loaded, so form text with no leave prompt to guard it is never lost;
+  - a pinned tab or Favorite showing a page other than its saved address, since loading it again would go back to that address and lose the page it was on;
   - a tab playing sound, once the engine reports audio (the current engine does not, so this does not apply yet);
   - every tab of a window that is closing or asking a question on its own (a leave prompt), and every tab in every window while a page's alert waits for an answer, so a dialog never vanishes unanswered; the next look tries again.
 - Pinned tabs and Favorites are spared longer than other tabs.
 - The idle times, loaded tab limits and how often Bow looks are named in one place, so measurements can tune them without touching the rest.
 - An unloaded tab keeps its row, address, title and icon, and loads again from its address when chosen, without its back and forward history.
+  This holds for a tab unloaded while its Space is off screen too: switching back shows its row with its icon and the title its page had.
 - Quitting stops unloading at once: no tab is unloaded while the app quits.
 
 ## Edge cases
@@ -65,6 +68,7 @@ These run as unit tests today (`UnloadPolicyTests`).
 9. Run `make e2e`: `PASS tabs.unload-reload: row=kept loaded=again url=same` shows an unloaded tab keeping its row in the window and loading again at its address when chosen, and `PASS tabs.unload-stay` shows a page that would ask to stay left loaded with no prompt.
 
 10. Run `make e2e E2E=unload`: `PASS unload.off` shows nothing unloaded with the setting off, after a day idle and under critical pressure; `PASS unload.policy: live=1 unloaded=3` shows a pass after a day idle unloading every background tab and keeping the shown one, and `PASS unload.reload` choosing an unloaded tab loading it again at its address; `PASS unload.exempt` shows a tab using the camera kept; `PASS unload.pressure` shows critical pressure unloading a recently used background tab; `PASS unload.engine_reload` shows an unloaded row keeping its title and icon; `PASS unload.dialog` shows a pass while a background tab's alert is up unloading nothing, and the next pass after it is answered unloading the tab.
+11. Run `make e2e E2E=unload`: `PASS unload.offscreen_space: unloaded=3` shows a today tab and a pinned tab unloaded while their Space is off screen keeping their icon, address and title when you switch back, and `PASS unload.offscreen_reload` choosing each loading it again at that address; `PASS unload.pinned_away: unloaded=1 pinned=live` shows a pinned tab browsed away from its pinned address kept loaded while a background tab unloads; `PASS unload.typed: unloaded=0 tab=live` shows a tab with text typed into its field kept loaded with its text, and `PASS unload.typed_navigated: unloaded=1` shows it unloading once it has gone to another page.
 
 ## Out of scope
 
@@ -72,3 +76,8 @@ These run as unit tests today (`UnloadPolicyTests`).
   A setting in a settings window for unloading is not built yet either; it is a stored setting only.
 - The idle times and limits shown here are placeholders until those measurements arrive.
 - Restoring back and forward history after unloading.
+
+## Later
+
+- Typing is the only form input that keeps a tab loaded today.
+  Text dropped into a field, dictated, or pasted, cut or undone from the Edit menu with the mouse, and a file chosen for an upload, do not count, so a page holding only such input and no leave prompt can still be unloaded.

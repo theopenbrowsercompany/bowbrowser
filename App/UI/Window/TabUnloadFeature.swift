@@ -6,8 +6,11 @@ import BowCore
 /// Never offered: the tab the window shows, every tab while the window closes, shows a sheet (a leave prompt) or the
 /// app shows a modal panel (a page's alert, even from a background tab), which an unload would take away unanswered
 /// (the next pass tries again), a tab whose row left the sidebar,
-/// a tab still loading (a navigation under way), and every tab of a profile with a download under way, since the
-/// engine cannot tell which page a download came from and destroying that page would cancel it. The policy itself
+/// a tab still loading (a navigation under way), every tab of a profile with a download under way, since the
+/// engine cannot tell which page a download came from and destroying that page would cancel it, a tab the person
+/// typed into since its page last committed a navigation (form input with no beforeunload handler would be lost, as
+/// Chromium's own discarding also judges), and a pinned tab or Favorite showing another page than its saved address
+/// (loading it again returns to that address, so the page it was on would be lost). The policy itself
 /// spares tabs using the camera or microphone and tabs playing sound (CEF 156 reports no audible state, so that
 /// exemption never applies yet).
 @MainActor
@@ -16,6 +19,8 @@ final class TabUnloadFeature: NSResponder, BrowserWindowFeature {
     private let unloader: TabUnloader
     private let activity: TabActivityLog
     private var loaded: [TabID: Entry] = [:]
+    /// Pages the person typed into, until their next main frame commit.
+    private var typedInto: Set<TabID> = []
 
     private struct Entry {
         let tab: any EngineTab
@@ -50,6 +55,32 @@ final class TabUnloadFeature: NSResponder, BrowserWindowFeature {
 
     func tabDidClose(_ tab: any EngineTab) {
         loaded[tab.tabID] = nil
+        typedInto.remove(tab.tabID)
+    }
+
+    /// A new page committed: what was typed into the old one went with it.
+    func tab(_ tab: any EngineTab, didReceive event: TabEvent) {
+        if case .didCommit = event { typedInto.remove(tab.tabID) }
+    }
+
+    /// Notes a key that enters or edits text in a page's field; the page still gets it.
+    func handleKeyBeforePage(_ event: EngineKeyEvent, in tab: any EngineTab) -> Bool {
+        if Self.editsText(event) { typedInto.insert(tab.tabID) }
+        return false
+    }
+
+    /// Whether `event` types into an editable field: a key down or character with text, not another app shortcut
+    /// (Command or Control held) than paste, cut or undo, and not a key that only moves (Tab, Escape, the arrow and
+    /// function keys, which macOS reports as characters in the private use range).
+    static func editsText(_ event: EngineKeyEvent) -> Bool {
+        guard event.kind != .keyUp, event.isInEditableField, !event.modifiers.contains(.control) else { return false }
+        if event.modifiers.contains(.command) {
+            return ["v", "x", "z"].contains(event.charactersIgnoringModifiers.lowercased())
+        }
+        let moves: Set<UInt32> = [0x09, 0x19, 0x1B]
+        return event.characters.unicodeScalars.contains {
+            !moves.contains($0.value) && !(0xF700...0xF8FF).contains($0.value)
+        }
     }
 
     /// The window's loaded tabs the unloader may consider now (see the type's notes for those never offered).
@@ -61,8 +92,11 @@ final class TabUnloadFeature: NSResponder, BrowserWindowFeature {
         var result: [Candidate] = []
         for entry in loaded.values {
             let tab = entry.tab
-            guard !tab.isClosed, window.modelID(of: tab) != nil, graph[entry.item] != nil, !tab.state.isLoading
+            guard !tab.isClosed, window.modelID(of: tab) != nil, let item = graph[entry.item], !tab.state.isLoading,
+                !typedInto.contains(tab.tabID)
             else { continue }
+            let returnsToSaved = graph.isPinned(entry.item) || graph.isInFavorites(entry.item)
+            if returnsToSaved, item.tab?.hasNavigatedAway(from: tab.state.url) == true { continue }
             let downloading =
                 busyProfiles[tab.profileID]
                 ?? (window.engineProfile(of: tab)?.downloads.items.contains { !$0.state.isFinal } ?? true)
@@ -72,7 +106,7 @@ final class TabUnloadFeature: NSResponder, BrowserWindowFeature {
             let lastActive = max(activity.lastActive(entry.item) ?? .distantPast, entry.loadedAt)
             let unloadTab = UnloadTab(
                 id: entry.id, lastActive: lastActive,
-                isPinnedOrFavorite: graph.isPinned(entry.item) || graph.isInFavorites(entry.item),
+                isPinnedOrFavorite: returnsToSaved,
                 isAudible: state.isAudible, isCapturing: state.isCapturingVideo || state.isCapturingAudio,
                 isVisible: shown === tab)
             result.append(Candidate(tab: tab, unloadTab: unloadTab))

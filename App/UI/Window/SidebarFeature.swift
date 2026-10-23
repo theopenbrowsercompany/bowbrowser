@@ -18,8 +18,17 @@ final class SidebarFeature: NSResponder, BrowserWindowFeature, SidebarViewDelega
     private var faviconReported: [BrowserTabID: URL] = [:]
     /// Tabs whose page the engine unloaded, between that event and the window letting go of the page.
     private var unloadedIDs: Set<BrowserTabID> = []
-    /// Unloaded tabs whose icon stays for their row; dropped once the row leaves the window.
-    private var keptIcons: Set<BrowserTabID> = []
+    /// What the row of each unloaded tab keeps from its last page (its icon, and its title), by sidebar item, so it
+    /// survives the window forgetting the tab's runtime ID while its Space is off screen. Dropped once the item
+    /// leaves the store or its page loads again.
+    private var kept: [SidebarItemID: KeptRow] = [:]
+    /// The tab each row showed at the last refresh, by sidebar item.
+    private var shownTabs: [SidebarItemID: BrowserTab] = [:]
+
+    private struct KeptRow {
+        var icon: (url: URL, image: NSImage)?
+        var title: String
+    }
     /// The runtime ID of each tab the window lists (the Favorites shown and the tabs of the Space on screen), as last
     /// shown.
     private var runtimeIDs: [SidebarItemID: BrowserTabID] = [:]
@@ -51,35 +60,53 @@ final class SidebarFeature: NSResponder, BrowserWindowFeature, SidebarViewDelega
         refresh()
     }
 
-    /// An unloaded tab keeps its row, so it keeps its icon too; the icon goes with a tab that closed.
+    /// An unloaded tab keeps its row, so it keeps its icon and title too; the icon goes with a tab that closed.
     func tabDidClose(_ tab: any EngineTab) {
         guard let id = window.modelID(of: tab) else { return }
-        if unloadedIDs.remove(id) == nil {
-            favicons[id] = nil
-        } else {
-            keptIcons.insert(id)
+        let icon = favicons.removeValue(forKey: id)
+        if unloadedIDs.remove(id) != nil, let item = window.sidebarItemID(for: id) {
+            let title =
+                tab.state.title.isEmpty ? (window.tabList.tabs.first { $0.id == id }?.title ?? "") : tab.state.title
+            kept[item] = KeptRow(icon: icon, title: title)
         }
         // The page that loads again reports its icon address anew; the same address keeps the icon without a reload.
         faviconReported[id] = nil
     }
 
+    /// The row's page loads again: it shows the kept icon until the page reports its own.
+    func tabOpened(_ tab: any EngineTab, item: SidebarItemID) {
+        guard let row = kept.removeValue(forKey: item), let id = window.modelID(of: tab), favicons[id] == nil else {
+            return
+        }
+        favicons[id] = row.icon
+    }
+
     /// Shows the window's sidebar with what each tab of the Space on screen last reported.
     private func refresh() {
         let list = window.tabList
-        for id in keptIcons where window.sidebarItemID(for: id) == nil || window.engineTab(for: id) != nil {
-            // The row left the window (its icon goes with it), or the page loaded again and owns its icon.
-            keptIcons.remove(id)
-            if window.sidebarItemID(for: id) == nil { favicons[id] = nil }
-        }
+        let graph = window.store.graph
         var tabs: [SidebarItemID: BrowserTab] = [:]
         runtimeIDs = [:]
-        for tab in list.tabs {
+        for var tab in list.tabs {
             guard let item = window.sidebarItemID(for: tab.id) else { continue }
-            tabs[item] = tab
             runtimeIDs[item] = tab.id
+            if let row = kept[item] {
+                if window.engineTab(for: tab.id) != nil {
+                    // The page loaded again and owns its icon and title.
+                    if favicons[tab.id] == nil { favicons[tab.id] = row.icon }
+                    kept[item] = nil
+                } else if !row.title.isEmpty {
+                    // A tab the window rebuilt from its saved page shows the title its page had, not the saved one.
+                    tab.title = row.title
+                }
+            }
+            tabs[item] = tab
         }
+        // A row that left the store takes what it kept with it.
+        for item in kept.keys where graph[item] == nil { kept[item] = nil }
+        shownTabs = tabs
         let active = list.activeID.flatMap { window.sidebarItemID(for: $0) }
-        sidebar.show(SidebarContent(graph: window.store.graph, tabs: tabs, activeItem: active))
+        sidebar.show(SidebarContent(graph: graph, tabs: tabs, activeItem: active))
     }
 
     /// Moves tab `id` to `index` in the window's tab list, as dropping its row there does: to the place of the tab
@@ -271,7 +298,12 @@ final class SidebarFeature: NSResponder, BrowserWindowFeature, SidebarViewDelega
     }
 
     func favicon(for item: SidebarItemID) -> NSImage? {
-        runtimeIDs[item].flatMap { favicons[$0]?.image }
+        runtimeIDs[item].flatMap { favicons[$0]?.image } ?? kept[item]?.icon?.image
+    }
+
+    /// The tab row `item` shows (its address and title), nil while the window lists no such row.
+    func shownTab(for item: SidebarItemID) -> BrowserTab? {
+        shownTabs[item]
     }
 
     /// Loads the site icon at `url` for tab `id` each time the page reports a new icon address. The icon shown stays
