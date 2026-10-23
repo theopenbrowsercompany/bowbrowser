@@ -13,10 +13,12 @@ mkdir -p "$app/Contents/MacOS"
 # The fake app reads FAKE_MODE and writes report.txt into its --e2e-out folder like the real runner.
 cat > "$app/Contents/MacOS/Bow" <<'EOF'
 #!/bin/bash
-out="" only=""
+out="" sel=""
 for a in "$@"; do
-  case $a in --e2e-out=*) out=${a#--e2e-out=} ;; --only=*) only=${a#--only=} ;; esac
+  case $a in --e2e-out=*) out=${a#--e2e-out=} ;; --e2e=*) sel=${a#--e2e=} ;; esac
 done
+# Records the selection each attempt got.
+[ -z "$out" ] || echo "e2e=$sel" > "$out/args"
 r="$out/report.txt"
 case $FAKE_MODE in
   pass) echo "PASS a.one: ok" > "$r"; echo "E2E: PASS 1/1" >> "$r"; exit 0 ;;
@@ -41,21 +43,21 @@ case $FAKE_MODE in
     esac ;;
   chromium)
     case $out in
-      */retry) echo "only=$only" > "$out/args"; { echo "TEST PASS a.one"; echo "PASS chromium.errors: ok"; echo "E2E: PASS 2/2"; } > "$r"; exit 0 ;;
-      *) { echo "TEST PASS a.one"; echo "FAIL chromium.errors: 1 unexpected"; echo "E2E: FAIL 1/2"; } > "$r"; exit 1 ;;
+      */retry) { echo "RESULT a.one pass seconds=0.1 checks=1/1"; echo "PASS chromium.errors: ok"; echo "E2E: PASS 2/2"; } > "$r"; exit 0 ;;
+      *) { echo "RESULT a.one pass seconds=0.1 checks=1/1"; echo "FAIL chromium.errors: 1 unexpected"; echo "E2E: FAIL 1/2"; } > "$r"; exit 1 ;;
     esac ;;
-  onlytimeout)
+  stuck)
     case $out in
-      */retry) echo "only=$only" > "$out/args"; { echo "TEST PASS a.one"; echo "TEST PASS a.two"; echo "E2E: PASS 2/2"; } > "$r"; exit 0 ;;
-      *) { echo "TEST PASS a.one"; echo "E2E: TIMEOUT a.two: open window"; } > "$r"; exit 2 ;;
+      */retry) { echo "RESULT a.two pass seconds=0.2 checks=1/1"; echo "RESULT a.three pass seconds=0.2 checks=1/1"; echo "E2E: PASS 2/2"; } > "$r"; exit 0 ;;
+      *) { echo "RESULT a.one pass seconds=0.1 checks=1/1"; echo "E2E: TIMEOUT a.two: open window (main thread stuck)"
+        echo "NOT RUN a.three"; echo "E2E: FAIL 1/3"; } > "$r"; exit 2 ;;
     esac ;;
-  only)
-    echo "only=$only" >> "$out/args"
-    if [ "$only" = "a.two" ]; then
-      { echo "PASS a.two: ok"; echo "TEST PASS a.two"; echo "E2E: PASS 1/1"; } > "$r"; exit 0
+  results)
+    if [ "$sel" = "a.two" ]; then
+      { echo "PASS a.two: ok"; echo "RESULT a.two pass seconds=0.3 checks=1/1"; echo "E2E: PASS 1/1"; } > "$r"; exit 0
     fi
-    { echo "PASS a.one: ok"; echo "TEST PASS a.one"; echo "FAIL a.two: \"quoted\" reason"; echo "TEST FAIL a.two: \"quoted\" reason"
-      echo "E2E: FAIL 1/2"; } > "$r"; exit 1 ;;
+    { echo "PASS a.one: ok"; echo "RESULT a.one pass seconds=0.1 checks=1/1"; echo "FAIL a.two: \"quoted\" reason"
+      echo "RESULT a.two fail seconds=1.5 checks=0/1"; echo "E2E: FAIL 1/2"; } > "$r"; exit 1 ;;
 esac
 EOF
 chmod +x "$app/Contents/MacOS/Bow"
@@ -120,7 +122,7 @@ check "exit 2 with no summary is a crash, not a timeout" is "$code" 4
 
 run usage nope.test
 check "usage: exit 64" is "$code" 64
-check "usage: summary" is "$last" "E2E: ERROR the app could not start the run (exit 64)"
+check "usage: summary" is "$last" "E2E: ERROR the app could not start the run (exit 64): an unknown selection or switch"
 
 run orphan
 check "orphan: exit 0" is "$code" 0
@@ -134,24 +136,29 @@ run retrycrash
 check "a crash on the retry: exit 4" is "$code" 4
 check "a crash on the retry: summary" is "$last" "E2E: CRASH exit=139 signal=11 without a summary line"
 
-run chromium
-check "a failed check outside any test: whole selection retried" is "$(cat "$BOW_E2E_ROOT/latest/retry/args")" "only="
+run chromium 'tabs, nav'
+check "the selection reaches the app as one --e2e value" is "$(cat "$BOW_E2E_ROOT/latest/args")" "e2e=tabs, nav"
+check "a failed check outside any test: whole selection retried" is "$(cat "$BOW_E2E_ROOT/latest/retry/args")" "e2e=tabs, nav"
 check "a failed check outside any test: FLAKY names it" is "$last" "E2E: FLAKY 2/2 after retrying chromium.errors"
 
-run onlytimeout 'a.*'
-check "only: a timeout before the first per-test line stays a timeout" is "$code" 3
-check "only: the timed out test is named" is "$last" "E2E: FLAKY 2/2 after retrying a.two"
-check "only: a timeout retries the whole selection" is "$(cat "$BOW_E2E_ROOT/latest/retry/args")" "only=a.*"
+run stuck 'a.*'
+check "stuck: a pass on retry is flaky" is "$code" 3
+check "stuck: the stuck test is named" is "$last" "E2E: FLAKY 2/2 after retrying a.two"
+check "stuck: retries the stuck and not run tests" is "$(cat "$BOW_E2E_ROOT/latest/retry/args")" "e2e=a.two,a.three"
+check "stuck: NOT RUN in results.json" is "$(field "$res" attempts.0.tests.1.status)" "not run"
 
-run only 'a.*'
-check "only: retries only the failed test" is "$(cat "$BOW_E2E_ROOT/latest/retry/args")" "only=a.two"
-check "only: first run got the selection" is "$(cat "$BOW_E2E_ROOT/latest/args")" "only=a.*"
-check "only: flaky exit 3" is "$code" 3
-check "only: per-test lines in results.json" is "$(field "$res" attempts.0.tests.1.detail)" '"quoted" reason'
-check "only: results.json is valid JSON" valid_json "$res"
+E2E_RETRY=0 run stuck 'a.*'
+check "stuck: exit 2 with RESULT and NOT RUN lines is a timeout" is "$code" 2
+check "stuck: the TIMEOUT line is the summary" is "$last" "E2E: TIMEOUT a.two: open window (main thread stuck)"
 
-run pass smoke
-check "only: a runner without per-test lines is refused" is "$code" 64
+run results 'a.*'
+check "results: retries only the failed test" is "$(cat "$BOW_E2E_ROOT/latest/retry/args")" "e2e=a.two"
+check "results: flaky exit 3" is "$code" 3
+check "results: FLAKY line" has "$BOW_E2E_ROOT/latest/report.txt" "^FLAKY a.two: failed then passed (fail seconds=1.5 checks=0/1)"
+check "results: seconds in results.json" is "$(field "$res" attempts.0.tests.1.seconds)" 1.500000
+check "results: checks in results.json" is "$(field "$res" attempts.0.tests.1.checks)" 0/1
+check "results: failed check detail in results.json" is "$(field "$res" attempts.0.checks.1.detail)" '"quoted" reason'
+check "results: results.json is valid JSON" valid_json "$res"
 
 E2E_KEEP=3 run pass
 check "keeps the newest E2E_KEEP runs" is "$(find "$BOW_E2E_ROOT" -mindepth 1 -maxdepth 1 -type d | wc -l | tr -d ' ')" 3

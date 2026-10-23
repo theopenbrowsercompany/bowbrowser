@@ -4,26 +4,26 @@
 #
 #   scripts/e2e.sh <path to Bow.app> [selection]
 #
-# selection (or E2E): all (default), one test name (tabs.switch), or an area, glob, comma list or tag (tabs,
-#   'tabs.*', smoke). Names go to the app as --e2e=<name>; anything else as --e2e=all --only=<selection>, which
-#   needs runner support: the runner prints a per-test line, TEST PASS <name> or TEST FAIL <name>: <reason>, after
-#   each test, and a finished run without them ends with exit 64.
+# selection (or E2E): passed to the app as --e2e=<selection>: all (default), or a comma list of test names, areas,
+#   globs and tags (tabs.switch, tabs, 'tabs.*', smoke). The app refuses an unknown one with exit 64.
+#   After each test the runner prints `RESULT <test> pass|fail|timeout seconds=<s> checks=<passed>/<n>`, and a
+#   `NOT RUN <test>` line for each test a stuck main thread kept from running; the retry and FLAKY lines use them.
 # BOW_E2E_ROOT  where run folders go (default build/e2e).
 # E2E_RETRY  1 (default) reruns a failed or timed out run once in a fresh app; 0 turns the retry off.
 # E2E_KEEP   run folders to keep in build/e2e (default 20); older ones are deleted.
 #
 # Each run writes build/e2e/<time>-<pid>/: the app's report.txt, chromium.log and final.png, plus results.json
-# from this script. A retry runs in <run>/retry/: just the failed tests when per-test lines name them, else the
-# whole selection.
+# from this script. A retry runs in <run>/retry/: the failed, timed out and not run tests when RESULT lines name
+# them, else the whole selection.
 #
 # The last line printed is always the summary:
 #   E2E: PASS n/n               exit 0
 #   E2E: FAIL passed/n          exit 1  a check failed (and failed again on the retry)
-#   E2E: TIMEOUT <step>         exit 2  a step timed out (and again on the retry)
+#   E2E: TIMEOUT <step>         exit 2  the app's main thread was stuck (and again on the retry)
 #   E2E: FLAKY n/n retried ...  exit 3  failed or timed out, then passed on the retry: not a pass, report it
 #   E2E: CRASH exit=<code> ...  exit 4  the app ended without a summary line (a crash, Chromium's own watchdog),
 #                                       on the first run or on the retry
-#   E2E: ERROR ...              exit 64 the app could not start the run (an unknown test, no build)
+#   E2E: ERROR ...              exit 64 the app could not start the run (an unknown selection, no build)
 set -u
 
 app=${1:-}
@@ -121,11 +121,15 @@ attempt() {
   signal=""
   [ "$app_code" -gt 128 ] && signal=$((app_code - 128))
   summary=$(grep '^E2E: ' "$dir/report.txt" 2>/dev/null | tail -n 1)
+  # A stuck main thread may print NOT RUN lines and more after its TIMEOUT line; the TIMEOUT line is the summary.
+  if [ "$app_code" = 2 ] && grep -q '^E2E: TIMEOUT ' "$dir/report.txt" 2>/dev/null; then
+    summary=$(grep '^E2E: TIMEOUT ' "$dir/report.txt" | tail -n 1)
+  fi
   case "$app_code:$summary" in
     "0:E2E: PASS "*) status=pass ;;
     "1:E2E: FAIL "*) status=fail ;;
     "2:E2E: TIMEOUT "*) status=timeout ;;
-    "64:") status=error summary="E2E: ERROR the app could not start the run (exit 64)" ;;
+    "64:"*) status=error summary="E2E: ERROR the app could not start the run (exit 64): an unknown selection or switch" ;;
     *)
       status=crash
       local why="E2E: CRASH exit=$app_code${signal:+ signal=$signal}"
@@ -134,42 +138,36 @@ attempt() {
       echo "$summary" >> "$dir/report.txt"
       ;;
   esac
-  # --only needs runner support: a run that ignored it ran everything to the end and printed no per-test lines.
-  # (A timeout can come before the first per-test line, so only a finished run tells.)
-  if { [ "$status" = pass ] || [ "$status" = fail ]; } && [ "$only" = yes ] && ! grep -q '^TEST ' "$dir/report.txt"; then
-    status=error summary="E2E: ERROR this build's runner does not support --only=$selection yet; use all or one test name"
-  fi
 }
 
-# What failed in folder $1, as "name<TAB>reason" lines: the tests of per-test lines (TEST FAIL <name>: ...) when
-# the runner prints them, the failed checks otherwise or when no test failed (chromium.errors), and the test a
-# timeout stopped in.
+# What failed in folder $1, as "name<TAB>reason" lines: the tests whose RESULT line says fail or timeout and the
+# test a stuck main thread stopped in; when no test is named that way, the failed checks (chromium.errors, or a
+# runner without RESULT lines).
 failures() {
   awk '
-    /^TEST FAIL / { n = $3; sub(/:$/, "", n); r = $0; sub(/^TEST FAIL [^ ]*:? ?/, "", r); tests = tests n "\t" r "\n" }
+    /^RESULT [^ ]+ (fail|timeout)( |$)/ { r = $0; sub(/^RESULT [^ ]+ /, "", r); add($2, r) }
+    /^E2E: TIMEOUT / { s = $0; sub(/^E2E: TIMEOUT /, "", s); n = s; sub(/:.*/, "", n); add(n, "TIMEOUT " s) }
     /^FAIL / { n = $2; sub(/:$/, "", n); r = $0; sub(/^FAIL [^ ]*:? ?/, "", r); checks = checks n "\t" r "\n" }
-    /^E2E: TIMEOUT / { s = $0; sub(/^E2E: TIMEOUT /, "", s); n = s; sub(/:.*/, "", n); timeout = n "\tTIMEOUT " s "\n" }
-    END { printf "%s%s", (tests != "" ? tests : checks), timeout }
+    function add(n, r) { if (!(n in seen)) { seen[n]; tests = tests n "\t" r "\n" } }
+    END { printf "%s", (tests != "" ? tests : checks) }
   ' "$1/report.txt" 2>/dev/null
 }
 
-# Whether a retry of folder $1 can rerun just its failed tests: some per-test line failed and no timeout cut the run
-# short (the tests after a stuck one never ran). Checks that belong to no test (chromium.errors) run in every app.
-retry_failed_tests_only() {
-  grep -q '^TEST FAIL ' "$1/report.txt" && ! grep -q '^E2E: TIMEOUT ' "$1/report.txt"
+# The tests a retry of folder $1 reruns, as a comma list: those that failed, timed out or never ran, when RESULT
+# lines name them; empty (rerun the whole selection) when the failure is not a test's (a failed chromium.errors or
+# app.quit check, whose RESULT line said pass) or the runner prints no RESULT lines.
+retry_tests() {
+  awk '
+    /^RESULT [^ ]+ (fail|timeout)( |$)/ { add($2) }
+    /^E2E: TIMEOUT / { n = $0; sub(/^E2E: TIMEOUT /, "", n); sub(/:.*/, "", n); add(n) }
+    /^NOT RUN / { add($3) }
+    /^RESULT / { results = 1 }
+    function add(n) { if (!(n in seen)) { seen[n]; list = list (list == "" ? "" : ",") n } }
+    END { if (results) print list }
+  ' "$1/report.txt" 2>/dev/null
 }
 
-# Selection: names the runner already takes as --e2e=<name>; anything else through --only.
-only=no
-if [ "$selection" = all ]; then
-  args=("--e2e=all")
-elif [[ $selection =~ ^[A-Za-z0-9_-]+(\.[A-Za-z0-9_-]+)+$ ]]; then
-  args=("--e2e=$selection")
-else
-  only=yes
-  args=("--e2e=all" "--only=$selection")
-fi
-
+args=("--e2e=$selection")
 load_start=$(load)
 attempt "$run" "${args[@]}"
 first_status=$status first_summary=$summary
@@ -181,10 +179,8 @@ if [ "$retry" = 1 ] && { [ "$status" = fail ] || [ "$status" = timeout ]; }; the
   failed=$(failures "$run")
   names=$(echo "$failed" | cut -f1 | grep -v '^$' | paste -sd, -)
   retry_args=("${args[@]}")
-  if retry_failed_tests_only "$run"; then
-    only=yes
-    retry_args=("--e2e=all" "--only=$(grep '^TEST FAIL ' "$run/report.txt" | awk '{ n = $3; sub(/:$/, "", n); print n }' | paste -sd, -)")
-  fi
+  subset=$(retry_tests "$run")
+  [ -z "$subset" ] || retry_args=("--e2e=$subset")
   say "$first_summary; retrying once in a fresh app"
   attempt "$run/retry" "${retry_args[@]}"
   attempts+=("$run/retry|$status|$app_code|$signal|$seconds|$summary")
@@ -222,9 +218,13 @@ attempt_json() {
     "$dir/report.txt" 2>/dev/null | { sep=""; while IFS="	" read -r s n d; do
       printf '%s{"name":%s,"status":%s,"detail":%s}' "$sep" "$(json "$n")" "$(json "$s")" "$(json "$d")"; sep=,; done; }
   printf '],"tests":['
-  awk '/^TEST (PASS|FAIL) / { n = $3; sub(/:$/, "", n); d = $0; sub(/^TEST [A-Z]+ [^ ]*:? ?/, "", d); print tolower($2) "\t" n "\t" d }' \
-    "$dir/report.txt" 2>/dev/null | { sep=""; while IFS="	" read -r s n d; do
-      printf '%s{"name":%s,"status":%s,"detail":%s}' "$sep" "$(json "$n")" "$(json "$s")" "$(json "$d")"; sep=,; done; }
+  # RESULT <test> <status> seconds=<s> checks=<p>/<n> [quit=pending], and NOT RUN <test>.
+  awk '/^RESULT / { s = ""; c = ""; for (i = 4; i <= NF; i++) { if ($i ~ /^seconds=/) s = substr($i, 9); if ($i ~ /^checks=/) c = substr($i, 8) }
+      d = $0; sub(/^RESULT [^ ]+ [^ ]+ ?/, "", d); print $2 "\t" $3 "\t" s "\t" c "\t" d }
+    /^NOT RUN / { print $3 "\tnot run\t\t\t" }' \
+    "$dir/report.txt" 2>/dev/null | { sep=""; while IFS="	" read -r n s secs c d; do
+      printf '%s{"name":%s,"status":%s,"seconds":%s,"checks":%s,"detail":%s}' "$sep" "$(json "$n")" "$(json "$s")" \
+        "$([[ $secs =~ ^[0-9]+(\.[0-9]+)?$ ]] && echo "$secs" || echo null)" "$(json "$c")" "$(json "$d")"; sep=,; done; }
   printf '],"app":%s}' "$app_json"
 }
 {
