@@ -20,6 +20,10 @@ protocol BrowserWindowFeature: NSResponder {
     /// window's last tab has closed.
     func selectedTabChanged(_ tab: (any EngineTab)?)
 
+    /// The person dragged a divider between the panes the window shows (`BrowserWindowController.showPanes`);
+    /// `fractions` is each pane's new share of the page area's width, in pane order.
+    func paneDividerMoved(fractions: [Double])
+
     /// `tab`, one of the window's tabs, reported `event`. The window has already updated its tab list.
     func tab(_ tab: any EngineTab, didReceive event: TabEvent)
 
@@ -87,6 +91,7 @@ protocol BrowserWindowFeature: NSResponder {
 extension BrowserWindowFeature {
     static func addMenuItems(to menus: MainMenu.Menus) {}
     func selectedTabChanged(_ tab: (any EngineTab)?) {}
+    func paneDividerMoved(fractions: [Double]) {}
     func tab(_ tab: any EngineTab, didReceive event: TabEvent) {}
     func tabDidClose(_ tab: any EngineTab) {}
     func tabOpened(_ tab: any EngineTab, item: SidebarItemID) {}

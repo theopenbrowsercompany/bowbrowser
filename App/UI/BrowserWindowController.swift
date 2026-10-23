@@ -18,9 +18,16 @@ import BowCore
 final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMenuItemValidation, EngineTabDelegate {
     static let styleMask: NSWindow.StyleMask = [.titled, .closable, .miniaturizable, .resizable]
 
-    /// Shows the selected tab. Switching tabs shows another tab here; pages are never reloaded by a switch.
-    let webView: BowWebView
-    /// The page area: the web view, with room for features to float views over it.
+    /// The first pane's host view, which is the only one while the page area shows one tab. Switching tabs shows
+    /// another tab here; pages are never reloaded by a switch.
+    private let primaryView: BowWebView
+    /// The host views of the second to fourth panes, made the first time that many panes show and kept for reuse.
+    private var extraPaneViews: [BowWebView] = []
+    /// Holds the panes side by side while more than one shows; out of the page area otherwise.
+    private var paneContainer: PaneContainer?
+    /// The panes the page area shows, nil while it shows no page. Brought up to date after every change.
+    private var paneLayout: PaneLayout<BrowserTabID>?
+    /// The page area: the panes, with room for features to float views over them.
     let pageArea: NSView
     /// The window's content view, holding the page area and the view attached along its leading edge.
     private let rootView: NSView
@@ -98,8 +105,8 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
     /// The window's loaded tabs in the active Space and its Favorites, in sidebar order.
     var tabs: [any EngineTab] { tabList.tabs.compactMap { engineTabs[$0.id] } }
 
-    /// The tab `webView` shows, read back from the view so it always matches the screen (the view refuses a tab
-    /// that is closing).
+    /// The tab the focused pane shows (the only pane, unless the page area shows several), read back from the view so
+    /// it always matches the screen (the view refuses a tab that is closing).
     var selectedTab: (any EngineTab)? { tabs.first { webView.isShowing($0) } }
 
     /// The Space on screen.
@@ -159,7 +166,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
                 defer: false
             )
         let contentSize = window.contentRect(forFrameRect: window.frame).size
-        webView = BowWebView(frame: NSRect(origin: .zero, size: contentSize))
+        primaryView = BowWebView(frame: NSRect(origin: .zero, size: contentSize))
         rootView = NSView(frame: NSRect(origin: .zero, size: contentSize))
         pageArea = NSView(frame: NSRect(origin: .zero, size: contentSize))
         pageLeadingConstraint = pageArea.leadingAnchor.constraint(equalTo: rootView.leadingAnchor)
@@ -195,11 +202,11 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
         fatalError("init(coder:) is not supported")
     }
 
-    /// The window's content: the page area filling it, the web view filling the page area.
+    /// The window's content: the page area filling it, the first pane's view filling the page area.
     private func layOut() {
-        webView.frame = pageArea.bounds
-        webView.autoresizingMask = [.width, .height]
-        pageArea.addSubview(webView)
+        primaryView.frame = pageArea.bounds
+        primaryView.autoresizingMask = [.width, .height]
+        pageArea.addSubview(primaryView)
         pageArea.translatesAutoresizingMaskIntoConstraints = false
         rootView.addSubview(pageArea)
         NSLayoutConstraint.activate([
@@ -300,6 +307,190 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
             view.widthAnchor.constraint(equalToConstant: width),
             pageLeadingConstraint,
         ])
+    }
+
+    /// Places `view` over every pane, filling the page area, above everything features placed there before: the seam
+    /// for a view floating over the page (Peek's card). The panes always stay at the back of the page area, however
+    /// many show. Take it away with `removeFromSuperview()`.
+    func addPageOverlay(_ view: NSView) {
+        view.translatesAutoresizingMaskIntoConstraints = false
+        pageArea.addSubview(view, positioned: .above, relativeTo: nil)
+        NSLayoutConstraint.activate([
+            view.leadingAnchor.constraint(equalTo: pageArea.leadingAnchor),
+            view.trailingAnchor.constraint(equalTo: pageArea.trailingAnchor),
+            view.topAnchor.constraint(equalTo: pageArea.topAnchor),
+            view.bottomAnchor.constraint(equalTo: pageArea.bottomAnchor),
+        ])
+    }
+
+    // MARK: Panes
+
+    // The page area shows one to four tabs side by side, each in its own pane, one of them focused. The focused pane's
+    // tab is the store's active tab, so `selectedTab`, the sidebar, find, the toolbar and the keyboard follow it.
+    // `PaneLayout` decides how the panes follow the window's changes; this section only places the views.
+
+    /// The host views of the panes the page area shows, leading to trailing: one, or two to four side by side.
+    var paneViews: [BowWebView] {
+        guard let paneLayout, paneLayout.isSplit else { return [primaryView] }
+        return [primaryView] + extraPaneViews.prefix(paneLayout.tabs.count - 1)
+    }
+
+    /// The focused pane's host view: where the keyboard, find and the page's prompts go.
+    var focusedPane: BowWebView {
+        let views = paneViews
+        return views[min(paneLayout?.focusedIndex ?? 0, views.count - 1)]
+    }
+
+    /// The focused pane's host view (see `focusedPane`).
+    var webView: BowWebView { focusedPane }
+
+    /// The tabs the page area shows, in pane order, read back from the views.
+    var shownTabs: [any EngineTab] {
+        paneViews.compactMap { view in tabs.first { view.isShowing($0) } }
+    }
+
+    /// Each pane's share of the page area's width, in pane order, summing to 1.
+    var paneFractions: [Double] { paneLayout?.fractions ?? [1] }
+
+    /// Shows tabs `ids` (one to four of the window's listed tabs, each once) side by side in that order, with
+    /// `focused` in focus and active, each pane taking its share of `fractions` (equal panes when nil or when they do
+    /// not fit). A saved tab that has not loaded loads first. The panes stay until the person selects a tab that is
+    /// not one of them (the page area then shows that tab alone) or until only one is left; a pane whose tab closes or
+    /// unloads leaves and the others share its width. Returns whether the page area now shows exactly those panes:
+    /// false, changing nothing, for a list that does not fit or a tab the window does not list.
+    @discardableResult
+    func showPanes(_ ids: [BrowserTabID], focused: BrowserTabID, fractions: [Double]? = nil) -> Bool {
+        guard ids.count == 1 else { return false }  // CONTRACT-ONLY: one pane until the next commit.
+        guard !isClosing, let layout = PaneLayout(tabs: ids, focused: focused, fractions: fractions) else {
+            Self.report("the panes do not fit: \(ids.count) tabs, focus on one of them, each once")
+            return false
+        }
+        let listed = Set(listedTabIDs)
+        let items = ids.compactMap { itemIDs[$0] }
+        guard items.count == ids.count, items.allSatisfy(listed.contains), let focusedItem = itemIDs[focused] else {
+            Self.report("a pane's tab is not listed in the window, so the panes were not shown")
+            return false
+        }
+        for item in items where !isLoaded(item) && item != focusedItem { loadSaved(item) }
+        paneLayout = layout
+        if keptUnloaded == focusedItem { keptUnloaded = nil }
+        change { try $0.selectTab(focusedItem) }
+        storeDidChange()
+        return paneLayout?.tabs == ids && paneLayout?.focused == focused
+    }
+
+    /// Shows `tabs`, the window's own engine tabs, side by side; see `showPanes(_:focused:fractions:)`.
+    @discardableResult
+    func showPanes(_ tabs: [any EngineTab], focused: any EngineTab, fractions: [Double]? = nil) -> Bool {
+        let ids = tabs.compactMap { modelID(of: $0) }
+        guard ids.count == tabs.count, let focusedID = modelID(of: focused) else { return false }
+        return showPanes(ids, focused: focusedID, fractions: fractions)
+    }
+
+    /// Gives focus to the pane at `index`, as a click into it or a focus shortcut does: its tab becomes active and its
+    /// page gets the keyboard. Returns whether that pane now has focus.
+    @discardableResult
+    func focusPane(at index: Int) -> Bool {
+        guard let paneLayout, paneLayout.tabs.indices.contains(index) else { return false }
+        let id = paneLayout.tabs[index]
+        if paneLayout.focused != id { select(id) }
+        guard self.paneLayout?.focused == id else { return false }
+        focusedPane.focusAttachedTab()
+        return true
+    }
+
+    /// A mouse button went down at `point` in window coordinates, about to reach the view under it: a press in a pane
+    /// that is not focused focuses it first, so the page it lands in is the active tab when it handles the press.
+    func pointerWillPress(at point: NSPoint) {
+        guard let paneLayout, paneLayout.isSplit, let root = window?.contentView?.superview,
+            let hit = root.hitTest(point),
+            let index = paneViews.firstIndex(where: { hit.isDescendant(of: $0) }), index != paneLayout.focusedIndex
+        else { return }
+        select(paneLayout.tabs[index])
+    }
+
+    /// Brings the page area up to date with the active tab: `paneLayout` reconciled with what can be shown now, then
+    /// the views placed for it.
+    private func arrangePanes() {
+        let active = activeItemID.flatMap { runtimeTabs[$0]?.id }.flatMap { engineTabs[$0] == nil ? nil : $0 }
+        let listed = Set(listedTabIDs.compactMap { runtimeTabs[$0]?.id })
+        paneLayout = active.flatMap { active in
+            (paneLayout ?? .single(active)).reconciled(active: active) {
+                listed.contains($0) && engineTabs[$0]?.isClosed == false
+            }
+        }
+        guard let paneLayout else {
+            // No page for the active tab (an empty Space, a pinned tab kept unloaded): the page area shows none,
+            // never the page of a tab the sidebar no longer marks active.
+            showOnePane()
+            primaryView.detach()
+            return
+        }
+        guard paneLayout.isSplit else {
+            showOnePane()
+            if let tab = engineTabs[paneLayout.focused] { primaryView.show(tab) }
+            return
+        }
+        showSplit(paneLayout)
+    }
+
+    /// Puts the first pane's view straight in the page area, as with a single tab, and parks the other panes' tabs.
+    private func showOnePane() {
+        guard let container = paneContainer, container.superview != nil else { return }
+        for view in extraPaneViews { view.detach() }
+        primaryView.frame = pageArea.bounds
+        primaryView.autoresizingMask = [.width, .height]
+        pageArea.addSubview(primaryView, positioned: .below, relativeTo: nil)
+        primaryView.layer?.borderWidth = 0
+        container.removeFromSuperview()
+    }
+
+    /// Shows the panes of `layout` side by side, outlining the focused one, and moves the keyboard to it when it was
+    /// in another pane.
+    private func showSplit(_ layout: PaneLayout<BrowserTabID>) {
+        let container = paneContainer ?? makePaneContainer()
+        while extraPaneViews.count < layout.tabs.count - 1 {
+            extraPaneViews.append(BowWebView(frame: NSRect(origin: .zero, size: pageArea.bounds.size)))
+        }
+        let views = paneViews
+        if container.superview == nil {
+            container.frame = pageArea.bounds
+            pageArea.addSubview(container, positioned: .below, relativeTo: nil)
+        }
+        for view in extraPaneViews.dropFirst(views.count - 1) { view.detach() }
+        if !container.subviews.elementsEqual(views, by: ===) {
+            for view in container.subviews where !views.contains(where: { $0 === view }) { view.removeFromSuperview() }
+            for view in views { container.addSubview(view) }
+        }
+        for (view, id) in zip(views, layout.tabs) {
+            if let tab = engineTabs[id] { view.show(tab) }
+        }
+        if !container.shows(layout.fractions) { container.apply(layout.fractions) }
+        let focused = views[layout.focusedIndex]
+        for view in views {
+            view.wantsLayer = true
+            view.layer?.borderColor = NSColor.controlAccentColor.cgColor
+            view.layer?.borderWidth = view === focused ? 2 : 0
+        }
+        if let responder = window?.firstResponder as? NSView, !responder.isDescendant(of: focused),
+            views.contains(where: { responder.isDescendant(of: $0) })
+        {
+            focused.focusAttachedTab()
+        }
+    }
+
+    private func makePaneContainer() -> PaneContainer {
+        let container = PaneContainer(frame: pageArea.bounds)
+        container.autoresizingMask = [.width, .height]
+        container.onDividerDrag = { [weak self] fractions in
+            guard let self, let layout = self.paneLayout, layout.isSplit,
+                let moved = PaneLayout(tabs: layout.tabs, focused: layout.focused, fractions: fractions)
+            else { return }
+            self.paneLayout = moved
+            for feature in self.features { feature.paneDividerMoved(fractions: moved.fractions) }
+        }
+        paneContainer = container
+        return container
     }
 
     // MARK: Features
@@ -612,15 +803,10 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
         load(item, url: url, in: profile)
     }
 
-    /// Shows the active tab in the web view, then tells the features.
+    /// Shows the active tab in the focused pane (and the other panes beside it, while several show), then tells the
+    /// features.
     private func showActiveTab() {
-        if let item = activeItemID, let id = runtimeTabs[item]?.id, let tab = engineTabs[id] {
-            webView.show(tab)
-        } else {
-            // No page for the active tab (an empty Space, a pinned tab kept unloaded): the page area shows none,
-            // never the page of a tab the sidebar no longer marks active.
-            webView.detach()
-        }
+        arrangePanes()
         updateTitle()
         let shown = selectedTab
         for feature in features { feature.selectedTabChanged(shown) }
@@ -837,7 +1023,11 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
         var next = graph.activeTabID
         var keeps = false
         let favoriteShown = graph.activeSpaceID.map { graph.isInFavorites(item, shownBy: $0) } == true
-        if graph.activeTabID == item, let position = ids.firstIndex(of: item) ?? (favoriteShown ? 0 : nil) {
+        // The focused pane's tab hands focus to a neighbouring pane, which stays on screen, before any sidebar neighbour.
+        let paneNext = runtimeTabs[item].flatMap { paneLayout?.focusAfterClosing($0.id) }.flatMap { itemIDs[$0] }
+        if graph.activeTabID == item, let paneNext, graph[paneNext] != nil {
+            next = paneNext
+        } else if graph.activeTabID == item, let position = ids.firstIndex(of: item) ?? (favoriteShown ? 0 : nil) {
             let rest = ids.filter { $0 != item }
             if !rest.isEmpty {
                 next = rest[min(position, rest.count - 1)]
@@ -912,10 +1102,92 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
 /// A window whose close requests (close button, File > Close Window, Shift+Cmd+W) wait for the page to close first.
 /// AppKit's `performClose(_:)` plays the alert sound whenever `windowShouldClose(_:)` says no, which here only
 /// means "the page is closing, the window follows", so this asks the delegate without the sound.
+/// A mouse press also tells the window's controller first, so a press in a pane that is not focused focuses it.
 class BrowserWindow: NSWindow {
     override func performClose(_ sender: Any?) {
         if delegate?.windowShouldClose?(self) ?? true {
             close()
         }
     }
+
+    override func sendEvent(_ event: NSEvent) {
+        switch event.type {
+        case .leftMouseDown, .rightMouseDown, .otherMouseDown:
+            (delegate as? BrowserWindowController)?.pointerWillPress(at: event.locationInWindow)
+        default:
+            break
+        }
+        super.sendEvent(event)
+    }
+}
+
+/// The panes side by side while the page area shows more than one: a split view with thin dividers the person can
+/// drag, each pane keeping at least `SidebarSplit.minimumPaneFraction` of the width.
+final class PaneContainer: NSSplitView, NSSplitViewDelegate {
+    /// Called with each pane's share of the width after the person dragged a divider.
+    var onDividerDrag: (([Double]) -> Void)?
+    /// True while `apply` moves the dividers, which is not a drag.
+    private var applying = false
+
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        isVertical = true
+        dividerStyle = .thin
+        delegate = self
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) is not supported")
+    }
+
+    /// The width the panes share, without the dividers.
+    private var paneWidth: CGFloat {
+        max(bounds.width - dividerThickness * CGFloat(max(subviews.count - 1, 0)), 1)
+    }
+
+    /// Each pane's share of the width now, in pane order.
+    var shownFractions: [Double] {
+        subviews.map { Double($0.frame.width / paneWidth) }
+    }
+
+    /// Whether the panes show `fractions`, to within a point.
+    func shows(_ fractions: [Double]) -> Bool {
+        let shown = shownFractions
+        return shown.count == fractions.count
+            && zip(shown, fractions).allSatisfy { abs($0 - $1) * Double(paneWidth) < 1 }
+    }
+
+    /// Places the dividers so each pane takes its share of `fractions`, in pane order.
+    func apply(_ fractions: [Double]) {
+        applying = true
+        defer { applying = false }
+        adjustSubviews()
+        var position: CGFloat = 0
+        for (index, fraction) in fractions.dropLast().enumerated() {
+            position += paneWidth * CGFloat(fraction)
+            setPosition(position, ofDividerAt: index)
+            position += dividerThickness
+        }
+    }
+
+    func splitViewDidResizeSubviews(_ notification: Notification) {
+        // AppKit names the divider only when the person dragged it, not when the split view resized with the window.
+        guard !applying, notification.userInfo?["NSSplitViewDividerIndex"] != nil else { return }
+        onDividerDrag?(shownFractions)
+    }
+
+    func splitView(
+        _ splitView: NSSplitView, constrainMinCoordinate proposedMinimumPosition: CGFloat, ofSubviewAt dividerIndex: Int
+    ) -> CGFloat {
+        max(proposedMinimumPosition, subviews[dividerIndex].frame.minX + minimumPane)
+    }
+
+    func splitView(
+        _ splitView: NSSplitView, constrainMaxCoordinate proposedMaximumPosition: CGFloat, ofSubviewAt dividerIndex: Int
+    ) -> CGFloat {
+        min(proposedMaximumPosition, subviews[dividerIndex + 1].frame.maxX - minimumPane - dividerThickness)
+    }
+
+    private var minimumPane: CGFloat { paneWidth * CGFloat(SidebarSplit.minimumPaneFraction) }
 }

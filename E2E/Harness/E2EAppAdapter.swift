@@ -479,9 +479,11 @@ final class E2ETabPage: E2EPage {
         devToolsSession = BowDevToolsSession(tabID: tab.tabID.rawValue)
     }
 
-    var isShown: Bool { controller.webView.isShowing(tab) }
-    /// The window's web view while it shows this tab; nil while another tab is shown or once the window is gone.
-    var contentView: NSView? { isShown && controller.window != nil ? controller.webView : nil }
+    var isShown: Bool { paneView != nil }
+    /// The pane's host view while one of the window's panes shows this tab; nil while none does or once the window is
+    /// gone.
+    var contentView: NSView? { controller.window != nil ? paneView : nil }
+    private var paneView: BowWebView? { controller.paneViews.first { $0.isShowing(tab) } }
     var isClosed: Bool { tab.isClosed }
     var finishedLoads: Int { loads.count }
 

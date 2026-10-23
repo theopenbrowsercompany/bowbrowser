@@ -89,7 +89,7 @@ final class TabUnloadFeature: NSResponder, BrowserWindowFeature {
     func unloadCandidates() -> [Candidate] {
         guard let window, Self.isIdle(window) else { return [] }
         let graph = window.store.graph
-        let shown = window.selectedTab
+        let shown = window.shownTabs
         let dialogs = window.feature(PageDialogsFeature.self)
         var busyProfiles: [ProfileID: Bool] = [:]
         var result: [Candidate] = []
@@ -111,7 +111,7 @@ final class TabUnloadFeature: NSResponder, BrowserWindowFeature {
                 id: entry.id, lastActive: lastActive,
                 isPinnedOrFavorite: returnsToSaved,
                 isAudible: state.isAudible, isCapturing: state.isCapturingVideo || state.isCapturingAudio,
-                isVisible: shown === tab)
+                isVisible: shown.contains { $0 === tab })
             result.append(Candidate(tab: tab, unloadTab: unloadTab))
         }
         return result
@@ -120,7 +120,9 @@ final class TabUnloadFeature: NSResponder, BrowserWindowFeature {
     /// Unloads `tab` through the engine, which runs its beforeunload handler without a prompt and keeps a page that
     /// would ask to stay. Returns whether it was unloaded.
     func unload(_ tab: any EngineTab) async -> Bool {
-        guard let window, Self.isIdle(window), window.modelID(of: tab) != nil, window.selectedTab !== tab else {
+        guard let window, Self.isIdle(window), window.modelID(of: tab) != nil,
+            !window.shownTabs.contains(where: { $0 === tab })
+        else {
             return false
         }
         return await tab.unload()
