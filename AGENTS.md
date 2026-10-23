@@ -52,6 +52,7 @@ Start every session in `~/code/GitHub/bowbrowser`: the maintainer's `.claude/set
   `E2E=` goes to the app as one `--e2e=` value, and the app refuses a selection it does not know with exit 64.
   Both run the app through `scripts/e2e.sh`, which writes `build/e2e/<run>/`, points `build/e2e/latest` at it and keeps the newest 20 runs (`E2E_KEEP`).
   It prints one `PASS <check>` or `FAIL <check>: <reason>` line per check, one `RESULT <test> pass|fail|timeout seconds=<s> checks=<passed>/<n>` line per test, and a final `E2E: PASS n/n` (or `E2E: FAIL passed/n`) line, also saved in `build/e2e/<run>/report.txt`, and always ends with one summary line, also written with every check and test to `build/e2e/<run>/results.json` (with the commit, a dirty flag and the load average).
+  A `results.json` the app itself wrote stays beside it as `app-results.json`, and the wrapper's `results.json` does not embed it.
   Each test declares its checks (`checks` in `E2ETest`, default its name), and a test that stops early still prints `FAIL <check>: not run` for the rest, so the total never depends on how far tests got; a check a test does not declare fails.
   Record each check once per test: a check recorded again fails once, printing a FAIL line that overrides its PASS without changing the total, and so does the last recorded check when the test throws after recording every check (the RESULT line then carries `error="<step>: <reason>"`).
   `e2e.isolation` and `chromium.errors` belong to the runner, and a test may not declare them.

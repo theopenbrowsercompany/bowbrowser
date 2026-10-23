@@ -22,6 +22,7 @@ done
 # runner without it (exit 64).
 if [ "$sel" = list ]; then
   [ "${FAKE_NOLIST:-0}" = 1 ] && exit 64
+  [ "$FAKE_MODE" = listhang ] && { echo "listing"; exec sleep 60; }
   for t in a.one a.two a.three; do echo "TEST $t area=a tags=- checks=$t"; done
   exit 0
 fi
@@ -35,6 +36,11 @@ case $FAKE_MODE in
   usage) echo "bow: --e2e=nope is not a test" >&2; exit 64 ;;
   crash) echo "PASS a.one: ok" > "$r"; kill -SEGV $$ ;;
   watchdog) echo "PASS a.one: ok" > "$r"; exit 2 ;;
+  teardown)
+    echo "PASS a.one: ok" > "$r"
+    echo "[1:2:ERROR:foo] Teardown watchdog expired; ending the process" > "$out/chromium.log"
+    exit 2 ;;
+  listhang) echo "E2E: TIMEOUT unknown.test: open window" > "$r"; exit 2 ;;
   flaky)
     case $out in
       */retry) echo "PASS a.one: ok" > "$r"; echo "E2E: PASS 1/1" >> "$r"; exit 0 ;;
@@ -192,6 +198,10 @@ check "crash: results.json is valid JSON" valid_json "$res"
 run watchdog
 check "exit 2 with no summary is a crash, not a timeout" is "$code" 4
 
+run teardown
+check "teardown watchdog: exit 4" is "$code" 4
+check "teardown watchdog: named in the summary" is "$last" "E2E: CRASH exit=2 Chromium teardown watchdog during quit"
+
 run usage nope.test
 check "usage: exit 64" is "$code" 64
 check "usage: summary" is "$last" "E2E: ERROR the app could not start the run (exit 64): an unknown selection or switch"
@@ -277,13 +287,13 @@ check "an app results.json is kept aside" has "$BOW_E2E_ROOT/latest/app-results.
 # once the app runs, and sets stopped (yes when the wrapper ended within tenths of a second, default 100), code, last,
 # res and iroot.
 interrupt() {
-  local sig=$1 mode=${2:-hang} limit=${3:-100} i wpid
+  local sig=$1 mode=${2:-hang} limit=${3:-100} ready=${4:-latest/report.txt} i wpid
   iroot="$tmp/int-$sig-$mode"
   # perl gives the wrapper a default INT, as a terminal does: a background job of a script starts with INT ignored.
-  BOW_E2E_ROOT=$iroot FAKE_MODE=$mode perl -e '$SIG{INT} = "DEFAULT"; exec @ARGV' ./scripts/e2e.sh "$app" \
+  BOW_E2E_ROOT=$iroot FAKE_MODE=$mode PATH="${ipath:-$PATH}" perl -e '$SIG{INT} = "DEFAULT"; exec @ARGV' ./scripts/e2e.sh "$app" \
     > "$tmp/int-$sig.out" 2>&1 &
   wpid=$!
-  for i in $(seq 300); do [ -s "$iroot/latest/report.txt" ] && break; sleep 0.1; done
+  for i in $(seq 300); do [ -s "$iroot/$ready" ] && break; sleep 0.1; done
   kill -"$sig" "$wpid"
   stopped=no
   for i in $(seq "$limit"); do kill -0 "$wpid" 2>/dev/null || { stopped=yes; break; }; sleep 0.1; done
@@ -314,6 +324,38 @@ check "an app that ignores TERM: exit 130" is "$code" 130
 check "an app that ignores TERM: the app is ended" is "$(ps -axo command= | grep -F -- "$iroot/" | grep -vc grep)" 0
 check "an app that ignores TERM: the build lock slot is given back" is "$(ls "$BOW_LOCK_DIR/e2e/slots" | wc -l | tr -d ' ')" 0
 check "an app that ignores TERM: no build lock ticket is left" is "$(ls "$BOW_LOCK_DIR/e2e/queue" | wc -l | tr -d ' ')" 0
+
+# A signal while the wrapper lists tests (the app's list hangs) or sweeps processes (the first ps takes 5 seconds)
+# stops it at once, not after that command ends.
+interrupt TERM listhang 30 latest/list.txt
+check "a signal while listing tests: the wrapper stops at once" is "$stopped" yes
+check "a signal while listing tests: exit 130" is "$code" 130
+mkdir -p "$tmp/slowps"
+printf '#!/bin/sh\n[ -e "%s/ps-mark" ] || { echo x > "%s/ps-mark"; sleep 5; }\nexec /bin/ps "$@"\n' "$tmp" "$tmp" > "$tmp/slowps/ps"
+chmod +x "$tmp/slowps/ps"
+ipath="$tmp/slowps:$PATH" interrupt TERM pass 30 ../ps-mark
+check "a signal while sweeping: the wrapper stops at once" is "$stopped" yes
+check "a signal while sweeping: exit 130" is "$code" 130
+ipath=""
+
+# The final KILL guard: a build lock that ignores TERM is killed only when it is this run's, matched exactly. A copy
+# of the wrapper beside a stand-in build lock does it.
+kl="$tmp/kl"
+mkdir -p "$kl/scripts"
+cp scripts/e2e.sh "$kl/scripts/e2e.sh"
+printf '#!/bin/bash\ntrap "" TERM\nshift 2\n"$@"\nwhile :; do sleep 1; done\n' > "$kl/scripts/build-lock.sh"
+chmod +x "$kl/scripts/build-lock.sh"
+iroot="$tmp/int-kill"
+BOW_E2E_ROOT=$iroot FAKE_MODE=hangterm perl -e '$SIG{INT} = "DEFAULT"; exec @ARGV' "$kl/scripts/e2e.sh" "$app" > "$tmp/int-kill.out" 2>&1 &
+kpid=$!
+for i in $(seq 300); do [ -s "$iroot/latest/report.txt" ] && break; sleep 0.1; done
+kill -TERM "$kpid"
+stopped=no
+for i in $(seq 200); do kill -0 "$kpid" 2>/dev/null || { stopped=yes; break; }; sleep 0.1; done
+[ "$stopped" = yes ] || { kill -KILL "$kpid" 2>/dev/null; pkill -KILL -f "$kl/scripts/build-lock.sh" 2>/dev/null; }
+wait "$kpid" 2>/dev/null
+check "a build lock that ignores TERM: the wrapper stops" is "$stopped" yes
+check "a build lock that ignores TERM: it is killed" is "$(ps -axo command= | grep -F -- "$kl/scripts/build-lock.sh" | grep -vc grep)" 0
 
 # The Makefile keeps E2E out of every recipe's environment (xcodebuild takes environment variables as build
 # settings), and e2e and e2e-run hand it to the wrapper whole.
@@ -352,6 +394,15 @@ echo more >> "$fw/Resources/en.lproj/locale.pak"
 check "package-cef: a changed Resources file is copied again" not skips
 echo more >> "$fw/Libraries/libEGL.dylib"
 check "package-cef: a changed Libraries file is copied again" not skips
+package > /dev/null
+mkdir -p "$pc/real"
+echo one > "$pc/real/target.dylib"
+ln -s "$pc/real/target.dylib" "$fw/Libraries/libLink.dylib"
+package > /dev/null
+check "package-cef: a symlinked file is part of the stamp" skips
+sleep 1
+echo two >> "$pc/real/target.dylib"
+check "package-cef: a changed symlink target is copied again" not skips
 
 # A test killed while a folder of its run was locked: pruning unlocks it rather than keep the run forever.
 oldest=$(cd "$BOW_E2E_ROOT" && ls -1t | grep -v '^latest$' | tail -n 1)
