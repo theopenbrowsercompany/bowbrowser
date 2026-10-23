@@ -86,7 +86,8 @@ sec_identity_t MakeIdentity(NSError** error) {
     OSStatus status = SecPKCS12Import((__bridge CFDataRef)data, (__bridge CFDictionaryRef)options, &items);
     NSArray* imported = CFBridgingRelease(items);
     if (status != errSecSuccess || imported.count == 0) {
-      if (error) *error = FixtureError([NSString stringWithFormat:@"importing the fixture identity failed (%d)", (int)status]);
+      NSString* message = [NSString stringWithFormat:@"importing the fixture identity failed (%d)", (int)status];
+      if (error) *error = FixtureError(message);
       return nil;
     }
     SecIdentityRef identity = (__bridge SecIdentityRef)imported[0][(__bridge id)kSecImportItemIdentity];
@@ -182,8 +183,8 @@ enum class Listener { auth, certificate };
     _connections = [NSMutableArray array];
     _cancelled = dispatch_group_create();
     NSString* pair = [NSString stringWithFormat:@"%@:%@", kAuthUser, kAuthPassword];
-    _expectedAuthorization =
-        [@"Basic " stringByAppendingString:[[pair dataUsingEncoding:NSUTF8StringEncoding] base64EncodedStringWithOptions:0]];
+    NSString* encoded = [[pair dataUsingEncoding:NSUTF8StringEncoding] base64EncodedStringWithOptions:0];
+    _expectedAuthorization = [@"Basic " stringByAppendingString:encoded];
   }
   return self;
 }
@@ -284,7 +285,8 @@ enum class Listener { auth, certificate };
     }
   });
   nw_listener_start(listener);
-  long waited = dispatch_semaphore_wait(settled, dispatch_time(DISPATCH_TIME_NOW, (int64_t)(kStartTimeout * NSEC_PER_SEC)));
+  long waited =
+      dispatch_semaphore_wait(settled, dispatch_time(DISPATCH_TIME_NOW, (int64_t)(kStartTimeout * NSEC_PER_SEC)));
   __block bool isReady = false;
   __block NSString* reason = nil;
   dispatch_sync(_queue, ^{
@@ -363,7 +365,8 @@ enum class Listener { auth, certificate };
     _unauthorized++;
     response = Response(401, @"Unauthorized", @[ @"WWW-Authenticate: Basic realm=\"bow\"" ], @"Sign in required");
   }
-  dispatch_data_t data = dispatch_data_create(response.bytes, response.length, _queue, DISPATCH_DATA_DESTRUCTOR_DEFAULT);
+  dispatch_data_t data =
+      dispatch_data_create(response.bytes, response.length, _queue, DISPATCH_DATA_DESTRUCTOR_DEFAULT);
   nw_connection_send(connection, data, NW_CONNECTION_FINAL_MESSAGE_CONTEXT, true, ^(nw_error_t error) {
     nw_connection_cancel(connection);
   });
@@ -371,13 +374,13 @@ enum class Listener { auth, certificate };
 
 - (void)stop {
   if (_stopped.exchange(true)) return;
-  nw_listener_t authListener = _authListener;
-  nw_listener_t certificateListener = _certificateListener;
+  NSMutableArray<nw_listener_t>* listeners = [NSMutableArray array];
+  if (_authListener) [listeners addObject:_authListener];
+  if (_certificateListener) [listeners addObject:_certificateListener];
   NSMutableArray<nw_connection_t>* connections = _connections;
   dispatch_sync(_queue, ^{
-    // The handlers hold nothing of this object's, but clearing them ends the listeners' work at once.
-    for (nw_listener_t listener in @[ authListener ?: (id)NSNull.null, certificateListener ?: (id)NSNull.null ]) {
-      if ((id)listener == NSNull.null) continue;
+    // No new connection is taken from here on; the ones open now are closed at once.
+    for (nw_listener_t listener in listeners) {
       nw_listener_set_new_connection_handler(listener, nil);
       nw_listener_cancel(listener);
     }
