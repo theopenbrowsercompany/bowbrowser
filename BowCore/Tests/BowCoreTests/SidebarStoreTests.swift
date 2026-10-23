@@ -165,6 +165,26 @@ import Testing
         }
     }
 
+    @Test func fileThatCannotBeReadIsRefusedAndNotSetAside() throws {
+        try withTemporaryFolder { folder in
+            let url = file(in: folder)
+            // Bytes this build never gets to see: they could be a newer Bow's file, so nothing may move them.
+            let contents = Data(#"{"version": 99, "items": []}"#.utf8)
+            try contents.write(to: url)
+            try FileManager.default.setAttributes([.posixPermissions: 0o000], ofItemAtPath: url.path)
+            defer { try? FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: url.path) }
+            #expect {
+                _ = try SidebarStore(fileURL: url)
+            } throws: { error in
+                guard case .unreadableFileNotSetAside(let reason) = error as? SidebarStoreError else { return false }
+                return reason.hasPrefix("reading failed")
+            }
+            #expect(try folderContents(folder) == [SidebarStore.fileName])
+            try FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: url.path)
+            #expect(try Data(contentsOf: url) == contents)
+        }
+    }
+
     @Test func fileFromANewerBuildIsRefusedAndLeftWhereItIs() throws {
         try withTemporaryFolder { folder in
             let url = file(in: folder)
