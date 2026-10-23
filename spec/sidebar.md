@@ -28,11 +28,11 @@ Pinned tabs are the sites a person keeps; today's tabs are the ones they opened 
 
 The sidebar is built so later features each add one file plus one line in a list, in `App/UI/Sidebar/`:
 
-- Sections: a type conforming to `SidebarSection`, listed in `SidebarSections.all` in top to bottom order.
+- Sections: a type conforming to `SidebarSection`, listed in `SidebarSections.all` (`SidebarSectionList.swift`) in top to bottom order.
   A section has a header row (a thin spacer, or a view such as the divider or the Favorites grid) and the items of one container of the Space on screen.
-- Context menu items: a type conforming to `SidebarMenuItems`, listed in `SidebarMenus.all`, naming the item kinds it serves (tab, folder, split, Favorite).
+- Context menu items: a type conforming to `SidebarMenuItems`, listed in `SidebarMenus.all` (`SidebarMenuList.swift`), naming the item kinds it serves (tab, folder, split, Favorite).
   Each provider's items appear in list order, separated from the next provider's.
-- Drop rules: a type conforming to `SidebarDropValidator`, listed in `SidebarDropValidators.all`.
+- Drop rules: a type conforming to `SidebarDropValidator`, listed in `SidebarDropValidators.all` (`SidebarDropRuleList.swift`).
   A drop goes through when no rule refuses it; the store's own rules (what may hold what, repairing split views) still apply when it is made.
 
 ## Edge cases
@@ -40,6 +40,7 @@ The sidebar is built so later features each add one file plus one line in a list
 - A Space with no pinned tabs shows the divider right under the Favorites area; one with no today tabs shows it at the bottom of the list.
 - A Favorite shows as a plain row with its saved title until the Favorites grid exists; clicking it does nothing yet.
 - A drop the store refuses (for example a change that would break the sidebar's rules) changes nothing and is reported in the log.
+- A drop where the item already is changes nothing and saves nothing.
 - After a relaunch every tab is back in its zone and folder, in the same order, with folders open or closed as they were.
 
 ## Acceptance checks
@@ -48,7 +49,9 @@ The sidebar is built so later features each add one file plus one line in a list
 2. Run `make e2e`: `PASS zones.pin: A=pinned tabs=[A,B] active=B` shows tab A dragged into the pinned zone above B, with B still active.
 3. Run `make e2e`: `PASS zones.divider: favorites | pinned | A | divider | today | B` shows the outline's rows with the divider between the pinned and today tabs.
 4. Run `make e2e`: `PASS zones.unpin: A=today tabs=[B,A] active=B` shows A dragged back below B into today, unpinned.
-5. By hand: drag a today tab above the divider; it moves into the pinned tabs; close it and it stays in the sidebar, unloaded; select it and it loads the page it was pinned on.
+5. Run `make e2e`: `PASS zones.drop-divider: favorites | pinned | divider | today | A | B` shows A dropped on the divider row landing at the top of today.
+6. Run `make e2e`: `PASS zones.drop-tab: favorites | pinned | divider | today | B | A` shows B dropped on A's row landing above it.
+7. By hand: drag a today tab above the divider; it moves into the pinned tabs; close it and it stays in the sidebar, unloaded; select it and it loads the page it was pinned on.
 
 ## Out of scope
 
