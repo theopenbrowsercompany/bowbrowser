@@ -55,7 +55,7 @@ targets:
       # The app icon (AppIcon) and the Bow mark (BowMark), compiled into Assets.car and AppIcon.icns.
       - App/Assets.xcassets
       - path: E2E
-        excludes: [Fixtures, README.md, crash_reporter.cfg]
+        excludes: [Fixtures, README.md]
       # The brand's variable fonts (Nunito Sans, Fredoka), copied as one folder into Resources/Fonts and registered
       # at launch by ATSApplicationFontsPath below. The folder's OFL texts also ship at the top of Resources through
       # scripts/bundle-licenses.sh, where the About panel links them.
@@ -67,8 +67,8 @@ targets:
         type: folder
         buildPhase: resources
       # Chromium's crash reporter settings with no upload server, so Debug and e2e runs keep a minidump of each
-      # crashed process on disk (E2E/crash_reporter.cfg says where). Release leaves it out below.
-      - path: E2E/crash_reporter.cfg
+      # crashed process on disk (App/Debug/crash_reporter.cfg says where). Release leaves it out below.
+      - path: App/Debug/crash_reporter.cfg
         buildPhase: resources
     dependencies:
       - target: Bow Helper
@@ -114,6 +114,7 @@ targets:
             - "$(SRCROOT)/E2E/*/*/*"
             - "$(SRCROOT)/E2E/*/*/*/*"
             - "Fixtures"
+            # Chromium's crash reporter settings (App/Debug/crash_reporter.cfg) are for Debug builds only.
             - "crash_reporter.cfg"
     postBuildScripts:
       # CEF's BSD license, Chromium's third party credits and Bow's own license ship in Resources (the
