@@ -50,11 +50,11 @@ struct HistoryRecordingTest: E2ETest {
             "memory=[\(Self.names(diskEntries).joined(separator: ","))] file=[\(readNames.joined(separator: ","))]")
 
         // Each profile keeps its own.
-        let again = try await run.step("read the memory profile again", timeout: E2ETimeouts.step) {
-            try app.historyEntries(of: memory)
+        let (again, diskAgain) = try await run.step("read both profiles again", timeout: E2ETimeouts.step) {
+            (try app.historyEntries(of: memory), try app.historyEntries(of: disk))
         }
         run.check(
-            "history.profiles", passed: Self.names(again) == ["A", "B"] && Self.names(diskEntries) == ["C", "D"],
+            "history.profiles", passed: Self.names(again) == ["A", "B"] && Self.names(diskAgain) == ["C", "D"],
             "memory=[\(Self.names(again).joined(separator: ","))] disk=[\(Self.names(diskEntries).joined(separator: ","))]"
         )
     }

@@ -18,13 +18,14 @@ final class HistoryStores: AppFeature {
         directory = dataDirectory.appendingPathComponent("History", isDirectory: true)
     }
 
-    /// The history of `profileID`, opened on first use. Nil when it cannot be opened. A profile whose persistence
-    /// is unknown counts as ephemeral, so nothing is written for it.
-    func store(for profileID: ProfileID, isPersistent: @autoclosure () -> Bool) -> HistoryStore? {
+    /// The history of `profileID`, opened on first use. Nil when it cannot be opened, or when the profile's
+    /// persistence is not known yet (`isPersistent` gives nil): nothing is recorded then, and nothing is cached, so
+    /// a persistent profile never ends up with an in-memory history.
+    func store(for profileID: ProfileID, isPersistent: () -> Bool?) -> HistoryStore? {
         if let store = stores[profileID] { return store }
-        guard !failed.contains(profileID) else { return nil }
+        guard !failed.contains(profileID), let persistent = isPersistent() else { return nil }
         do {
-            let store = try HistoryStore(profileID: profileID, isPersistent: isPersistent(), directory: directory)
+            let store = try HistoryStore(profileID: profileID, isPersistent: persistent, directory: directory)
             stores[profileID] = store
             return store
         } catch {
@@ -35,9 +36,8 @@ final class HistoryStores: AppFeature {
         }
     }
 
-    /// The history of `profileID` if it has recorded anything this run, without opening one.
-    func existingStore(for profileID: ProfileID) -> HistoryStore? { stores[profileID] }
-
-    /// Where persistent histories live.
-    var historyDirectory: URL { directory }
+    #if BOW_E2E  // E2E seam: the harness reads what a profile recorded, and where persistent histories live.
+        func existingStore(for profileID: ProfileID) -> HistoryStore? { stores[profileID] }
+        var historyDirectory: URL { directory }
+    #endif
 }

@@ -27,7 +27,8 @@ Private (ephemeral) profiles remember nothing on disk.
   Forgetting a span leaves the other visits of a page in place and a page with no visits left disappears.
 - Every tab feeds the history of its own profile, in any window, so a tab in one space never records into another space's profile.
 - A page appears in history as soon as its navigation commits, and its title fills in when the page reports it.
-- The command bar offers history below open tabs: a page that is open in a tab is shown as the tab, and a blank bar offers no history.
+- The command bar's history provider ranks pages below open tabs: a page that is open in a tab is shown as the tab, and a blank bar offers no history.
+  The command bar itself is a later item.
 - Persistent profiles keep their history in a file inside the profile's own folder, so it survives quitting and relaunching.
   Ephemeral profiles keep it in memory only, and it is gone when the profile closes.
 

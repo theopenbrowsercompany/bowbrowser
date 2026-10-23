@@ -6,8 +6,12 @@ import BowCore
 @MainActor
 final class HistoryFeature: NSResponder, BrowserWindowFeature {
     private let stores: HistoryStores
+    private weak var window: BrowserWindowController?
+    /// The URL and title last recorded from each tab's state, so a state change that repeats them writes nothing.
+    private var lastState: [TabID: String] = [:]
 
     init(window: BrowserWindowController) {
+        self.window = window
         stores = window.appFeatures.require(HistoryStores.self)
         super.init()
     }
@@ -19,20 +23,33 @@ final class HistoryFeature: NSResponder, BrowserWindowFeature {
 
     func tab(_ tab: any EngineTab, didReceive event: TabEvent) {
         switch event {
-        case .didCommit, .stateChanged: break
-        default: return
+        case .didCommit:
+            lastState[tab.tabID] = nil
+        case .stateChanged(let state):
+            // Loading and progress changes come often; only a new URL or title can change history.
+            let key = "\(state.url?.absoluteString ?? "")\n\(state.title)"
+            guard lastState[tab.tabID] != key else { return }
+            lastState[tab.tabID] = key
+        default:
+            return
         }
         let profileID = tab.profileID
-        // The engine's profile says whether it is persistent; one the engine does not have records in memory only.
-        let engine = (NSApp.delegate as? AppDelegate)?.engine
-        guard
-            let store = stores.store(
-                for: profileID, isPersistent: engine?.profile(id: profileID)?.isPersistent ?? false)
-        else { return }
+        guard let store = stores.store(for: profileID, isPersistent: { isPersistent(profileID) }) else { return }
         do {
             try store.handle(event)
         } catch {
             FileHandle.standardError.write(Data("bow: recording history failed: \(error)\n".utf8))
         }
+    }
+
+    func tabDidClose(_ tab: any EngineTab) {
+        lastState[tab.tabID] = nil
+    }
+
+    /// Whether the engine's profile `profileID` keeps its data on disk: asked of the window's own profile first,
+    /// then of the engine. Nil when neither knows the profile.
+    private func isPersistent(_ profileID: ProfileID) -> Bool? {
+        if let active = window?.activeProfile, active.profileID == profileID { return active.isPersistent }
+        return (NSApp.delegate as? AppDelegate)?.engine.profile(id: profileID)?.isPersistent
     }
 }
