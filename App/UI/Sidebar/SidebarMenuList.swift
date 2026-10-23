@@ -10,5 +10,6 @@ enum SidebarMenus {
         CloseTabMenuItems.self,
         FolderMenuItems.self,
         FavoritesMenuItems.self,
+        SpaceThemeMenuItems.self,
     ]
 }

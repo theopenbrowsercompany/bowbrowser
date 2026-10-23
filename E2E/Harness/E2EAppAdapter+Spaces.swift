@@ -113,3 +113,126 @@ extension E2ETestApp: E2ESpacesApp {
         try adapter.swipeSidebar(swipe, distance: distance, in: page)
     }
 }
+
+// Space themes: the Space menu comes from the Space name view's own `menu(for:)` with a synthetic right click, so
+// it never pops up, and its items run the way a click on them does.
+
+extension E2EAppAdapter {
+    func spaceTheme(of page: any E2EPage) throws -> E2ESpaceTheme {
+        let controller = try Self.tabPage(page).controller
+        guard let window = controller.window else { throw E2EError("the window has closed") }
+        let graph = controller.store.graph
+        let appearance = window.effectiveAppearance
+        return E2ESpaceTheme(
+            icons: graph.spaces.map { $0.icon?.value ?? "-" },
+            themes: graph.spaces.map { $0.theme?.primaryColor.hex ?? "default" },
+            activeTheme: graph.activeTheme.primaryColor.hex,
+            background: Self.e2eHex(window.backgroundColor, in: appearance) ?? "none",
+            dark: appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua,
+            animating: controller.feature(SpaceThemeFeature.self)?.isAnimating ?? false,
+            reduceMotion: NSWorkspace.shared.accessibilityDisplayShouldReduceMotion)
+    }
+
+    func sidebarDrawnColor(of page: any E2EPage) throws -> String {
+        let controller = try Self.tabPage(page).controller
+        guard let window = controller.window, let content = window.contentView else {
+            throw E2EError("the window has closed")
+        }
+        content.layoutSubtreeIfNeeded()
+        // The frame view above the content view draws the window's background.
+        let root = content.superview ?? content
+        let footer = controller.e2eSidebar.footer
+        let footerFrame = root.convert(footer.bounds, from: footer)
+        // Just above the footer, in the empty end of the outline.
+        let point = NSPoint(x: footerFrame.midX, y: root.isFlipped ? footerFrame.minY - 24 : footerFrame.maxY + 24)
+        guard let bitmap = root.bitmapImageRepForCachingDisplay(in: root.bounds) else {
+            throw E2EError("cannot make a bitmap of the window")
+        }
+        root.cacheDisplay(in: root.bounds, to: bitmap)
+        let scale = CGFloat(bitmap.pixelsWide) / max(root.bounds.width, 1)
+        let row = root.isFlipped ? point.y : root.bounds.height - point.y
+        guard let color = bitmap.colorAt(x: Int(point.x * scale), y: Int(row * scale)) else {
+            throw E2EError("no pixel at \(point)")
+        }
+        // The window's background reaches the screen's pixels as its sRGB values, unmatched to the screen's profile,
+        // so the bitmap's own values are what was drawn; converting them would apply the profile a second time.
+        let parts = [color.redComponent, color.greenComponent, color.blueComponent].map { Int(($0 * 255).rounded()) }
+        return String(format: "#%02X%02X%02X", parts[0], parts[1], parts[2])
+    }
+
+    func spaceMenuTitles(in page: any E2EPage) throws -> [String] {
+        func title(_ item: NSMenuItem) -> String {
+            item.title + (item.state == .on ? "*" : "") + (item.isEnabled ? "" : "!")
+        }
+        return try spaceMenu(in: page).items.flatMap { item -> [String] in
+            guard !item.isSeparatorItem else { return ["-"] }
+            let children = item.submenu?.items.map { "\(item.title)/\(title($0))" } ?? []
+            return [title(item)] + children
+        }
+    }
+
+    func chooseSpaceMenuItem(_ path: [String], in page: any E2EPage) throws {
+        var items = try spaceMenu(in: page).items
+        var chosen: NSMenuItem?
+        for title in path {
+            guard let item = items.first(where: { $0.title == title }) else {
+                throw E2EError("the Space menu has no item \"\(path.joined(separator: "/"))\": \(items.map(\.title))")
+            }
+            chosen = item
+            items = item.submenu?.items ?? []
+        }
+        guard let item = chosen, item.isEnabled, let action = item.action else {
+            throw E2EError("the Space menu's \"\(path.joined(separator: "/"))\" is disabled")
+        }
+        guard NSApp.sendAction(action, to: item.target, from: item) else {
+            throw E2EError("the Space menu's \"\(path.joined(separator: "/"))\" did nothing")
+        }
+    }
+
+    /// The Space menu, as the Space name view builds it for a right click.
+    private func spaceMenu(in page: any E2EPage) throws -> NSMenu {
+        let controller = try Self.tabPage(page).controller
+        guard let window = controller.window,
+            let nameView = Self.views(in: controller.e2eSidebar.outlineView, SpaceNameView.self).first
+        else { throw E2EError("the sidebar shows no Space name") }
+        guard
+            let event = NSEvent.mouseEvent(
+                with: .rightMouseDown, location: nameView.convert(NSPoint(x: 4, y: 4), to: nil), modifierFlags: [],
+                timestamp: 0, windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1,
+                pressure: 1),
+            let menu = nameView.menu(for: event)
+        else { throw E2EError("the Space name has no menu") }
+        return menu
+    }
+
+    /// `color` as `#RRGGBB` in sRGB, resolved in `appearance`.
+    static func e2eHex(_ color: NSColor?, in appearance: NSAppearance) -> String? {
+        guard let color else { return nil }
+        var resolved: NSColor?
+        appearance.performAsCurrentDrawingAppearance { resolved = color.usingColorSpace(.sRGB) }
+        guard let rgb = resolved else { return nil }
+        let parts = [rgb.redComponent, rgb.greenComponent, rgb.blueComponent].map { Int(($0 * 255).rounded()) }
+        return String(format: "#%02X%02X%02X", parts[0], parts[1], parts[2])
+    }
+}
+
+extension E2ETestApp: E2ESpaceThemeApp {
+    func spaceTheme(of page: any E2EPage) throws -> E2ESpaceTheme {
+        try adapter.spaceTheme(of: page)
+    }
+
+    func sidebarDrawnColor(of page: any E2EPage) throws -> String {
+        try adapter.requireActive(token, "read the sidebar's drawn color")
+        return try adapter.sidebarDrawnColor(of: page)
+    }
+
+    func spaceMenuTitles(in page: any E2EPage) throws -> [String] {
+        try adapter.requireActive(token, "read the Space menu")
+        return try adapter.spaceMenuTitles(in: page)
+    }
+
+    func chooseSpaceMenuItem(_ path: [String], in page: any E2EPage) throws {
+        try adapter.requireActive(token, "choose \(path.joined(separator: " > ")) in the Space menu")
+        try adapter.chooseSpaceMenuItem(path, in: page)
+    }
+}
