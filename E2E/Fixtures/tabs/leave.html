@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Unsaved draft</title>
+  <style>
+    body { margin: 0; font: 16px -apple-system, sans-serif; background: #fff; color: #111; }
+    h1 { margin: 0; padding: 24px; background: #c2410c; color: #fff; }
+    textarea { display: block; margin: 24px; width: 480px; height: 120px; font: inherit; }
+  </style>
+  <script>
+    // A draft that asks before the page goes away once something is typed. bowLoadID changes with every new
+    // document, so a reload in place of the old page shows up; bowBeforeUnloads counts the handler's runs.
+    window.bowLoadID = String(Math.random()).slice(2) + "-" + Date.now();
+    window.bowBeforeUnloads = 0;
+    window.addEventListener("beforeunload", event => {
+      window.bowBeforeUnloads += 1;
+      if (document.querySelector("textarea").value === "") return;
+      event.preventDefault();
+      event.returnValue = "";
+    });
+  </script>
+</head>
+<body>
+  <h1>Leave prompt fixture</h1>
+  <textarea placeholder="Type to leave an unsaved draft"></textarea>
+</body>
+</html>

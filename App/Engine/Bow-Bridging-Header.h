@@ -15,4 +15,5 @@
 #import "BowFixtureServer.h"    // E2E seam
 #import "BowChildProcess.h"     // E2E seam
 #import "BowPopupParking.h"     // E2E seam
+#import "BowLeavePrompts.h"     // E2E seam
 #endif
