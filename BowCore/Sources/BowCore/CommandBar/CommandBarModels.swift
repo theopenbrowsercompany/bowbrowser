@@ -6,15 +6,18 @@ public struct SpaceSummary: Equatable, Hashable, Sendable {
     public var id: SidebarSpaceID
     public var name: String
     public var profileID: SidebarProfileID
+    /// The Space's emoji or symbol, nil when it has none.
+    public var icon: SpaceIcon?
 
-    public init(id: SidebarSpaceID, name: String, profileID: SidebarProfileID) {
+    public init(id: SidebarSpaceID, name: String, profileID: SidebarProfileID, icon: SpaceIcon? = nil) {
         self.id = id
         self.name = name
         self.profileID = profileID
+        self.icon = icon
     }
 
     public init(_ space: SidebarSpace) {
-        self.init(id: space.id, name: space.title, profileID: space.profileID)
+        self.init(id: space.id, name: space.title, profileID: space.profileID, icon: space.icon)
     }
 }
 

@@ -207,6 +207,10 @@ public struct SidebarSpace: Codable, Hashable, Sendable {
     /// The tab that was selected when the Space was last left, so coming back selects it again. It may name a tab
     /// that has since moved or closed; readers check it before use.
     public var lastSelectedTabID: SidebarItemID?
+    /// The picture next to the Space's name. Nil shows none.
+    public var icon: SpaceIcon?
+    /// The color theme. Nil means the default theme (see `resolvedTheme`).
+    public var theme: SpaceTheme?
 
     public init(
         id: SidebarSpaceID,
@@ -214,7 +218,9 @@ public struct SidebarSpace: Codable, Hashable, Sendable {
         pinnedContainerID: SidebarItemID,
         unpinnedContainerID: SidebarItemID,
         profileID: SidebarProfileID = .default,
-        lastSelectedTabID: SidebarItemID? = nil
+        lastSelectedTabID: SidebarItemID? = nil,
+        icon: SpaceIcon? = nil,
+        theme: SpaceTheme? = nil
     ) {
         self.id = id
         self.title = title
@@ -222,10 +228,12 @@ public struct SidebarSpace: Codable, Hashable, Sendable {
         self.unpinnedContainerID = unpinnedContainerID
         self.profileID = profileID
         self.lastSelectedTabID = lastSelectedTabID
+        self.icon = icon
+        self.theme = theme
     }
 
     private enum CodingKeys: String, CodingKey {
-        case id, title, pinnedContainerID, unpinnedContainerID, profileID, lastSelectedTabID
+        case id, title, pinnedContainerID, unpinnedContainerID, profileID, lastSelectedTabID, icon, theme
     }
 
     public init(from decoder: any Decoder) throws {
@@ -236,5 +244,8 @@ public struct SidebarSpace: Codable, Hashable, Sendable {
         unpinnedContainerID = try values.decode(SidebarItemID.self, forKey: .unpinnedContainerID)
         profileID = (try? values.decodeIfPresent(SidebarProfileID.self, forKey: .profileID)) ?? .default
         lastSelectedTabID = try? values.decodeIfPresent(SidebarItemID.self, forKey: .lastSelectedTabID)
+        // Files from before icons and themes have neither; a value this build cannot read counts as unset.
+        icon = try? values.decodeIfPresent(SpaceIcon.self, forKey: .icon)
+        theme = try? values.decodeIfPresent(SpaceTheme.self, forKey: .theme)
     }
 }
