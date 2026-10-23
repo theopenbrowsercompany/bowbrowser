@@ -101,7 +101,7 @@ sweep() {
   # in case the app outlived its build lock), so a run never matches a sibling whose name starts with its own.
   # The build lock still running (child, during an interrupt) is left to end by itself and give back its slot.
   # ps runs in the background and is waited for, so a signal during a slow ps stops the run at once too.
-  snapshot=$(mktemp "$run/.ps.XXXXXX") || return 0
+  snapshot=$(mktemp "$run/.ps.XXXXXX" 2> /dev/null || mktemp -t bow-e2e-ps) || return 0
   ps -axo pid=,command= > "$snapshot" 2> /dev/null &
   wait $!
   pids=$(D="$1" B="$bundle/Contents/" awk -v me=$$ -v child="${child:-0}" '
@@ -149,7 +149,7 @@ gone() {
 # compared exactly (not as a pattern), so a recycled PID is never mistaken for it.
 is_build_lock() {
   ps -o command= -p "$1" 2> /dev/null | S="$repo/scripts/build-lock.sh" T="--e2e-out=$current" awk '
-    { ok = ($1 == ENVIRON["S"] || $2 == ENVIRON["S"]) && length($0) >= length(ENVIRON["T"]) \
+    { line = " " $0; ok = index(line, " " ENVIRON["S"] " ") && length($0) >= length(ENVIRON["T"]) \
         && substr($0, length($0) - length(ENVIRON["T"]) + 1) == ENVIRON["T"] }
     END { exit !ok }'
 }
@@ -166,6 +166,7 @@ on_signal() {
     wait "$child" 2>/dev/null
   fi
   [ -z "$current" ] || sweep "$current"
+  rm -f "$run"/.ps.* # a snapshot left by a sweep this signal interrupted
   printf '{"status":"interrupted","exitCode":130,"signal":%s,"summary":"E2E: ERROR interrupted","selection":%s,"run":%s,%s}\n' \
     "$(json "$1")" "$(json "$selection")" "$(json "$run")" "$(commit_json)" > "$run/results.json"
   echo "E2E: ERROR interrupted"
@@ -232,11 +233,14 @@ attempt() {
     *)
       status=crash
       local why="E2E: CRASH exit=$app_code${signal:+ signal=$signal}"
-      if [ -n "$summary" ]; then why="$why after its summary line ($summary)"
-      elif [ "$app_code" = 2 ] && grep -q 'Teardown watchdog expired' "$dir/chromium.log" 2>/dev/null; then
-        # Chromium's own watchdog ended the app (exit 2) because shutdown hung.
+      # Chromium's own watchdog ends the app with exit 2 when shutdown hangs, usually after the summary line.
+      local watchdog=""
+      if [ "$app_code" = 2 ] && grep -q 'Teardown watchdog expired' "$dir/chromium.log" 2>/dev/null; then
+        watchdog=1
         why="$why Chromium teardown watchdog during quit"
-      else why="$why without a summary line"; fi
+      fi
+      if [ -n "$summary" ]; then why="$why after its summary line ($summary)"
+      elif [ -z "$watchdog" ]; then why="$why without a summary line"; fi
       summary=$why
       echo "$summary" >> "$dir/report.txt"
       ;;

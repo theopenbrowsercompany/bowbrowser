@@ -40,6 +40,10 @@ case $FAKE_MODE in
     echo "PASS a.one: ok" > "$r"
     echo "[1:2:ERROR:foo] Teardown watchdog expired; ending the process" > "$out/chromium.log"
     exit 2 ;;
+  teardownsummary)
+    { echo "PASS a.one: ok"; echo "E2E: PASS 1/1"; } > "$r"
+    echo "[1:2:ERROR:foo] Teardown watchdog expired; ending the process" > "$out/chromium.log"
+    exit 2 ;;
   listhang) echo "E2E: TIMEOUT unknown.test: open window" > "$r"; exit 2 ;;
   flaky)
     case $out in
@@ -201,6 +205,8 @@ check "exit 2 with no summary is a crash, not a timeout" is "$code" 4
 run teardown
 check "teardown watchdog: exit 4" is "$code" 4
 check "teardown watchdog: named in the summary" is "$last" "E2E: CRASH exit=2 Chromium teardown watchdog during quit"
+run teardownsummary
+check "teardown watchdog after a summary line: named, with the summary" is "$last" "E2E: CRASH exit=2 Chromium teardown watchdog during quit after its summary line (E2E: PASS 1/1)"
 
 run usage nope.test
 check "usage: exit 64" is "$code" 64
@@ -336,7 +342,6 @@ chmod +x "$tmp/slowps/ps"
 ipath="$tmp/slowps:$PATH" interrupt TERM pass 30 ../ps-mark
 check "a signal while sweeping: the wrapper stops at once" is "$stopped" yes
 check "a signal while sweeping: exit 130" is "$code" 130
-ipath=""
 
 # The final KILL guard: a build lock that ignores TERM is killed only when it is this run's, matched exactly. A copy
 # of the wrapper beside a stand-in build lock does it.
