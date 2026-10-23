@@ -3,8 +3,9 @@
 # Chromium starts each helper by name ("Bow Helper (GPU)" and so on), so each needs its own bundle.
 #
 # Copying the 327 MB framework and signing it and five helpers takes about two seconds, so the phase skips all of
-# it when nothing changed: a stamp in the target's temporary folder records the CEF build, every file of the built
-# helper, this script and the copies it made, and the work runs again when any of them differs.
+# it when nothing changed: a stamp in the target's temporary folder records the CEF build (its binary, Libraries and
+# Resources), every file of the built helper, this script and the copies it made, and the work runs again when any
+# of them differs.
 set -eu
 
 app="$TARGET_BUILD_DIR/$WRAPPER_NAME"
@@ -22,9 +23,13 @@ helper_name() { if [ -z "$1" ]; then echo "Bow Helper"; else echo "Bow Helper ($
 stamp() {
   (cd "$framework_src" && pwd -P)
   stat -f '%N %m %z %i' "$framework_src/Chromium Embedded Framework"
+  # The framework's Libraries and Resources (about 230 files), by metadata, so a stat each is cheap.
+  find "$framework_src/Libraries" "$framework_src/Resources" -type f -print0 | sort -z | xargs -0 stat -f '%N %m %z %i'
   find "$helper_src" -type f -print0 | sort -z | xargs -0 shasum
   shasum "$0"
   stat -f '%N %m %z %i' "$framework/Versions/A/Chromium Embedded Framework"
+  find "$framework/Versions/A/Libraries" "$framework/Versions/A/Resources" -type f -print0 | sort -z |
+    xargs -0 stat -f '%N %m %z %i'
   for kind in "" GPU Renderer Plugin Alerts; do
     name=$(helper_name "$kind")
     stat -f '%N %m %z %i' "$frameworks/$name.app/Contents/MacOS/$name" \

@@ -82,6 +82,35 @@ case $FAKE_MODE in
         echo "RESULT a.two fail seconds=0.2 checks=0/1"; echo "FAIL chromium.errors: 1 unexpected"; echo "E2E: FAIL 1/3"; } > "$r"
         exit 1 ;;
     esac ;;
+  hang)
+    # Starts a helper, then never ends, like a stuck app that ignores its watchdog.
+    "$(dirname "$0")/../Frameworks/Helper" "$out/helper" > /dev/null 2>&1 < /dev/null &
+    echo "PASS a.one: ok" > "$r"
+    while :; do sleep 0.1; done ;;
+  stucklate)
+    # The stuck test fails its step after the TIMEOUT line, before the app exits.
+    case $out in
+      */retry) { echo "RESULT a.two pass seconds=0.2 checks=1/1"; echo "RESULT a.three pass seconds=0.2 checks=1/1"; echo "E2E: PASS 2/2"; } > "$r"; exit 0 ;;
+      *) { echo "RESULT a.one pass seconds=0.1 checks=1/1"; echo "E2E: TIMEOUT a.two: open window (main thread stuck)"
+        echo "NOT RUN a.three"; echo "FAIL a.two: TIMEOUT: the step ran past 10 s"; } > "$r"; exit 2 ;;
+    esac ;;
+  stucknototal)
+    # A timeout that prints no total, then a retry of the stuck and not run tests that passes.
+    case $out in
+      */retry) { echo "RESULT a.two pass seconds=0.2 checks=1/1"; echo "RESULT a.three pass seconds=0.2 checks=1/1"; echo "E2E: PASS 2/2"; } > "$r"; exit 0 ;;
+      *) { echo "RESULT a.one pass seconds=0.1 checks=1/1"; echo "E2E: TIMEOUT a.two: open window (main thread stuck)"
+        echo "NOT RUN a.three"; } > "$r"; exit 2 ;;
+    esac ;;
+  timeoutfail)
+    # Times out, then fails on the retry: the two attempts fail differently.
+    case $out in
+      */retry) echo "FAIL a.one: broken" > "$r"; echo "E2E: FAIL 0/1" >> "$r"; exit 1 ;;
+      *) echo "E2E: TIMEOUT a.one: open window" > "$r"; exit 2 ;;
+    esac ;;
+  badjson)
+    # The app writes a results.json of its own that is not JSON.
+    echo "{not json" > "$out/results.json"
+    echo "PASS a.one: ok" > "$r"; echo "E2E: PASS 1/1" >> "$r"; exit 0 ;;
   results)
     if [ "$sel" = "a.two" ]; then
       { echo "PASS a.two: ok"; echo "RESULT a.two pass seconds=0.3 checks=1/1"; echo "E2E: PASS 1/1"; } > "$r"; exit 0
@@ -211,6 +240,93 @@ check "results: seconds in results.json" is "$(field "$res" attempts.0.tests.1.s
 check "results: checks in results.json" is "$(field "$res" attempts.0.tests.1.checks)" 0/1
 check "results: failed check detail in results.json" is "$(field "$res" attempts.0.checks.1.detail)" '"quoted" reason'
 check "results: results.json is valid JSON" valid_json "$res"
+
+run stucklate 'a.*'
+check "a FAIL line after the TIMEOUT line is the stuck test's: only it and the not run tests rerun" \
+  is "$(cat "$BOW_E2E_ROOT/latest/retry/args")" "e2e=a.two,a.three"
+
+run stucknototal 'a.*'
+check "no total after a timeout: FLAKY says only the retried tests passed" \
+  is "$last" "E2E: FLAKY retried tests passed 2/2 after retrying a.two,a.three (the first attempt printed no total)"
+
+run timeoutfail
+check "a timeout, then a FAIL on the retry: the first attempt's exit code" is "$code" 2
+check "a timeout, then a FAIL on the retry: the summary names both" is "$last" "E2E: TIMEOUT a.one: open window (retry: FAIL 0/1)"
+
+run badjson
+check "an app results.json that is not JSON: results.json stays valid" valid_json "$res"
+check "an app results.json is kept aside" has "$BOW_E2E_ROOT/latest/app-results.json" "not json"
+
+# interrupt <signal>: runs the wrapper on an app that never ends, sends the signal once the app runs, and sets
+# stopped (yes when the wrapper ended within 4 seconds), code, last, res and iroot.
+interrupt() {
+  local sig=$1 i wpid
+  iroot="$tmp/int-$sig"
+  # perl gives the wrapper a default INT, as a terminal does: a background job of a script starts with INT ignored.
+  BOW_E2E_ROOT=$iroot FAKE_MODE=hang perl -e '$SIG{INT} = "DEFAULT"; exec @ARGV' ./scripts/e2e.sh "$app" \
+    > "$tmp/int-$sig.out" 2>&1 &
+  wpid=$!
+  for i in $(seq 100); do [ -s "$iroot/latest/report.txt" ] && break; sleep 0.1; done
+  kill -"$sig" "$wpid"
+  stopped=no
+  for i in $(seq 40); do kill -0 "$wpid" 2>/dev/null || { stopped=yes; break; }; sleep 0.1; done
+  if [ "$stopped" = no ]; then
+    kill -KILL "$wpid" 2>/dev/null
+    pkill -KILL -f "$app/Contents/" 2>/dev/null
+  fi
+  wait "$wpid" 2>/dev/null
+  code=$?
+  last=$(tail -n 1 "$tmp/int-$sig.out")
+  res="$iroot/latest/results.json"
+}
+for sig in TERM INT; do
+  interrupt "$sig"
+  check "$sig: the wrapper stops at once" is "$stopped" yes
+  check "$sig: exit 130" is "$code" 130
+  check "$sig: summary" is "$last" "E2E: ERROR interrupted"
+  check "$sig: results.json is valid JSON" valid_json "$res"
+  check "$sig: results.json says interrupted" is "$(field "$res" status)" interrupted
+  check "$sig: the app and its helper are ended" is "$(ps -axo command= | grep -F -- "$iroot/" | grep -vc grep)" 0
+  check "$sig: the build lock slot is given back" is "$(ls "$BOW_LOCK_DIR/e2e/slots" | wc -l | tr -d ' ')" 0
+done
+
+# The Makefile keeps E2E out of every recipe's environment (xcodebuild takes environment variables as build
+# settings), and e2e and e2e-run hand it to the wrapper whole.
+nomake() { env -u MAKEFLAGS -u MAKELEVEL -u MFLAGS "$@"; }
+printf 'print-e2e-env:\n\t@echo "E2E=$${E2E-unset}"\n' > "$tmp/env.mk"
+check "make: E2E stays out of other recipes' environment" \
+  is "$(E2E=env nomake make -s -f Makefile -f "$tmp/env.mk" print-e2e-env E2E=cli)" "E2E=unset"
+FAKE_MODE=pass nomake make -s e2e-run APP="$app" BUILD_DIR="$tmp/mk" E2E="it's, a" > /dev/null 2>&1
+check "make e2e-run hands the selection to the wrapper whole" is "$(cat "$tmp/mk/e2e/latest/args" 2>/dev/null)" "e2e=it's, a"
+
+# package-cef.sh on a fake CEF build and helper: an unchanged build skips the work, and a change to the
+# framework's Libraries or Resources does not.
+pc="$tmp/pc"
+fw="$pc/src/Vendor/cef/Release/Chromium Embedded Framework.framework"
+helper="$pc/products/Bow Helper.app/Contents"
+mkdir -p "$fw/Libraries" "$fw/Resources/en.lproj" "$helper/MacOS" "$pc/temp"
+cp /usr/bin/true "$fw/Chromium Embedded Framework"
+cp /usr/bin/true "$helper/MacOS/Bow Helper"
+echo lib > "$fw/Libraries/libEGL.dylib"
+echo pak > "$fw/Resources/en.lproj/locale.pak"
+plist() { # plist <file> <executable> <identifier> <package type>
+  printf '<?xml version="1.0" encoding="UTF-8"?>\n<plist version="1.0"><dict><key>CFBundleExecutable</key><string>%s</string><key>CFBundleIdentifier</key><string>%s</string><key>CFBundleName</key><string>%s</string><key>CFBundlePackageType</key><string>%s</string></dict></plist>\n' "$2" "$3" "$2" "$4" > "$1"
+}
+plist "$fw/Resources/Info.plist" "Chromium Embedded Framework" org.example.cef FMWK
+plist "$helper/Info.plist" "Bow Helper" org.example.helper APPL
+package() {
+  TARGET_BUILD_DIR="$pc/products" WRAPPER_NAME=Bow.app SRCROOT="$pc/src" BUILT_PRODUCTS_DIR="$pc/products" \
+    TARGET_TEMP_DIR="$pc/temp" ./scripts/package-cef.sh 2>&1
+}
+skips() { package | grep -q "unchanged; skipping"; }
+not() { ! "$@"; }
+package > "$tmp/package.out"
+check "package-cef: packages a fake CEF build" is "$(cat "$pc/products/Bow.app/Contents/Frameworks/Chromium Embedded Framework.framework/Resources/en.lproj/locale.pak" 2>/dev/null)" pak
+check "package-cef: an unchanged build skips the copy" skips
+echo more >> "$fw/Resources/en.lproj/locale.pak"
+check "package-cef: a changed Resources file is copied again" not skips
+echo more >> "$fw/Libraries/libEGL.dylib"
+check "package-cef: a changed Libraries file is copied again" not skips
 
 E2E_KEEP=3 run pass
 check "keeps the newest E2E_KEEP runs" is "$(find "$BOW_E2E_ROOT" -mindepth 1 -maxdepth 1 -type d | wc -l | tr -d ' ')" 3
