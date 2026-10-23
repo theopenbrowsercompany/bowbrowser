@@ -5,7 +5,9 @@
 #     lists): a `static let all` line that does not open a list on its own (`    static let all: [...] = [`, with
 #     the entries on the lines below and `    ]` alone on a later line), a list left open, a line inside a list
 #     that is not exactly one `Name.self,` or `Name.all,` entry, or the same entry twice in one list (a file may
-#     hold more than one list, and two lists may share an entry);
+#     hold more than one list, and two lists may share an entry), or an entry whose type no Swift file under App/ or
+#     E2E/ declares (a renamed entry a union merge kept beside the new one); a type a macro declares carries a
+#     `// lists: declared by <macro>` comment on its entry line;
 #   - the bridging header: an #import line that is not one `#import "File.h"` (with an optional // comment), or
 #     the same header imported twice;
 #   - the e2e tests: two tests with the same `let name = "..."` in E2E/Tests (the form every test uses; the runner's
@@ -13,6 +15,8 @@
 set -eu
 
 cd "$(dirname "$0")/.."
+# The self test (scripts/test-check-lists.sh) runs this on a fixture tree.
+[ -z "${LISTS_ROOT:-}" ] || cd "$LISTS_ROOT"
 
 swift_lists="App/UI/Window/WindowFeatures.swift App/UI/App/AppFeatures.swift E2E/Tests/E2EAreas.swift
   App/UI/Sidebar/SidebarSectionList.swift App/UI/Sidebar/SidebarMenuList.swift App/UI/Sidebar/SidebarDropRuleList.swift
@@ -24,6 +28,14 @@ fail() {
   echo "lists: $1" >&2
   failed=1
 }
+
+tmp=$(mktemp -d)
+trap 'rm -rf "$tmp"' EXIT
+declared=$tmp/declared
+# The names of the types, extensions and typealiases declared in App/ and E2E/ (a type a macro declares is
+# allowed with a `// lists: declared by <macro>` comment on its entry line).
+find App E2E -name '*.swift' -exec grep -hoE '\b(class|struct|enum|actor|extension|typealias)[[:space:]]+[A-Z][A-Za-z0-9_]*' {} + 2> /dev/null |
+  awk '{ print $2 }' | sort -u > "$declared" || true
 
 for file in $swift_lists; do
   [ -f "$file" ] || { fail "$file is missing"; continue; }
@@ -41,12 +53,13 @@ for file in $swift_lists; do
     }
     inside && /^    \]$/ { inside = 0; next }
     inside {
-      if ($0 !~ /^        [A-Z][A-Za-z0-9_]*\.(self|all),$/) {
+      if ($0 !~ /^        [A-Z][A-Za-z0-9_]*\.(self|all),( +\/\/ lists: declared by .+)?$/) {
         printf "%s:%d: not one entry with a trailing comma: %s\n", file, NR, $0 > "/dev/stderr"
         bad = 1
       }
-      entry = $0; sub(/^ */, "", entry); sub(/,$/, "", entry)
-      print lists, entry
+      entry = $0; skip = ($0 ~ /\/\/ lists: declared by /) ? "macro" : "-"
+      sub(/^ */, "", entry); sub(/,.*$/, "", entry)
+      print lists, entry, NR, skip
     }
     END {
       if (inside) { printf "%s: a `static let all` list is not closed by a `    ]` line\n", file > "/dev/stderr"; bad = 1 }
@@ -54,8 +67,15 @@ for file in $swift_lists; do
       exit bad
     }
   ' "$file") || failed=1
-  duplicates=$(printf '%s\n' "$entries" | sort | uniq -d | sed 's/^[0-9]* //')
+  duplicates=$(printf '%s\n' "$entries" | awk 'NF { print $1, $2 }' | sort | uniq -d | sed 's/^[0-9]* //')
   for entry in $duplicates; do fail "$file lists $entry twice in one list"; done
+  # Every entry names a type some Swift file declares (a union merge can keep a renamed entry beside its new name).
+  printf '%s\n' "$entries" | while read -r _ entry line skip; do
+    [ -n "${entry:-}" ] && [ "$skip" != macro ] || continue
+    name=${entry%.*}
+    grep -qx "$name" "$declared" || echo "lists: $file:$line: $name is declared nowhere (a stale entry after a rebase?)" >&2
+  done 2> "$tmp/undeclared"
+  if [ -s "$tmp/undeclared" ]; then cat "$tmp/undeclared" >&2; failed=1; fi
 done
 
 bad_imports=$(grep -n '#import' "$header" | grep -Ev '^[0-9]+:#import "[A-Za-z0-9_+]+\.h"( +//.*)?$' || true)
