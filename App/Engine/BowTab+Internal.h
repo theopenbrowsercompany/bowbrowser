@@ -129,7 +129,8 @@ class BowTabClient;
 - (void)requestPopup:(BowPopupRequest*)request;
 /// The UI delegate's answer, asked synchronously; `BowPopupDecisionWindow` without one.
 - (BowPopupDecision)decidePopup:(BowPopupRequest*)request;
-/// Hands `newTab` to the UI delegate on a later main thread task, or closes it when nobody takes it.
+/// Hands `newTab` to the UI delegate at once, before its browser exists, so it sees the popup's first navigation;
+/// closes it when nobody takes it.
 - (void)openPopupTab:(BowTab*)newTab request:(BowPopupRequest*)request;
 - (BOOL)handleKeyBeforePage:(BowKeyEvent*)event;
 - (void)answerAuthChallenge:(BowAuthChallenge*)challenge callback:(CefRefPtr<CefAuthCallback>)callback;
@@ -288,16 +289,21 @@ class BowTabClient : public CefClient,
 
   /// True for the tab's own browser: the first browser created with this client. Every other browser created with
   /// it is a popup the engine opened in a window of its own, which keeps CEF's defaults.
-  bool IsOwn(CefRefPtr<CefBrowser> browser) const { return ownBrowserID_ != 0 && browser->GetIdentifier() == ownBrowserID_; }
+  bool IsOwn(CefRefPtr<CefBrowser> browser) const {
+    return ownBrowserID_ != 0 && browser->GetIdentifier() == ownBrowserID_;
+  }
 
   __weak BowTab* tab_;
 
  private:
   int ownBrowserID_ = 0;
-  // The native key code of the key down the app claimed last, until its key up.
-  int claimedKeyCode_ = 0;
+  // The native key codes of key downs the app claimed, each until its key up.
+  std::set<int> claimedKeyCodes_;
   // Tabs made for popups decided as tabs, by popup ID, until CEF creates their browser or gives up.
   NSMapTable<NSNumber*, BowTab*>* pendingPopupTabs_ = [NSMapTable strongToWeakObjectsMapTable];
+  // For a popup tab's client: the opener's client and the popup's ID there, until the popup browser is created.
+  CefRefPtr<BowTabClient> openerClient_;
+  int openerPopupID_ = 0;
   CefRefPtr<CefDownloadHandler> downloadHandler_;
   // Identifiers of this tab's popups that were created in no window.
   std::set<int> windowlessPopups_;

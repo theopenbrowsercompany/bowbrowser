@@ -166,6 +166,15 @@ void BowEngineCloseBrowser(CefRefPtr<CefBrowser> browser, bool askAgain) {
   browser->GetHost()->CloseBrowser(false);
 }
 
+bool BowEngineIsQuitting() {
+  return gQuitting;
+}
+
+void BowEngineBrowserUnloadRefused(CefRefPtr<CefBrowser> browser) {
+  auto it = gBrowsers.find(browser->GetIdentifier());
+  if (it != gBrowsers.end() && !it->second.willClose) it->second.closeRequested = false;
+}
+
 bool BowEngineBrowserCloseCancelled(CefRefPtr<CefBrowser> browser) {
   auto it = gBrowsers.find(browser->GetIdentifier());
   if (it == gBrowsers.end() || it->second.willClose || !it->second.closeRequested) return false;

@@ -1,9 +1,9 @@
 import BowCore
 import Foundation
 
-/// Tests that each engine hook reaches the app: the popup decision, keys before the page, per site zoom and unload.
-/// They drive engine tabs with no window (`E2EEngineProbe`), since the window answers these hooks with their
-/// defaults until the features that use them land. Fixtures in E2E/Fixtures/engine/.
+/// Tests that each engine hook reaches the app: the popup decision, keys before the page, per site zoom, unload and
+/// why a tab closed. They drive engine tabs with no window (`E2EEngineProbe`), since the window answers these hooks
+/// with their defaults until the features that use them land. Fixtures in E2E/Fixtures/engine/.
 @MainActor
 enum EngineTests {
     static let all: [any E2ETest] = [EngineHooksTest()]
@@ -12,7 +12,7 @@ enum EngineTests {
 /// Opens a probe tab on the fixture and walks it through every hook, one check each.
 struct EngineHooksTest: E2ETest {
     let name = "engine.hooks"
-    let checks = ["engine.popup", "engine.key", "engine.zoom", "engine.unload"]
+    let checks = ["engine.popup", "engine.key", "engine.zoom", "engine.unload", "engine.close-reason"]
 
     func run(_ run: E2ERun) async throws {
         var probes: [E2EEngineProbe] = []
@@ -35,9 +35,17 @@ struct EngineHooksTest: E2ETest {
             let status = try await probe.waitForLoad(1)
             guard status == 200 else { throw E2EError("the fixture loaded with status \(status)") }
         }
+        try await popup(run, probe: probe)
+        try await keys(run, probe: probe)
+        let second = try await zoom(run, probe: probe, profile: profile, track: track)
+        try await unload(run, unloading: second, profile: profile, track: track)
+        try await selfClose(run, probe: probe)
+    }
 
-        // A page's window.open from a click is decided by the app, which asks for a background tab: the page
-        // arrives as a tab of its own, still connected to its opener.
+    /// A page's window.open from a click is decided by the app, which asks for a background tab: the page arrives as
+    /// a tab of its own, still connected to its opener, and handed over before its first navigation, which its new
+    /// owner decides.
+    private func popup(_ run: E2ERun, probe: E2EEngineProbe) async throws {
         let opener = try await run.step("open a popup as a tab", timeout: E2ETimeouts.step * 2) {
             probe.popupDecision = .backgroundTab
             _ = try await probe.evaluate("document.querySelector(\"#open\").click()", userGesture: true)
@@ -52,30 +60,64 @@ struct EngineHooksTest: E2ETest {
             return try await popup.evaluate("window.opener !== null") as? Bool ?? false
         }
         let request = probe.popupRequests.first
-        let popupPassed =
+        let firstNavigation = probe.popupTabs.first?.navigations.first?.lastPathComponent ?? "none"
+        let passed =
             probe.popupRequests.count == 1 && request?.targetURL?.lastPathComponent == "opened.html"
-            && request?.isUserGesture == true && opener
+            && request?.disposition == .foregroundTab && request?.isUserGesture == true && opener
+            && firstNavigation == "opened.html"
         run.check(
-            "engine.popup", passed: popupPassed,
+            "engine.popup", passed: passed,
             "requests=\(probe.popupRequests.count) target=\(request?.targetURL?.lastPathComponent ?? "none") "
-                + "disposition=\(request.map { "\($0.disposition)" } ?? "none") opener=\(opener ? "kept" : "lost")")
+                + "disposition=\(request.map { "\($0.disposition)" } ?? "none") opener=\(opener ? "kept" : "lost") "
+                + "first-navigation=\(firstNavigation)")
+    }
 
-        // Key presses reach the app before the page: Command+K is claimed, a plain J is offered and left to the page.
-        // A probe tab has no window and so no keyboard focus, so the page itself sees neither.
-        try await run.step("claim a key before the page", timeout: E2ETimeouts.step) {
+    /// Key presses reach the app before the page: Command+K is claimed, so neither its key down nor its key up
+    /// reaches the page, and its key up is not offered again; a plain J is offered and left to the page. The probe
+    /// emulates focus, so the page receives the keys it is left. A hidden page may drop the first keys after its
+    /// focus changes, so J is pressed until the page has seen one before Command+K, and the J pressed after
+    /// Command+K reaching the page shows the page was receiving keys while Command+K was claimed.
+    private func keys(_ run: E2ERun, probe: E2EEngineProbe) async throws {
+        let page = try await run.step("claim a key before the page", timeout: E2ETimeouts.step) {
+            try await probe.focusPage()
+            var keys: (down: [String], up: [String]) = ([], [])
+            let readKeys = {
+                keys.down = try await probe.evaluate("window.keyDowns") as? [String] ?? []
+                keys.up = try await probe.evaluate("window.keyUps") as? [String] ?? []
+            }
+            try await probe.until("a J key in the page") {
+                keys.down.contains("j") && keys.up.contains("j")
+            } refresh: {
+                try await probe.pressKey("j", keyCode: 74, macKeyCode: 38)
+                try await readKeys()
+            }
+            let seen = (down: keys.down.count, up: keys.up.count)
             probe.claimsKey = { $0.modifiers.contains(.command) && $0.keyCode == 40 }
             try await probe.pressKey("k", keyCode: 75, macKeyCode: 40, command: true)
             try await probe.pressKey("j", keyCode: 74, macKeyCode: 38)
-            try await probe.until("the J key before the page") { probe.keyEvents.contains { $0.keyCode == 38 } }
+            try await probe.until("the J key after Command+K in the page") {
+                keys.down.count > seen.down && keys.up.count > seen.up
+            } refresh: {
+                try await readKeys()
+            }
+            return keys
         }
         let claimedDown = probe.claimedKeys.contains { $0.kind == .keyDown && $0.keyCode == 40 }
+        let claimedUpOffered = probe.keyEvents.contains { $0.kind == .keyUp && $0.keyCode == 40 }
         let jClaimed = probe.claimedKeys.contains { $0.keyCode == 38 }
+        let pageSawK = (page.down + page.up).contains { $0.lowercased() == "k" }
         let offered = probe.keyEvents.map { "\($0.kind):\($0.keyCode):\($0.modifiers.rawValue)" }
         run.check(
-            "engine.key", passed: claimedDown && !jClaimed,
-            "claimed=\(probe.claimedKeys.count) offered=\(offered.joined(separator: ","))")
+            "engine.key",
+            passed: claimedDown && !claimedUpOffered && !jClaimed && page.down.contains("j") && !pageSawK,
+            "claimed=\(probe.claimedKeys.count) offered=\(offered.joined(separator: ",")) "
+                + "page-down=\(page.down.joined(separator: ",")) page-up=\(page.up.joined(separator: ","))")
+    }
 
-        // Zoom set in one tab applies to its site, so a second tab on the same site opens zoomed.
+    /// Zoom set in one tab applies to its site, so a second tab on the same site opens zoomed. Returns that tab.
+    private func zoom(
+        _ run: E2ERun, probe: E2EEngineProbe, profile: any EngineProfile, track: @escaping (E2EEngineProbe) -> Void
+    ) async throws -> E2EEngineProbe {
         let zoom = try await run.step("zoom a site", timeout: E2ETimeouts.step * 2) {
             let before = probe.loads.count
             probe.tab.load(E2EFixture.url("engine/index.html"))
@@ -91,16 +133,57 @@ struct EngineHooksTest: E2ETest {
         run.check(
             "engine.zoom", passed: zoom.0 == 1 && zoom.1.tab.zoomLevel == 1,
             "first=\(zoom.0) second=\(zoom.1.tab.zoomLevel)")
+        return zoom.1
+    }
 
-        // Unloading frees the page and reports `unloaded`, never `closed`.
-        let unloaded = try await run.step("unload a tab", timeout: E2ETimeouts.step) {
-            await zoom.1.tab.unload()
+    /// Unloading frees the page and reports `unloaded`, never `closed`. A close asked for while an unload is still
+    /// pending (its page's beforeunload still running) takes it over: the unload answers false and the
+    /// tab's last event is `closed`, by the app.
+    private func unload(
+        _ run: E2ERun, unloading tab: E2EEngineProbe, profile: any EngineProfile,
+        track: @escaping (E2EEngineProbe) -> Void
+    ) async throws {
+        let result = try await run.step("unload a tab", timeout: E2ETimeouts.step * 2) {
+            let unloaded = await tab.tab.unload()
+            let third = try E2EEngineProbe.open(E2EFixture.url("engine/slow-unload.html"), in: profile)
+            track(third)
+            _ = try await third.waitForLoad(1)
+            // The page's beforeunload keeps it busy for 300 ms, so the close arrives while the unload is pending.
+            let takenOver = Task { await third.tab.unload() }
+            try await Task.sleep(nanoseconds: 50_000_000)
+            let closed = Task { await third.tab.close() }
+            let (unload, close) = (await takenOver.value, await closed.value)
+            try await third.until("the closed event") { third.events.last == .closed }
+            return (unloaded: unloaded, third: third, takenOver: unload, closed: close)
         }
-        let last = zoom.1.events.last
+        let last = tab.events.last.map { "\($0)" } ?? "none"
+        let third = result.third
+        let thirdLast = third.events.last.map { "\($0)" } ?? "none"
+        let unloadPassed =
+            result.unloaded && tab.tab.isClosed && tab.events.last == .unloaded && !tab.events.contains(.closed)
+            && tab.tab.closeReason == nil
+        let takeOverPassed =
+            !result.takenOver && result.closed && third.events.last == .closed && !third.events.contains(.unloaded)
+            && third.tab.closeReason == .app
         run.check(
-            "engine.unload",
-            passed: unloaded && zoom.1.tab.isClosed && last == .unloaded
-                && !zoom.1.events.contains(.closed),
-            "unloaded=\(unloaded) closed=\(zoom.1.tab.isClosed) last=\(last.map { "\($0)" } ?? "none")")
+            "engine.unload", passed: unloadPassed && takeOverPassed,
+            "unloaded=\(result.unloaded) closed=\(tab.tab.isClosed) last=\(last) "
+                + "taken-over-unload=\(result.takenOver) close=\(result.closed) close-last=\(thirdLast) "
+                + "close-reason=\(third.tab.closeReason.map { "\($0)" } ?? "none")")
+    }
+
+    /// A page that closes itself (window.close() in the popup its opener's script opened) says so: the tab's last
+    /// event is `closed`, with the reason `.page`, and it can no longer be unloaded.
+    private func selfClose(_ run: E2ERun, probe: E2EEngineProbe) async throws {
+        let result = try await run.step("a page closes itself", timeout: E2ETimeouts.step) {
+            guard let popup = probe.popupTabs.first else { throw E2EError("no popup tab to close") }
+            _ = try await popup.evaluate("setTimeout(() => window.close(), 0); true")
+            try await popup.until("the popup's closed event") { popup.events.last == .closed }
+            return (popup: popup, unloaded: await popup.tab.unload())
+        }
+        let reason = result.popup.tab.closeReason
+        run.check(
+            "engine.close-reason", passed: reason == .page && !result.unloaded,
+            "reason=\(reason.map { "\($0)" } ?? "none") unload-after-close=\(result.unloaded)")
     }
 }

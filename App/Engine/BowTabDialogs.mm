@@ -70,25 +70,32 @@ bool BowTabClient::OnBeforeUnloadDialog(CefRefPtr<CefBrowser> browser,
   __weak BowTab* weakSelf = self;
   void (^answer)(BOOL, NSString*) = ^(BOOL leave, NSString*) {
     callback->Continue(leave, CefString());
-    // Staying on a reload prompt keeps the page; it says nothing about a pending close.
+    // Staying on a reload prompt keeps the page; it says nothing about a pending close. Only a prompt the person
+    // answered gets here, so staying cancels a pending close and a quit, and answers every close waiting.
     if (!leave && !isReload && browser) {
-      // Staying ends a pending unload too, even when the engine no longer counts a close as pending.
-      BowTab* tab = weakSelf;
-      const BOOL wasUnloading = tab && tab->_unloading;
-      if (tab) tab->_unloading = NO;
-      if (BowEngineBrowserCloseCancelled(browser) || wasUnloading) [tab finishCloseCompletions:NO];
+      BowEngineBrowserCloseCancelled(browser);
+      [weakSelf finishCloseCompletions:NO];
     }
   };
   if (_unloading && !isReload) {
-    // An unload never prompts: a page that would ask to stay keeps its tab loaded. Answered outside the callback,
-    // unless a close asked for since took over, which asks as usual.
+    // An unload never prompts: a page that would ask to stay keeps its tab loaded. Answered outside the callback.
+    // A close asked for since, or a quit begun since (whose own close request the pending one absorbed), takes
+    // over and asks as usual, so a silent answer never cancels either.
     dispatch_async(dispatch_get_main_queue(), ^{
       BowTab* tab = weakSelf;
+      if (tab && tab->_unloading && BowEngineIsQuitting()) {
+        tab->_unloading = NO;
+        [tab finishCloseCompletions:NO];
+      }
       if (tab && !tab->_unloading) {
         [tab runBeforeUnloadDialog:request callback:callback];
-      } else {
-        answer(NO, nil);
+        return;
       }
+      callback->Continue(false, CefString());
+      if (!tab) return;
+      tab->_unloading = NO;
+      if (browser) BowEngineBrowserUnloadRefused(browser);
+      [tab finishCloseCompletions:NO];
     });
     return;
   }

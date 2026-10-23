@@ -85,6 +85,8 @@ bool BowTabClient::OnBeforePopup(CefRefPtr<CefBrowser> browser,
                             CefRect(0, 0, parkingView.bounds.size.width, parkingView.bounds.size.height));
       windowInfo.runtime_style = CEF_RUNTIME_STYLE_ALLOY;
       client = newTab->_client;
+      newTab->_client->openerClient_ = this;
+      newTab->_client->openerPopupID_ = popupID;
       [pendingPopupTabs_ setObject:newTab forKey:@(popupID)];
       [tab openPopupTab:newTab request:request];
       return false;
@@ -100,7 +102,12 @@ void BowTabClient::OnBeforePopupAborted(CefRefPtr<CefBrowser> browser, int popup
 
 void BowTabClient::OnAfterCreated(CefRefPtr<CefBrowser> browser) {
   // The first browser created with this client is the tab's own: the one it created, or the popup it was made for.
-  if (ownBrowserID_ == 0) ownBrowserID_ = browser->GetIdentifier();
+  if (ownBrowserID_ == 0) {
+    ownBrowserID_ = browser->GetIdentifier();
+    // A popup tab's browser exists now: its opener no longer counts it as pending.
+    if (openerClient_) [openerClient_->pendingPopupTabs_ removeObjectForKey:@(openerPopupID_)];
+    openerClient_ = nullptr;
+  }
   if (!IsOwn(browser)) {
     // A popup created in no window (parked by an e2e run) cannot close through a window; DoClose needs to know.
     NSView* browserView = (__bridge NSView*)browser->GetHost()->GetWindowHandle();
@@ -157,19 +164,18 @@ void BowTabClient::OnBeforeClose(CefRefPtr<CefBrowser> browser) {
   return [delegate tab:self decidePopup:request];
 }
 
+// Synchronous, inside OnBeforePopup like the popup decision, so the delegate becomes the new tab's owner before its
+// browser exists and sees its first navigation; the tab has no browser yet, so whatever the delegate asks of it
+// (attach, load, close) waits for the browser.
 - (void)openPopupTab:(BowTab*)newTab request:(BowPopupRequest*)request {
-  __weak BowTab* weakSelf = self;
-  dispatch_async(dispatch_get_main_queue(), ^{
-    BowTab* tab = weakSelf;
-    id<BowTabUIDelegate> delegate = tab.uiDelegate;
-    if (tab && !newTab.closed && [delegate respondsToSelector:@selector(tab:didOpenPopupTab:request:)]) {
-      [delegate tab:tab didOpenPopupTab:newTab request:request];
-    } else {
-      // Nobody takes the tab: close it, so a page never lives on unseen.
-      [newTab closeWithCompletion:^(BOOL) {
-      }];
-    }
-  });
+  id<BowTabUIDelegate> delegate = self.uiDelegate;
+  if (!self.closed && [delegate respondsToSelector:@selector(tab:didOpenPopupTab:request:)]) {
+    [delegate tab:self didOpenPopupTab:newTab request:request];
+  } else {
+    // Nobody takes the tab: close it, so a page never lives on unseen.
+    [newTab closeWithCompletion:^(BOOL) {
+    }];
+  }
 }
 
 @end

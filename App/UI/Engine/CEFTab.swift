@@ -29,6 +29,15 @@ final class CEFTab: NSObject, EngineTab {
 
     var state: EngineTabState { EngineTabState(tab.state) }
     var isClosed: Bool { tab.isClosed }
+    var closeReason: TabCloseReason? {
+        switch tab.closeReason {
+        case .app: .app
+        case .page: .page
+        case .quit: .quit
+        case .none: nil
+        @unknown default: nil
+        }
+    }
 
     func load(_ url: URL) { tab.load(url) }
     func goBack() { tab.goBack() }

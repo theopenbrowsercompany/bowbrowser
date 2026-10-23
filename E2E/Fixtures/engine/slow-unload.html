@@ -1,0 +1,12 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>slow unload</title>
+<script>
+  // A beforeunload handler that keeps the page busy for a moment without asking to stay, so an unload stays
+  // pending long enough for a test to ask for a close meanwhile.
+  addEventListener('beforeunload', () => {
+    const end = Date.now() + 300;
+    while (Date.now() < end) {}
+  });
+</script>
+<p>Takes a moment to unload.</p>
