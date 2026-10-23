@@ -27,7 +27,12 @@ final class E2ERunner {
     /// Generous, because parallel builds in other worktrees can starve Chromium's start.
     static let engineStartTimeout: TimeInterval = 60
     /// Quitting is checked against its own limit; this only stops a quit that hangs.
-    static let quitHangTimeout: TimeInterval = 15
+    /// It must fire well before Chromium's own teardown watchdog (`shutdown_watchdog_mac.cc`), which ends the
+    /// process with exit code 2 and no summary ("Teardown watchdog expired") when Chromium's shutdown has not
+    /// finished 10 seconds after its teardown began, a moment always later than the quit start timed here. Firing
+    /// at 7 seconds prints the TIMEOUT line at once and leaves about 3 seconds for the stack sample and the
+    /// Chromium log report.
+    static let quitHangTimeout: TimeInterval = 7
     /// While tests run, the run ends only when the main thread has not answered for this long.
     static let mainThreadStuckTimeout: TimeInterval = 10
     static let heartbeatInterval: TimeInterval = 0.25

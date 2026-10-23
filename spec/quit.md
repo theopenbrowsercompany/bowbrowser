@@ -59,8 +59,15 @@ Timestamps taken through quitting during full `make e2e` runs, while other workt
 
 So a single 2 second limit on the whole quit measured mostly how busy the machine was: one full run under heavy load took 2.72 seconds and failed, while closing never took more than 0.05 seconds in any measured run.
 The check now holds closing, the part the app controls and a person waits for, to 2 seconds, and gives the whole quit a separate limit of 5 seconds.
-That limit is about twice the slowest quit ever seen (2.72 seconds) and ten times the slowest in the measured runs, so load alone should not reach it, while a quit that stalls in Chromium's shutdown still fails the check well before the runner's hang watchdog (15 seconds).
+That limit is about twice the slowest quit ever seen (2.72 seconds) and ten times the slowest in the measured runs, so load alone should not reach it, while a quit that stalls in Chromium's shutdown still fails the check before the runner's hang watchdog (7 seconds).
 A shutdown regression smaller than that passes the check, but every run prints both times, so a drift shows in the reports.
+
+## Chromium's teardown watchdog
+
+Chromium bounds its own shutdown: if it has not finished 10 seconds after its teardown began, it logs `Teardown watchdog expired; recording dump and terminating.` and ends the process with exit code 2, without anything the app could print after it.
+Under heavy load (load average 24 to 44 on 16 cores) a full `make e2e` run once hit it, after every test had passed, so the run ended as a crash without a summary line.
+The runner's hang watchdog for quitting therefore fires at 7 seconds from the start of the quit, earlier than Chromium's can: a quit that slow ends with `E2E: TIMEOUT app.quit` and a stack sample in `hang.txt`, showing where Chromium's shutdown waits, instead of a silent crash.
+In normal use the same Chromium limit applies: a quit that takes Chromium more than 10 seconds ends the process with exit code 2.
 
 ## Out of scope
 
