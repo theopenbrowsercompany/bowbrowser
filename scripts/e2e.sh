@@ -693,29 +693,44 @@ plan_run() {
   history=$(printf '%s\n' "$shard_plan" | awk -F "$us" '$1 == "H" { print $2 }')
   if [ "${history:-0}" = 0 ]; then say "$count tests in $shard_count shards, split in test order (no earlier run timed them)"
   else say "$count tests in $shard_count shards, planned from the test times of $history earlier runs"; fi
-  # Each shard's tests in test order (the app runs them in that order whatever the list says).
-  while IFS="$us" read -r k tests; do
-    [[ $k =~ ^[0-9]+$ ]] && eval "shard_tests_$k=\$tests"
-  done < <(printf '%s\n' "$shard_plan" | awk -F "$us" -v names="$names" '
+  # Each shard's tests in test order (the app runs them in that order whatever the list says), and its selection:
+  # the same names, except that a name that is also an area or a tag (the test downloads in the area downloads)
+  # goes as a glob matching just that name (download[s]), since the app would take it as the whole area or tag.
+  while IFS="$us" read -r k tests sel; do
+    [[ $k =~ ^[0-9]+$ ]] && eval "shard_tests_$k=\$tests shard_selection_$k=\$sel"
+  done < <(printf '%s\n' "$shard_plan" | awk -F "$us" -v names="$names" -v list="$run/tests.txt" '
+    BEGIN {
+      while ((getline l < list) > 0) {
+        if (split(l, f, " ") < 4 || f[1] != "TEST") continue
+        sub(/^area=/, "", f[3]); taken[f[3]]
+        sub(/^tags=/, "", f[4]); n = split(f[4], tags, ","); for (i = 1; i <= n; i++) taken[tags[i]]
+      }
+    }
     $1 != "H" && NF == 3 { shard[$2] = $1 }
     END {
-      while ((getline t < names) > 0) if (t in shard) list[shard[t]] = list[shard[t]] (list[shard[t]] == "" ? "" : ",") t
-      for (k in list) print k FS list[k]
+      while ((getline t < names) > 0) {
+        if (!(t in shard)) continue
+        k = shard[t]
+        s = (t in taken) ? substr(t, 1, length(t) - 1) "[" substr(t, length(t)) "]" : t
+        tl[k] = tl[k] (tl[k] == "" ? "" : ",") t
+        sl[k] = sl[k] (sl[k] == "" ? "" : ",") s
+      }
+      for (k in tl) print k FS tl[k] FS sl[k]
     }')
 }
 
 # run_shards: runs every shard at once, each as this script in <run>/shard-<k> with the retry off, waits for all
 # and merges them into the run folder. Sets what attempt sets for the first attempt, plus log_dir.
 run_shards() {
-  local k pid code start tests codes=""
+  local k pid code start sel codes=""
   start=$(now)
   for k in $(seq "$shard_count"); do
-    eval "tests=\$shard_tests_$k"
-    say "shard $k/$shard_count: $tests"
+    eval "sel=\$shard_selection_$k"
+    say "shard $k/$shard_count: $sel"
     mkdir -p "$run/shard-$k"
     # A shard's output goes to a file, shown once every shard has ended (a person) or read for its failing lines.
     E2E_SHARD_DIR="$run/shard-$k" E2E_SHARDS=1 E2E_RETRY=0 E2E_REPEAT=1 E2E_QUIET=$quiet \
-      "$0" "$app" "$tests" <&0 3>&- > "$run/.shard-$k.out" 2>&1 &
+      "$0" "$app" "$sel" <&0 3>&- > "$run/.shard-$k.out" 2>&1 &
     shard_pids="$shard_pids $!"
   done
   for pid in $shard_pids; do
@@ -777,6 +792,13 @@ merge_shards() {
           next if $l =~ /^E2E: (CRASH|ERROR) /;
           push @lines, $l;
         }
+      }
+      # The plan puts each test in one shard, so a shard that ran another test (the app read a name as an area,
+      # say) would count it twice: never silently.
+      my %mine = map { $_ => 1 } @{$planned{$k}{tests} || []};
+      my @extra = grep { !$mine{$_} } map { /^(?:RESULT|NOT RUN) ([^ ]+)/ ? $1 : () } @lines;
+      if (@extra) {
+        ($status, $summary) = ("error", "E2E: ERROR it ran tests outside its plan: " . join(", ", @extra));
       }
       if ($total) {
         my ($rn, $rp) = (0, 0);
@@ -1052,7 +1074,8 @@ if [ "$quiet" = 1 ]; then
   else tell "everything is in $run (report.txt, results.json, chromium.log)"; fi
 else
   rm -f "$run"/.shard-*.out
-  say "$run (build/e2e/latest), results in results.json"
+  if [ -n "$shard_dir" ]; then say "$run, results in results.json"
+  else say "$run (build/e2e/latest), results in results.json"; fi
 fi
 echo "$summary"
 exit "$code"
