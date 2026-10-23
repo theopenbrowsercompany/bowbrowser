@@ -41,5 +41,6 @@ enum E2EAreas {
         DragTests.all,
         RecentTabsTests.all,
         PageDialogsTests.all,
+        PanesTests.all,
     ]
 }

@@ -360,7 +360,6 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
     /// false, changing nothing, for a list that does not fit or a tab the window does not list.
     @discardableResult
     func showPanes(_ ids: [BrowserTabID], focused: BrowserTabID, fractions: [Double]? = nil) -> Bool {
-        guard ids.count == 1 else { return false }  // CONTRACT-ONLY: one pane until the next commit.
         guard !isClosing, let layout = PaneLayout(tabs: ids, focused: focused, fractions: fractions) else {
             Self.report("the panes do not fit: \(ids.count) tabs, focus on one of them, each once")
             return false
