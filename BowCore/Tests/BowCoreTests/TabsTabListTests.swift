@@ -56,8 +56,7 @@ import Testing
 
     @Test func openRejectsDuplicateID() {
         var (list, ids) = makeList(["a"])
-        var duplicate = makeTab("b")
-        duplicate.id = ids[0]
+        let duplicate = BrowserTab(id: ids[0], title: "b")
         #expect(list.open(duplicate) == nil)
         #expect(titles(list) == ["a"])
     }

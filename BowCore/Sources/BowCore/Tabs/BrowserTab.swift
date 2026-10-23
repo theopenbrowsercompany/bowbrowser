@@ -14,21 +14,12 @@ public struct BrowserTabID: RawRepresentable, Hashable, Sendable, Codable, Custo
     }
 
     public var description: String { rawValue.uuidString }
-
-    public init(from decoder: any Decoder) throws {
-        self.rawValue = try decoder.singleValueContainer().decode(UUID.self)
-    }
-
-    public func encode(to encoder: any Encoder) throws {
-        var container = encoder.singleValueContainer()
-        try container.encode(rawValue)
-    }
 }
 
 /// One tab as the app models it: what the sidebar shows for a page. Plain data with no engine or UI
 /// types, and `Codable` so it can be saved as it is.
 public struct BrowserTab: Equatable, Sendable, Codable, Identifiable {
-    public var id: BrowserTabID
+    public let id: BrowserTabID
     /// The current address, or nil before anything has loaded.
     public var url: URL?
     /// The page title, empty when the page has none yet.
