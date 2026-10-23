@@ -5,7 +5,97 @@ import Foundation
 /// fixtures.
 @MainActor
 enum DragTests {
-    static let all: [any E2ETest] = [DragPointerTest()]
+    static let all: [any E2ETest] = [DragPointerTest(), DragPointerHalvesTest()]
+}
+
+/// Seeds pinned tabs P1 and P2, and today folder F (holding X) and tabs A, B and C. A drop on the upper half of a tab
+/// row lands above it and on the lower half below it, also on the last pinned row and the last today row (a closed
+/// folder F sits above the tabs). A drop on a folder row itself stays covered by the folders area.
+struct DragPointerHalvesTest: E2ETest {
+    let name = "drag.halves"
+    let checks = [
+        "drag.halves_upper", "drag.halves_lower", "drag.halves_last_today", "drag.halves_last_pinned",
+        "drag.halves_across",
+    ]
+
+    func run(_ run: E2ERun) async throws {
+        guard let app = run.app as? any E2EPointerDragApp & E2EStoreSeedApp else {
+            throw E2EError("the app cannot drag sidebar rows by pointer")
+        }
+        let url = DragPointerTest.url
+        let seed = E2ESeed(spaces: [
+            E2ESeedSpace(
+                "work", pinned: [.tab("P1", url: url("P1")), .tab("P2", url: url("P2"))],
+                today: [
+                    .folder("F", expanded: false, [.tab("X", url: url("X"))]), .tab("A", url: url("A")),
+                    .tab("B", url: url("B")),
+                    .tab("C", url: url("C")),
+                ])
+        ])
+        let page = try await run.step("open the seeded window", timeout: E2ETimeouts.firstLoad) {
+            let window = try await app.openWindow(seeded: seed)
+            _ = try await window.page.waitForLoad(after: 0)
+            return window.page
+        }
+        func outline(pinned: [String], today: [String]) -> [String] {
+            ["favorites", "pinned"] + pinned + ["divider", "today"] + today
+        }
+        /// Drags `title` to `fraction` down row `target` and waits for the outline `expected`; nil when it got there.
+        func drag(_ title: String, _ target: String, _ fraction: Double, expecting expected: [String]) async throws
+            -> String?
+        {
+            let drop = try app.pointerDragSidebarRow(title, to: .row(target, fraction: fraction), in: page)
+            let shown = try await E2EWaits.value({ try app.sidebarOutline(of: page) }, until: { $0 == expected })
+            return drop.accepted && shown == expected ? nil : "\(drop) [\(shown.joined(separator: ","))]"
+        }
+        let pinned = ["P1", "P2"]
+        _ = try await run.step("the sidebar lists the seeded rows", timeout: E2ETimeouts.step) {
+            try await E2EWaits.value(
+                { try app.sidebarOutline(of: page) },
+                until: { $0 == outline(pinned: pinned, today: ["F", "A", "B", "C"]) })
+        }
+
+        let upper = try await run.step("drag C to the upper half of A", timeout: E2ETimeouts.step) {
+            try await drag("C", "A", 0.25, expecting: outline(pinned: pinned, today: ["F", "C", "A", "B"]))
+        }
+        run.check("drag.halves_upper", passed: upper == nil, upper ?? "")
+
+        let lower = try await run.step("drag C to the lower half of A", timeout: E2ETimeouts.step) {
+            try await drag("C", "A", 0.75, expecting: outline(pinned: pinned, today: ["F", "A", "C", "B"]))
+        }
+        run.check("drag.halves_lower", passed: lower == nil, lower ?? "")
+
+        let lastToday = try await run.step("drag rows around the last today row", timeout: E2ETimeouts.step) {
+            let below = try await drag(
+                "A", "B", 0.75, expecting: outline(pinned: pinned, today: ["F", "C", "B", "A"]))
+            let above = try await drag(
+                "C", "A", 0.25, expecting: outline(pinned: pinned, today: ["F", "B", "C", "A"]))
+            let end = try await drag(
+                "B", "A", 0.75, expecting: outline(pinned: pinned, today: ["F", "C", "A", "B"]))
+            return [below, above, end].compactMap { $0 }
+        }
+        run.check("drag.halves_last_today", passed: lastToday.isEmpty, lastToday.joined(separator: "; "))
+
+        let lastPinned = try await run.step("drag rows around the last pinned row", timeout: E2ETimeouts.step) {
+            let today = ["F", "C", "A", "B"]
+            let below = try await drag("P1", "P2", 0.75, expecting: outline(pinned: ["P2", "P1"], today: today))
+            let end = try await drag("P2", "P1", 0.75, expecting: outline(pinned: ["P1", "P2"], today: today))
+            let above = try await drag("P2", "P1", 0.25, expecting: outline(pinned: ["P2", "P1"], today: today))
+            return [below, end, above].compactMap { $0 }
+        }
+        run.check("drag.halves_last_pinned", passed: lastPinned.isEmpty, lastPinned.joined(separator: "; "))
+
+        // From the other zone: a today tab let go low on the last pinned row ends up pinned after it, and a pinned
+        // tab let go low on the last today row ends up unpinned after it.
+        let across = try await run.step("drag tabs across the divider onto the last rows", timeout: E2ETimeouts.step) {
+            let toPinned = try await drag(
+                "B", "P1", 0.9, expecting: outline(pinned: ["P2", "P1", "B"], today: ["F", "C", "A"]))
+            let toToday = try await drag(
+                "P2", "A", 0.9, expecting: outline(pinned: ["P1", "B"], today: ["F", "C", "A", "P2"]))
+            return [toPinned, toToday].compactMap { $0 }
+        }
+        run.check("drag.halves_across", passed: across.isEmpty, across.joined(separator: "; "))
+    }
 }
 
 /// Seeds pinned tab P and today tabs A, B and C. Letting C go near the top of A puts it above A; letting it go near

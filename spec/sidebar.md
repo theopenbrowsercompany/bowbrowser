@@ -19,7 +19,7 @@ Pinned tabs are the sites a person keeps; today's tabs are the ones they opened 
 - Dragging a row moves it within its zone, into a folder, or across the divider:
   - a today tab dropped among the pinned tabs is pinned there, and the page it shows becomes the address it returns to;
   - a pinned tab dropped among today's tabs is unpinned there, and keeps the page it shows;
-  - a tab dropped on another tab lands just above it, one dropped on the divider lands at the top of today, and one dropped on a folder lands at its end;
+  - a tab dropped on another tab lands just above it when the pointer is in the row's upper half and just below it in the lower half (the drop gap shows where it lands), one dropped on the divider lands at the top of today, and one dropped on a folder lands at its end;
   - a folder or split moves with everything inside it.
 - Dropping between two rows where the gap could mean more than one level (below a folder's last child) lands on the level the pointer's x picks, stepping 22 points per level as folder rows do: at a folder's own x the drop goes after the folder, leaving it, and at its children's x it stays inside; the drop gap opens at that level.
   Below an open folder the gap is its first slot, and below a closed folder the drop goes after it.
