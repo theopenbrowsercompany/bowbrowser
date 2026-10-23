@@ -97,6 +97,8 @@ import Foundation
         case find(String, forward: Bool, matchCase: Bool)
         case stopFind
         case close
+        case unload
+        case setZoomLevel(Double)
     }
 
     public let tabID: TabID
@@ -109,8 +111,10 @@ import Foundation
     /// Every call made on the tab, in order.
     public private(set) var calls: [Call] = []
     public private(set) var isClosed = false
-    /// Whether the page's beforeunload handler keeps the tab open when `close()` is called.
+    /// Whether the page's beforeunload handler keeps the tab open when `close()` or `unload()` is called.
     public var beforeUnloadCancelsClose = false
+    /// The zoom level last set; the mock keeps it per tab, not per site.
+    public private(set) var zoomLevel: Double = 0
 
     fileprivate init(id: TabID, profileID: ProfileID, initialURL: URL) {
         self.tabID = id
@@ -135,6 +139,19 @@ import Foundation
         if beforeUnloadCancelsClose { return false }
         markClosed()
         return true
+    }
+
+    public func unload() async -> Bool {
+        calls.append(.unload)
+        guard !isClosed, !beforeUnloadCancelsClose else { return false }
+        isClosed = true
+        delegate?.tab(self, didReceive: .unloaded)
+        return true
+    }
+
+    public func setZoomLevel(_ level: Double) {
+        calls.append(.setZoomLevel(level))
+        zoomLevel = level
     }
 
     /// Marks the tab closed and sends `TabEvent.closed`, as the engine does whoever closed it. Call
@@ -168,6 +185,31 @@ import Foundation
     public func requestPermission(_ request: PermissionRequest) async -> PermissionDecision {
         guard let delegate else { return .dismiss }
         return await delegate.tab(self, decidePermission: request)
+    }
+
+    /// Asks the delegate where a popup goes, as the engine would; `.window` without a delegate.
+    public func decidePopup(_ request: PopupRequest) -> PopupDecision {
+        delegate?.tab(self, decidePopup: request) ?? .window
+    }
+
+    /// Hands the delegate a popup tab it decided to open as a tab, as the engine would.
+    public func openPopup(_ newTab: any EngineTab, request: PopupRequest) {
+        delegate?.tab(self, didOpenPopup: newTab, request: request)
+    }
+
+    /// Offers the delegate a key event before the page, as the engine would; false without a delegate.
+    public func sendKeyBeforePage(_ event: EngineKeyEvent) -> Bool {
+        delegate?.tab(self, handleKeyBeforePage: event) ?? false
+    }
+
+    /// Asks the delegate to answer an auth challenge, as the engine would; nil without a delegate.
+    public func challenge(_ challenge: AuthChallenge) async -> AuthCredentials? {
+        await delegate?.tab(self, answer: challenge)
+    }
+
+    /// Asks the delegate about a certificate error, as the engine would; `.cancel` without a delegate.
+    public func certificateError(_ error: CertificateError) async -> CertificateErrorDecision {
+        await delegate?.tab(self, decideCertificateError: error) ?? .cancel
     }
 
     /// Asks the delegate for a navigation policy as the engine would; `.allow` without a delegate.
