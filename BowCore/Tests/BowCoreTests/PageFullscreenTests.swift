@@ -104,6 +104,128 @@ import Testing
         }
     }
 
+    // MARK: macOS full screen transitions
+
+    @Test func leavingDuringTheEnterTransitionTogglesOnceItEnds() {
+        var state = PageFullscreen()
+        #expect(
+            state.pageEntered(1, isShown: true, windowIsFullScreen: false) == [.hideChrome, .toggleWindowFullScreen])
+        state.windowWillEnterFullScreen()
+        #expect(state.transition == true)
+        // Escape while the window animates in: the chrome comes back now, the toggle waits.
+        #expect(state.pageExited(1) == [.showChrome])
+        #expect(state.queuedFullScreen == false)
+        #expect(state.windowEnteredFullScreen() == [.toggleWindowFullScreen])
+        #expect(state.transition == nil && state.queuedFullScreen == nil)
+        // The exit that toggle starts ends with nothing left to do.
+        state.windowWillExitFullScreen()
+        #expect(state.windowExitedFullScreen() == [])
+        #expect(!state.isActive)
+    }
+
+    @Test func leavingAndEnteringAgainDuringOneTransitionTogglesNothing() {
+        var state = PageFullscreen()
+        _ = state.pageEntered(1, isShown: true, windowIsFullScreen: false)
+        state.windowWillEnterFullScreen()
+        #expect(state.pageExited(1) == [.showChrome])
+        // The window still reads as not in full screen, but it is heading there.
+        #expect(state.pageEntered(1, isShown: true, windowIsFullScreen: false) == [.hideChrome])
+        #expect(state.queuedFullScreen == nil)
+        #expect(state.windowEnteredFullScreen() == [])
+        #expect(state.isActive && state.enteredWindowFullScreen)
+        #expect(state.pageExited(1) == [.showChrome, .toggleWindowFullScreen])
+    }
+
+    @Test func enterLeaveEnterLeaveDuringOneTransitionTogglesOnce() {
+        var state = PageFullscreen()
+        _ = state.pageEntered(1, isShown: true, windowIsFullScreen: false)
+        state.windowWillEnterFullScreen()
+        _ = state.pageExited(1)
+        _ = state.pageEntered(1, isShown: true, windowIsFullScreen: false)
+        #expect(state.tabGone(1) == [.showChrome])
+        #expect(state.windowEnteredFullScreen() == [.toggleWindowFullScreen])
+        #expect(state.windowEnteredFullScreen() == [])
+    }
+
+    @Test func enteringAgainDuringTheExitTransitionKeepsThePageAndGoesBackIn() {
+        var state = PageFullscreen()
+        _ = state.pageEntered(1, isShown: true, windowIsFullScreen: false)
+        state.windowWillEnterFullScreen()
+        _ = state.windowEnteredFullScreen()
+        #expect(state.pageExited(1) == [.showChrome, .toggleWindowFullScreen])
+        state.windowWillExitFullScreen()
+        // The window still reads as in full screen, but it is heading out.
+        #expect(state.pageEntered(1, isShown: true, windowIsFullScreen: true) == [.hideChrome])
+        #expect(state.queuedFullScreen == true)
+        // Our own exit ends: the page keeps the window, which goes back in.
+        #expect(state.windowExitedFullScreen() == [.toggleWindowFullScreen])
+        #expect(state.isActive && state.enteredWindowFullScreen)
+    }
+
+    @Test func leavingDuringAnExitTheSystemStartedQueuesNothing() {
+        var state = PageFullscreen()
+        _ = state.pageEntered(1, isShown: true, windowIsFullScreen: false)
+        state.windowWillEnterFullScreen()
+        _ = state.windowEnteredFullScreen()
+        // The green button: the window animates out, and Escape lands meanwhile.
+        state.windowWillExitFullScreen()
+        #expect(state.pageExited(1) == [.showChrome])
+        #expect(state.queuedFullScreen == nil)
+        #expect(state.windowExitedFullScreen() == [])
+    }
+
+    @Test func aPageEnteringDuringAnEnterTheSystemStartedLeavesTheWindowThere() {
+        var state = PageFullscreen()
+        state.windowWillEnterFullScreen()
+        #expect(state.pageEntered(1, isShown: true, windowIsFullScreen: false) == [.hideChrome])
+        #expect(!state.enteredWindowFullScreen)
+        #expect(state.windowEnteredFullScreen() == [])
+        #expect(state.pageExited(1) == [.showChrome])
+    }
+
+    @Test func aFailedEnterLeavesTheWindowOutAndLeavingThenTogglesNothing() {
+        var state = PageFullscreen()
+        _ = state.pageEntered(1, isShown: true, windowIsFullScreen: false)
+        state.windowWillEnterFullScreen()
+        #expect(state.windowFailedToEnterFullScreen() == [])
+        #expect(state.transition == nil)
+        #expect(state.isActive && !state.enteredWindowFullScreen)
+        #expect(state.pageExited(1) == [.showChrome])
+    }
+
+    @Test func aFailedEnterAfterThePageLeftTogglesNothing() {
+        var state = PageFullscreen()
+        _ = state.pageEntered(1, isShown: true, windowIsFullScreen: false)
+        state.windowWillEnterFullScreen()
+        _ = state.pageExited(1)
+        #expect(state.windowFailedToEnterFullScreen() == [])
+        // Later toggles go out at once again.
+        #expect(
+            state.pageEntered(1, isShown: true, windowIsFullScreen: false) == [.hideChrome, .toggleWindowFullScreen])
+    }
+
+    @Test func aFailedExitKeepsAPageThatAskedAgainAndTogglesNothing() {
+        var state = PageFullscreen()
+        _ = state.pageEntered(1, isShown: true, windowIsFullScreen: false)
+        state.windowWillEnterFullScreen()
+        _ = state.windowEnteredFullScreen()
+        _ = state.pageExited(1)
+        state.windowWillExitFullScreen()
+        _ = state.pageEntered(1, isShown: true, windowIsFullScreen: true)
+        #expect(state.windowFailedToExitFullScreen() == [])
+        #expect(state.transition == nil && state.queuedFullScreen == nil)
+        #expect(state.isActive)
+        #expect(state.pageExited(1) == [.showChrome, .toggleWindowFullScreen])
+    }
+
+    @Test func aTabGoneDuringTheEnterTransitionTakesTheWindowOutAfterwards() {
+        var state = PageFullscreen()
+        _ = state.pageEntered(1, isShown: true, windowIsFullScreen: false)
+        state.windowWillEnterFullScreen()
+        #expect(state.tabGone(1) == [.showChrome])
+        #expect(state.windowEnteredFullScreen() == [.toggleWindowFullScreen])
+    }
+
     @Test func theCardLosesItsInsetsOnlyWhileAPageFillsTheWindow() {
         for layout in WindowLayout.allCases {
             for toolbar in [true, false] {
