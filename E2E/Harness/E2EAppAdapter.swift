@@ -263,11 +263,9 @@ final class E2EAppAdapter {
             case .reload: .reload
             }
         let control = controller.e2eNavigationToolbar.button(item)
-        // The button must really be in the window's toolbar, not just exist.
-        guard let window = controller.window, control.window === window,
-            window.toolbar?.items.contains(where: { $0.view === control }) == true
-        else {
-            throw E2EError("the \(button.rawValue) button is not in the window's toolbar")
+        // The button must really be shown in the window, not just exist.
+        guard let window = controller.window, control.window === window, !control.isHiddenOrHasHiddenAncestor else {
+            throw E2EError("the \(button.rawValue) button is not shown in the window")
         }
         return control
     }

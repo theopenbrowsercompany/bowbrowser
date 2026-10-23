@@ -57,7 +57,7 @@ final class TabSidebarRow: NSTableCellView {
 
         closeButton.isBordered = false
         closeButton.bezelStyle = .regularSquare
-        closeButton.contentTintColor = BowBrand.secondaryText
+        closeButton.contentTintColor = BowBrand.soft
         closeButton.target = self
         closeButton.action = #selector(closeClicked(_:))
         closeButton.toolTip = "Close Tab"
@@ -77,13 +77,13 @@ final class TabSidebarRow: NSTableCellView {
         NSLayoutConstraint.activate([
             iconView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 8),
             iconView.centerYAnchor.constraint(equalTo: centerYAnchor),
-            iconView.widthAnchor.constraint(equalToConstant: 16),
-            iconView.heightAnchor.constraint(equalToConstant: 16),
+            iconView.widthAnchor.constraint(equalToConstant: 15),
+            iconView.heightAnchor.constraint(equalToConstant: 15),
             spinner.centerXAnchor.constraint(equalTo: iconView.centerXAnchor),
             spinner.centerYAnchor.constraint(equalTo: iconView.centerYAnchor),
             spinner.widthAnchor.constraint(equalToConstant: 16),
             spinner.heightAnchor.constraint(equalToConstant: 16),
-            titleField.leadingAnchor.constraint(equalTo: iconView.trailingAnchor, constant: 8),
+            titleField.leadingAnchor.constraint(equalTo: iconView.trailingAnchor, constant: 10),
             titleField.centerYAnchor.constraint(equalTo: centerYAnchor),
             titleField.trailingAnchor.constraint(equalTo: accessorySlot.leadingAnchor, constant: -4),
             accessorySlot.trailingAnchor.constraint(equalTo: closeButton.leadingAnchor),
@@ -111,7 +111,7 @@ final class TabSidebarRow: NSTableCellView {
         toolTip = titleField.stringValue
         iconView.image =
             favicon ?? NSImage(systemSymbolName: "globe", accessibilityDescription: nil)
-        iconView.contentTintColor = favicon == nil ? BowBrand.secondaryText : nil
+        iconView.contentTintColor = favicon == nil ? BowBrand.soft : nil
         hasFavicon = favicon != nil
         if tab.isLoading {
             iconView.isHidden = true
@@ -122,6 +122,8 @@ final class TabSidebarRow: NSTableCellView {
         }
         isLoading = tab.isLoading
         self.isActive = isActive
+        // The active tab's title is bold.
+        titleField.font = .systemFont(ofSize: 13, weight: isActive ? .bold : .regular)
     }
 
     /// True while the row shows the spinner.
@@ -196,12 +198,12 @@ final class SidebarGroupRow: NSTableCellView, NSTextFieldDelegate {
         super.init(frame: .zero)
         identifier = Self.identifier
         titleField.lineBreakMode = .byTruncatingTail
-        titleField.font = .systemFont(ofSize: 13)
+        titleField.font = .systemFont(ofSize: 13, weight: .semibold)
         titleField.textColor = BowBrand.text
         titleField.cell?.usesSingleLineMode = true
         titleField.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         textField = titleField
-        iconView.contentTintColor = BowBrand.secondaryText
+        iconView.contentTintColor = BowBrand.soft
         imageView = iconView
         for view in [iconView, titleField] as [NSView] {
             view.translatesAutoresizingMaskIntoConstraints = false

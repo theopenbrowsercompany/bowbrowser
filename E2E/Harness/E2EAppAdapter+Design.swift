@@ -66,15 +66,30 @@ extension E2EAppAdapter {
             let frame = button.convert(button.bounds, to: nil)
             return frame.minX >= sidebarFrame.minX && frame.maxX <= sidebarFrame.maxX
         }
+        let navigation = controller.e2eNavigationToolbar
+        let navigationFrames = NavigationToolbar.Item.allCases.map { item -> NSRect in
+            let button = navigation.button(item)
+            return button.window === window ? button.convert(button.bounds, to: nil) : .zero
+        }
+        let zoom = window.standardWindowButton(.zoomButton).map { $0.convert($0.bounds, to: nil) } ?? .zero
+        let navigationInRow = navigationFrames.allSatisfy { frame in
+            frame.minX > zoom.maxX && frame.maxX <= sidebarFrame.maxX && abs(frame.midY - zoom.midY) <= 2
+        }
         let pageArea = controller.pageArea
         let pageLayer = pageArea.layer
+        // Hit testing from the window's frame view, above the title bar, as a click is routed.
+        let pageInWindow = pageArea.convert(pageArea.bounds, to: nil)
+        let topPoint = NSPoint(x: pageInWindow.midX, y: pageInWindow.maxY - 4)
+        let pageTopClickable =
+            content.superview?.hitTest(topPoint).map { $0 === pageArea || $0.isDescendant(of: pageArea) } ?? false
         let shadowView = controller.feature(WindowLookFeature.self)?.shadowView
         let shadowLayer = shadowView?.layer
         let insets = controller.pageInsets
         let rowView = controller.tabList.activeID
             .flatMap { controller.sidebarItemID(for: $0) }
             .flatMap { sidebar.rowView(for: $0) }
-        let liftLayer = (rowView?.superview as? SidebarRowView)?.liftView.layer
+        let liftView = (rowView?.superview as? SidebarRowView)?.liftView
+        let liftLayer = liftView?.layer
         let empty = controller.e2eEmptySpace
         let emptyShown = !empty.isHiddenOrHasHiddenAncestor && empty.window != nil
         let appearance = window.effectiveAppearance
@@ -83,15 +98,17 @@ extension E2EAppAdapter {
             iconFileExists: iconFileExists,
             fullSizeContent: window.styleMask.contains(.fullSizeContentView),
             titlebarTransparent: window.titlebarAppearsTransparent,
+            hasToolbar: window.toolbar != nil,
+            sidebarWidth: Double(sidebar.frame.width),
             windowButtonsOverSidebar: buttonsOverSidebar,
-            toolbarDark: controller.e2eNavigationToolbar.backButton.effectiveAppearance
-                .bestMatch(from: [.aqua, .darkAqua]) == .darkAqua,
-            titleBarHeight: Double(content.frame.height - window.contentLayoutRect.maxY),
+            navigationInSidebarRow: navigationInRow,
+            navigationDark: navigation.backButton.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua,
             pageInsets: [insets.top, insets.left, insets.bottom, insets.right].map { Double($0) },
             pageCornerRadius: Double(pageLayer?.cornerRadius ?? 0),
             pageCornerContinuous: pageLayer?.cornerCurve == .continuous,
-            pageShadowOpacity: Double(shadowLayer?.shadowOpacity ?? 0),
-            pageShadowRadius: Double(shadowLayer?.shadowRadius ?? 0),
+            pageTopClickable: pageTopClickable,
+            pageShadowOpacity: Double(shadowView?.shadow?.shadowColor?.alphaComponent ?? 0),
+            pageShadowRadius: Double(shadowView?.shadow?.shadowBlurRadius ?? 0),
             pageShadowHasPath: shadowLayer?.shadowPath.map { $0.boundingBox.size == shadowView?.bounds.size } ?? false,
             pageFrame: pageArea.frame,
             shadowFrame: shadowView?.frame ?? .zero,
@@ -99,8 +116,11 @@ extension E2EAppAdapter {
             selectedRowBackground: liftLayer?.backgroundColor.flatMap { NSColor(cgColor: $0) }.flatMap {
                 hex($0, in: appearance)
             },
-            selectedRowText: rowView.flatMap { hex($0.titleField.textColor, in: appearance) },
+            selectedRowShadowOpacity: Double(liftView?.shadow?.shadowColor?.alphaComponent ?? 0),
+            selectedRowHeight: Double(rowView?.superview?.frame.height ?? 0),
             selectedRowCornerRadius: Double(liftLayer?.cornerRadius ?? 0),
+            selectedRowText: rowView.flatMap { hex($0.titleField.textColor, in: appearance) },
+            selectedRowBold: rowView?.titleField.font?.fontDescriptor.symbolicTraits.contains(.bold) ?? false,
             showsEmptyState: emptyShown,
             emptyStateMarkSize: emptyShown && empty.markView.image != nil ? Double(empty.markView.frame.width) : 0
         )

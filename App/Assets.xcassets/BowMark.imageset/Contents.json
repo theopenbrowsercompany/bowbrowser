@@ -3,16 +3,6 @@
     {
       "filename" : "bow-mark-256.png",
       "idiom" : "universal"
-    },
-    {
-      "appearances" : [
-        {
-          "appearance" : "luminosity",
-          "value" : "dark"
-        }
-      ],
-      "filename" : "bow-mark-on-dark-256.png",
-      "idiom" : "universal"
     }
   ],
   "info" : {

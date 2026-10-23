@@ -83,8 +83,8 @@ struct DividerSection: SidebarSection {
         line.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(line)
         NSLayoutConstraint.activate([
-            line.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: BowBrand.space16),
-            line.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -BowBrand.space16),
+            line.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: BowBrand.sidebarLeading + 10),
+            line.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -(BowBrand.sidebarTrailing + 10)),
             line.centerYAnchor.constraint(equalTo: view.centerYAnchor),
             line.heightAnchor.constraint(equalToConstant: 1),
         ])
