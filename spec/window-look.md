@@ -16,7 +16,7 @@ It uses Bow's brand colors as light and dark tokens, soft radii and one soft sha
   A blank tab, an internal page, a `data:` address or an empty Space shows "Search or type a URL" in Soft.
   It follows the shown tab: switching tabs or Spaces, a navigation, a redirect or a page changing its own address updates it.
   A click on it opens the command bar on the current address, as Cmd+L does; the full address is always one click or Cmd+L away.
-- View > Hide Toolbar (Cmd+Shift+D, the name and keys of Arc's View > Show Toolbar) hides the top row's Back, Forward and Reload and the URL field for the most minimal chrome; the window buttons stay, and the item then reads Show Toolbar and brings them back.
+- View > Hide Toolbar (Cmd+Shift+D, the name and keys of Arc's View > Show Toolbar) hides the top row's Back, Forward and Reload and the URL field for the most minimal chrome, and the sidebar's content rises to just under the title bar; the window buttons stay, and the item then reads Show Toolbar and brings them back.
   Cmd+L still shows the address in the command bar while they are hidden, and the shortcut is taken before the page, as Cmd+L is.
   The choice is one app setting: every open window follows it at once, a new window opens with it, and it is kept across quit and relaunch.
 - The page is a White card inset 8 points from the frame at the top, trailing and bottom edges (the sidebar side meets the sidebar), with 10 point continuous rounded corners and one soft shadow (1 point down, 3 point blur, 14 percent Night).
