@@ -359,11 +359,12 @@ extension ArcImporter {
         case .arcProfile(let id): profile = id
         case .separateProfile: return (items, [])
         }
-        var known = Set(graph.favoriteIDs(for: profile).compactMap { graph.items[$0]?.tab?.savedURL })
+        // Only what the sidebar already has counts: two Favorites at one address inside the file both come.
+        let known = Set(graph.favoriteIDs(for: profile).compactMap { graph.items[$0]?.tab?.savedURL })
         var fresh: [ArcImportPreviewNode] = []
         var repeated: [ArcImportPreviewNode] = []
         for item in items {
-            if let url = item.url, !known.insert(url).inserted { repeated.append(item) } else { fresh.append(item) }
+            if let url = item.url, known.contains(url) { repeated.append(item) } else { fresh.append(item) }
         }
         return (fresh, repeated)
     }
