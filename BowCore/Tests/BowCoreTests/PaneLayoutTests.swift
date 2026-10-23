@@ -78,4 +78,60 @@ import Testing
         #expect(layout.focusAfterClosing(4) == nil)
         #expect(PaneLayout.single(1).focusAfterClosing(1) == nil)
     }
+
+    @Test func panesSitSideBySideUnlessStacked() throws {
+        #expect(try #require(PaneLayout(tabs: [1, 2], focused: 1)).orientation == .horizontal)
+        let stacked = try #require(PaneLayout(tabs: [1, 2, 3], focused: 2, orientation: .vertical))
+        #expect(stacked.orientation == .vertical)
+        // A pane leaving keeps the others stacked.
+        let reconciled = try #require(stacked.reconciled(active: 2) { $0 != 3 })
+        #expect(reconciled.tabs == [1, 2])
+        #expect(reconciled.orientation == .vertical)
+    }
+
+    @Test func resizingKeepsFocusAndLayoutAndRefusesSharesThatDoNotFit() throws {
+        let stacked = try #require(PaneLayout(tabs: [1, 2], focused: 2, orientation: .vertical))
+        let resized = try #require(stacked.resized([0.7, 0.3]))
+        #expect(approx(resized.fractions, [0.7, 0.3]))
+        #expect(resized.focused == 2)
+        #expect(resized.orientation == .vertical)
+        #expect(stacked.resized([1]) == nil)
+        #expect(stacked.resized([1, 0]) == nil)
+        #expect(stacked.resized([.nan, 1]) == nil)
+    }
+}
+
+@Suite struct PaneDividerDragTests {
+    @Test func aDragReportsOnceWhenItEndsWithWhereItEnded() {
+        var drag = PaneDividerDrag()
+        drag.began()
+        #expect(drag.isDragging)
+        #expect(drag.moved([0.6, 0.4]) == nil)
+        #expect(drag.moved([0.65, 0.35]) == nil)
+        #expect(drag.moved([0.7, 0.3]) == nil)
+        #expect(drag.ended() == [0.7, 0.3])
+        #expect(!drag.isDragging)
+        // Nothing is left over for the next drag.
+        #expect(drag.ended() == nil)
+    }
+
+    @Test func aDragThatMovedNothingReportsNothing() {
+        var drag = PaneDividerDrag()
+        drag.began()
+        #expect(drag.ended() == nil)
+    }
+
+    @Test func aDividerMovedOutsideADragReportsAtOnce() {
+        var drag = PaneDividerDrag()
+        #expect(drag.moved([0.3, 0.7]) == [0.3, 0.7])
+        #expect(drag.ended() == nil)
+    }
+
+    @Test func aNewDragForgetsAnEarlierOneThatNeverEnded() {
+        var drag = PaneDividerDrag()
+        drag.began()
+        _ = drag.moved([0.6, 0.4])
+        drag.began()
+        #expect(drag.ended() == nil)
+    }
 }

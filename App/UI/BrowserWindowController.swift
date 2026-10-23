@@ -350,23 +350,27 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
         return paneViews.compactMap { view in tabs.first { view.isShowing($0) } }
     }
 
-    /// Each pane's share of the page area's width, in pane order, summing to 1.
+    /// Each pane's share of the page area's width (its height when stacked), in pane order, summing to 1.
     var paneFractions: [Double] { paneLayout?.fractions ?? [1] }
 
-    /// Shows tabs `ids` (one to four of the window's listed tabs, each once) side by side in that order, with
-    /// `focused` in focus and active, each pane taking its share of `fractions` (equal panes when nil or when they do
-    /// not fit). A saved tab that has not loaded loads first. The panes stay until the person selects a tab that is
+    /// Shows tabs `ids` (one to four of the window's listed tabs, each once) in that order, side by side or stacked as
+    /// `orientation` says, with `focused` in focus and active, each pane taking its share of `fractions` (equal panes
+    /// when nil or when they do not fit). A saved tab that has not loaded loads first. The panes stay until the person selects a tab that is
     /// not one of them (the page area then shows that tab alone) or until only one is left; a pane whose tab closes or
     /// unloads leaves and the others share its width. Returns whether the page area now shows exactly those panes:
     /// false, changing nothing, for a list that does not fit, a tab the window does not list, a closing window or a
     /// store that refuses to select `focused`.
     @discardableResult
-    func showPanes(_ ids: [BrowserTabID], focused: BrowserTabID, fractions: [Double]? = nil) -> Bool {
+    func showPanes(
+        _ ids: [BrowserTabID], focused: BrowserTabID, fractions: [Double]? = nil,
+        orientation: SidebarSplit.Orientation = .horizontal
+    ) -> Bool {
         guard !isClosing else {
             Self.report("the window is closing, so the panes were not shown")
             return false
         }
-        guard let layout = PaneLayout(tabs: ids, focused: focused, fractions: fractions) else {
+        guard let layout = PaneLayout(tabs: ids, focused: focused, fractions: fractions, orientation: orientation)
+        else {
             Self.report("the panes do not fit: \(ids.count) tabs, focus on one of them, each once")
             return false
         }
@@ -387,10 +391,13 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
 
     /// Shows `tabs`, the window's own engine tabs, side by side; see `showPanes(_:focused:fractions:)`.
     @discardableResult
-    func showPanes(_ tabs: [any EngineTab], focused: any EngineTab, fractions: [Double]? = nil) -> Bool {
+    func showPanes(
+        _ tabs: [any EngineTab], focused: any EngineTab, fractions: [Double]? = nil,
+        orientation: SidebarSplit.Orientation = .horizontal
+    ) -> Bool {
         let ids = tabs.compactMap { modelID(of: $0) }
         guard ids.count == tabs.count, let focusedID = modelID(of: focused) else { return false }
-        return showPanes(ids, focused: focusedID, fractions: fractions)
+        return showPanes(ids, focused: focusedID, fractions: fractions, orientation: orientation)
     }
 
     /// Gives focus to the pane at `index`, as a click into it or a focus shortcut does: its tab becomes active and its
@@ -479,7 +486,8 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
             pageArea.addSubview(container, positioned: .below, relativeTo: nil)
         }
         for view in extraPaneViews.dropFirst(views.count - 1) { view.detach() }
-        container.show(views, fractions: layout.fractions, focusedIndex: layout.focusedIndex)
+        container.show(
+            views, fractions: layout.fractions, focusedIndex: layout.focusedIndex, orientation: layout.orientation)
         for (view, id) in zip(views, layout.tabs) {
             if let tab = engineTabs[id] { view.show(tab) }
         }
@@ -494,9 +502,13 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
     private func makePaneContainer() -> PaneContainer {
         let container = PaneContainer(frame: pageArea.bounds)
         container.autoresizingMask = [.width, .height]
-        container.onDividerDrag = { [weak self] fractions in
-            guard let self, let layout = self.paneLayout, layout.isSplit,
-                let moved = PaneLayout(tabs: layout.tabs, focused: layout.focused, fractions: fractions)
+        container.onDividerMove = { [weak self] fractions in
+            guard let self, let layout = self.paneLayout, layout.isSplit, let moved = layout.resized(fractions)
+            else { return }
+            self.paneLayout = moved
+        }
+        container.onDividerDragEnd = { [weak self] fractions in
+            guard let self, let layout = self.paneLayout, layout.isSplit, let moved = layout.resized(fractions)
             else { return }
             self.paneLayout = moved
             for feature in self.features { feature.paneDividerMoved(fractions: moved.fractions) }
@@ -1117,6 +1129,11 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
 
     func windowDidBecomeMain(_ notification: Notification) {
         onBecomeMain?(self)
+    }
+
+    /// Where a sheet drops from: the first feature that places it (a page dialog over its own pane) decides.
+    func window(_ window: NSWindow, willPositionSheet sheet: NSWindow, using rect: NSRect) -> NSRect {
+        features.lazy.compactMap { $0.positionSheet(sheet, proposed: rect) }.first ?? rect
     }
 
     func windowWillClose(_ notification: Notification) {
