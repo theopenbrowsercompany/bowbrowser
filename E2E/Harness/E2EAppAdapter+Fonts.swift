@@ -46,6 +46,7 @@ extension E2ETestApp: E2EFontsApp {
             activeRow: info(row?.titleField.font),
             spaceName: info(spaceFont),
             commandBarField: info(controller.feature(CommandBarFeature.self)?.panel.field.font),
-            emptyStateLine: empty.window == nil ? nil : info(empty.messageLabel.font))
+            emptyStateLine: empty.window == nil || empty.isHiddenOrHasHiddenAncestor
+                ? nil : info(empty.showsUnloadedTab ? empty.messageLabel.font : empty.startScreen.hintLabel.font))
     }
 }

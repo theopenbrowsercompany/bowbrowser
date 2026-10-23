@@ -18,6 +18,8 @@ enum BowBrand {
     static let pin = dynamic(light: 0xFCE7D3, dark: 0x3A2318)
     /// Lines and dividers.
     static let line = dynamic(light: 0xF0DCC8, dark: 0x4A2F22)
+    /// The start screen's search pill and quick link tiles.
+    static let search = dynamic(light: 0xFFFFFF, dark: 0x2A1710)
     /// The page card and the command bar's panel, White in both appearances.
     static let page = color(0xFFFFFF)
     /// Jam: the active Space's dot.
@@ -41,7 +43,7 @@ enum BowBrand {
     /// The group label (the Space name): 11 point bold, uppercase, letter spacing 0.8.
     static let labelSize: CGFloat = 11
     static let labelKern: CGFloat = 0.8
-    /// The greeting's size, 40 points, in Fredoka 600. A later item draws it; nothing does yet.
+    /// The start screen greeting's size, 40 points, in Fredoka 600.
     static let displaySize: CGFloat = 40
 
     /// The UI font at `size` (13.5 points by default) and `weight`: the bundled variable font's named instance, or
@@ -73,6 +75,8 @@ enum BowBrand {
     static let radiusTile: CGFloat = 10
     /// The command bar's panel.
     static let radiusPanel: CGFloat = 14
+    /// The start screen's quick link tiles.
+    static let radiusQuickLink: CGFloat = 16
 
     /// The one soft shadow under the active row, the page card and the command bar (0 1 3 at 14 percent Night): a
     /// 1 point downward offset and a 3 point blur. A view takes it through its `shadow` property, which AppKit keeps

@@ -92,6 +92,8 @@ extension E2EAppAdapter {
         let liftLayer = liftView?.layer
         let empty = controller.e2eEmptySpace
         let emptyShown = !empty.isHiddenOrHasHiddenAncestor && empty.window != nil
+        // The start screen's mark for an empty Space, the unloaded tab state's mark otherwise.
+        let emptyMark = emptyShown ? (empty.showsUnloadedTab ? empty.markView : empty.startScreen.markView) : nil
         let appearance = window.effectiveAppearance
         let outline = sidebar.outlineView
         func inOutline(_ view: NSView?) -> CGRect { view.map { outline.convert($0.bounds, from: $0) } ?? .zero }
@@ -150,7 +152,7 @@ extension E2EAppAdapter {
             selectedRowText: rowView.flatMap { hex($0.titleField.textColor, in: appearance) },
             selectedRowBold: rowView?.titleField.font?.fontDescriptor.symbolicTraits.contains(.bold) ?? false,
             showsEmptyState: emptyShown,
-            emptyStateMarkSize: emptyShown && empty.markView.image != nil ? Double(empty.markView.frame.width) : 0,
+            emptyStateMarkSize: emptyMark.flatMap { $0.image == nil ? nil : Double($0.frame.width) } ?? 0,
             favoriteTileFrame: inOutline(grid?.tiles.first),
             favoritesFrame: inOutline(grid),
             spaceNameFrame: inOutline(spaceName),
