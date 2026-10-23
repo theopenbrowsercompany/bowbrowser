@@ -84,6 +84,8 @@ extension E2EAppAdapter {
             fullSizeContent: window.styleMask.contains(.fullSizeContentView),
             titlebarTransparent: window.titlebarAppearsTransparent,
             windowButtonsOverSidebar: buttonsOverSidebar,
+            toolbarDark: controller.e2eNavigationToolbar.backButton.effectiveAppearance
+                .bestMatch(from: [.aqua, .darkAqua]) == .darkAqua,
             titleBarHeight: Double(content.frame.height - window.contentLayoutRect.maxY),
             pageInsets: [insets.top, insets.left, insets.bottom, insets.right].map { Double($0) },
             pageCornerRadius: Double(pageLayer?.cornerRadius ?? 0),

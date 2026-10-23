@@ -26,6 +26,8 @@ struct E2EDesignLook {
     var titlebarTransparent: Bool
     /// True when the window's close, minimize and zoom buttons sit within the sidebar's width.
     var windowButtonsOverSidebar: Bool
+    /// True when the toolbar's back button draws in the dark appearance, as it must when the window is dark.
+    var toolbarDark: Bool
     /// The title bar's height, which the page card's top inset matches.
     var titleBarHeight: Double
     /// The page area's insets: top, left, bottom, right.
@@ -48,15 +50,4 @@ struct E2EDesignLook {
     /// The empty state: shown, and its Bow mark's point size (0 without one).
     var showsEmptyState: Bool
     var emptyStateMarkSize: Double
-
-    var description: String {
-        "icon=\(iconName ?? "none") icon_file=\(iconFileExists) full_size=\(fullSizeContent)"
-            + " transparent=\(titlebarTransparent) buttons_over_sidebar=\(windowButtonsOverSidebar)"
-            + " title_bar=\(titleBarHeight) insets=\(pageInsets) radius=\(pageCornerRadius)"
-            + " continuous=\(pageCornerContinuous) shadow_opacity=\(pageShadowOpacity)"
-            + " shadow_radius=\(pageShadowRadius) shadow_path=\(pageShadowHasPath) page=\(pageFrame)"
-            + " shadow=\(shadowFrame) frame=\(frameColor ?? "none") row=\(selectedRowBackground ?? "none")"
-            + " row_text=\(selectedRowText ?? "none") row_radius=\(selectedRowCornerRadius)"
-            + " empty=\(showsEmptyState) mark=\(emptyStateMarkSize)"
-    }
 }

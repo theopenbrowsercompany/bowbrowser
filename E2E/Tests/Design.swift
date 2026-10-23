@@ -168,9 +168,9 @@ struct DesignScreensTest: E2ETest {
         run.check(
             "design.dark_colors",
             passed: dark.frameColor == DesignTests.night && dark.selectedRowBackground == DesignTests.cocoa
-                && dark.selectedRowText == DesignTests.cream,
+                && dark.selectedRowText == DesignTests.cream && dark.toolbarDark,
             "frame=\(dark.frameColor ?? "none") row=\(dark.selectedRowBackground ?? "none")"
-                + " text=\(dark.selectedRowText ?? "none")")
+                + " text=\(dark.selectedRowText ?? "none") toolbar_dark=\(dark.toolbarDark)")
 
         try await run.step("4 command bar", timeout: E2ETimeouts.step) {
             try menus.chooseMenuItem(key: "t", modifiers: [.command], in: notes)
