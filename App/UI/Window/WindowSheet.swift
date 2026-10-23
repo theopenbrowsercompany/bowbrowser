@@ -1,7 +1,8 @@
 import AppKit
 
-/// One feature's alert sheet on a browser window (today the sign in sheet), following the page dialogs' sheet rules
-/// (`PageDialogsFeature`): an `NSAlert` as a sheet on the window, never an app modal panel. While the window already has a sheet
+/// The one presenter of a feature's alert sheets on a window (the sign in sheets, `SignInSheets`, and the page dialogs,
+/// `PageDialogSheets`, on a browser window or a popup panel): an `NSAlert` as a sheet on the window, never an app modal
+/// panel. While the window already has a sheet
 /// (another feature's, or a leave prompt), a new one waits instead of being queued by AppKit where nothing could take
 /// it down again, and `retry` offers it again once that sheet ends. Taking a sheet down ends it with `.abort` without
 /// calling its `ended` handler, so the feature answers its request once, its own way.

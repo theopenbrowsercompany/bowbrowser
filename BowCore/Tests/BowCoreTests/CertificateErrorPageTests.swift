@@ -41,6 +41,37 @@ import Testing
         #expect(page.message.hasPrefix("Bow could not confirm that this is the real this site."))
     }
 
+    @Test func theURLFieldShowsTheFailedAddressAsNotSecure() {
+        let page = CertificateErrorPage(
+            error: CertificateError(url: URL(string: "https://www.badcert.bow.test/a?b")!, code: -202))
+        #expect(page.addressLine == AddressLine(text: "badcert.bow.test/a", security: .notSecure))
+        // With no address the field shows its placeholder, still marked not secure.
+        let bare = CertificateErrorPage(error: CertificateError(url: nil, code: -202))
+        #expect(bare.addressLine == AddressLine(text: nil, security: .notSecure))
+        #expect(AddressLine.tab(URL(string: "https://bow.test/auth/")) == AddressLine(text: "bow.test/auth"))
+        #expect(AddressLine.tab(nil).security == .standard)
+    }
+
+    @Test func thePageTakesTheKeyboardOnlyFromItsOwnPaneOrNothing() {
+        #expect(CertificateErrorPage.takesKeyboard(from: .coveredPage, inFocusedPane: true))
+        #expect(CertificateErrorPage.takesKeyboard(from: .nothing, inFocusedPane: true))
+        // Never from a field being typed in (the command bar), nor from the sidebar or another pane.
+        #expect(!CertificateErrorPage.takesKeyboard(from: .textField, inFocusedPane: true))
+        #expect(!CertificateErrorPage.takesKeyboard(from: .elsewhere, inFocusedPane: true))
+        // A pane without focus never takes it, whatever holds it.
+        #expect(!CertificateErrorPage.takesKeyboard(from: .coveredPage, inFocusedPane: false))
+        #expect(!CertificateErrorPage.takesKeyboard(from: .nothing, inFocusedPane: false))
+    }
+
+    @Test func returnAndEnterPressGoBackWithoutMenuModifiers() {
+        #expect(CertificateErrorPage.pressesGoBack(characters: "\r", commandOptionOrControl: false))
+        #expect(CertificateErrorPage.pressesGoBack(characters: "\u{3}", commandOptionOrControl: false))
+        #expect(!CertificateErrorPage.pressesGoBack(characters: "\r", commandOptionOrControl: true))
+        #expect(!CertificateErrorPage.pressesGoBack(characters: " ", commandOptionOrControl: false))
+        #expect(!CertificateErrorPage.pressesGoBack(characters: "a", commandOptionOrControl: false))
+        #expect(!CertificateErrorPage.pressesGoBack(characters: nil, commandOptionOrControl: false))
+    }
+
     @Test func goBackUsesHistoryOrClosesTheTab() {
         #expect(CertificateErrorPage.goBack(canGoBack: true, isLoading: false) == .history)
         #expect(CertificateErrorPage.goBack(canGoBack: false, isLoading: false) == .closeTab)
