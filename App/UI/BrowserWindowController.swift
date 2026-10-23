@@ -2,8 +2,9 @@ import AppKit
 import BowCore
 
 /// A browser window: its tabs and the host view that shows the active one. The window runs on a BowCore
-/// `SidebarStore`: its tabs are the tabs of the store's active Space (its pinned section, then its today section),
-/// and opening, selecting, closing and moving a tab are store changes, which the store saves as they happen. The
+/// `SidebarStore`: its tabs are the Favorites of the active Space's profile, then the tabs of the store's active
+/// Space (its pinned section, then its today section), so a Favorite loads in place and can be the active tab like
+/// any other; opening, selecting, closing and moving a tab are store changes, which the store saves as they happen. The
 /// window keeps one engine tab per sidebar tab that has loaded; a saved tab loads its page only once it is selected,
 /// so on launch only the active tab loads. Every engine tab is created in the profile of the Space that holds it.
 ///
@@ -79,15 +80,16 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
     /// The app's services (per-profile stores and the like), for features to look up.
     let appFeatures: AppFeatureSet
 
-    /// The window's tabs as the sidebar lists them: the active Space's tabs in sidebar order with what each page last
-    /// reported, and the active tab. Saved tabs that have not loaded show their saved address and title.
+    /// The window's tabs as the sidebar lists them: the Favorites the active Space shows, then the active Space's tabs
+    /// in sidebar order, with what each page last reported, and the active tab. Saved tabs that have not loaded show
+    /// their saved address and title.
     var tabList: TabList {
-        let tabs = activeSpaceTabIDs.compactMap { runtimeTabs[$0] }
+        let tabs = listedTabIDs.compactMap { runtimeTabs[$0] }
         let active = activeItemID.flatMap { runtimeTabs[$0]?.id } ?? tabs.first?.id
         return TabList(tabs: tabs, activeID: active) ?? TabList()
     }
 
-    /// The window's loaded tabs in the active Space, in sidebar order.
+    /// The window's loaded tabs in the active Space and its Favorites, in sidebar order.
     var tabs: [any EngineTab] { tabList.tabs.compactMap { engineTabs[$0.id] } }
 
     /// The tab `webView` shows, read back from the view so it always matches the screen (the view refuses a tab
@@ -111,9 +113,16 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
         profiles(SidebarStores.sidebarProfileID(of: tab.profileID))
     }
 
-    /// The active Space's tabs in sidebar order: its pinned section, then its today section.
+    /// The active Space's own tabs in sidebar order: its pinned section, then its today section.
     private var activeSpaceTabIDs: [SidebarItemID] {
         store.graph.activeSpaceID.map { store.graph.tabIDs(in: $0) } ?? []
+    }
+
+    /// Every tab the window lists: the Favorites of the active Space's profile, then the Space's own tabs.
+    private var listedTabIDs: [SidebarItemID] {
+        let graph = store.graph
+        let favorites = graph.activeSpace.map { graph.favoriteIDs(for: $0.profileID) } ?? []
+        return favorites + activeSpaceTabIDs
     }
 
     /// The store's active tab when the window lists it, else nil.
@@ -505,10 +514,10 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
         return tab
     }
 
-    /// Brings the window up to date with the store: the active Space's tabs, the active tab shown (loading its saved
-    /// page first unless `loadActive` is false), then tells the features.
+    /// Brings the window up to date with the store: the listed tabs, the active tab shown (loading its saved page first
+    /// unless `loadActive` is false), then tells the features.
     private func storeDidChange(loadActive: Bool = true) {
-        let ids = activeSpaceTabIDs
+        let ids = listedTabIDs
         for id in ids { runtimeTab(for: id) }
         // Tabs that left the store or the Space on screen and have no page are forgotten.
         let listed = Set(ids)
@@ -519,12 +528,16 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
         closeOrphans()
         if let kept = keptUnloaded {
             let graph = store.graph
-            let selectedOther = graph.spaceID(containing: kept) == graph.activeSpaceID && graph.activeTabID != kept
+            let onScreen =
+                graph.spaceID(containing: kept) == graph.activeSpaceID
+                || graph.activeSpaceID.map { graph.isInFavorites(kept, shownBy: $0) } == true
+            let selectedOther = onScreen && graph.activeTabID != kept
             if graph[kept] == nil || selectedOther { keptUnloaded = nil }
         }
         let loadActive = loadActive && !isClosing
-        // A Space with tabs always has one active (a saved sidebar may name none, or a tab that is gone).
-        if loadActive, activeItemID == nil, let first = ids.first {
+        // A Space with tabs always has one active (a saved sidebar may name none, or a tab that is gone). A Favorite is
+        // never chosen for it, so an empty Space shows its empty state rather than loading a Favorite.
+        if loadActive, activeItemID == nil, let first = activeSpaceTabIDs.first {
             change { try $0.apply([.setActiveTab(first)]) }
         }
         if loadActive, let item = activeItemID, item != keptUnloaded, let runtime = runtimeTabs[item],
@@ -751,9 +764,10 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
         }
     }
 
-    /// Takes a tab the person closed out of the sidebar (a pinned tab only unloads and stays). When it was the active
-    /// tab, the tab after it becomes active, or the one before it when it was last; a pinned tab that was the Space's
-    /// only tab stays active, unloaded, until the person selects it.
+    /// Takes a tab the person closed out of the sidebar (a pinned tab or a Favorite only unloads and stays). When it
+    /// was the active tab, the tab after it becomes active, or the one before it when it was last (for a Favorite, the
+    /// Space's first tab); a pinned tab or Favorite left with no tab of the Space to show stays active, unloaded,
+    /// until the person selects it.
     private func removeFromSidebar(_ item: SidebarItemID) {
         let graph = store.graph
         guard graph[item] != nil else { return }
@@ -761,7 +775,8 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
         let removes = graph.closeOutcome(for: item) == .removeFromSidebar
         var next = graph.activeTabID
         var keeps = false
-        if graph.activeTabID == item, let position = ids.firstIndex(of: item) {
+        let favoriteShown = graph.activeSpaceID.map { graph.isInFavorites(item, shownBy: $0) } == true
+        if graph.activeTabID == item, let position = ids.firstIndex(of: item) ?? (favoriteShown ? 0 : nil) {
             let rest = ids.filter { $0 != item }
             if !rest.isEmpty {
                 next = rest[min(position, rest.count - 1)]
@@ -809,8 +824,9 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
     /// when no listed page stayed (an orphan page that stayed has no row to show).
     private func showAfterStayedClose() {
         if activeItemID.map(isLoaded) != true {
-            let listed = runtimeTabs.keys.filter { store.graph[$0] != nil && !activeSpaceTabIDs.contains($0) }
-            if let stayed = activeSpaceTabIDs.first(where: isLoaded) ?? listed.first(where: isLoaded) {
+            let shown = listedTabIDs
+            let listed = runtimeTabs.keys.filter { store.graph[$0] != nil && !shown.contains($0) }
+            if let stayed = shown.first(where: isLoaded) ?? listed.first(where: isLoaded) {
                 change { try $0.selectTab(stayed) }
             }
         }

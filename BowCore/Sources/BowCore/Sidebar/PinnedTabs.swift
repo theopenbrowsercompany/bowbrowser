@@ -98,10 +98,10 @@ extension SidebarGraph {
         return items[id]?.tab?.savedPageURL
     }
 
-    /// What closing a tab does to its item: a pinned tab only unloads and stays in the sidebar, any other tab leaves.
-    /// A Favorites tab is not covered here: the Favorites feature decides its own close rule.
+    /// What closing a tab does to its item: a pinned tab or a Favorite only unloads and stays in the sidebar, any other
+    /// tab leaves.
     public func closeOutcome(for id: SidebarItemID) -> TabCloseOutcome {
-        isPinned(id) ? .unloadKeepingInSidebar : .removeFromSidebar
+        isPinned(id) || isInFavorites(id) ? .unloadKeepingInSidebar : .removeFromSidebar
     }
 }
 

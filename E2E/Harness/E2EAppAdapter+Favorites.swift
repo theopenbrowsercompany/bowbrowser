@@ -25,6 +25,22 @@ extension E2ETestApp: E2EFavoritesApp {
         try adapter.clickFavorite(page)
     }
 
+    func clickFavorite(titled title: String, in page: any E2EPage) throws {
+        try adapter.requireActive(token, "click a Favorite")
+        try adapter.clickFavorite(titled: title, in: page)
+    }
+
+    func activeTab(of page: any E2EPage) throws -> E2EActiveTab {
+        let controller = try E2EAppAdapter.tabPage(page).controller
+        let list = controller.tabList
+        let shown = list.activeID.flatMap(controller.engineTab(for:)).map { tab in
+            controller.selectedTab === tab
+        }
+        return E2EActiveTab(
+            title: list.activeTab?.title ?? "", url: list.activeTab?.url?.absoluteString ?? "",
+            isShown: shown ?? false, loadedCount: controller.tabs.count)
+    }
+
     func favoriteMenu(of page: any E2EPage) throws -> [String] {
         try adapter.requireActive(token, "read a Favorite's menu")
         return try adapter.favoriteMenuItems(of: page).map(\.title)
@@ -98,6 +114,14 @@ extension E2EAppAdapter {
     func clickFavorite(_ page: any E2EPage) throws {
         let (grid, tile) = try Self.favoriteTile(of: page)
         guard grid.click(tile.item) else { throw E2EError("clicking the Favorite opened or showed nothing") }
+    }
+
+    func clickFavorite(titled title: String, in page: any E2EPage) throws {
+        let grid = try Self.favoritesGrid(of: page)
+        guard let tile = grid.tiles.first(where: { $0.title == title }) else {
+            throw E2EError("no Favorite titled \(title) in [\(grid.tiles.map(\.title).joined(separator: ","))]")
+        }
+        guard grid.click(tile.item) else { throw E2EError("clicking the Favorite showed nothing") }
     }
 
     func favoriteMenuItems(of page: any E2EPage) throws -> [NSMenuItem] {

@@ -182,6 +182,9 @@ import Testing
             #expect(store.graph.closeOutcome(for: "wiki") == .removeFromSidebar)
             try store.pinTab("wiki")
             #expect(store.graph.closeOutcome(for: "wiki") == .unloadKeepingInSidebar)
+            // A Favorite stays in its grid too.
+            try store.moveToFavorites("news")
+            #expect(store.graph.closeOutcome(for: "news") == .unloadKeepingInSidebar)
         }
     }
 
