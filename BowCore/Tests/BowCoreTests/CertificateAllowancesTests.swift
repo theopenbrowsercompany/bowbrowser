@@ -3,6 +3,9 @@ import Foundation
 import Testing
 
 @Suite struct CertificateAllowancesTests {
+    let cert = Data([0x30, 0x82, 0x01])
+    let otherCert = Data([0x30, 0x82, 0x02])
+
     func error(_ url: String?, _ code: Int = -202) -> CertificateError {
         CertificateError(url: url.flatMap { URL(string: $0) }, code: code)
     }
@@ -33,7 +36,7 @@ import Testing
     @Test func unknownEnforcementCountsAsStrict() {
         #expect(!CertificateAllowances.mayOffer(error("https://example.com/"), enforcement: .unknown))
         var allowances = CertificateAllowances()
-        let allowed = allowances.allow(error("https://example.com/"), enforcement: .unknown)
+        let allowed = allowances.allow(error("https://example.com/"), certificate: cert, enforcement: .unknown)
         #expect(!allowed)
         #expect(allowances.isEmpty)
     }
@@ -46,60 +49,94 @@ import Testing
     @Test func nothingIsAllowedAtFirst() {
         let allowances = CertificateAllowances()
         #expect(allowances.isEmpty)
-        #expect(allowances.decision(for: error("https://example.com/"), enforcement: .standard) == nil)
+        #expect(
+            allowances.decision(for: error("https://example.com/"), certificate: cert, enforcement: .standard) == nil)
     }
 
-    @Test func goingOnIsRememberedForTheHost() {
+    @Test func goingOnIsRememberedForTheHostAndCertificate() {
         var allowances = CertificateAllowances()
-        let allowed = allowances.allow(error("https://example.com/a"), enforcement: .standard)
+        let allowed = allowances.allow(error("https://example.com/a"), certificate: cert, enforcement: .standard)
         #expect(allowed)
         // Another page and port on the same host, and the host in other cases or with a trailing dot.
-        for url in [
+        let urls = [
             "https://example.com/b", "https://example.com:8443/", "https://EXAMPLE.com/", "https://example.com./",
-        ] {
-            #expect(allowances.decision(for: error(url), enforcement: .standard) == .proceed)
+        ]
+        for url in urls {
+            #expect(allowances.decision(for: error(url), certificate: cert, enforcement: .standard) == .proceed)
         }
+    }
+
+    @Test func anotherCertificateOnTheSameHostIsStillAsked() {
+        var allowances = CertificateAllowances()
+        allowances.allow(error("https://example.com/"), certificate: cert, enforcement: .standard)
+        #expect(
+            allowances.decision(for: error("https://example.com/"), certificate: otherCert, enforcement: .standard)
+                == nil)
+        #expect(
+            allowances.decision(for: error("https://example.com/"), certificate: Data(), enforcement: .standard) == nil)
+    }
+
+    @Test func anUnknownCertificateIsNeverRemembered() {
+        var allowances = CertificateAllowances()
+        let allowed = allowances.allow(error("https://example.com/"), certificate: Data(), enforcement: .standard)
+        #expect(!allowed)
+        #expect(allowances.isEmpty)
     }
 
     @Test func otherHostsAreStillAsked() {
         var allowances = CertificateAllowances()
-        allowances.allow(error("https://example.com/"), enforcement: .standard)
-        #expect(allowances.decision(for: error("https://www.example.com/"), enforcement: .standard) == nil)
-        #expect(allowances.decision(for: error("https://example.org/"), enforcement: .standard) == nil)
+        allowances.allow(error("https://example.com/"), certificate: cert, enforcement: .standard)
+        #expect(
+            allowances.decision(for: error("https://www.example.com/"), certificate: cert, enforcement: .standard)
+                == nil)
+        #expect(
+            allowances.decision(for: error("https://example.org/"), certificate: cert, enforcement: .standard) == nil)
     }
 
     @Test func anotherErrorOnTheSameHostIsStillAsked() {
         var allowances = CertificateAllowances()
-        allowances.allow(error("https://example.com/", -202), enforcement: .standard)
-        #expect(allowances.decision(for: error("https://example.com/", -201), enforcement: .standard) == nil)
-        allowances.allow(error("https://example.com/", -201), enforcement: .standard)
-        #expect(allowances.decision(for: error("https://example.com/", -201), enforcement: .standard) == .proceed)
-        #expect(allowances.decision(for: error("https://example.com/", -202), enforcement: .standard) == .proceed)
+        allowances.allow(error("https://example.com/", -202), certificate: cert, enforcement: .standard)
+        #expect(
+            allowances.decision(for: error("https://example.com/", -201), certificate: cert, enforcement: .standard)
+                == nil)
+        allowances.allow(error("https://example.com/", -201), certificate: cert, enforcement: .standard)
+        #expect(
+            allowances.decision(for: error("https://example.com/", -201), certificate: cert, enforcement: .standard)
+                == .proceed)
+        #expect(
+            allowances.decision(for: error("https://example.com/", -202), certificate: cert, enforcement: .standard)
+                == .proceed)
     }
 
     @Test func aHostThatTurnedStrictIsAskedAgain() {
         var allowances = CertificateAllowances()
-        allowances.allow(error("https://example.com/"), enforcement: .standard)
-        #expect(allowances.decision(for: error("https://example.com/"), enforcement: .strict) == nil)
-        #expect(allowances.decision(for: error("https://example.com/"), enforcement: .unknown) == nil)
+        allowances.allow(error("https://example.com/"), certificate: cert, enforcement: .standard)
+        #expect(allowances.decision(for: error("https://example.com/"), certificate: cert, enforcement: .strict) == nil)
+        #expect(
+            allowances.decision(for: error("https://example.com/"), certificate: cert, enforcement: .unknown) == nil)
     }
 
     @Test func fatalErrorsAndStrictHostsAreNeverRemembered() {
         var allowances = CertificateAllowances()
-        let revoked = allowances.allow(error("https://example.com/", -206), enforcement: .standard)
-        let strict = allowances.allow(error("https://example.com/"), enforcement: .strict)
-        let noHost = allowances.allow(error(nil), enforcement: .standard)
+        let revoked = allowances.allow(error("https://example.com/", -206), certificate: cert, enforcement: .standard)
+        let strict = allowances.allow(error("https://example.com/"), certificate: cert, enforcement: .strict)
+        let noHost = allowances.allow(error(nil), certificate: cert, enforcement: .standard)
         #expect(!revoked && !strict && !noHost)
         #expect(allowances.isEmpty)
-        #expect(allowances.decision(for: error("https://example.com/", -206), enforcement: .standard) == nil)
+        #expect(
+            allowances.decision(for: error("https://example.com/", -206), certificate: cert, enforcement: .standard)
+                == nil)
     }
 
     @Test func aNewSessionStartsWithNone() {
         var allowances = CertificateAllowances()
-        allowances.allow(error("https://example.com/"), enforcement: .standard)
+        allowances.allow(error("https://example.com/"), certificate: cert, enforcement: .standard)
         allowances.removeAll()
         #expect(allowances.isEmpty)
-        #expect(allowances.decision(for: error("https://example.com/"), enforcement: .standard) == nil)
-        #expect(CertificateAllowances().decision(for: error("https://example.com/"), enforcement: .standard) == nil)
+        #expect(
+            allowances.decision(for: error("https://example.com/"), certificate: cert, enforcement: .standard) == nil)
+        #expect(
+            CertificateAllowances().decision(
+                for: error("https://example.com/"), certificate: cert, enforcement: .standard) == nil)
     }
 }

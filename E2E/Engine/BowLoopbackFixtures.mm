@@ -154,7 +154,10 @@ enum class Listener { auth, certificate };
   std::atomic<NSInteger> _authorized;
   std::atomic<NSInteger> _certificate;
   std::atomic<bool> _stopped;
+  NSString* _certificateFailure;
 }
+
+@synthesize certificateFailure = _certificateFailure;
 
 + (NSString*)authUser {
   return kAuthUser;
@@ -165,14 +168,16 @@ enum class Listener { auth, certificate };
 }
 
 + (instancetype)startWithError:(NSError**)error {
-  sec_identity_t identity = MakeIdentity(error);
-  if (!identity) return nil;
   BowLoopbackFixtures* fixtures = [[BowLoopbackFixtures alloc] initPrivate];
   NSError* startError = nil;
-  if (![fixtures startWithIdentity:identity error:&startError]) {
+  if (![fixtures startAuth:&startError]) {
     [fixtures stop];
     if (error) *error = startError;
     return nil;
+  }
+  // The certificate listener is optional: without it the sign in fixture still serves.
+  if (![fixtures startCertificate:&startError]) {
+    fixtures->_certificateFailure = startError.localizedDescription ?: @"unknown error";
   }
   return fixtures;
 }
@@ -213,10 +218,19 @@ enum class Listener { auth, certificate };
   return _certificate.load();
 }
 
-- (BOOL)startWithIdentity:(sec_identity_t)identity error:(NSError**)error {
+- (BOOL)startAuth:(NSError**)error {
   nw_parameters_t plain = nw_parameters_create_secure_tcp(NW_PARAMETERS_DISABLE_PROTOCOL,
                                                           NW_PARAMETERS_DEFAULT_CONFIGURATION);
   BindToLoopback(plain);
+  uint16_t port = 0;
+  _authListener = [self listenerWith:plain kind:Listener::auth port:&port error:error];
+  _authPort = port;
+  return _authListener != nil;
+}
+
+- (BOOL)startCertificate:(NSError**)error {
+  sec_identity_t identity = MakeIdentity(error);
+  if (!identity) return NO;
   nw_parameters_t secure = nw_parameters_create_secure_tcp(
       ^(nw_protocol_options_t tlsOptions) {
         sec_protocol_options_t options = nw_tls_copy_sec_protocol_options(tlsOptions);
@@ -226,16 +240,10 @@ enum class Listener { auth, certificate };
       },
       NW_PARAMETERS_DEFAULT_CONFIGURATION);
   BindToLoopback(secure);
-
-  uint16_t authPort = 0;
-  uint16_t certificatePort = 0;
-  _authListener = [self listenerWith:plain kind:Listener::auth port:&authPort error:error];
-  if (!_authListener) return NO;
-  _certificateListener = [self listenerWith:secure kind:Listener::certificate port:&certificatePort error:error];
-  if (!_certificateListener) return NO;
-  _authPort = authPort;
-  _certificatePort = certificatePort;
-  return YES;
+  uint16_t port = 0;
+  _certificateListener = [self listenerWith:secure kind:Listener::certificate port:&port error:error];
+  _certificatePort = port;
+  return _certificateListener != nil;
 }
 
 // Starts a listener and waits until it is ready or failed. Returns it with its port, or nil (cancelled) and an error.
@@ -355,7 +363,13 @@ enum class Listener { auth, certificate };
 
 - (void)answer:(nw_connection_t)connection kind:(Listener)kind head:(NSString*)head {
   NSData* response;
-  if (kind == Listener::certificate) {
+  NSArray<NSString*>* requestLine = [[head componentsSeparatedByString:@"\r\n"].firstObject
+      componentsSeparatedByString:@" "];
+  NSString* path = requestLine.count > 1 ? requestLine[1] : @"/";
+  if ([path isEqualToString:@"/favicon.ico"]) {
+    // The browser's own icon request: never a second sign in question for the page.
+    response = Response(404, @"Not Found", @[], @"Not found");
+  } else if (kind == Listener::certificate) {
     _certificate++;
     response = Response(200, @"OK", @[], @"Bad certificate");
   } else if ([HeaderValue(head ?: @"", @"Authorization") isEqualToString:_expectedAuthorization]) {
@@ -379,11 +393,8 @@ enum class Listener { auth, certificate };
   if (_certificateListener) [listeners addObject:_certificateListener];
   NSMutableArray<nw_connection_t>* connections = _connections;
   dispatch_sync(_queue, ^{
-    // No new connection is taken from here on; the ones open now are closed at once.
-    for (nw_listener_t listener in listeners) {
-      nw_listener_set_new_connection_handler(listener, nil);
-      nw_listener_cancel(listener);
-    }
+    // Connections that still arrive are refused (accept: checks _stopped); the ones open now are closed at once.
+    for (nw_listener_t listener in listeners) nw_listener_cancel(listener);
     for (nw_connection_t connection in [connections copy]) nw_connection_force_cancel(connection);
   });
   // Both listeners left the group when they reached cancelled (or never entered it). A listener whose creation

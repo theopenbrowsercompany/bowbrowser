@@ -29,8 +29,11 @@ enum E2ELoopback {
         do {
             let started = try BowLoopbackFixtures.start()
             fixtures = started
-            return "MAP \(authHost) 127.0.0.1:\(started.authPort), "
-                + "MAP \(certificateHost) 127.0.0.1:\(started.certificatePort), "
+            var rules = "MAP \(authHost) 127.0.0.1:\(started.authPort), "
+            if started.certificateFailure == nil {
+                rules += "MAP \(certificateHost) 127.0.0.1:\(started.certificatePort), "
+            }
+            return rules
         } catch {
             startFailure = error.localizedDescription
             return ""
@@ -47,6 +50,15 @@ enum E2ELoopback {
     static func running() throws -> BowLoopbackFixtures {
         guard let fixtures else {
             throw E2EError("the loopback fixtures are not running: \(startFailure ?? "they were stopped")")
+        }
+        return fixtures
+    }
+
+    /// The running fixtures when their certificate listener runs too, or an error saying why it does not.
+    static func runningWithCertificate() throws -> BowLoopbackFixtures {
+        let fixtures = try running()
+        if let failure = fixtures.certificateFailure {
+            throw E2EError("the loopback certificate fixture is not running: \(failure)")
         }
         return fixtures
     }
