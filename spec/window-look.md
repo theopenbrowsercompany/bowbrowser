@@ -12,7 +12,7 @@ It uses Bow's brand colors as light and dark tokens, soft radii and one soft sha
 - The sidebar's top row, level with the window buttons, holds Back, Forward and Reload as plain 17 point icons in Soft, right aligned.
 - Below the top row sits the URL field, as in Arc: 36 points tall across the sidebar's padding, 10 point continuous corners, the Active fill, and 12 points of padding with 8 between a 13 point lock symbol in Soft and one line of text in the UI font, cut at its end when it does not fit.
   The lock is decoration for now; it does not open site settings.
-  It shows the shown tab's site the way Arc's sidebar URL bar does: the host without the scheme, a leading `www.`, the path or the query (`notes.example.com`), with a port only when it is not the scheme's default (`localhost:3000`); a local file shows its file name.
+  It shows the shown tab's site the way Arc's sidebar URL bar does: the host without the scheme or a leading `www.`, then the path unless it is just `/`, never the query or the fragment (`notes.example.com/roadmap`; a trailing slash on a deeper path is dropped), with a port only when it is not the scheme's default (`localhost:3000`); a local file shows its file name.
   A blank tab, an internal page, a `data:` address or an empty Space shows "Search or type a URL" in Soft.
   It follows the shown tab: switching tabs or Spaces, a navigation, a redirect or a page changing its own address updates it.
   A click on it opens the command bar on the current address, as Cmd+L does; the full address is always one click or Cmd+L away.

@@ -158,14 +158,14 @@ struct ChromeURLFieldTest: E2ETest {
         }
 
         let shown = try await run.step("read the field", timeout: E2ETimeouts.step) {
-            _ = try await ChromeTests.until { try app.urlField(of: page).text == "bow.test" }
+            _ = try await ChromeTests.until { try app.urlField(of: page).text == "bow.test/chrome/page.html" }
             return try app.urlField(of: page)
         }
         // The sidebar is 264 wide with 14 and 12 points of padding: the field is 238 by 36.
         run.check(
             name,
-            passed: shown.text == "bow.test" && !shown.isPlaceholder && shown.isShown && shown.isTopRowShown
-                && shown.size == CGSize(width: 238, height: 36) && shown.isBelowTopRow,
+            passed: shown.text == "bow.test/chrome/page.html" && !shown.isPlaceholder && shown.isShown
+                && shown.isTopRowShown && shown.size == CGSize(width: 238, height: 36) && shown.isBelowTopRow,
             "field: \(shown)")
 
         let follows = try await run.step("switch tabs and navigate", timeout: E2ETimeouts.firstLoad) {
@@ -175,14 +175,16 @@ struct ChromeURLFieldTest: E2ETest {
                 return field.isPlaceholder && field.text == "Search or type a URL"
             }
             try app.select(page)
-            let back = try await ChromeTests.until { try app.urlField(of: page).text == "bow.test" }
+            let back = try await ChromeTests.until { try app.urlField(of: page).text == "bow.test/chrome/page.html" }
             // A navigation the page makes itself, by script.
             _ = try await page.evaluate("location.href = 'about:blank'; true")
             let navigated = try await ChromeTests.until { try app.urlField(of: page).isPlaceholder }
             let loads = page.finishedLoads
             try page.load(ChromeTests.url("page"))
             _ = try await page.waitForLoad(after: loads)
-            let reloaded = try await ChromeTests.until { try app.urlField(of: page).text == "bow.test" }
+            let reloaded = try await ChromeTests.until {
+                try app.urlField(of: page).text == "bow.test/chrome/page.html"
+            }
             return (onBlank, back, navigated, reloaded, try app.urlField(of: page))
         }
         run.check(
@@ -221,15 +223,13 @@ struct ChromeToolbarHiddenTest: E2ETest {
             return page
         }
         let toggle = { try app.chooseMenuItem(key: "d", modifiers: [.command, .shift], in: page) }
-        var hidden = false
-        // A failed step must not leave the toolbar hidden for the tests after this one.
-        defer { if hidden { try? toggle() } }
+        // A failed or timed out step must not leave the toolbar hidden for later tests: restore the setting directly (its setter posts the change), since the menu toggle can fail.
+        defer { AppSettings.showsToolbar = true }
 
         let hide = try await run.step("hide the toolbar", timeout: E2ETimeouts.firstLoad) {
             let title = try app.toolbarMenuTitle(of: page)
             let before = try app.urlField(of: page)
             try toggle()
-            hidden = true
             let gone = try await ChromeTests.until {
                 let field = try app.urlField(of: page)
                 return !field.isShown && !field.isTopRowShown
@@ -268,7 +268,6 @@ struct ChromeToolbarHiddenTest: E2ETest {
 
         let show = try await run.step("show the toolbar", timeout: E2ETimeouts.step) {
             try toggle()
-            hidden = false
             let back = try await ChromeTests.until {
                 let field = try app.urlField(of: page)
                 return field.isShown && field.isTopRowShown
@@ -277,7 +276,7 @@ struct ChromeToolbarHiddenTest: E2ETest {
         }
         run.check(
             "chrome.toolbar-hidden.show",
-            passed: show.0 && show.1.text == "bow.test" && show.1.isBelowTopRow
+            passed: show.0 && show.1.text == "bow.test/chrome/page.html" && show.1.isBelowTopRow
                 && show.1.size == CGSize(width: 238, height: 36) && show.2 == "Hide Toolbar"
                 && show.3 == true,
             "shown=\(show.0) field: \(show.1) menu=\(show.2) saved=\(show.3.map(String.init) ?? "nil")")
