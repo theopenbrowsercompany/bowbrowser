@@ -80,6 +80,8 @@ public final class ProfileRegistry {
     public let openReport: OpenReport
 
     private let writer: AtomicFileWriter
+    /// IDs of temporary profiles deleted this session: the engine may still hold their memory, so they are not reused.
+    private var retiredEphemeralIDs = Set<String>()
 
     /// Opens the registry stored at `fileURL`, creating nothing on disk until the first save. A missing file starts
     /// with the default profile. A file that cannot be read is moved aside under a new name and never overwritten.
@@ -181,7 +183,11 @@ public final class ProfileRegistry {
         guard id != .default else { throw .cannotDeleteDefault }
         guard !spaceProfiles.contains(id) else { throw .profileInUse(id) }
         let removed = profiles.remove(at: index)
-        if let folder = removed.folderName { pendingDeletions.append(folder) }
+        if let folder = removed.folderName {
+            pendingDeletions.append(folder)
+        } else {
+            retiredEphemeralIDs.insert(removed.id.rawValue.lowercased())
+        }
         try commit()
     }
 
@@ -266,10 +272,12 @@ public final class ProfileRegistry {
         for folder in pendingDeletions {
             taken.insert(String(folder.dropFirst(Self.folderPrefix.count)).lowercased())
         }
+        taken.formUnion(retiredEphemeralIDs)
         var candidate = base
         var number = 2
         while taken.contains(candidate) {
-            candidate = "\(base)-\(number)"
+            let suffix = "-\(number)"
+            candidate = String(base.prefix(40 - suffix.count)) + suffix
             number += 1
         }
         return candidate
@@ -293,7 +301,9 @@ public final class ProfileRegistry {
         let storedDefault = state.profiles.first { $0.id == .default }
         profiles.append(
             ProfileRecord(
-                id: .default, name: storedDefault.map(\.name) ?? defaultProfileName, isPersistent: true))
+                id: .default,
+                name: storedDefault.map { $0.name.trimmingCharacters(in: .whitespacesAndNewlines) }
+                    ?? defaultProfileName, isPersistent: true))
         seen.insert(defaultKey)
         for record in state.profiles where record.id != .default {
             let key = record.id.rawValue.lowercased()
