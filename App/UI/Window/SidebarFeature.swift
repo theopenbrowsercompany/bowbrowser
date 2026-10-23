@@ -134,6 +134,24 @@ final class SidebarFeature: NSResponder, BrowserWindowFeature, SidebarViewDelega
         return true
     }
 
+    /// Opens the Favorite's saved page with `window.openTab(url:)`, so it loads as a new today tab, shown, in the
+    /// active Space's profile. Favorites do not load in place yet: the window lists only the active Space's tabs.
+    @discardableResult
+    func open(favorite item: SidebarItemID) -> Bool {
+        let graph = window.store.graph
+        guard graph.isInFavorites(item), let url = graph[item]?.tab?.savedPageURL else { return false }
+        return window.openTab(url: url) != nil
+    }
+
+    @discardableResult
+    func beginRename(_ item: SidebarItemID) -> Bool {
+        sidebar.beginRename(item)
+    }
+
+    func slideOutline(_ direction: SidebarSlideDirection, change: () -> Void) {
+        sidebar.slideOutline(direction, change: change)
+    }
+
     func sidebarNewTab() {
         window.newTab(sidebar)
     }

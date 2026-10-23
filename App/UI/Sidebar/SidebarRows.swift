@@ -65,6 +65,8 @@ final class TabSidebarRow: NSTableCellView {
         accessorySlot.orientation = .horizontal
         accessorySlot.spacing = 2
         accessorySlot.setHuggingPriority(.required, for: .horizontal)
+        let emptySlotWidth = accessorySlot.widthAnchor.constraint(equalToConstant: 0)
+        emptySlotWidth.priority = .defaultLow
 
         for view in [iconView, spinner, titleField, accessorySlot, closeButton] as [NSView] {
             view.translatesAutoresizingMaskIntoConstraints = false
@@ -84,6 +86,11 @@ final class TabSidebarRow: NSTableCellView {
             titleField.trailingAnchor.constraint(equalTo: accessorySlot.leadingAnchor, constant: -4),
             accessorySlot.trailingAnchor.constraint(equalTo: closeButton.leadingAnchor),
             accessorySlot.centerYAnchor.constraint(equalTo: centerYAnchor),
+            // An empty stack view may add no width of its own, so these keep a long title clear of the close button
+            // whatever the slot holds: the slot is never narrower than nothing, and empty it shrinks to nothing.
+            accessorySlot.widthAnchor.constraint(greaterThanOrEqualToConstant: 0),
+            emptySlotWidth,
+            titleField.trailingAnchor.constraint(lessThanOrEqualTo: closeButton.leadingAnchor, constant: -4),
             closeButton.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -6),
             closeButton.centerYAnchor.constraint(equalTo: centerYAnchor),
             closeButton.widthAnchor.constraint(equalToConstant: 20),
@@ -168,13 +175,20 @@ final class TabSidebarRow: NSTableCellView {
     }
 }
 
-/// A folder's or split's row in the sidebar: its symbol and its name. The outline draws its disclosure triangle.
+/// A folder's or split's row in the sidebar: its symbol and its name, which `beginRename()` makes editable in place.
+/// The outline draws its disclosure triangle.
 @MainActor
-final class SidebarGroupRow: NSTableCellView {
+final class SidebarGroupRow: NSTableCellView, NSTextFieldDelegate {
     static let identifier = NSUserInterfaceItemIdentifier("SidebarGroupRow")
 
     let titleField = NSTextField(labelWithString: "")
     let iconView = NSImageView()
+    /// Called with the new name when an edit `beginRename()` started ends with Return or by leaving the field, unless
+    /// the name is empty or unchanged. Escape ends the edit without calling it.
+    var onRename: ((String) -> Void)?
+    /// The name shown when the edit began, restored when it is cancelled.
+    private var nameBeforeEdit: String?
+    var isRenaming: Bool { nameBeforeEdit != nil }
 
     init() {
         super.init(frame: .zero)
@@ -216,5 +230,56 @@ final class SidebarGroupRow: NSTableCellView {
             iconView.image = NSImage(systemSymbolName: "folder", accessibilityDescription: nil)
         }
         toolTip = titleField.stringValue
+    }
+
+    /// Makes the name editable in place, all of it selected. Returns false, changing nothing, when the row is not in
+    /// a window or the field cannot take the keyboard focus.
+    @discardableResult
+    func beginRename() -> Bool {
+        guard !isRenaming, let window else { return isRenaming }
+        nameBeforeEdit = titleField.stringValue
+        titleField.isEditable = true
+        titleField.isSelectable = true
+        titleField.delegate = self
+        guard window.makeFirstResponder(titleField) else {
+            endRename(commit: false)
+            return false
+        }
+        titleField.currentEditor()?.selectAll(nil)
+        return true
+    }
+
+    func controlTextDidEndEditing(_ obj: Notification) {
+        endRename(commit: true)
+    }
+
+    func control(_ control: NSControl, textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
+        guard commandSelector == #selector(cancelOperation(_:)) else { return false }
+        endRename(commit: false)
+        return true
+    }
+
+    /// Ends the edit: hands a new, nonempty name to `onRename`, or puts the old name back.
+    private func endRename(commit: Bool) {
+        guard let old = nameBeforeEdit else { return }
+        nameBeforeEdit = nil
+        let name = titleField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        if titleField.currentEditor() != nil { window?.makeFirstResponder(enclosingScrollView?.documentView) }
+        titleField.isEditable = false
+        titleField.isSelectable = false
+        titleField.delegate = nil
+        if commit, !name.isEmpty, name != old {
+            titleField.stringValue = name
+            toolTip = name
+            onRename?(name)
+        } else {
+            titleField.stringValue = old
+        }
+    }
+
+    override func prepareForReuse() {
+        super.prepareForReuse()
+        endRename(commit: false)
+        onRename = nil
     }
 }

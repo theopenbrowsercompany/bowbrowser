@@ -22,9 +22,22 @@ protocol SidebarAccessory: AnyObject {
     /// The accessory's view, added once to its slot. It sizes itself (its height in a slot is its fitting height).
     var view: NSView { get }
 
+    /// What gets the sidebar's sideways two-finger swipes, such as the Space switcher swiping between Spaces; nil
+    /// (the default) for none. Read once, when the sidebar makes its accessories: the first accessory in
+    /// `SidebarAccessories.all` order that has one becomes `SidebarView.swipeHandler`.
+    var swipeHandler: (any SidebarSwipeHandler)? { get }
+
     /// Brings the accessory up to date with `content`: called on every `SidebarView.show(_:)`. `context` is nil while
     /// the sidebar has no window to act on.
+    ///
+    /// Only update the view here. Acting on `context` (switching Spaces, selecting a tab) changes what the sidebar
+    /// shows while it is showing: such a change is shown on the next run loop turn, not within this call, so act from
+    /// the control's own action instead.
     func update(content: SidebarContent, context: (any SidebarActionContext)?)
+}
+
+extension SidebarAccessory {
+    var swipeHandler: (any SidebarSwipeHandler)? { nil }
 }
 
 /// A view at the trailing end of a tab's row, before its close button, such as "Back to pinned URL".
@@ -64,13 +77,22 @@ struct SidebarSwipe: Equatable, Sendable {
 
 /// What the sidebar gives a horizontal two-finger swipe to, such as the Spaces feature swiping between Spaces.
 ///
-/// Extension point: set `SidebarView.swipeHandler`. Without a handler, every scroll goes to the outline as before.
-/// With one, a trackpad scroll whose first few points of movement are mostly sideways (more than twice as far as
-/// vertically) is the handler's from then until the fingers lift, momentum included, and its `translation` counts
-/// those first points too; any other scroll still goes to the outline.
+/// Extension point: return the handler from an accessory's `SidebarAccessory.swipeHandler` (the Space switcher
+/// accessory, which is made with the sidebar), or assign `SidebarView.swipeHandler` from code that holds the view
+/// once the window has opened. A window feature cannot do it from its `init`: the window finds its features only
+/// after making all of them. The sidebar keeps its handler, so the handler must not keep the sidebar or its window
+/// (hold the context it is given instead).
+///
+/// Without a handler, every scroll goes to the outline as before. With one, a trackpad scroll whose first few
+/// points of movement are mostly sideways (more than twice as far as vertically) is the handler's from then until
+/// the fingers lift, momentum included, and its `translation` counts those first points too; any other scroll still
+/// goes to the outline. A typical handler switches Spaces on `.ended` past a distance, inside
+/// `context.slideOutline(_:change:)`. The outline does not follow the fingers during the swipe; it slides once the
+/// handler switches.
 @MainActor
 protocol SidebarSwipeHandler: AnyObject {
-    func sidebarSwipe(_ swipe: SidebarSwipe)
+    /// `context` is the window's, to act on; swipes are not delivered while the sidebar has no window to act on.
+    func sidebarSwipe(_ swipe: SidebarSwipe, context: any SidebarActionContext)
 }
 
 /// The side the outline's old content leaves to in `SidebarView.slideOutline(_:change:)`; the new content comes
@@ -83,7 +105,8 @@ enum SidebarSlideDirection: Sendable {
 /// The outline's scroll view, which hands sideways trackpad swipes to the sidebar's swipe handler.
 @MainActor
 final class SidebarScrollView: NSScrollView {
-    weak var swipeHandler: (any SidebarSwipeHandler)?
+    /// Where sideways swipes go (`SidebarView` hands them to its handler); nil leaves every scroll to the outline.
+    var onSwipe: ((SidebarSwipe) -> Void)?
 
     /// How far the fingers move (in points) before a gesture is taken as a swipe or a scroll.
     private static let decisionDistance: CGFloat = 6
@@ -106,7 +129,7 @@ final class SidebarScrollView: NSScrollView {
     private var tracking = Tracking.none
 
     override func scrollWheel(with event: NSEvent) {
-        guard let handler = swipeHandler, event.hasPreciseScrollingDeltas else {
+        guard let onSwipe, event.hasPreciseScrollingDeltas else {
             tracking = .none
             super.scrollWheel(with: event)
             return
@@ -133,7 +156,7 @@ final class SidebarScrollView: NSScrollView {
                 tracking = .undecided(dx: x, dy: y)
             } else if abs(x) > Self.swipeRatio * abs(y) {
                 tracking = .swipe(x)
-                handler.sidebarSwipe(SidebarSwipe(phase: .began, translation: x))
+                onSwipe(SidebarSwipe(phase: .began, translation: x))
                 return
             } else {
                 tracking = .outline
@@ -144,12 +167,12 @@ final class SidebarScrollView: NSScrollView {
             if ends {
                 tracking = .momentum
                 let phase: SidebarSwipe.Phase = event.phase.contains(.ended) ? .ended : .cancelled
-                handler.sidebarSwipe(SidebarSwipe(phase: phase, translation: total))
+                onSwipe(SidebarSwipe(phase: phase, translation: total))
                 // The outline saw the gesture begin while it was undecided; let it end its own scroll.
                 super.scrollWheel(with: event)
             } else {
                 tracking = .swipe(total)
-                handler.sidebarSwipe(SidebarSwipe(phase: .changed, translation: total))
+                onSwipe(SidebarSwipe(phase: .changed, translation: total))
             }
         case .none, .outline, .momentum:
             if ends { tracking = .none }

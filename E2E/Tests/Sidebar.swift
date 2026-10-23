@@ -4,7 +4,7 @@ import Foundation
 /// its rows, close buttons and New Tab button drive the tabs. Fixtures in E2E/Fixtures/sidebar/.
 @MainActor
 enum SidebarViewTests {
-    static let all: [any E2ETest] = [SidebarTabsTest()]
+    static let all: [any E2ETest] = [SidebarTabsTest(), SidebarLongTitleTest()]
 }
 
 /// Waits on the sidebar shared by the sidebar and tab list tests.
@@ -150,5 +150,32 @@ struct SidebarTabsTest: E2ETest {
             try app.clickSidebarRow(of: a)
             try await SidebarWaits.untilShown(a)
         }
+    }
+}
+
+/// Opens a tab whose title is far wider than the sidebar and checks its active row cuts the title short before the
+/// close button rather than drawing under it, with the row's accessory slot empty.
+struct SidebarLongTitleTest: E2ETest {
+    let name = "sidebar.long-title"
+
+    private static let title =
+        "A page title long enough to run well past the width of the sidebar row, so the row has to cut it short"
+
+    func run(_ run: E2ERun) async throws {
+        let app = try SidebarWaits.app(run)
+        let query = Self.title.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? ""
+        let page = try await run.step("open window", timeout: E2ETimeouts.step) {
+            try await run.app.openWindow(at: E2EFixture.url("sidebar/page.html?name=\(query)"))
+        }
+        try await run.step("load", timeout: E2ETimeouts.firstLoad) {
+            _ = try await page.waitForLoad(after: 0)
+        }
+        let row = try await run.step("row shows the title", timeout: E2ETimeouts.step) {
+            try await SidebarWaits.rows(app, of: page) { $0.first?.title == Self.title && $0.first?.isActive == true }
+                .first
+        }
+        let clears = row?.titleClearsClose == true
+        run.check(
+            name, passed: clears, clears ? "title ends before the close button" : "title runs under the close button")
     }
 }

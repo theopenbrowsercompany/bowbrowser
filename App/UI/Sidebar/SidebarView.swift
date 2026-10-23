@@ -6,8 +6,6 @@ import BowCore
 protocol SidebarViewDelegate: SidebarActionContext {
     /// The New Tab button was clicked.
     func sidebarNewTab()
-    /// The site icon loaded for tab `item`, or nil while there is none.
-    func favicon(for item: SidebarItemID) -> NSImage?
 }
 
 /// What the sidebar shows: the window's sidebar, what each listed tab's page last reported, and the active tab.
@@ -61,11 +59,11 @@ final class SidebarView: NSView, NSOutlineViewDataSource, NSOutlineViewDelegate,
     let topSlot = NSStackView()
     /// The footer accessory slot along the bottom edge (the archive button); empty, it takes no room.
     let footer = NSStackView()
-    /// Gets each horizontal two-finger swipe on the outline (`SidebarSwipeHandler`); nil leaves every scroll to the
-    /// outline.
-    weak var swipeHandler: (any SidebarSwipeHandler)? {
-        get { scrollView.swipeHandler }
-        set { scrollView.swipeHandler = newValue }
+    /// Gets each horizontal two-finger swipe on the outline (`SidebarSwipeHandler`), with the delegate as its context;
+    /// nil leaves every scroll to the outline. The sidebar keeps it. It starts as the first accessory's
+    /// `SidebarAccessory.swipeHandler`; see `SidebarSwipeHandler` for where else it may be set.
+    var swipeHandler: (any SidebarSwipeHandler)? {
+        didSet { connectSwipes() }
     }
     private let scrollView = SidebarScrollView()
     private let sections = SidebarSections.all.map { $0.init() }
@@ -77,9 +75,16 @@ final class SidebarView: NSView, NSOutlineViewDataSource, NSOutlineViewDelegate,
     private var headerHeights: [CGFloat] = []
     /// True while `show(_:)` runs, which updates every header once at its end.
     private var isShowing = false
-    /// How many `slideOutline` animations are running, and whether the view clipped before the first began.
+    /// True while a header, accessory or row accessory is updated outside `show(_:)`.
+    private var isUpdatingSlots = false
+    /// The content a `show(_:)` called while another ran (or while a slot was updated) left for the next run loop
+    /// turn; nil when none is waiting.
+    private var deferredContent: SidebarContent?
+    /// How many `slideOutline` animations are running, and whether the view clipped and the outline's scroll view
+    /// had a layer before the first began.
     private var slidesRunning = 0
     private var clipsBeforeSlides = false
+    private var scrollLayerBeforeSlides = false
     private let accessories = SidebarAccessories.all.map { $0.init() }
     private(set) var content = SidebarContent(graph: .fresh(), tabs: [:], activeItem: nil)
     private var roots: [SidebarNode] = []
@@ -157,6 +162,8 @@ final class SidebarView: NSView, NSOutlineViewDataSource, NSOutlineViewDelegate,
             case .footer: footer.addArrangedSubview(accessory.view)
             }
         }
+        swipeHandler = accessories.lazy.compactMap(\.swipeHandler).first
+        connectSwipes()
 
         for view in [background, newTabButton, topSlot, scrollView, footer] as [NSView] {
             view.translatesAutoresizingMaskIntoConstraints = false
@@ -193,7 +200,24 @@ final class SidebarView: NSView, NSOutlineViewDataSource, NSOutlineViewDelegate,
 
     /// Shows `content`: the sections of the Space on screen, with the active tab highlighted. Rows are rebuilt only
     /// when the sidebar's shape changed; otherwise only the rows whose contents changed are redrawn.
+    ///
+    /// A show asked for while one runs, which a header or accessory acting on the context during its update causes,
+    /// is not nested inside it: the latest such content is shown on the next run loop turn, unless a later show comes
+    /// first.
     func show(_ content: SidebarContent) {
+        guard !isShowing, !isUpdatingSlots else {
+            let scheduled = deferredContent != nil
+            deferredContent = content
+            if !scheduled {
+                DispatchQueue.main.async { [weak self] in
+                    guard let self, let next = self.deferredContent else { return }
+                    self.deferredContent = nil
+                    self.show(next)
+                }
+            }
+            return
+        }
+        deferredContent = nil
         let previous = self.content
         self.content = content
         let newShape = rebuildNodes()
@@ -244,6 +268,10 @@ final class SidebarView: NSView, NSOutlineViewDataSource, NSOutlineViewDelegate,
             return
         }
         scrollView.cacheDisplay(in: bounds, to: picture)
+        if slidesRunning == 0 {
+            clipsBeforeSlides = clipsToBounds
+            scrollLayerBeforeSlides = scrollView.wantsLayer
+        }
         let image = NSImage(size: bounds.size)
         image.addRepresentation(picture)
         let snapshot = SidebarSlideSnapshot(frame: scrollView.frame)
@@ -256,11 +284,11 @@ final class SidebarView: NSView, NSOutlineViewDataSource, NSOutlineViewDelegate,
         scrollView.wantsLayer = true
         guard let oldLayer = snapshot.layer, let newLayer = scrollView.layer else {
             snapshot.removeFromSuperview()
+            if slidesRunning == 0 { scrollView.wantsLayer = scrollLayerBeforeSlides }
             return
         }
-        // Neither side may draw over the page next to the sidebar while it slides; clipping goes back as it was once
-        // the last slide running ends.
-        if slidesRunning == 0 { clipsBeforeSlides = clipsToBounds }
+        // Neither side may draw over the page next to the sidebar while it slides; clipping and the scroll view's layer
+        // go back as they were once the last slide running ends.
         slidesRunning += 1
         clipsToBounds = true
         let offset = bounds.width * (direction == .left ? -1 : 1)
@@ -277,13 +305,50 @@ final class SidebarView: NSView, NSOutlineViewDataSource, NSOutlineViewDelegate,
             snapshot.removeFromSuperview()
             guard let self else { return }
             self.slidesRunning -= 1
-            if self.slidesRunning == 0 { self.clipsToBounds = self.clipsBeforeSlides }
+            if self.slidesRunning == 0 {
+                self.clipsToBounds = self.clipsBeforeSlides
+                self.scrollView.wantsLayer = self.scrollLayerBeforeSlides
+            }
         }
         // The snapshot ends off screen, so it stays there (and not back at its start) until it is removed.
         oldLayer.transform = CATransform3DMakeTranslation(offset, 0, 0)
         slide(oldLayer, from: 0, to: offset)
         slide(newLayer, from: -offset, to: 0)
         CATransaction.commit()
+    }
+
+    /// Makes the name of folder or split `item` editable in its row (`SidebarActionContext.beginRename`), scrolling
+    /// the row into view; the new name is saved through the delegate. Returns false when `item` has no group row on
+    /// screen or the row cannot take the keyboard focus.
+    @discardableResult
+    func beginRename(_ item: SidebarItemID) -> Bool {
+        guard let row = row(for: item) else { return false }
+        outlineView.scrollRowToVisible(row)
+        guard let view = outlineView.view(atColumn: 0, row: row, makeIfNecessary: true) as? SidebarGroupRow else {
+            return false
+        }
+        return view.beginRename()
+    }
+
+    /// Hands the scroll view's sideways swipes to `swipeHandler`, or leaves them all to the outline without one.
+    private func connectSwipes() {
+        guard swipeHandler != nil else {
+            scrollView.onSwipe = nil
+            return
+        }
+        scrollView.onSwipe = { [weak self] swipe in
+            guard let self, let handler = self.swipeHandler, let context = self.delegate else { return }
+            handler.sidebarSwipe(swipe, context: context)
+        }
+    }
+
+    /// Runs `body`, which updates a header or accessory outside `show(_:)`, so a show it causes waits for the next
+    /// run loop turn rather than reloading the outline from inside the outline's own call.
+    private func updatingSlots(_ body: () -> Void) {
+        let wasUpdating = isUpdatingSlots
+        isUpdatingSlots = true
+        defer { isUpdatingSlots = wasUpdating }
+        body()
     }
 
     /// Redraws the row of tab `item`, for a change the content does not hold (its site icon loaded).
@@ -573,7 +638,9 @@ final class SidebarView: NSView, NSOutlineViewDataSource, NSOutlineViewDelegate,
             guard let view = sections[index].makeHeaderView() else { return nil }
             headerViews[index] = view
             // During `show(_:)` every header is updated once, at its end.
-            if !isShowing { sections[index].updateHeaderView(view, content: content, context: delegate) }
+            if !isShowing {
+                updatingSlots { sections[index].updateHeaderView(view, content: content, context: delegate) }
+            }
             return view
         case .item(let id):
             guard let item = content.graph[id] else { return nil }
@@ -582,6 +649,9 @@ final class SidebarView: NSView, NSOutlineViewDataSource, NSOutlineViewDelegate,
                     outlineView.makeView(withIdentifier: SidebarGroupRow.identifier, owner: nil) as? SidebarGroupRow
                     ?? SidebarGroupRow()
                 view.show(item)
+                view.onRename = { [weak self] name in
+                    self?.delegate?.changeSidebar { try $0.apply([.rename(id, title: name)]) }
+                }
                 return view
             }
             var tab = content.tabs[id] ?? BrowserTab(url: saved.savedPageURL, title: saved.savedTitle)
@@ -594,7 +664,7 @@ final class SidebarView: NSView, NSOutlineViewDataSource, NSOutlineViewDelegate,
             view.isClosable = content.tabs[id] != nil
             view.onClose = { [weak self] in self?.delegate?.close(id) }
             // During `show(_:)` its `refreshRows()` gives every row on screen its accessory once, at the end.
-            if !isShowing { updateAccessory(of: view, for: id) }
+            if !isShowing { updatingSlots { updateAccessory(of: view, for: id) } }
             return view
         }
     }

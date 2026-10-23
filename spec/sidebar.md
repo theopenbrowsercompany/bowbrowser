@@ -38,9 +38,16 @@ The sidebar is built so later features each add one file plus one line in a list
 - Drop rules: a type conforming to `SidebarDropValidator`, listed in `SidebarDropValidators.all` (`SidebarDropRuleList.swift`).
   A drop goes through when no rule refuses it; the store's own rules (what may hold what, repairing split views) still apply when it is made.
   The rule that keeps drags out of Favorites lives alone in `FavoritesDropRule.swift`, so the Favorites grid can replace it.
-- Swipes: a `SidebarSwipeHandler` set as the sidebar's swipe handler gets each sideways two-finger trackpad swipe on the list, with its phase and the distance moved so far; without one, every scroll goes to the list.
+- Swipes: a `SidebarSwipeHandler` gets each sideways two-finger trackpad swipe on the list, with its phase, the distance moved so far and the action context; without one, every scroll goes to the list.
+  An accessory offers it (the first accessory with one wins), or code holding the sidebar sets it once the window has opened; the sidebar keeps it.
+  The list does not follow the fingers yet: it slides once the handler acts.
   The sidebar's slide helper swaps the list's content with a slide to the left or right, and skips the slide when Reduce Motion is on.
-- Actions: the context every menu item, drop, accessory and header gets can read the sidebar, select, close and load a tab at an address (a tab whose page has not loaded is shown and loaded, as selecting it does), and change the store.
+- Actions: the context every menu item, drop, accessory, header and swipe handler gets can read the sidebar, select, close and load a tab at an address (a tab whose page has not loaded is shown and loaded, as selecting it does), and change the store.
+  - It gives a tab's site icon when one has loaded; a Favorite has none until Favorites load in place.
+  - Opening a Favorite loads its saved address in a new tab in today, which is shown, for now.
+  - Beginning a rename makes a folder's or split view's name editable in its row: Return or leaving the field saves a new name, and Escape or an empty name keeps the old one.
+  - Sliding the list runs a change (switching Spaces) inside the slide helper, so the old content leaves to one side as the new arrives.
+  - Headers and accessories only update their views when the sidebar updates them; an action they take there is shown on the next turn of the run loop, not in the middle of the update.
 
 ## Edge cases
 

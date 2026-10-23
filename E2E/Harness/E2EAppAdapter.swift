@@ -756,11 +756,13 @@ extension E2EAppAdapter {
         guard let view = outline.view(atColumn: 0, row: row, makeIfNecessary: true) as? TabSidebarRow else {
             return nil
         }
+        view.layoutSubtreeIfNeeded()
         return E2ESidebarRow(
             title: view.titleField.stringValue,
             isLoading: view.isLoading,
             hasFavicon: view.hasFavicon,
-            isActive: outline.rowView(atRow: row, makeIfNecessary: true)?.isSelected ?? false
+            isActive: outline.rowView(atRow: row, makeIfNecessary: true)?.isSelected ?? false,
+            titleClearsClose: view.titleField.frame.maxX <= view.closeButton.frame.minX
         )
     }
 

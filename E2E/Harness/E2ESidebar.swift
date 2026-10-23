@@ -9,6 +9,8 @@ struct E2ESidebarRow: Equatable, CustomStringConvertible {
     var hasFavicon: Bool
     /// True while the row is highlighted as the active tab.
     var isActive: Bool
+    /// True when the title ends before the close button's place, laid out at the row's width.
+    var titleClearsClose = true
 
     var description: String {
         "\(title)\(isActive ? "*" : "")\(isLoading ? " loading" : "")\(hasFavicon ? " icon" : "")"
