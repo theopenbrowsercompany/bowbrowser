@@ -152,7 +152,8 @@ extension SidebarGraph {
     /// does, so the pane count is the count of tabs, as `integrityProblems()` counts them. With `previous`, the
     /// committed graph, a split that lost panes since then keeps the widths of the panes that stayed.
     mutating func repairSplits(_ log: inout [SidebarRepair], previous: SidebarGraph? = nil) {
-        for id in items.keys.sorted() {
+        let splitIDs = items.filter { if case .split = $0.value.data { true } else { false } }.keys.sorted()
+        for id in splitIDs {
             guard case .split(var split)? = items[id]?.data, let item = items[id],
                 let parentID = item.parentID, let position = items[parentID]?.childrenIDs.firstIndex(of: id)
             else { continue }
@@ -164,7 +165,7 @@ extension SidebarGraph {
             }
             let widthsBefore = split.widthFactors
 
-            if !extras.isEmpty {
+            if panes.count + extras.count != item.childrenIDs.count || !extras.isEmpty {
                 items[parentID]?.childrenIDs.insert(contentsOf: extras, at: position + 1)
                 for extra in extras {
                     items[extra]?.parentID = parentID
