@@ -28,13 +28,12 @@ struct HistoryRecordingTest: E2ETest {
         run.check("history.title", passed: titles == ["A", "B"], "titles=[\(titles.joined(separator: ","))]")
 
         // An in-memory profile leaves no history file and no history folder, though it records.
-        let (file, folder) = try await run.step("look for history files", timeout: E2ETimeouts.step) {
-            (try app.historyFile(of: memory), try app.historyDirectory(of: memory))
+        let (file, hasFolder) = try await run.step("look for history files", timeout: E2ETimeouts.step) {
+            (try app.historyFile(of: memory), try app.hasHistoryFolder(of: memory))
         }
-        let folderExists = FileManager.default.fileExists(atPath: folder.path)
         run.check(
-            "history.ephemeral", passed: file == nil && !folderExists && entries.count == 2,
-            "file=\(file?.path ?? "none") folder=\(folderExists ? "exists" : "none")")
+            "history.ephemeral", passed: file == nil && !hasFolder && entries.count == 2,
+            "file=\(file?.path ?? "none") folder=\(hasFolder ? "exists" : "none")")
 
         // On disk: a persistent profile.
         let disk = try await Self.visit(

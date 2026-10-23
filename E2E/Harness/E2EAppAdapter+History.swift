@@ -31,8 +31,12 @@ extension E2EAppAdapter {
         return try Self.oldestFirst(store)
     }
 
-    func historyDirectory(of page: any E2EPage) throws -> URL {
-        try historyStores(of: page).0.historyDirectory
+    func hasHistoryFolder(of page: any E2EPage) throws -> Bool {
+        let (stores, profileID) = try historyStores(of: page)
+        let folders =
+            (try? FileManager.default.contentsOfDirectory(
+                at: stores.historyDirectory, includingPropertiesForKeys: nil)) ?? []
+        return folders.contains { Self.profileID(ofHistoryFolder: $0) == profileID }
     }
 
     private static func oldestFirst(_ store: HistoryStore) throws -> [E2EHistoryEntry] {
@@ -69,7 +73,7 @@ extension E2ETestApp: E2EHistoryApp {
         try adapter.historyEntries(inFile: file)
     }
 
-    func historyDirectory(of page: any E2EPage) throws -> URL {
-        try adapter.historyDirectory(of: page)
+    func hasHistoryFolder(of page: any E2EPage) throws -> Bool {
+        try adapter.hasHistoryFolder(of: page)
     }
 }
