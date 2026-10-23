@@ -4,8 +4,12 @@
 
 A window holds several tabs, each one a live web page, and shows one of them at a time.
 People keep many pages open and move between them all day, so switching must be instant and lossless, and closing a page must never throw away work without asking.
+Each window keeps an ordered list of tabs with one active tab, and everything the sidebar shows or does with tabs starts from that list.
+The list is the base for pinned tabs, folders, spaces and restoring tabs after a restart.
 
 ## Behavior
+
+### Pages and closing
 
 - Opening a tab adds it to its window and, unless it opens in the background, shows it.
 - Switching to another tab shows that tab's page exactly as it was left: the same document, scroll position, typed text and running scripts.
@@ -25,11 +29,36 @@ People keep many pages open and move between them all day, so switching must be 
   A page whose person chooses to stay keeps its tab and the window open, while the other tabs close.
   Quitting works the same way (see `quit.md`).
 
+### Tab list
+
+- A tab has a stable identity that never changes while it exists, an address, a title, an optional favicon, a loading flag, and whether it can go back and forward.
+- A tab's address, title, favicon, loading flag and back and forward state always mirror what the page last reported.
+  The tab's identity is its own and does not change when the page navigates.
+- Opening a tab puts it right after the active tab by default, or at the end of the list when asked.
+  When nothing is active, "after the active tab" means the end.
+- A newly opened tab becomes the active tab, unless it is opened in the background, in which case the active tab stays as it was.
+  The first tab opened in an empty window is always active.
+- Selecting a tab makes it the active tab.
+- Moving a tab puts it at the requested position in the resulting order.
+  A position past either end puts it first or last.
+  Moving never changes which tab is active.
+- Closing a tab that is not active leaves the active tab alone.
+- Closing the active tab makes the tab that was right after it active.
+  When it was the last tab, the tab before it becomes active.
+- Closing the only tab leaves an empty list with no active tab.
+  Opening a tab afterwards works as in any empty window.
+- Asking for a tab that does not exist (select, close, move or update with an unknown identity) changes nothing.
+- Opening a tab whose identity is already in the list is refused and changes nothing.
+
 ## Edge cases
 
 - A tab still opening when it is closed closes as soon as its page exists.
 - The prompt for a shown tab is a sheet on its window.
   Known limit: the prompt for a tab that is not shown (for example when closing a window or quitting with several pages asking) is a free-floating alert that does not name the site, and several such alerts can stack.
+- A window with no tabs is a valid state in the tab list.
+- Saved tab lists are plain data.
+  A saved list that is inconsistent (repeated identities, an active tab that is not in the list, an active tab in an empty list, or no active tab in a non-empty list) is rejected as a whole instead of being repaired silently.
+- Tab identities are separate from the engine's page identities, which do not survive a restart.
 
 ## Acceptance checks
 
@@ -38,9 +67,19 @@ People keep many pages open and move between them all day, so switching must be 
 3. Run `make e2e`: `PASS tabs.close: neighbor=shown closed=true prompts=0` shows the neighbor tab shown after the draft tab closed, and a page without a handler closed at once without a prompt.
 4. Run `make e2e`: `PASS tabs.close-window` shows a window with three tabs, one shown and two hidden, closing all three and then itself while the app keeps running.
 5. By hand (until tabs have a close command of their own): open a page with a form in a window, type into it, close the window; the prompt appears as a sheet; choose Cancel and the window and text are still there; close again and choose Leave and the window is gone.
+6. Tab list, starting with tabs A, B, C and A active: open a tab X after the active tab. Expected order A, X, B, C with X active.
+7. Tab list, starting with tabs A, B, C and B active: close B. Expected order A, C with C active.
+8. Tab list, starting with tabs A, B, C and C active: close C. Expected order A, B with B active.
+9. Tab list, starting with tabs A, B, C and A active: close C. Expected order A, B with A still active.
+10. Tab list, starting with one tab: close it. Expected an empty list with no active tab.
+11. Tab list, starting with tabs A, B, C and B active: move B to the first position. Expected order B, A, C with B still active.
+12. Tab list, starting with tabs A, B: open X in the background. Expected order A, B, X with the active tab unchanged.
 
 ## Out of scope
 
-- A tab strip or sidebar, keyboard shortcuts for switching and closing tabs, and reopening closed tabs.
-- Pinned tabs, archiving and sleeping tabs to save memory.
+- A tab strip or sidebar, its look and its drag and drop, keyboard shortcuts for switching and closing tabs, and reopening closed tabs.
+- Pinned tabs, favorites, folders, archiving of old tabs and sleeping tabs to save memory.
+- Several spaces, and tabs mirrored across windows.
+- Saving the tab list to disk and restoring it on launch.
+- Creating or closing the underlying pages in the engine (the tab list only records what the engine reports).
 - Prompts when a page reloads or navigates away (reloading asks "Reload this site?" the same way), which this spec does not check.
