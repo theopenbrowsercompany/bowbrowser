@@ -1,11 +1,15 @@
 import Foundation
 
-/// A sheet attached to a window (a confirmation), as a test reads it: its text in order and its buttons' titles.
+/// A sheet attached to a window (a confirmation), as a test reads it: its text in order, its buttons' titles and
+/// the title of the button Return presses, nil when none does.
 struct E2ESheet: Equatable, CustomStringConvertible {
     var texts: [String]
     var buttons: [String]
+    var returnButton: String?
 
-    var description: String { "\(texts.joined(separator: " / ")) [\(buttons.joined(separator: ","))]" }
+    var description: String {
+        "\(texts.joined(separator: " / ")) [\(buttons.joined(separator: ","))] return=\(returnButton ?? "none")"
+    }
 }
 
 /// Sidebar folders as a test sees them: each row's context menu, double clicks, the rename field, the disclosure

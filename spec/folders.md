@@ -14,6 +14,7 @@ They are made, renamed and deleted from the sidebar's context menus, and they ke
   - Return or clicking elsewhere saves the new name; Escape, or an empty name, keeps the old one.
 - A folder that holds tabs, directly or in its subfolders, offers two ways to delete it:
   - Delete Folder and Tabs asks first, in a sheet naming the folder and how many tabs it holds; Delete removes the folder and everything in it, and Cancel changes nothing.
+    Return answers Cancel; Delete takes a click.
     Open tabs in it close as their close buttons would close them, one at a time, and when the active tab was inside, the nearest tab outside the folder becomes active first.
     A tab dragged into the folder while a page's leave prompt waits goes with it, and one dragged out stays.
   - Delete Folder, Keep Tabs removes only the folder: what it held moves up into the folder's place in its parent, in the same order.
@@ -27,7 +28,9 @@ They are made, renamed and deleted from the sidebar's context menus, and they ke
 - An empty folder is kept and listed, also after a relaunch.
 - Folders nest without a depth limit; a folder cannot be dropped inside itself or its own subfolders.
 - After a relaunch every folder is back in place with its name, its contents in order, and open or closed as it was left.
-- When a page asks to stay while its folder is being deleted with its tabs, the folder stays with what is left in it (its tabs that had no open page are already gone).
+- When a page asks to stay while its folder is being deleted with its tabs, the folder stays with that page and every tab that had no open page; only the open tabs that already closed are gone.
+- Switching to another Space, or dragging the folder to another Space, while a page's leave prompt waits stops the delete there: the folder stays with what is left in it, so no open page is ever left without its row.
+- While a folder is being deleted with its tabs, confirming Delete Folder and Tabs on it, on a folder inside it or on a folder around it only beeps, so no page is asked twice.
 - Choosing Delete Folder and Tabs while the window already shows a sheet (a page's dialog) only beeps.
 - Deleting a folder that holds every tab of the Space leaves the Space with no tabs.
 
@@ -36,8 +39,9 @@ They are made, renamed and deleted from the sidebar's context menus, and they ke
 1. Run `make e2e E2E=folders`: `PASS folders.tree: tree=client/project/phase/[A]` shows folders made from the pinned section's menu and each folder's menu, named in place, with tab A dragged into the deepest one.
 2. Run `make e2e E2E=folders`: `PASS folders.rename` shows a folder renamed by double-clicking it and another from its menu.
 3. Run `make e2e E2E=folders`: `PASS folders.empty`, `PASS folders.delete-tabs` and `PASS folders.delete-keep` show an empty folder listed, a delete with tabs that asks first (Cancel keeps it), and a delete that keeps the tabs in the folder's place.
-4. Run `make e2e E2E=folders`: `PASS folders.drag` and `PASS folders.collapse` show a today folder dragged into a pinned folder, and a closed folder that stays closed after a relaunch.
-5. By hand: right-click a folder that holds an open tab, choose Delete Folder and Tabs, confirm, and check the tab closed and the folder is gone.
+4. Run `make e2e E2E=folders`: `PASS folders.delete-stay` and `PASS folders.delete-leave` show a delete whose page asks to stay keeping the folder and all its tabs, then a second delete answered Leave removing them all.
+5. Run `make e2e E2E=folders`: `PASS folders.drag` and `PASS folders.collapse` show a today folder dragged into a pinned folder, and a closed folder that stays closed after a relaunch.
+6. By hand: right-click a folder that holds an open tab, choose Delete Folder and Tabs, confirm, and check the tab closed and the folder is gone.
 
 ## Out of scope
 

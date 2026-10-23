@@ -5,7 +5,7 @@ import Foundation
 /// state surviving a relaunch. Fixtures in E2E/Fixtures/sidebar/.
 @MainActor
 enum FoldersTests {
-    static let all: [any E2ETest] = [FoldersTreeTest(), FoldersDeleteTest(), FoldersCollapseTest()]
+    static let all: [any E2ETest] = [FoldersTreeTest(), FoldersDeleteTest(), FoldersStayTest(), FoldersCollapseTest()]
 
     static func app(_ run: E2ERun) throws -> any E2EFoldersApp {
         guard let app = run.app as? any E2EFoldersApp else { throw E2EError("the app has no sidebar folders") }
@@ -192,13 +192,16 @@ struct FoldersDeleteTest: E2ETest {
             "The folder and the 1 tab inside it will be removed from the sidebar.",
         ]
         // The sheet's buttons in any order: the order of its views is AppKit's.
-        if sheet?.texts != texts || Set(sheet?.buttons ?? []) != ["Delete", "Cancel"] {
+        // Return answers Cancel: the destructive Delete takes a click.
+        if sheet?.texts != texts || Set(sheet?.buttons ?? []) != ["Delete", "Cancel"] || sheet?.returnButton != "Cancel"
+        {
             problems.append("sheet=\(asked)")
         }
         run.check(
             "folders.delete-tabs", passed: problems.isEmpty && afterDelete == deletedAll,
             problems.isEmpty && afterDelete == deletedAll
-                ? "asked=yes cancel=kept delete=Inner,P2 removed" : "\(afterDelete) \(problems.joined(separator: "; "))"
+                ? "asked=yes return=Cancel cancel=kept delete=Inner,P2 removed"
+                : "\(afterDelete) \(problems.joined(separator: "; "))"
         )
 
         let kept = "favorites | pinned | >P1 | >P3 | >Empty | divider | today | >T1"
@@ -241,6 +244,81 @@ struct FoldersDeleteTest: E2ETest {
             openPassed
                 ? "D=closed active=T1"
                 : "D=\(d.isClosed ? "closed" : "open") active=\(active ?? "none") outline=\(afterOpen)")
+    }
+}
+
+/// Seeds pinned P1, folder Drafts holding saved tabs S1 and S2 (never loaded), and today T1, then opens the leave
+/// prompt fixture, types a draft in it and drags it into Drafts. Deleting Drafts with its tabs asks the draft's page,
+/// which is answered Stay: the folder and all three tabs remain, the draft open. Deleting it again, answered Leave,
+/// removes the folder with every tab.
+struct FoldersStayTest: E2ETest {
+    let name = "folders.delete-stay"
+    let checks = ["folders.delete-stay", "folders.delete-leave"]
+
+    func run(_ run: E2ERun) async throws {
+        let app = try FoldersTests.app(run)
+        let url = FoldersTests.url
+        let seed = E2ESeed(spaces: [
+            E2ESeedSpace(
+                "Work",
+                pinned: [
+                    .tab("P1", url: url("P1")),
+                    .folder("Drafts", [.tab("S1", url: url("S1")), .tab("S2", url: url("S2"))]),
+                ],
+                today: [.tab("T1", url: url("T1"))])
+        ])
+        let window = try await run.step("open the seeded window", timeout: E2ETimeouts.firstLoad) {
+            let window = try await app.openWindow(seeded: seed)
+            _ = try await window.page.waitForLoad(after: 0)
+            return window
+        }
+        let page = window.page
+        let draft = try await run.step("open a draft and drag it into Drafts", timeout: E2ETimeouts.firstLoad) {
+            let draft = try app.openTab(at: E2EFixture.url("tabs/leave.html"), besides: page, select: true)
+            _ = try await draft.waitForLoad(after: 0)
+            // Chromium asks before leaving only a page the person has interacted with.
+            try await draft.click("textarea")
+            try await draft.type("unsaved words")
+            try app.dragTab(draft, onRow: try FoldersTests.row("Drafts", in: page, app: app), childIndex: -1)
+            return draft
+        }
+        let filled = "favorites | pinned | >P1 | >Drafts | >>S1 | >>S2 | >>Unsaved draft | divider | today | >T1"
+        let before = try await run.step("read the filled outline", timeout: E2ETimeouts.step) {
+            try await FoldersTests.outline(app, of: page, until: filled)
+        }
+
+        let afterStay = try await run.step("delete Drafts and stay", timeout: E2ETimeouts.step) {
+            draft.leavePromptAnswer = false
+            try app.chooseSidebarMenuItem(
+                "Delete Folder and Tabs\u{2026}", row: try FoldersTests.row("Drafts", in: page, app: app), in: page)
+            _ = try await FoldersTests.wait(until: { $0 != nil }, read: { try app.sidebarSheet(in: page) })
+            try app.clickSheetButton("Delete", in: page)
+            _ = try await FoldersTests.wait(until: { $0 >= 1 }, read: { draft.leavePrompts })
+            return try await FoldersTests.outline(app, of: page, until: filled)
+        }
+        let stayPassed = before == filled && afterStay == filled && draft.leavePrompts == 1 && !draft.isClosed
+        run.check(
+            "folders.delete-stay", passed: stayPassed,
+            stayPassed
+                ? "stay: Drafts=kept S1,S2=kept draft=open prompts=1"
+                : "prompts=\(draft.leavePrompts) draft=\(draft.isClosed ? "closed" : "open") outline=\(afterStay)")
+
+        let cleared = "favorites | pinned | >P1 | divider | today | >T1"
+        let afterLeave = try await run.step("delete Drafts and leave", timeout: E2ETimeouts.step) {
+            draft.leavePromptAnswer = true
+            try app.chooseSidebarMenuItem(
+                "Delete Folder and Tabs\u{2026}", row: try FoldersTests.row("Drafts", in: page, app: app), in: page)
+            _ = try await FoldersTests.wait(until: { $0 != nil }, read: { try app.sidebarSheet(in: page) })
+            try app.clickSheetButton("Delete", in: page)
+            _ = try await FoldersTests.wait(until: { $0 }, read: { draft.isClosed })
+            return try await FoldersTests.outline(app, of: page, until: cleared)
+        }
+        let leavePassed = afterLeave == cleared && draft.isClosed && draft.leavePrompts == 2
+        run.check(
+            "folders.delete-leave", passed: leavePassed,
+            leavePassed
+                ? "leave: Drafts,S1,S2,draft removed prompts=2"
+                : "prompts=\(draft.leavePrompts) draft=\(draft.isClosed ? "closed" : "open") outline=\(afterLeave)")
     }
 }
 

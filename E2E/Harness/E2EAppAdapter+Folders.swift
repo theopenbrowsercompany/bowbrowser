@@ -73,13 +73,17 @@ extension E2ETestApp: E2EFoldersApp {
 
     func sidebarSheet(in page: any E2EPage) throws -> E2ESheet? {
         try adapter.requireActive(token, "read a window's sheet")
-        guard let view = try E2EAppAdapter.tabPage(page).controller.window?.attachedSheet?.contentView else {
-            return nil
-        }
+        guard let attached = try E2EAppAdapter.tabPage(page).controller.window?.attachedSheet,
+            let view = attached.contentView
+        else { return nil }
         var sheet = E2ESheet(texts: [], buttons: [])
         for subview in E2EAppAdapter.allSubviews(of: view) where !subview.isHiddenOrHasHiddenAncestor {
             if let button = subview as? NSButton {
                 sheet.buttons.append(button.title)
+                // Return presses the button whose key is Return, or the sheet's default button.
+                if button.keyEquivalent == "\r" || attached.defaultButtonCell === button.cell {
+                    sheet.returnButton = button.title
+                }
             } else if let field = subview as? NSTextField, !field.isEditable, !field.stringValue.isEmpty {
                 sheet.texts.append(field.stringValue)
             }
