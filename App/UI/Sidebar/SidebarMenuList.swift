@@ -9,5 +9,6 @@ enum SidebarMenus {
     static let all: [any SidebarMenuItems.Type] = [
         CloseTabMenuItems.self,
         FolderMenuItems.self,
+        FavoritesMenuItems.self,
     ]
 }
