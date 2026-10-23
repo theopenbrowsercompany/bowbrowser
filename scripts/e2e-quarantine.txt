@@ -2,4 +2,3 @@
 # One entry per line: <test name> <YYYY-MM-DD expiry> <reason in plain words>.
 # An entry counts until its expiry date; from that date every run names it until it is removed or renewed.
 # Keep entries few and short lived: fix the test, then remove its entry.
-app.quit 2026-10-30 Chromium's shutdown can pass its 5 s limit under load
