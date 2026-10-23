@@ -100,40 +100,38 @@ struct SplitResizeOnceTest: E2ETest {
             return page
         }
         let drag = try await run.step("drag the divider in two steps", timeout: E2ETimeouts.step) {
-            try app.pressPaneDivider(besides: page)
-            try app.movePaneDivider(0, to: 0.6, besides: page)
-            let first = try app.splitState(of: page)
-            try app.movePaneDivider(0, to: 0.7, besides: page)
-            let second = try app.splitState(of: page)
-            let panes = try app.panes(besides: page)
-            try app.releasePaneDivider(besides: page)
+            let during = try app.dragPaneDivider(0, through: [0.6, 0.7], besides: page)
             let saved = try await SplitTests.state(app, of: page) {
                 SplitTests.approximately($0.splitWidths.first ?? [], [0.7, 0.3])
             }
-            return (first, second, panes, saved)
+            return (during, try app.panes(besides: page), saved)
         }
-        let widths = drag.2.frames.map { Double($0.width) }
+        let widths = drag.1.frames.map { Double($0.width) }
         let share = widths.count == 2 ? widths[0] / (widths[0] + widths[1]) : 0
-        let unsavedWhileDragging = [drag.0, drag.1].allSatisfy {
-            SplitTests.approximately($0.splitWidths.first ?? [], [0.5, 0.5])
-        }
+        let unsavedWhileDragging =
+            drag.0.count >= 2 && drag.0.allSatisfy { SplitTests.approximately($0, [0.5, 0.5]) }
         run.check(
             "split.resize.once",
             passed: unsavedWhileDragging && abs(share - 0.7) < 0.01
-                && SplitTests.approximately(drag.3.splitWidths.first ?? [], [0.7, 0.3]),
-            "during=\(drag.0.splitWidths),\(drag.1.splitWidths) share=\(share) after=\(drag.3.splitWidths)")
+                && SplitTests.approximately(drag.2.splitWidths.first ?? [], [0.7, 0.3]),
+            "during=\(drag.0) share=\(share) after=\(drag.2.splitWidths)")
     }
 }
 
-/// Pinned tab A selected: Add Split View (Cmd+Shift+plus) opens a new tab D as a pane beside it, and the split of A
-/// and D takes A's place in the pinned section; today keeps only B.
+/// Pinned tab A selected: Add Split View (Cmd+Shift+plus) opens a new tab on the new tab page (fixture C) as a pane
+/// beside it, and the split takes A's place in the pinned section; today keeps only B. The person then loads D in the
+/// new pane: D becomes the pane's pinned address (no Back to Pinned URL), and after a relaunch the pane comes back on
+/// D, not on the new tab page.
 struct SplitAddPinnedTest: E2ETest {
     let name = "split.add_pinned"
-    let checks = ["split.add_pinned"]
+    let checks = ["split.add_pinned", "split.add_pinned.address", "split.add_pinned.relaunch"]
 
     func run(_ run: E2ERun) async throws {
         let app = try SplitTests.app(run)
         guard let menu = run.app as? any E2EMenuApp else { throw E2EError("the app has no menus") }
+        guard let pinned = run.app as? any E2EPinnedApp & E2EProfilesApp & E2EStoreApp else {
+            throw E2EError("the app has no pinned tabs")
+        }
         let page = try await run.step("select pinned tab A", timeout: E2ETimeouts.firstLoad) {
             let seed = E2ESeed(spaces: [
                 E2ESeedSpace(
@@ -148,15 +146,49 @@ struct SplitAddPinnedTest: E2ETest {
             return page
         }
         let state = try await run.step("choose Add Split View", timeout: E2ETimeouts.firstLoad) {
-            try app.setNewTabURL(SplitTests.url("D"), of: page)
+            try app.setNewTabURL(SplitTests.url("C"), of: page)
             try menu.chooseMenuItem(key: "+", modifiers: [.command, .shift], in: page)
-            return try await SplitTests.state(app, of: page) { $0.panes == ["A", "D"] && $0.splits.count == 1 }
+            return try await SplitTests.state(app, of: page) { $0.panes == ["A", "C"] && $0.splits.count == 1 }
         }
         run.check(
             "split.add_pinned",
-            passed: state.panes == ["A", "D"] && state.splits == [["A", "D"]] && state.pinned == ["Split View"]
-                && state.today == ["B"] && state.activeTitle == "D" && state.focusedIndex == 1,
+            passed: state.panes == ["A", "C"] && state.splits == [["A", "C"]] && state.pinned == ["Split View"]
+                && state.today == ["B"] && state.activeTitle == "C" && state.focusedIndex == 1,
             "\(state)")
+
+        let d = SplitTests.url("D")
+        let browsed = try await run.step("load D in the new pane", timeout: E2ETimeouts.firstLoad) {
+            guard let pane = try pinned.shownPage(besides: page), pane !== page else {
+                throw E2EError("the window shows no new pane")
+            }
+            // The new tab page settles first, and is not the pane's address; then the person goes to D in the pane.
+            let newTab = SplitTests.url("C").absoluteString
+            try await E2EWaits.until(pane, "location.href === '\(newTab)' && document.readyState === 'complete'")
+            let loads = pane.finishedLoads
+            try pane.load(d)
+            _ = try await pane.waitForLoad(after: loads)
+            let saved = try await E2EWaits.value {
+                try pinned.savedURL(of: pane)
+            } until: {
+                $0 == d.absoluteString
+            }
+            return (pane, saved, try pinned.showsBackToPinned(pane))
+        }
+        run.check(
+            "split.add_pinned.address", passed: browsed.1 == d.absoluteString && !browsed.2,
+            "saved=\(browsed.1) backToPinned=\(browsed.2)")
+
+        let relaunched = try await run.step("relaunch the sidebar", timeout: E2ETimeouts.firstLoad) {
+            let reopened = try await pinned.relaunchSidebar(of: page).page
+            _ = try await reopened.waitForLoad(after: 0)
+            let state = try await SplitTests.state(app, of: reopened) { $0.panes == ["A", "D"] }
+            return (try await reopened.string("location.href"), state)
+        }
+        run.check(
+            "split.add_pinned.relaunch",
+            passed: relaunched.0 == d.absoluteString && relaunched.1.panes == ["A", "D"]
+                && relaunched.1.pinned == ["Split View"] && relaunched.1.activeTitle == "D",
+            "url=\(relaunched.0) \(relaunched.1)")
     }
 }
 

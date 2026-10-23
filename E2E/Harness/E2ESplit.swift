@@ -14,18 +14,16 @@ protocol E2ESplitApp: E2EApp {
     func clickSplitSidebarRow(_ row: Int, in page: any E2EPage) throws
     /// Presses the close button of the pane at `index` in `page`'s window. Throws when that pane has none.
     func clickPaneCloseButton(at index: Int, besides page: any E2EPage) throws
-    /// Drags the divider after pane `index` of `page`'s window so the panes before it take `fraction` of the length:
-    /// `pressPaneDivider`, one `movePaneDivider` and `releasePaneDivider`.
+    /// Drags the divider after pane `index` of `page`'s window with the mouse so the panes before it take `fraction` of
+    /// the length: `dragPaneDivider(_:through:besides:)` with one step.
     func dragPaneDivider(_ index: Int, to fraction: Double, besides page: any E2EPage) throws
-    /// Presses on a divider of `page`'s window: what the split view's press handling does before it tracks the drag
-    /// (never a synthetic mouse down, whose tracking loop would never end).
-    func pressPaneDivider(besides page: any E2EPage) throws
-    /// One step of a drag: moves the divider after pane `index` so the panes before it take `fraction` of the length
-    /// (the width side by side, the height stacked), as AppKit's tracking does: the panes take their new frames and
-    /// the split view tells its delegate that divider moved.
-    func movePaneDivider(_ index: Int, to fraction: Double, besides page: any E2EPage) throws
-    /// Lets go of the divider: what the split view's press handling does once its tracking returns.
-    func releasePaneDivider(besides page: any E2EPage) throws
+    /// Presses the mouse on the divider after pane `index` of `page`'s window, drags it so the panes before it take
+    /// each of `fractions` of the length in turn (the width side by side, the height stacked), and lets go, through
+    /// the window's own event dispatch: the drag events and the release are queued before the press is sent, so the
+    /// split view's tracking loop runs on them and ends at the release. Returns the split's saved widths read each
+    /// time the divider moved, while the drag was under way (empty for panes shown without a sidebar split). Throws when
+    /// the press missed the divider.
+    func dragPaneDivider(_ index: Int, through fractions: [Double], besides page: any E2EPage) throws -> [[Double]]
     /// Chooses View > Add Top Split (`top`) or Add Bottom Split in `page`'s window through the app's menu, as a click
     /// on the item does. Throws when the item is missing or disabled.
     func chooseStackedSplit(top: Bool, in page: any E2EPage) throws
