@@ -99,6 +99,8 @@ import Foundation
         case close
         case unload
         case setZoomLevel(Double)
+        case showDevTools(PagePoint?)
+        case closeDevTools
     }
 
     public let tabID: TabID
@@ -116,6 +118,8 @@ import Foundation
     public var beforeUnloadCancelsClose = false
     /// The zoom level last set; the mock keeps it per tab, not per site.
     public private(set) var zoomLevel: Double = 0
+    /// True between `showDevTools` and `closeDevTools` or the tab closing.
+    public private(set) var hasDevTools = false
 
     fileprivate init(id: TabID, profileID: ProfileID, initialURL: URL) {
         self.tabID = id
@@ -146,6 +150,7 @@ import Foundation
         calls.append(.unload)
         guard !isClosed, !beforeUnloadCancelsClose else { return false }
         isClosed = true
+        hasDevTools = false
         delegate?.tab(self, didReceive: .unloaded)
         return true
     }
@@ -155,12 +160,23 @@ import Foundation
         zoomLevel = level
     }
 
+    public func showDevTools(inspectingAt point: PagePoint?) {
+        calls.append(.showDevTools(point))
+        if !isClosed { hasDevTools = true }
+    }
+
+    public func closeDevTools() {
+        calls.append(.closeDevTools)
+        hasDevTools = false
+    }
+
     /// Marks the tab closed for `reason` and sends `TabEvent.closed`, as the engine does whoever closed
     /// it. Call it with the default reason to script a page that closes itself.
     public func markClosed(reason: TabCloseReason = .page) {
         guard !isClosed else { return }
         isClosed = true
         closeReason = reason
+        hasDevTools = false
         delegate?.tab(self, didReceive: .closed)
     }
 
@@ -197,6 +213,17 @@ import Foundation
     /// Hands the delegate a popup tab it decided to open as a tab, as the engine would.
     public func openPopup(_ newTab: any EngineTab, request: PopupRequest) {
         delegate?.tab(self, didOpenPopup: newTab, request: request)
+    }
+
+    /// Asks the delegate what a context menu shows, as the engine would; `.engineDefault` without a delegate.
+    public func decideContextMenu(_ request: ContextMenuRequest) -> ContextMenuDecision {
+        delegate?.tab(self, decideContextMenu: request) ?? .engineDefault
+    }
+
+    /// Offers the delegate a command chosen from the app's menu, as the engine would; false (left to the engine)
+    /// without a delegate.
+    public func chooseContextMenuCommand(_ command: ContextMenuCommand, request: ContextMenuRequest) -> Bool {
+        delegate?.tab(self, runContextMenuCommand: command, request: request) ?? false
     }
 
     /// Offers the delegate a key event before the page, as the engine would; false without a delegate.

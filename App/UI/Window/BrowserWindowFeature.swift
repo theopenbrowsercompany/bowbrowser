@@ -65,6 +65,16 @@ protocol BrowserWindowFeature: NSResponder {
     /// answer the load is cancelled and the engine shows its error page.
     func decideCertificateError(_ error: CertificateError, for tab: any EngineTab) async -> CertificateErrorDecision?
 
+    /// What the context menu `tab`'s page asked for shows, or nil to leave it to another feature. Asked
+    /// synchronously. With no answer the window shows Bow's own menu (`ContextMenuPolicy.defaultDecision(for:)`).
+    func decideContextMenu(_ request: ContextMenuRequest, for tab: any EngineTab) -> ContextMenuDecision?
+
+    /// The person chose `command` from the menu shown for `request` in `tab`; true means the feature ran it. With
+    /// no taker the engine runs it (`ContextMenuCommand` says how; Open Link in New Tab and custom items then do
+    /// nothing). Asked synchronously.
+    func runContextMenuCommand(_ command: ContextMenuCommand, request: ContextMenuRequest, in tab: any EngineTab)
+        -> Bool
+
     /// New Tab was chosen (File > New Tab, Cmd+T through the menu, the sidebar's New Tab button); true means the
     /// feature handled it (the command bar, for example). With no taker the window opens `newTabURL` in a new tab.
     func handleNewTab(_ sender: Any?) -> Bool
@@ -86,5 +96,9 @@ extension BrowserWindowFeature {
     func decideCertificateError(_ error: CertificateError, for tab: any EngineTab) async -> CertificateErrorDecision? {
         nil
     }
+    func decideContextMenu(_ request: ContextMenuRequest, for tab: any EngineTab) -> ContextMenuDecision? { nil }
+    func runContextMenuCommand(_ command: ContextMenuCommand, request: ContextMenuRequest, in tab: any EngineTab)
+        -> Bool
+    { false }
     func handleNewTab(_ sender: Any?) -> Bool { false }
 }
