@@ -164,19 +164,27 @@ bool BowTabClient::DoClose(CefRefPtr<CefBrowser> browser) {
   // A tab's browser is not tied to a window: tear down its own view instead, once its downloads end.
   BowTab* tab = tab_;
   [tab browserWillClose];
-  if ([tab keepClosingBrowserForDownloads:browser]) return true;
+  if ([tab keepClosingBrowserForDownloads:browser]) {
+    // The tab has closed for the app, so popups it was still waiting for end now, not when the downloads do.
+    FailPendingPopupTabs();
+    return true;
+  }
   BowTearDownBrowserView(browser);
   return true;
+}
+
+void BowTabClient::FailPendingPopupTabs() {
+  for (BowTab* newTab in pendingPopupTabs_.objectEnumerator.allObjects) {
+    newTab->_client->openerClient_ = nullptr;
+    [newTab popupCreationFailed];
+  }
+  [pendingPopupTabs_ removeAllObjects];
 }
 
 void BowTabClient::OnBeforeClose(CefRefPtr<CefBrowser> browser) {
   if (IsOwn(browser)) {
     // CEF skips OnBeforePopupAborted once the opener is gone, so popup tabs still waiting for a browser end here.
-    for (BowTab* newTab in pendingPopupTabs_.objectEnumerator.allObjects) {
-      newTab->_client->openerClient_ = nullptr;
-      [newTab popupCreationFailed];
-    }
-    [pendingPopupTabs_ removeAllObjects];
+    FailPendingPopupTabs();
     [tab_ browserClosed];
   }
   BowDownloadsBrowserClosed(browser->GetIdentifier());

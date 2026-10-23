@@ -307,6 +307,9 @@ class BowTabClient : public CefClient,
   __weak BowTab* tab_;
 
  private:
+  // Ends the popup tabs still waiting for a browser: the tab's own browser is closing.
+  void FailPendingPopupTabs();
+
   int ownBrowserID_ = 0;
   // The native key codes of key downs the app claimed, each until its key up.
   std::set<int> claimedKeyCodes_;
