@@ -191,7 +191,7 @@ public struct FindResult: Equatable, Sendable {
     /// fewer matches.
     public var isFinal: Bool
 
-    public init(matchCount: Int, activeMatch: Int, isFinal: Bool = true) {
+    public init(matchCount: Int, activeMatch: Int, isFinal: Bool) {
         self.matchCount = matchCount
         self.activeMatch = activeMatch
         self.isFinal = isFinal

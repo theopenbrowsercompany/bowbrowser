@@ -96,8 +96,10 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
     /// Shows `tab`, one of this window's tabs.
     func select(_ tab: any EngineTab) {
         guard tabs.contains(where: { $0 === tab }) else { return }
-        if let findTab, findTab !== tab { closeFindBar() }
+        let closesFind = findTab.map { $0 !== tab } ?? false
         webView.show(tab)
+        // After showing it, so the keyboard the find bar gives back goes to the page now shown.
+        if closesFind { closeFindBar() }
         updateTitle()
         updateNavigationControls()
     }
@@ -189,8 +191,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
         findBar.show(nil)
         let hadKeyboard = findBar.field.currentEditor() != nil
         findBar.isHidden = true
-        // Chromium's view, which BowWebView holds while it shows a tab, takes the keyboard.
-        if hadKeyboard { window?.makeFirstResponder(webView.subviews.first) }
+        if hadKeyboard { webView.focusAttachedTab() }
     }
 
     private func tabClosed(_ tab: any EngineTab) {

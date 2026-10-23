@@ -64,9 +64,7 @@ struct FindBarTest: E2ETest {
         let reopened = try await run.step("reopen find bar", timeout: E2ETimeouts.step) {
             let bar = try page.openFindBar()
             guard bar.hasKeyboard else { throw E2EError("the keyboard is not in the find bar's field") }
-            while bar.lastResult?.isFinal != true || bar.count.isEmpty {
-                try await Task.sleep(nanoseconds: 10_000_000)
-            }
+            try await bar.waitForCount("1 of 3")
             return bar
         }
         run.check(

@@ -23,6 +23,9 @@ NS_SWIFT_UI_ACTOR
 /// Stops showing the attached tab, which keeps running hidden.
 - (void)detachTab NS_SWIFT_NAME(detach());
 
+/// Gives the keyboard to the attached tab's page, if its window allows. Does nothing while no page is shown.
+- (void)focusAttachedTab;
+
 @end
 
 NS_ASSUME_NONNULL_END
