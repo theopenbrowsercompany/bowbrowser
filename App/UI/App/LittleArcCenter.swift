@@ -24,21 +24,24 @@ final class LittleArcCenter: AppFeature {
         AppSettings.defaults.object(forKey: opensExternalLinksKey) as? Bool
     }
 
-    /// Opens `url` in a new Little Arc window, its page in the profile of the Space `controller` shows (as a link
-    /// opens in a browser window without Little Arc). `browserWindow` names the window a move goes to, at the moment
-    /// of the move. With `takesFocus` the window comes forward and takes the keyboard; without (e2e) it is ordered in
-    /// off screen. Returns the panel, or nil when the Space's profile is missing.
+    /// Opens `url` in a new Little Arc window, its page in `profile`: the profile of the Space the browser window
+    /// shows (as a link opens in a browser window without Little Arc), or with no browser window the Space shown last.
+    /// `permissions` answers the page's permission requests (nil dismisses them). `browserWindow` names the window a
+    /// move goes to, at the moment of the move, and `openWindow` opens one for Open in Bow when none is open. With
+    /// `takesFocus` the window comes forward and takes the keyboard; without (e2e) it is ordered in off screen.
     @discardableResult
     func open(
         _ url: URL,
-        from controller: BrowserWindowController,
+        in profile: any EngineProfile,
+        permissions: PermissionPrompts.ProfilePermissions?,
         takesFocus: Bool,
-        browserWindow: @escaping () -> BrowserWindowController?
-    ) -> LittleArcPanel? {
-        guard let profile = controller.activeProfile else { return nil }
+        browserWindow: @escaping () -> BrowserWindowController?,
+        openWindow: @escaping (SidebarProfileID) -> BrowserWindowController?
+    ) -> LittleArcPanel {
         let tab = profile.createTab(url: url)
         let panel = LittleArcPanel(
-            tab: tab, url: url, frame: Self.frame(), takesFocus: takesFocus, browserWindow: browserWindow
+            tab: tab, url: url, frame: Self.frame(), takesFocus: takesFocus, permissions: permissions,
+            browserWindow: browserWindow, openWindow: openWindow
         ) { [weak self] closed in
             self?.panels.removeAll { $0 === closed }
         }

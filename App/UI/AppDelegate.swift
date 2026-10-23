@@ -30,6 +30,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         var e2eDeliversLinks = false  // E2E seam
         /// Told about each link from another app that opened, with its sender and the window it opened in.
         var e2eLinkOpened: ((URL, LinkSource?, BrowserWindowController) -> Void)?  // E2E seam
+        /// Opens the window Open in Bow needs with no browser window open, off screen, given how to open it.
+        var e2eOpenWindow: (((BrowserWindow) throws -> BrowserWindowController) throws -> BrowserWindowController)?  // E2E seam
     #endif
     /// True once the engine has started and windows can open.
     private var engineStarted = false
@@ -186,26 +188,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// any tab exists for it: a new tab created in the routed Space, or in a Space of the routed profile, so its first
     /// request goes out there; Little Arc; or the browser window (`openLink`). When no rule matches, the default
     /// applies; a default of Little Arc (the initial one) opens a new Little Arc window while "links from other apps
-    /// open in Little Arc" is on (as in Arc) and a browser window is open, its page in the profile of that window's
-    /// Space on screen, and otherwise opens in a browser window.
+    /// open in Little Arc" is on (as in Arc), its page in the profile of the link window's Space on screen or, with no
+    /// browser window open, of the Space shown last (as Arc opens Little Arc with no window open), and otherwise opens
+    /// in a browser window.
     func openIncomingLink(_ link: IncomingLink) {
-        let window = linkWindow()
+        let profile = littleArcProfile()
         let decision = appFeatures.require(AirTrafficControl.self).decide(link, isAvailable: routingDestinationExists)
         let opening = LinkRouting.opening(
-            for: decision, littleArcSetting: LittleArcCenter.opensExternalLinks, hasSpace: window != nil)
+            for: decision, littleArcSetting: LittleArcCenter.opensExternalLinks, hasSpace: profile != nil)
         switch opening {
         case .space(let id):
             openRoutedLink(link) { $0.space(id) != nil ? id : nil }
         case .profile(let id):
             openRoutedLink(link) { LinkRouting.spaceID(forProfile: id, in: $0) }
         case .littleArc:
-            let panel = window.flatMap { window in
-                appFeatures.require(LittleArcCenter.self).open(link.url, from: window, takesFocus: !options.isE2E) {
-                    [weak self] in self?.linkWindow()
-                }
-            }
             // A Space without its profile opens no page; the window path reports that.
-            if panel == nil { openLink(link.url, from: link.source) }
+            guard let profile else {
+                openLink(link.url, from: link.source)
+                return
+            }
+            appFeatures.require(LittleArcCenter.self).open(
+                link.url, in: profile,
+                permissions: PermissionPrompts.ProfilePermissions(
+                    store: appFeatures.require(SitePermissionStores.self).store(for: profile), profile: profile),
+                takesFocus: !options.isE2E,
+                browserWindow: { [weak self] in self?.linkWindow() },
+                openWindow: { [weak self] profileID in self?.openWindowForLittleArc(profileID: profileID) })
         case .browserWindow:
             openLink(link.url, from: link.source)
         }
@@ -219,6 +227,53 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         return open.first(where: { $0.window?.isMainWindow == true })
             ?? open.last(where: { $0.window.map { $0.isVisible || $0.isMiniaturized } == true })
             ?? (NSApp.isHidden ? open.last : nil)
+    }
+
+    /// The sidebar of the browser window that closed last, while something still holds it (the app's own sidebar
+    /// always is). Weak, so a closed window's sidebar of its own is not kept for Little Arc.
+    private weak var lastClosedSidebar: SidebarStore?
+
+    /// The sidebar whose Space on screen is the Space shown last when no browser window is open: the last closed
+    /// window's, else the app's own (never in an e2e run, whose windows have sidebars of their own).
+    private var lastShownSidebar: SidebarStore? {
+        if let lastClosedSidebar { return lastClosedSidebar }
+        guard engineStarted, !options.isE2E else { return nil }
+        return try? appFeatures.require(SidebarStores.self).main().store
+    }
+
+    /// The profile a Little Arc page opens in: that of the link window's Space on screen, else, with no browser window
+    /// open, that of the Space shown last. Nil when neither has a profile the engine can open.
+    private func littleArcProfile() -> (any EngineProfile)? {
+        if let window = linkWindow() { return window.activeProfile }
+        guard let profileID = lastShownSidebar?.graph.activeSpace?.profileID else { return nil }
+        return appFeatures.require(ProfileRegistryStore.self).engineProfile(for: profileID, engine: engine)
+    }
+
+    /// Open in Bow from Little Arc with no browser window open: opens a window on the sidebar shown last, showing a
+    /// Space of profile `profileID` (`LittleArc.newWindowSpace`), so the page can move into it. Returns nil, opening
+    /// nothing, when that sidebar has no Space of the profile or the window cannot open.
+    private func openWindowForLittleArc(profileID: SidebarProfileID) -> BrowserWindowController? {
+        guard let store = lastShownSidebar, let spaceID = LittleArc.newWindowSpace(in: store.graph, profileID: profileID)
+        else { return nil }
+        if store.graph.activeSpaceID != spaceID {
+            guard (try? store.switchToSpace(spaceID)) != nil else { return nil }
+        }
+        // The page arriving is the Space's new tab, so an empty Space opens no home page beside it.
+        let open = { [self] (window: BrowserWindow?) throws(SidebarNotice) -> BrowserWindowController in
+            try openWindow(url: nil, store: store, window: window, opensHomePage: false)
+        }
+        #if BOW_E2E
+            if let e2eOpenWindow { return try? e2eOpenWindow { window in try open(window) } }  // E2E seam
+        #endif
+        guard !options.isE2E else { return nil }
+        do {
+            let controller = try open(nil)
+            controller.showWindow(nil)
+            return controller
+        } catch {
+            appFeatures.require(SidebarStores.self).present(error, in: nil)
+            return nil
+        }
     }
 
     /// Opens a link from another app in a browser window, in the profile of the target window's Space on screen, as
@@ -354,11 +409,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
         // An e2e run quits when its tests are done, even if a test closes every window on the way.
         if options.isE2E { return false }
-        // Quitting would cancel the downloads of closed tabs, whose pages stay alive until they end: the app stays
-        // open until then, and quits then unless a window has opened meanwhile.
-        guard engine.keepsClosedTabsForDownloads else { return true }
-        quitWhenClosedTabsReleased()
-        return false
+        switch lastWindowClosed() {
+        case .stay: return false
+        case .quit: return true
+        case .waitForDownloads:
+            quitWhenClosedTabsReleased()
+            return false
+        }
+    }
+
+    /// What the app does when its last browser window has closed.
+    enum LastWindowClosed {
+        /// It keeps running: a Little Arc window is open, and counts as a window (as in Arc).
+        case stay
+        /// It quits.
+        case quit
+        /// Quitting would cancel the downloads of closed tabs, whose pages stay alive until they end: the app stays
+        /// open until then, and quits then unless a window has opened meanwhile.
+        case waitForDownloads
+    }
+
+    /// What the app does now that its last browser window has closed (`applicationShouldTerminateAfterLastWindowClosed`
+    /// acts on it), without doing it.
+    func lastWindowClosed() -> LastWindowClosed {
+        let littleArc = appFeatures.require(LittleArcCenter.self).panels.count
+        if LittleArc.keepsAppRunning(openLittleArcWindows: littleArc) { return .stay }
+        return engine.keepsClosedTabsForDownloads ? .waitForDownloads : .quit
     }
 
     /// True while the app waits for closed tabs' downloads to end before quitting after its last window closed.
@@ -383,7 +459,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// `url` in a new tab, or restores the sidebar when `url` is nil (the home page when the sidebar has no tabs).
     /// With a `profile` it runs on a new sidebar of its own whose one Space shows that profile, and opens `url`.
     /// A given `store` is used as it is, as on launch. `window` is the window to use (e2e runs pass an off-screen one),
-    /// and `sidebarStores` the stores to take the sidebar from (the app's own when nil).
+    /// and `sidebarStores` the stores to take the sidebar from (the app's own when nil). Without `opensHomePage` a
+    /// restored Space with no tabs stays empty instead of opening the home page (a page is about to move into it).
     ///
     /// Throws, opening nothing, when the sidebar cannot be opened (the app's sidebar file can be neither read nor set
     /// aside, or a window sidebar cannot be created); the caller shows the notice. A window never runs on a temporary
@@ -394,7 +471,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         profile: (any EngineProfile)? = nil,
         store givenStore: SidebarStore? = nil,
         window: BrowserWindow? = nil,
-        sidebarStores: SidebarStores? = nil
+        sidebarStores: SidebarStores? = nil,
+        opensHomePage: Bool = true
     ) throws(SidebarNotice) -> BrowserWindowController {
         let stores = sidebarStores ?? appFeatures.require(SidebarStores.self)
         let store: SidebarStore
@@ -409,7 +487,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             if let notice = main.notice { notices.append(notice) }
         }
         var url = url
-        if url == nil, store.graph.activeSpaceID.map({ store.graph.tabIDs(in: $0).isEmpty }) ?? true {
+        if url == nil, opensHomePage,
+            store.graph.activeSpaceID.map({ store.graph.tabIDs(in: $0).isEmpty }) ?? true
+        {
             url = Self.homeURL
         }
         let engine = engine
@@ -434,6 +514,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         )
         controller.onClose = { [weak self] closed in
             self?.windowControllers.removeAll { $0 === closed }
+            // Its Space on screen is the Space shown last, which Little Arc uses while no window is open.
+            self?.lastClosedSidebar = closed.store
         }
         // The most recently used browser window stays last, where links from other apps go.
         controller.onBecomeMain = { [weak self] main in
