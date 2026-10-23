@@ -152,6 +152,13 @@ public final class SidebarStore {
     /// fails, the change stays committed in memory, `hasUnsavedChanges` stays true, and `saveFailed` is thrown; the
     /// file on disk keeps its previous contents.
     public func commitTransaction() throws(SidebarStoreError) {
+        try commitTransaction(saving: true)
+    }
+
+    /// Commits as `commitTransaction()` does; with `saving` false the change stays in memory only, with
+    /// `hasUnsavedChanges` true, until the next commit that saves or a `save()`. For frequent small changes (a page's
+    /// title as it loads) that the caller writes on a timer and on quit.
+    public func commitTransaction(saving: Bool) throws(SidebarStoreError) {
         guard var draft else { throw .noOpenTransaction }
         self.draft = nil
         // A split left with fewer than two tabs by any change (a move to Favorites or another Space, a delete) is
@@ -161,7 +168,7 @@ public final class SidebarStore {
         guard draft != graph else {
             // Nothing changed, but retry a write an earlier commit could not finish.
             lastCommitRepairs = []
-            try save()
+            if saving { try save() }
             return
         }
         let problems = draft.integrityProblems()
@@ -172,7 +179,7 @@ public final class SidebarStore {
         graph = draft
         lastCommitRepairs = splitFixes
         hasUnsavedChanges = true
-        try save()
+        if saving { try save() }
     }
 
     /// Discards the open transaction.
@@ -192,11 +199,17 @@ public final class SidebarStore {
         try commitTransaction()
     }
 
-    /// Applies `mutations` in one transaction.
-    public func apply(_ mutations: [SidebarMutation]) throws {
-        try transaction {
+    /// Applies `mutations` in one transaction. With `saving` false the change is committed without writing the file
+    /// (see `commitTransaction(saving:)`).
+    public func apply(_ mutations: [SidebarMutation], saving: Bool = true) throws {
+        try beginTransaction()
+        do {
             for mutation in mutations { try mutate(mutation) }
+        } catch {
+            rollbackTransaction()
+            throw error
         }
+        try commitTransaction(saving: saving)
     }
 
     // MARK: Saving and repair

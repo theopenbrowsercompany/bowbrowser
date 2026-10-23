@@ -1,9 +1,10 @@
 import AppKit
 import BowCore
 
-/// Answers one window's permission requests: from the profile's remembered answers when it has one, otherwise by
-/// asking the person in a prompt anchored to the top of the page, then remembering their answer per site in the
-/// profile's store and in the engine's content settings.
+/// Answers one window's permission requests: from the remembered answers of the profile the asking tab runs in when
+/// it has one, otherwise by asking the person in a prompt anchored to the top of the page, then remembering their
+/// answer per site in that profile's store and in the engine's content settings. Each tab uses its own profile, so a
+/// window whose Spaces use different profiles keeps their answers apart.
 ///
 /// Requests wait in order. The prompt shows the first request of the tab the window shows; switching tabs hides it
 /// and shows that tab's own, and a request whose tab closes or leaves the page is dismissed.
@@ -13,11 +14,18 @@ final class PermissionPrompts {
         let id: Int
         let tab: any EngineTab
         let request: PermissionRequest
+        let site: ProfilePermissions
         let answer: CheckedContinuation<PermissionDecision, Never>
     }
 
-    private let store: SitePermissionStore
-    private let profile: any EngineProfile
+    /// A tab's profile and that profile's permission store.
+    struct ProfilePermissions {
+        let store: SitePermissionStore
+        let profile: any EngineProfile
+    }
+
+    /// The profile and store of a tab, nil when its profile is unknown (its requests are dismissed).
+    private let permissions: (any EngineTab) -> ProfilePermissions?
     /// The view the prompt is anchored to: the page's view.
     private unowned let hostView: NSView
     private var pending: [Pending] = []
@@ -32,9 +40,8 @@ final class PermissionPrompts {
     /// the requests the answer covers.
     private static let storeChanged = Notification.Name("BowSitePermissionStoreChanged")
 
-    init(store: SitePermissionStore, profile: any EngineProfile, hostView: NSView) {
-        self.store = store
-        self.profile = profile
+    init(hostView: NSView, permissions: @escaping (any EngineTab) -> ProfilePermissions?) {
+        self.permissions = permissions
         self.hostView = hostView
         hostView.postsFrameChangedNotifications = true
         frameObserver = NotificationCenter.default.addObserver(
@@ -43,9 +50,12 @@ final class PermissionPrompts {
             MainActor.assumeIsolated { self?.placePrompt() }
         }
         storeObserver = NotificationCenter.default.addObserver(
-            forName: Self.storeChanged, object: store, queue: .main
-        ) { [weak self] _ in
-            MainActor.assumeIsolated { self?.settle() }
+            forName: Self.storeChanged, object: nil, queue: .main
+        ) { [weak self] notification in
+            // Only the store's identity crosses into the main actor; the store itself is read there.
+            guard let object = notification.object as AnyObject? else { return }
+            let changed = ObjectIdentifier(object)
+            MainActor.assumeIsolated { self?.settle(changed) }
         }
     }
 
@@ -57,10 +67,11 @@ final class PermissionPrompts {
 
     /// The answer to `request` from `tab`: remembered, or the person's once they answer the prompt.
     func decide(_ request: PermissionRequest, for tab: any EngineTab) async -> PermissionDecision {
-        if let remembered = store.decision(for: request) { return remembered }
+        guard let site = permissions(tab) else { return .dismiss }
+        if let remembered = site.store.decision(for: request) { return remembered }
         return await withCheckedContinuation { answer in
             lastPendingID += 1
-            pending.append(Pending(id: lastPendingID, tab: tab, request: request, answer: answer))
+            pending.append(Pending(id: lastPendingID, tab: tab, request: request, site: site, answer: answer))
             update()
         }
     }
@@ -85,23 +96,28 @@ final class PermissionPrompts {
     private func answer(_ decision: PermissionDecision, entryID: Int) {
         guard let index = pending.firstIndex(where: { $0.id == entryID }) else { return }
         let answered = pending.remove(at: index)
-        remember(decision, for: answered.request)
+        remember(decision, for: answered.request, in: answered.site)
         answered.answer.resume(returning: decision)
         update()
-        // The answer may settle other waiting requests from the same site, in this window and others.
-        NotificationCenter.default.post(name: Self.storeChanged, object: store)
+        // The answer may settle other waiting requests from the same site and profile, in this window and others.
+        NotificationCenter.default.post(name: Self.storeChanged, object: answered.site.store)
     }
 
-    /// Answers every waiting request the store now has an answer for.
-    private func settle() {
-        let settled = pending.compactMap { entry in store.decision(for: entry.request).map { (entry, $0) } }
+    /// Answers every waiting request on the store `changed` that it now has an answer for.
+    private func settle(_ changed: ObjectIdentifier) {
+        let settled = pending.compactMap { entry in
+            ObjectIdentifier(entry.site.store) == changed
+                ? entry.site.store.decision(for: entry.request).map { (entry, $0) } : nil
+        }
         guard !settled.isEmpty else { return }
         pending.removeAll { entry in settled.contains { $0.0.id == entry.id } }
         for (entry, decision) in settled { entry.answer.resume(returning: decision) }
         update()
     }
 
-    private func remember(_ decision: PermissionDecision, for request: PermissionRequest) {
+    private func remember(_ decision: PermissionDecision, for request: PermissionRequest, in site: ProfilePermissions) {
+        let store = site.store
+        let profile = site.profile
         do {
             try store.record(decision, for: request)
         } catch {

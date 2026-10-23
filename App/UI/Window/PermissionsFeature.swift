@@ -1,23 +1,21 @@
 import AppKit
 import BowCore
 
-/// Site permission prompts: answers the window's permission requests from the profile's remembered answers, or by
-/// asking in a prompt anchored to the page (`PermissionPrompts`). The prompt follows the tab on screen.
-///
-/// The prompts use the profile of the Space on screen when the window opens. Known limit: a window whose Spaces use
-/// different profiles needs prompts per tab profile, which comes with profiles behind Spaces.
+/// Site permission prompts: answers the window's permission requests from the remembered answers of the asking tab's
+/// own profile, or by asking in a prompt anchored to the page (`PermissionPrompts`). The prompt follows the tab on
+/// screen. Each request looks its profile up through the window's profile resolver, so a tab in a Space on another
+/// profile reads and writes that profile's answers, not those of the Space on screen when the window opened.
 @MainActor
 final class PermissionsFeature: NSResponder, BrowserWindowFeature {
-    private unowned let window: BrowserWindowController
-    /// The window's permission prompts, anchored to the web view, the page area to the right of the sidebar. Nil
-    /// when the Space on screen has no engine profile, in which case every request is dismissed.
+    /// The window's permission prompts, anchored to the web view, the page area to the right of the sidebar. A tab
+    /// whose profile the engine does not know has its requests dismissed.
     let prompts: PermissionPrompts?
 
     init(window: BrowserWindowController) {
-        self.window = window
-        prompts = window.activeProfile.map { profile in
-            let store = window.appFeatures.require(SitePermissionStores.self).store(for: profile)
-            return PermissionPrompts(store: store, profile: profile, hostView: window.webView)
+        let stores = window.appFeatures.require(SitePermissionStores.self)
+        prompts = PermissionPrompts(hostView: window.webView) { [unowned window] tab in
+            guard let profile = window.engineProfile(of: tab) else { return nil }
+            return PermissionPrompts.ProfilePermissions(store: stores.store(for: profile), profile: profile)
         }
         super.init()
     }
