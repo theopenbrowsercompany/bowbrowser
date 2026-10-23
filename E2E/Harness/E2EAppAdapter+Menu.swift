@@ -12,13 +12,21 @@ extension E2EAppAdapter {
 
     /// Every main menu item whose shortcut a key press can reach, depth first. A hidden item is skipped with its
     /// submenu, as AppKit skips them for key presses, unless it allows its key equivalent while hidden (its submenu
-    /// is still skipped).
+    /// is still skipped). An item held with the Fn (Globe) key on a key that has a character, such as the Emoji &
+    /// Symbols item AppKit adds, is left out: `E2EKeyModifiers` cannot name Fn, so it would read as the bare key.
     private static func shortcutItems(in menu: NSMenu?) -> [NSMenuItem] {
         (menu?.items ?? []).flatMap { item -> [NSMenuItem] in
             let reachable = !item.isHidden || item.allowsKeyEquivalentWhenHidden
-            let own = reachable && !item.keyEquivalent.isEmpty ? [item] : []
+            let own = reachable && !item.keyEquivalent.isEmpty && !needsFn(item) ? [item] : []
             return own + (item.isHidden ? [] : shortcutItems(in: item.submenu))
         }
+    }
+
+    /// Whether `item`'s shortcut is held with Fn on a key that has a character. Arrows and function keys (AppKit's
+    /// private use characters) may carry the Fn flag as part of the key itself.
+    private static func needsFn(_ item: NSMenuItem) -> Bool {
+        guard item.keyEquivalentModifierMask.contains(.function) else { return false }
+        return !item.keyEquivalent.unicodeScalars.allSatisfy { (0xF700...0xF8FF).contains($0.value) }
     }
 
     private struct Shortcut: Equatable {
