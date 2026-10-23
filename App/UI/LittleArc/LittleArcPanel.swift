@@ -393,7 +393,8 @@ final class LittleArcPanel: NSObject, NSWindowDelegate, EngineTabDelegate, NSMen
         open.keyEquivalentModifierMask = .command
         open.target = self
         let hasPage = tab.map { !$0.isClosed } ?? false
-        open.isEnabled = hasPage && LittleArc.canOpenInBow(hasBrowserWindow: liveBrowserWindow() != nil, targets: targets)
+        open.isEnabled =
+            hasPage && LittleArc.canOpenInBow(hasBrowserWindow: liveBrowserWindow() != nil, targets: targets)
         menu.addItem(open)
         menu.addItem(.separator())
         let header = NSMenuItem(title: "Move to Space", action: nil, keyEquivalent: "")
