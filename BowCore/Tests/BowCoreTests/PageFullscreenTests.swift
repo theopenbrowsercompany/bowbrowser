@@ -111,7 +111,7 @@ import Testing
         #expect(
             state.pageEntered(1, isShown: true, windowIsFullScreen: false) == [.hideChrome, .toggleWindowFullScreen])
         state.windowWillEnterFullScreen()
-        #expect(state.transition == true)
+        #expect(state.transition == .entering)
         // Escape while the window animates in: the chrome comes back now, the toggle waits.
         #expect(state.pageExited(1) == [.showChrome])
         #expect(state.queuedFullScreen == false)
