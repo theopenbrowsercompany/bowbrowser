@@ -113,11 +113,34 @@ extension E2EAppAdapter {
     func chooseMenuItem(key: String, modifiers: E2EKeyModifiers, in page: any E2EPage) throws {
         let window = try Self.window(of: page)
         let shortcut = modifiers.shortcut(key)
-        guard let item = Self.menuItem(key: key, modifiers: modifiers), let action = item.action else {
+        guard let item = Self.menuItem(key: key, modifiers: modifiers) else {
             throw E2EError("no menu item has the shortcut \(shortcut)")
         }
+        try Self.choose(item, named: shortcut, in: window)
+    }
+
+    /// Chooses the main menu item at `path` (menu titles from the menu bar down, ending with the item's title, such
+    /// as ["View", "Spaces", "New Space"]) in `page`'s window, the way `chooseMenuItem(key:modifiers:in:)` sends a
+    /// shortcut's item, for items that have no shortcut. Throws when no item is at that path, and as that method does.
+    func chooseMenuItem(path: [String], in page: any E2EPage) throws {
+        let window = try Self.window(of: page)
+        let name = path.joined(separator: " > ")
+        var menu = NSApp.mainMenu
+        var found: NSMenuItem?
+        for title in path {
+            found = menu?.items.first { $0.title == title && !$0.isHidden }
+            menu = found?.submenu
+        }
+        guard let item = found else { throw E2EError("no menu item is at \(name)") }
+        try Self.choose(item, named: name, in: window)
+    }
+
+    /// Sends `item`'s action to the object `route(of:action:in:)` picks in `window`, after that object validates the
+    /// item. `shortcut` names the item in errors.
+    private static func choose(_ item: NSMenuItem, named shortcut: String, in window: NSWindow) throws {
+        guard let action = item.action else { throw E2EError("\"\(item.title)\" (\(shortcut)) has no action") }
         let target: AnyObject
-        switch Self.route(of: item, action: action, in: window) {
+        switch route(of: item, action: action, in: window) {
         case .refused(let reason):
             throw E2EError("refused to choose \"\(item.title)\" (\(shortcut)) in a test: \(reason)")
         case .outside(let other):
