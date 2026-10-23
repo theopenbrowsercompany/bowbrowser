@@ -126,10 +126,11 @@ struct FoldersTreeTest: E2ETest {
 
 /// Seeds pinned P1, folder Outer holding P3 and folder Inner (holding P2), and an empty folder. Checks the empty
 /// folder is listed with a plain "Delete Folder"; that "Delete Folder and Tabs…" on Inner asks first, Cancel
-/// keeping it and Delete removing it with P2; and that "Delete Folder, Keep Tabs" on Outer leaves P3 in its place.
+/// keeping it and Delete removing it with P2; that "Delete Folder, Keep Tabs" on Outer leaves P3 in its place; and
+/// that deleting a folder holding the open, active tab D closes D and makes the next tab outside it active.
 struct FoldersDeleteTest: E2ETest {
     let name = "folders.delete"
-    let checks = ["folders.empty", "folders.delete-tabs", "folders.delete-keep"]
+    let checks = ["folders.empty", "folders.delete-tabs", "folders.delete-keep", "folders.delete-open"]
 
     func run(_ run: E2ERun) async throws {
         let app = try FoldersTests.app(run)
@@ -211,6 +212,36 @@ struct FoldersDeleteTest: E2ETest {
             "folders.delete-keep", passed: afterKeep == kept && p3?.parent == "pinned",
             afterKeep == kept && p3?.parent == "pinned"
                 ? "P3=pinned pinned=[P1,P3,Empty]" : "\(afterKeep) P3=\(p3.map(\.description) ?? "gone")")
+
+        // A folder holding the open, active tab: the tab closes, and the next tab outside the folder becomes active.
+        let d = try await run.step("open D and drag it into Empty", timeout: E2ETimeouts.firstLoad) {
+            let d = try app.openTab(at: url("D"), besides: page, select: true)
+            _ = try await d.waitForLoad(after: 0)
+            try app.dragTab(d, onRow: try FoldersTests.row("Empty", in: page, app: app), childIndex: -1)
+            _ = try await FoldersTests.outline(
+                app, of: page, until: "favorites | pinned | >P1 | >P3 | >Empty | >>D | divider | today | >T1")
+            return d
+        }
+        let cleared = "favorites | pinned | >P1 | >P3 | divider | today | >T1"
+        let afterOpen = try await run.step("delete Empty and its open tab", timeout: E2ETimeouts.firstLoad) {
+            try app.chooseSidebarMenuItem(
+                "Delete Folder and Tabs\u{2026}", row: try FoldersTests.row("Empty", in: page, app: app), in: page)
+            _ = try await FoldersTests.wait({ try app.sidebarSheet(in: page) }) { $0 != nil }
+            try app.clickSheetButton("Delete", in: page)
+            _ = try await FoldersTests.wait({ d.isClosed }) { $0 }
+            return try await FoldersTests.outline(app, of: page, until: cleared)
+        }
+        let active = try await run.step("read the active tab", timeout: E2ETimeouts.step) {
+            try await FoldersTests.wait({ try app.sidebarRows(of: page).first(where: \.isActive)?.title }) {
+                $0 == "T1"
+            }
+        }
+        let openPassed = d.isClosed && afterOpen == cleared && active == "T1"
+        run.check(
+            "folders.delete-open", passed: openPassed,
+            openPassed
+                ? "D=closed active=T1"
+                : "D=\(d.isClosed ? "closed" : "open") active=\(active ?? "none") outline=\(afterOpen)")
     }
 }
 
