@@ -40,6 +40,34 @@ protocol BrowserWindowFeature: NSResponder {
     /// The answer to a permission request from `tab`, or nil to leave it to another feature. The first feature that
     /// answers decides; with none, the request is dismissed.
     func decidePermission(_ request: PermissionRequest, for tab: any EngineTab) async -> PermissionDecision?
+
+    // The engine hooks below reach a feature only for the window's own tabs. For each, the first feature (in
+    // `WindowFeatures.all` order) that answers decides, and with none the window keeps the engine contract's default.
+
+    /// Where a new page `tab` opens goes (`request` carries the click modifiers), or nil to leave it to another
+    /// feature. Asked synchronously. With no answer the engine opens its own popup window.
+    func decidePopup(_ request: PopupRequest, from tab: any EngineTab) -> PopupDecision?
+
+    /// A popup decided as a tab arrived as `newTab`, still connected to its opener `tab`. True takes ownership of it
+    /// (usually through `BrowserWindowController.adoptTab(_:after:placement:select:url:)`); with no taker it closes.
+    /// Asked synchronously, before the new tab's first navigation: show no modal UI and do not close the opener here.
+    func didOpenPopup(_ newTab: any EngineTab, from tab: any EngineTab, request: PopupRequest) -> Bool
+
+    /// A key event is about to reach `tab`'s page; true claims it, so the page never sees it. Asked synchronously.
+    /// Claim keys through `KeyShortcuts.shortcut(for:claimedBy:)`, so every claimed key is listed in one place.
+    func handleKeyBeforePage(_ event: EngineKeyEvent, in tab: any EngineTab) -> Bool
+
+    /// Credentials for a server's sign in request from `tab`, or nil to leave it to another feature. With no answer
+    /// the sign in is cancelled.
+    func answer(_ challenge: AuthChallenge, for tab: any EngineTab) async -> AuthCredentials?
+
+    /// What to do with a certificate that failed to verify in `tab`, or nil to leave it to another feature. With no
+    /// answer the load is cancelled and the engine shows its error page.
+    func decideCertificateError(_ error: CertificateError, for tab: any EngineTab) async -> CertificateErrorDecision?
+
+    /// New Tab was chosen (File > New Tab, Cmd+T through the menu, the sidebar's New Tab button); true means the
+    /// feature handled it (the command bar, for example). With no taker the window opens `newTabURL` in a new tab.
+    func handleNewTab(_ sender: Any?) -> Bool
 }
 
 extension BrowserWindowFeature {
@@ -51,4 +79,12 @@ extension BrowserWindowFeature {
     func activeSpaceChanged(_ space: SidebarSpace) {}
     func storeChanged(_ graph: SidebarGraph) {}
     func decidePermission(_ request: PermissionRequest, for tab: any EngineTab) async -> PermissionDecision? { nil }
+    func decidePopup(_ request: PopupRequest, from tab: any EngineTab) -> PopupDecision? { nil }
+    func didOpenPopup(_ newTab: any EngineTab, from tab: any EngineTab, request: PopupRequest) -> Bool { false }
+    func handleKeyBeforePage(_ event: EngineKeyEvent, in tab: any EngineTab) -> Bool { false }
+    func answer(_ challenge: AuthChallenge, for tab: any EngineTab) async -> AuthCredentials? { nil }
+    func decideCertificateError(_ error: CertificateError, for tab: any EngineTab) async -> CertificateErrorDecision? {
+        nil
+    }
+    func handleNewTab(_ sender: Any?) -> Bool { false }
 }

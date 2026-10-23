@@ -25,6 +25,10 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
     private let rootView: NSView
     /// Pins the page area's leading edge: to the window's, or to the trailing edge of the attached leading view.
     private var pageLeadingConstraint: NSLayoutConstraint
+    /// Pin the page area's other edges to the window's content.
+    private let pageTrailingConstraint: NSLayoutConstraint
+    private let pageTopConstraint: NSLayoutConstraint
+    private let pageBottomConstraint: NSLayoutConstraint
     /// The window's features, in `WindowFeatures.all` order, which is also their order in the responder chain.
     private(set) var features: [any BrowserWindowFeature] = []
     /// The sidebar the window shows and changes: the source of truth for its tabs, their order and the active tab.
@@ -144,6 +148,9 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
         rootView = NSView(frame: NSRect(origin: .zero, size: contentSize))
         pageArea = NSView(frame: NSRect(origin: .zero, size: contentSize))
         pageLeadingConstraint = pageArea.leadingAnchor.constraint(equalTo: rootView.leadingAnchor)
+        pageTrailingConstraint = pageArea.trailingAnchor.constraint(equalTo: rootView.trailingAnchor)
+        pageTopConstraint = pageArea.topAnchor.constraint(equalTo: rootView.topAnchor)
+        pageBottomConstraint = pageArea.bottomAnchor.constraint(equalTo: rootView.bottomAnchor)
         self.store = store
         self.profiles = profiles
         self.appFeatures = appFeatures
@@ -181,11 +188,52 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
         pageArea.translatesAutoresizingMaskIntoConstraints = false
         rootView.addSubview(pageArea)
         NSLayoutConstraint.activate([
-            pageLeadingConstraint,
-            pageArea.trailingAnchor.constraint(equalTo: rootView.trailingAnchor),
-            pageArea.topAnchor.constraint(equalTo: rootView.topAnchor),
-            pageArea.bottomAnchor.constraint(equalTo: rootView.bottomAnchor),
+            pageLeadingConstraint, pageTrailingConstraint, pageTopConstraint, pageBottomConstraint,
         ])
+    }
+
+    // MARK: Page container
+
+    // The seam window chrome (a hidden toolbar, rounded page corners) changes the page's frame through, so chrome
+    // features never edit the window core. Each defaults to today's look: no insets, square corners, a normal title
+    // bar.
+
+    /// Space between the page area and the window's content edges (the leading inset counts from the attached
+    /// leading view, when there is one).
+    var pageInsets = NSEdgeInsetsZero {
+        didSet { applyPageInsets() }
+    }
+
+    /// The page area's corner radius, clipping the page; 0 keeps square corners.
+    var pageCornerRadius: CGFloat = 0 {
+        didSet {
+            pageArea.wantsLayer = true
+            pageArea.layer?.cornerRadius = pageCornerRadius
+            pageArea.layer?.cornerCurve = .continuous
+            pageArea.layer?.masksToBounds = pageCornerRadius > 0
+        }
+    }
+
+    /// Whether the window's content runs under a transparent title bar (the full size content style), so chrome can
+    /// draw up to the window's top edge; the page area then starts at `pageInsets.top` from that edge.
+    var usesFullSizeContent: Bool {
+        get { window?.styleMask.contains(.fullSizeContentView) ?? false }
+        set {
+            guard let window else { return }
+            if newValue {
+                window.styleMask.insert(.fullSizeContentView)
+            } else {
+                window.styleMask.remove(.fullSizeContentView)
+            }
+            window.titlebarAppearsTransparent = newValue
+        }
+    }
+
+    private func applyPageInsets() {
+        pageLeadingConstraint.constant = pageInsets.left
+        pageTrailingConstraint.constant = -pageInsets.right
+        pageTopConstraint.constant = pageInsets.top
+        pageBottomConstraint.constant = -pageInsets.bottom
     }
 
     /// Places `view` along the window's leading edge at a fixed `width`, full height, with the page area to its
@@ -194,7 +242,8 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
         view.translatesAutoresizingMaskIntoConstraints = false
         rootView.addSubview(view)
         pageLeadingConstraint.isActive = false
-        pageLeadingConstraint = pageArea.leadingAnchor.constraint(equalTo: view.trailingAnchor)
+        pageLeadingConstraint = pageArea.leadingAnchor.constraint(
+            equalTo: view.trailingAnchor, constant: pageInsets.left)
         NSLayoutConstraint.activate([
             view.leadingAnchor.constraint(equalTo: rootView.leadingAnchor),
             view.topAnchor.constraint(equalTo: rootView.topAnchor),
@@ -229,10 +278,63 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
 
     /// Opens `url` in a new tab in the active Space's today section, right after the active tab when that is a
     /// today tab and at the end otherwise, selecting it unless `select` is false. The tab opens in the active Space's
-    /// profile; every way of opening a tab comes here. Returns nil, opening nothing, when the Space's profile is
-    /// missing or the store refuses the change.
+    /// profile; every way of opening a tab comes here or to `adoptTab`. Returns nil, opening nothing, when the Space's
+    /// profile is missing or the store refuses the change.
     @discardableResult
     func openTab(url: URL, select: Bool = true) -> (any EngineTab)? {
+        guard let (item, profile) = insertTab(url: url, placement: .afterOpener, after: nil, select: select) else {
+            return nil
+        }
+        let tab = load(item, url: url, in: profile)
+        storeDidChange()
+        return tab
+    }
+
+    /// Takes `tab`, an engine tab the engine already created (a popup the page opened as a tab, later a promoted
+    /// Peek), into the active Space's today section as a new sidebar tab, selecting it unless `select` is false. With
+    /// `.afterOpener` it goes right after `opener` when that is a today tab of the Space on screen (else where
+    /// `openTab` puts a tab); with `.topOfToday` at the top of today. The tab keeps its page (and `window.opener`);
+    /// its row shows `url` until the page reports its own. Returns false, taking nothing, when the window is closing,
+    /// the tab is closed or already the window's, its profile is not the active Space's, or the store refuses; the
+    /// caller then closes it.
+    @discardableResult
+    func adoptTab(
+        _ tab: any EngineTab,
+        after opener: (any EngineTab)?,
+        placement: PopupPlacement = .afterOpener,
+        select: Bool = true,
+        url: URL? = nil
+    ) -> Bool {
+        guard !tab.isClosed, modelID(of: tab) == nil else {
+            Self.report("the tab is closed or already in the window, so it was not adopted")
+            return false
+        }
+        guard let activeSpace, SidebarStores.sidebarProfileID(of: tab.profileID) == activeSpace.profileID else {
+            Self.report("the tab's profile is not the active Space's, so it was not adopted")
+            return false
+        }
+        let openerItem = opener.flatMap { modelID(of: $0) }.flatMap { itemIDs[$0] }
+        let pageURL = url ?? tab.state.url
+        guard
+            let (item, _) = insertTab(
+                url: pageURL ?? URL(string: "about:blank")!, placement: placement, after: openerItem, select: select)
+        else { return false }
+        attach(tab, to: item, url: pageURL)
+        storeDidChange()
+        return true
+    }
+
+    /// Inserts a sidebar tab on `url` into the active Space's today section at `placement` (`.afterOpener` places it
+    /// after `anchor` when that is a today tab, else after the active today tab, else at the end), and makes it
+    /// active when `select` is true or the Space has no active tab. Returns the new item and the profile its page
+    /// belongs in, or nil, inserting nothing, when the window is closing, the Space's profile is missing or the store
+    /// refuses.
+    private func insertTab(
+        url: URL,
+        placement: PopupPlacement,
+        after anchor: SidebarItemID?,
+        select: Bool
+    ) -> (SidebarItemID, any EngineProfile)? {
         let graph = store.graph
         guard !isClosing else {
             Self.report("the window is closing, so the tab was not opened")
@@ -243,21 +345,25 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
             return nil
         }
         let today = space.unpinnedContainerID
-        let index = graph.activeTabID.flatMap { active -> Int? in
-            guard graph[active]?.parentID == today else { return nil }
-            return graph[today]?.childrenIDs.firstIndex(of: active).map { $0 + 1 }
+        let index: Int?
+        switch placement {
+        case .topOfToday:
+            index = 0
+        case .afterOpener:
+            let todayIndex = { (id: SidebarItemID) -> Int? in
+                guard graph[id]?.parentID == today else { return nil }
+                return graph[today]?.childrenIDs.firstIndex(of: id).map { $0 + 1 }
+            }
+            index = anchor.flatMap(todayIndex) ?? graph.activeTabID.flatMap(todayIndex)
         }
         let item = SidebarItem.tab(url: url.absoluteString)
-        let opened = change { store in
+        let inserted = change { store in
             try store.transaction {
                 try store.mutate(.insert(item, parent: today, index: index))
                 if select || graph.activeTabID == nil { try store.mutate(.setActiveTab(item.id)) }
             }
         }
-        guard opened else { return nil }
-        let tab = load(item.id, url: url, in: profile)
-        storeDidChange()
-        return tab
+        return inserted ? (item.id, profile) : nil
     }
 
     /// Shows `tab`, one of this window's tabs.
@@ -358,8 +464,14 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
     /// Creates the engine tab of sidebar tab `item` on `url` in `profile`, the profile of the Space that holds it.
     @discardableResult
     private func load(_ item: SidebarItemID, url: URL, in profile: any EngineProfile) -> any EngineTab {
-        var model = runtimeTab(for: item, url: url)
         let engineTab = profile.createTab(url: url)
+        attach(engineTab, to: item, url: url)
+        return engineTab
+    }
+
+    /// Makes `engineTab` the page of sidebar tab `item`: the window becomes its delegate, and the features hear of it.
+    private func attach(_ engineTab: any EngineTab, to item: SidebarItemID, url: URL?) {
+        var model = runtimeTab(for: item, url: url)
         engineTab.delegate = self
         model.apply(engineTab.state)
         if model.url == nil { model.url = url }
@@ -367,7 +479,6 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
         engineTabs[model.id] = engineTab
         modelIDs[engineTab.tabID] = model.id
         for feature in features { feature.tabOpened(engineTab, item: item) }
-        return engineTab
     }
 
     /// The runtime tab of `item`, made from its saved page (or `url`) the first time.
@@ -452,8 +563,10 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
 
     // MARK: Menu commands
 
-    /// File > New Tab (Cmd+T) and the sidebar's New Tab button.
+    /// File > New Tab (Cmd+T) and the sidebar's New Tab button: the first feature that handles it does, else a new
+    /// tab opens on `newTabURL`.
     @objc func newTab(_ sender: Any?) {
+        for feature in features where feature.handleNewTab(sender) { return }
         openTab(url: newTabURL)
     }
 
@@ -533,6 +646,45 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
             if let decision = await feature.decidePermission(request, for: tab) { return decision }
         }
         return .dismiss
+    }
+
+    // Each hook below goes to the features only for the window's own tabs; the first feature that answers decides,
+    // and with none (or for a tab that is not the window's) the window keeps the engine contract's default.
+
+    func tab(_ tab: any EngineTab, decidePopup request: PopupRequest) -> PopupDecision {
+        guard modelID(of: tab) != nil else { return .window }
+        return features.lazy.compactMap { $0.decidePopup(request, from: tab) }.first ?? .window
+    }
+
+    func tab(_ tab: any EngineTab, didOpenPopup newTab: any EngineTab, request: PopupRequest) {
+        if modelID(of: tab) != nil, !isClosing,
+            features.contains(where: { $0.didOpenPopup(newTab, from: tab, request: request) })
+        {
+            return
+        }
+        // Nobody took the tab: close it, so a page never lives on unseen.
+        Task { _ = await newTab.close() }
+    }
+
+    func tab(_ tab: any EngineTab, handleKeyBeforePage event: EngineKeyEvent) -> Bool {
+        guard modelID(of: tab) != nil else { return false }
+        return features.contains { $0.handleKeyBeforePage(event, in: tab) }
+    }
+
+    func tab(_ tab: any EngineTab, answer challenge: AuthChallenge) async -> AuthCredentials? {
+        guard modelID(of: tab) != nil else { return nil }
+        for feature in features {
+            if let credentials = await feature.answer(challenge, for: tab) { return credentials }
+        }
+        return nil
+    }
+
+    func tab(_ tab: any EngineTab, decideCertificateError error: CertificateError) async -> CertificateErrorDecision {
+        guard modelID(of: tab) != nil else { return .cancel }
+        for feature in features {
+            if let decision = await feature.decideCertificateError(error, for: tab) { return decision }
+        }
+        return .cancel
     }
 
     private func tabClosed(_ tab: any EngineTab) {

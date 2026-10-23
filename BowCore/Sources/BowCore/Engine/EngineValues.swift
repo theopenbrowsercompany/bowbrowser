@@ -172,19 +172,24 @@ public struct PopupRequest: Equatable, Sendable {
     public var requestedSize: PopupSize?
     /// The window features the page passed to `window.open` (position, size, whether it asked for a popup).
     public var windowFeatures: PopupWindowFeatures
+    /// The modifier keys held at the click that opened the page, as far as the engine can tell: `target="_blank"`
+    /// and Cmd-Shift-click arrive with the same disposition, so only these tell them apart. `.none` without a click.
+    public var clickModifiers: PopupClickModifiers
 
     public init(
         targetURL: URL?,
         disposition: PopupDisposition,
         isUserGesture: Bool = false,
         requestedSize: PopupSize? = nil,
-        windowFeatures: PopupWindowFeatures = PopupWindowFeatures()
+        windowFeatures: PopupWindowFeatures = PopupWindowFeatures(),
+        clickModifiers: PopupClickModifiers = .none
     ) {
         self.targetURL = targetURL
         self.disposition = disposition
         self.isUserGesture = isUserGesture
         self.requestedSize = requestedSize
         self.windowFeatures = windowFeatures
+        self.clickModifiers = clickModifiers
     }
 }
 
