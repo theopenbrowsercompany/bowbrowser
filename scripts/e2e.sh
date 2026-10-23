@@ -78,7 +78,11 @@ prune() {
   while IFS= read -r entry; do
     [ -n "$entry" ] && [ "$entry" != latest ] && [ -f "$root/$entry/$marker" ] || continue
     n=$((n + 1))
-    if [ "$n" -gt "$keep" ] && [ "$entry" != "$run_name" ]; then rm -rf "${root:?}/$entry"; fi
+    if [ "$n" -gt "$keep" ] && [ "$entry" != "$run_name" ]; then
+      # A test that locks a folder and is killed before it unlocks it would otherwise keep the run forever.
+      chmod -R u+w "${root:?}/$entry" 2>/dev/null
+      rm -rf "${root:?}/$entry"
+    fi
   done < <(cd "$root" && ls -1t)
 }
 prune
