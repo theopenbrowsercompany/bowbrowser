@@ -367,7 +367,7 @@ final class ArcImportWizard: NSObject {
                 service.e2eLastFileLog = log
             #endif
             do {
-                let data = try await ArcImportFeature.readUserData(url, log: log)
+                let data = try await ArcImportFeature.readUserData(url, scratch: service.scratch.url, log: log)
                 guard !ended, !Task.isCancelled else { return }
                 prepareHistory(data)
             } catch {

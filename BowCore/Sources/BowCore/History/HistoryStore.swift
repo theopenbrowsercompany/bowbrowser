@@ -121,55 +121,83 @@ public final class HistoryStore: @unchecked Sendable {
         }
     }
 
-    /// Adds visits brought in from another browser in one transaction, and returns what it added so
-    /// `removeImported(_:)` can take exactly that out again.
+    /// How many imported visits go into one transaction. The store's lock is let go between chunks, so a page load or
+    /// a search on the same profile waits for one chunk at most, never for a whole imported profile.
+    public static let importChunkSize = 500
+
+    /// Adds visits brought in from another browser, `chunkSize` visits per transaction, and returns what it added so
+    /// `removeImported(_:)` can take exactly that out again, all chunks together.
+    ///
+    /// The lock is held for one chunk at a time, and `afterChunk` is called after each committed chunk with the lock
+    /// let go and the number of visits handled so far. When a chunk fails, what the earlier chunks added is taken out
+    /// again before the error is thrown, so a failed import leaves history as it was.
     ///
     /// A visit is left out when its URL is not recordable, or when the page already has a visit at the very same time
-    /// (the same visit imported before), so importing the same history twice adds nothing the second time. An
-    /// imported title names a page only when it has no title yet, so a title seen live is never replaced.
-    public func importVisits(_ visits: [HistoryImportVisit]) throws -> HistoryImportRecord {
+    /// (the same visit imported before, or earlier in this import), so importing the same history twice adds nothing
+    /// the second time. An imported title names a page only when it has no title yet, so a title seen live is never
+    /// replaced.
+    public func importVisits(
+        _ visits: [HistoryImportVisit], chunkSize: Int = importChunkSize, afterChunk: ((Int) -> Void)? = nil
+    ) throws -> HistoryImportRecord {
         var record = HistoryImportRecord()
-        try locked {
-            try transaction {
-                for visit in visits {
-                    guard Self.isRecordable(visit.url) else {
-                        record.skippedCount += 1
-                        continue
-                    }
-                    let key = Self.key(visit.url)
-                    let time = visit.time.timeIntervalSince1970
-                    let known = try rows(
-                        """
-                        SELECT 1 FROM visits JOIN places ON places.id = visits.place_id
-                        WHERE places.url = ?1 AND visits.time = ?2 LIMIT 1
-                        """, [.text(key), .double(time)]
-                    ) { _ in true }
-                    if !known.isEmpty {
-                        record.skippedCount += 1
-                        continue
-                    }
-                    let typed = visit.transition == .typed ? 1 : 0
-                    try run(
-                        """
-                        INSERT INTO places (url, title, visit_count, typed_count, last_visit, search_text)
-                        VALUES (?1, ?2, 1, ?3, ?4, ?5)
-                        ON CONFLICT(url) DO UPDATE SET visit_count = visit_count + 1, typed_count = typed_count + ?3,
-                            last_visit = MAX(last_visit, ?4),
-                            title = CASE WHEN title = '' THEN ?2 ELSE title END,
-                            search_text = CASE WHEN title = '' AND ?2 <> '' THEN ?5 ELSE search_text END
-                        """,
-                        [
-                            .text(key), .text(visit.title), .int(typed), .double(time),
-                            .text(Self.searchText(key, visit.title)),
-                        ])
-                    try run(
-                        "INSERT INTO visits (place_id, time, transition) VALUES ((SELECT id FROM places WHERE url = ?1), ?2, ?3)",
-                        [.text(key), .double(time), .text(Self.name(of: visit.transition))])
-                    record.visits.append(.init(id: sqlite3_last_insert_rowid(db), time: time))
+        let size = max(1, chunkSize)
+        var start = 0
+        while start < visits.count {
+            let end = min(start + size, visits.count)
+            do {
+                try locked {
+                    try transaction { try importChunk(visits[start..<end], into: &record) }
                 }
+            } catch {
+                // The chunk itself was rolled back; take out what the committed chunks added.
+                _ = try? removeImported(record)
+                throw error
             }
+            start = end
+            afterChunk?(end)
         }
         return record
+    }
+
+    /// Adds one chunk of imported visits inside the caller's lock and transaction, its statements prepared once.
+    private func importChunk(_ visits: ArraySlice<HistoryImportVisit>, into record: inout HistoryImportRecord) throws {
+        let known = try Statement(
+            db,
+            """
+            SELECT 1 FROM visits JOIN places ON places.id = visits.place_id
+            WHERE places.url = ?1 AND visits.time = ?2 LIMIT 1
+            """)
+        let place = try Statement(
+            db,
+            """
+            INSERT INTO places (url, title, visit_count, typed_count, last_visit, search_text)
+            VALUES (?1, ?2, 1, ?3, ?4, ?5)
+            ON CONFLICT(url) DO UPDATE SET visit_count = visit_count + 1, typed_count = typed_count + ?3,
+                last_visit = MAX(last_visit, ?4),
+                title = CASE WHEN title = '' THEN ?2 ELSE title END,
+                search_text = CASE WHEN title = '' AND ?2 <> '' THEN ?5 ELSE search_text END
+            """)
+        let visitRow = try Statement(
+            db,
+            "INSERT INTO visits (place_id, time, transition) VALUES ((SELECT id FROM places WHERE url = ?1), ?2, ?3)")
+        for visit in visits {
+            guard Self.isRecordable(visit.url) else {
+                record.skippedCount += 1
+                continue
+            }
+            let key = Self.key(visit.url)
+            let time = visit.time.timeIntervalSince1970
+            if try known.step([.text(key), .double(time)]) {
+                record.skippedCount += 1
+                continue
+            }
+            let typed = visit.transition == .typed ? 1 : 0
+            _ = try place.step([
+                .text(key), .text(visit.title), .int(typed), .double(time), .text(Self.searchText(key, visit.title)),
+            ])
+            _ = try visitRow.step([.text(key), .double(time), .text(Self.name(of: visit.transition))])
+            record.visits.append(.init(id: sqlite3_last_insert_rowid(db), time: time))
+        }
     }
 
     /// Takes out the visits `importVisits(_:)` added, and nothing else: a visit counts as the import's only while
@@ -463,10 +491,7 @@ public final class HistoryStore: @unchecked Sendable {
         _ = try rows(sql, args) { _ in () as Void? }
     }
 
-    private func rows<T>(_ sql: String, _ args: [Binding], _ read: (OpaquePointer) -> T?) throws -> [T] {
-        var stmt: OpaquePointer?
-        try Self.check(sqlite3_prepare_v2(db, sql, -1, &stmt, nil), db)
-        defer { sqlite3_finalize(stmt) }
+    private static func bind(_ args: [Binding], to stmt: OpaquePointer?, _ db: OpaquePointer?) throws {
         for (index, arg) in args.enumerated() {
             let position = Int32(index + 1)
             let bound: Int32
@@ -476,8 +501,40 @@ public final class HistoryStore: @unchecked Sendable {
             case .int(let value): bound = sqlite3_bind_int64(stmt, position, Int64(value))
             case .double(let value): bound = sqlite3_bind_double(stmt, position, value)
             }
-            try Self.check(bound, db)
+            try check(bound, db)
         }
+    }
+
+    /// A statement prepared once and run many times, each run with its own arguments. Finalized when released.
+    private final class Statement {
+        private let db: OpaquePointer?
+        private var stmt: OpaquePointer?
+
+        init(_ db: OpaquePointer?, _ sql: String) throws {
+            self.db = db
+            try HistoryStore.check(sqlite3_prepare_v2(db, sql, -1, &stmt, nil), db)
+        }
+
+        deinit { sqlite3_finalize(stmt) }
+
+        /// Runs the statement with `args` and returns whether it produced a row.
+        func step(_ args: [Binding]) throws -> Bool {
+            sqlite3_reset(stmt)
+            sqlite3_clear_bindings(stmt)
+            try HistoryStore.bind(args, to: stmt, db)
+            let code = sqlite3_step(stmt)
+            try HistoryStore.check(code, db)
+            let produced = code == SQLITE_ROW
+            sqlite3_reset(stmt)
+            return produced
+        }
+    }
+
+    private func rows<T>(_ sql: String, _ args: [Binding], _ read: (OpaquePointer) -> T?) throws -> [T] {
+        var stmt: OpaquePointer?
+        try Self.check(sqlite3_prepare_v2(db, sql, -1, &stmt, nil), db)
+        defer { sqlite3_finalize(stmt) }
+        try Self.bind(args, to: stmt, db)
         var result: [T] = []
         while true {
             let code = sqlite3_step(stmt)

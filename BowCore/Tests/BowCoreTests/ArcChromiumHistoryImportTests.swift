@@ -319,6 +319,88 @@ import Testing
         #expect(try store.visitCount() == 2)
     }
 
+    @Test func importInChunksDedupesAcrossChunksAndUndoesAsOne() throws {
+        let store = try Self.store()
+        // Chunks of 2: the repeat of "a" at 0 lands in the second chunk, the repeat of "b" in the third.
+        let visits = [
+            Self.visit("a", 0), Self.visit("b", 60), Self.visit("a", 0), Self.visit("c", 120), Self.visit("b", 60),
+        ]
+        var progress: [Int] = []
+        let record = try store.importVisits(visits, chunkSize: 2) { progress.append($0) }
+        #expect(progress == [2, 4, 5])
+        #expect(record.addedCount == 3)
+        #expect(record.skippedCount == 2)
+        #expect(try store.visitCount() == 3)
+        #expect(try store.removeImported(record) == 3)
+        #expect(try store.count() == 0)
+    }
+
+    @Test func importLetsTheLockGoBetweenChunks() throws {
+        let store = try Self.store()
+        let visits = (0..<6).map { Self.visit("p\($0)", Double($0)) }
+        let live = URL(string: "https://example.com/live")!
+        var liveRecordedMidImport = false
+        let record = try store.importVisits(visits, chunkSize: 3) { done in
+            guard done == 3 else { return }
+            // A page load on another thread while the import is between chunks. It runs at once when the lock is
+            // free; with the lock held for the whole import it could only run after the import, so the wait fails.
+            let finished = DispatchSemaphore(value: 0)
+            DispatchQueue.global().async {
+                try? store.recordVisit(url: live, title: "Live")
+                finished.signal()
+            }
+            liveRecordedMidImport = finished.wait(timeout: .now() + 5) == .success
+        }
+        #expect(liveRecordedMidImport)
+        #expect(record.addedCount == 6)
+        // The live visit is not the import's: undo leaves it.
+        #expect(try store.removeImported(record) == 6)
+        #expect(try store.entry(for: live)?.visitCount == 1)
+    }
+
+    // MARK: Import scratch folder
+
+    @Test func scratchFolderIsPerProcessInsideTheDataDirectory() {
+        let data = URL(fileURLWithPath: "/tmp/bow-data", isDirectory: true)
+        let scratch = ImportScratchFolder(dataDirectory: data, processID: 42)
+        #expect(scratch.url.path == "/tmp/bow-data/Import Scratch/42")
+    }
+
+    @Test func staleEntriesAreOnlyFoldersOfProcessesThatAreGone() {
+        let names = ["42", "77", "99", "notes", "007", "-5", "0"]
+        // This process is 42, 77 still runs, 99 is gone.
+        let stale = ImportScratchFolder.staleEntries(names, processID: 42) { $0 == 77 }
+        #expect(stale == ["99"])
+    }
+
+    @Test func anotherProcessCleaningUpNeverTouchesThisImportsCopy() throws {
+        let fm = FileManager.default
+        let data = fm.temporaryDirectory.appendingPathComponent("bow-scratch-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fm.removeItem(at: data) }
+        let running: Set<Int32> = [1001, 1002]
+        let mine = ImportScratchFolder(dataDirectory: data, processID: 1001)
+        let other = ImportScratchFolder(dataDirectory: data, processID: 1002)
+        let gone = ImportScratchFolder(dataDirectory: data, processID: 1003)
+        let copy = mine.url.appendingPathComponent("bow-history-1/History")
+        for folder in [mine.url, other.url, gone.url] {
+            try fm.createDirectory(at: folder, withIntermediateDirectories: true)
+        }
+        try fm.createDirectory(at: copy.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data("copy".utf8).write(to: copy)
+        // The other Bow launches (removing leftovers) and quits (removing its own folder) mid-import.
+        other.removeStale { running.contains($0) }
+        other.remove()
+        #expect(fm.fileExists(atPath: copy.path))
+        #expect(!fm.fileExists(atPath: other.url.path))
+        #expect(!fm.fileExists(atPath: gone.url.path))
+        // A Bow on another data directory (another e2e run) has its own root and never reaches this one.
+        let elsewhere = ImportScratchFolder(
+            dataDirectory: data.appendingPathComponent("other-run", isDirectory: true), processID: 1001)
+        elsewhere.removeStale { _ in false }
+        elsewhere.remove()
+        #expect(fm.fileExists(atPath: copy.path))
+    }
+
     // MARK: Bookmarks folder
 
     static func parsedBookmarks() throws -> ChromiumBookmarks {

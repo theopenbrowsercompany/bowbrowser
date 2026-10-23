@@ -29,24 +29,22 @@ final class ArcImportFeature: AppFeature {
 
     private var terminateObserver: (any NSObjectProtocol)?
 
+    /// Where the history step copies History files to read them: this process's own folder inside this launch's data
+    /// directory, never a temporary folder another Bow shares.
+    nonisolated let scratch: ImportScratchFolder
+
     init(dataDirectory: URL) {
-        // A copy of History is deleted as soon as it is read. One left behind by a quit or crash mid-read is
-        // deleted here, at the next launch, and the app deletes the folder again when it quits.
-        Self.removeTemporaryFolder()
+        // A copy of History is deleted as soon as it is read. One left behind by a Bow that quit or crashed mid-read
+        // is deleted at the next launch, and this process deletes its own folder when it quits; the folder of
+        // another Bow still running is never touched.
+        let scratch = ImportScratchFolder(dataDirectory: dataDirectory)
+        self.scratch = scratch
+        scratch.removeStale()
         terminateObserver = NotificationCenter.default.addObserver(
             forName: NSApplication.willTerminateNotification, object: nil, queue: .main
         ) { _ in
-            Self.removeTemporaryFolder()
+            scratch.remove()
         }
-    }
-
-    /// Where the history step copies History files to read them, apart from everything else in the temporary folder.
-    nonisolated static var temporaryFolder: URL {
-        FileManager.default.temporaryDirectory.appendingPathComponent("bow-arc-import", isDirectory: true)
-    }
-
-    nonisolated private static func removeTemporaryFolder() {
-        try? FileManager.default.removeItem(at: temporaryFolder)
     }
 
     /// Where Arc keeps its profiles (its Chromium User Data folder), offered as the folder picker's starting folder
@@ -119,12 +117,14 @@ final class ArcImportFeature: AppFeature {
         #endif
     }
 
-    /// Reads the profiles, bookmarks and History copies of the User Data folder at `url` off the main thread,
-    /// recording every file in `log`. Cancelling the calling task stops the read before its next profile; the copy
-    /// of a History file being read is deleted either way.
-    nonisolated static func readUserData(_ url: URL, log: ChromiumFileLog) async throws -> [ChromiumProfileData] {
+    /// Reads the profiles, bookmarks and History copies of the User Data folder at `url` off the main thread, the
+    /// copies made inside `scratch`, recording every file in `log`. Cancelling the calling task stops the read before
+    /// its next profile; the copy of a History file being read is deleted either way.
+    nonisolated static func readUserData(_ url: URL, scratch: URL, log: ChromiumFileLog) async throws
+        -> [ChromiumProfileData]
+    {
         let read = Task.detached(priority: .userInitiated) {
-            try ChromiumUserData.read(url, temporaryFolder: temporaryFolder, log: log) { Task.isCancelled }
+            try ChromiumUserData.read(url, temporaryFolder: scratch, log: log) { Task.isCancelled }
         }
         return try await withTaskCancellationHandler {
             try await read.value
@@ -133,7 +133,8 @@ final class ArcImportFeature: AppFeature {
         }
     }
 
-    /// Adds each list of visits to its history store off the main thread, one transaction per list, and returns
+    /// Adds each list of visits to its history store off the main thread, in chunks that let the store's lock go
+    /// between them (`HistoryStore.importVisits`), and returns
     /// what each added (or why it failed), in order.
     nonisolated static func importVisits(_ jobs: [(store: HistoryStore, visits: [HistoryImportVisit])]) async
         -> [Result<HistoryImportRecord, any Error>]
