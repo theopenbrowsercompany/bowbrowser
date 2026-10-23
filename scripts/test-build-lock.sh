@@ -1,6 +1,7 @@
 #!/bin/bash
 # Tests scripts/build-lock.sh with fake builds (sleep) in a throwaway lock folder: queue order, the slot limit,
-# slot release after kill -9, SIGINT, SIGTERM and a failing command, and the priority file. Takes about 70 seconds.
+# slot release after kill -9, SIGINT, SIGTERM and a failing command, the timings file and the priority file.
+# Takes about 70 seconds.
 set -u
 cd "$(dirname "$0")/.."
 
@@ -59,6 +60,18 @@ for sig in INT TERM; do
   check "slot freed after $sig" is "$(slot_count)" 0
   check "child stopped after $sig" test -z "$(ps -o pid= -p "$kid" 2>/dev/null)"
 done
+
+# 3b. Timings: with BOW_LOCK_DIR set, each command that got a slot appended one line to <lock dir>/timings, the
+# four builds of 1 (exit 0), the failing one of 2 (exit 7) and the two of 3; the TERM one records 143. (A
+# background job of a script ignores SIGINT, so the INT one of 3 runs its 30 seconds and records 0.)
+tsv=$BOW_LOCK_DIR/timings/timings.tsv
+check "timings file starts with its header" is "$(head -n 1 "$tsv" 2>/dev/null)" "$(printf 'pool\tbranch\twait_s\trun_s\texit\tdate')"
+check "timings has one line per build" is "$(tail -n +2 "$tsv" 2>/dev/null | wc -l | tr -d ' ')" 7
+check "timings records exit codes" is "$(tail -n +2 "$tsv" | cut -f5 | tr '\n' ' ')" "0 0 0 0 7 0 143 "
+check "timings records the pool and the waited and run seconds" \
+  test "$(awk -F'\t' 'NR > 1 && $1 == "build" && $3 ~ /^[0-9]+$/ && $4 ~ /^[0-9]+$/ && $6 ~ /^20[0-9-]+T/' "$tsv" | wc -l | tr -d ' ')" = 7
+check "a waiting build records the seconds it waited" \
+  test "$(tail -n +2 "$tsv" | head -n 4 | cut -f3 | sort -n | tail -n 1)" -ge 1
 
 # 4. A waiting build killed while queued leaves its ticket behind for nobody.
 BOW_BUILD_SLOTS=1 $lock sleep 4 &
