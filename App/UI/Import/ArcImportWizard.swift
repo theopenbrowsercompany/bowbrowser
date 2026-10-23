@@ -317,6 +317,7 @@ final class ArcImportWizard: NSObject {
         var text =
             "Imported \(applied.spaceIDs.count) Spaces with \(applied.spaceItemIDs.count) folders and tabs, and "
             + "\(applied.favoriteItemIDs.count) Favorites."
+        if applied.spaceIDs.isEmpty { text = "Imported \(applied.favoriteItemIDs.count) Favorites." }
         if applied.isEmpty { text = "Everything in the file is already in your sidebar, so nothing was added." }
         if let failure = applied.saveFailure {
             text += " Bow could not save your sidebar yet (\(failure)); it keeps trying."
