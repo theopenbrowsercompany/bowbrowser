@@ -60,12 +60,15 @@ import Foundation
     public let isPersistent: Bool
     /// Every tab created in this profile, in creation order, including closed ones.
     public private(set) var tabs: [MockTab] = []
+    public let mockDownloads: MockDownloads
+    public var downloads: any EngineDownloads { mockDownloads }
     private unowned let engine: MockEngine
 
     fileprivate init(engine: MockEngine, id: ProfileID, isPersistent: Bool) {
         self.engine = engine
         self.profileID = id
         self.isPersistent = isPersistent
+        self.mockDownloads = MockDownloads(profileID: id)
     }
 
     /// Every permission answer stored in this profile's engine settings, in order.
@@ -227,5 +230,57 @@ import Foundation
     public func tab(_ tab: any EngineTab, decidePolicyFor navigation: EngineNavigation) -> NavigationPolicy {
         policyRequests.append(navigation)
         return policy(navigation)
+    }
+}
+
+/// A profile's downloads for tests. It records every control call and changes nothing on its own: tests script
+/// what the engine would push with `emit`, and ask the delegate for a destination with `chooseDestination`.
+@MainActor public final class MockDownloads: EngineDownloads {
+    public enum Call: Equatable, Sendable {
+        case pause(DownloadID)
+        case resume(DownloadID)
+        case cancel(DownloadID)
+        case remove(DownloadID)
+    }
+
+    public let profileID: ProfileID
+    public private(set) var items: [DownloadItem] = []
+    public weak var delegate: (any EngineDownloadsDelegate)?
+    public private(set) var calls: [Call] = []
+
+    fileprivate init(profileID: ProfileID) {
+        self.profileID = profileID
+    }
+
+    public func pause(_ id: DownloadID) { calls.append(.pause(id)) }
+    public func resume(_ id: DownloadID) { calls.append(.resume(id)) }
+    public func cancel(_ id: DownloadID) { calls.append(.cancel(id)) }
+
+    /// Removes the download when it can leave the list, as the engine does.
+    public func remove(_ id: DownloadID) {
+        calls.append(.remove(id))
+        guard let index = items.firstIndex(where: { $0.id == id }), items[index].canRemove else { return }
+        items.remove(at: index)
+        delegate?.downloads(self, didReceive: .removed(id))
+    }
+
+    /// Delivers `event` to the delegate as the engine would, updating `items` first.
+    public func emit(_ event: DownloadEvent) {
+        switch event {
+        case .created(let item), .updated(let item):
+            if let index = items.firstIndex(where: { $0.id == item.id }) {
+                items[index] = item
+            } else {
+                items.append(item)
+            }
+        case .removed(let id):
+            items.removeAll { $0.id == id }
+        }
+        delegate?.downloads(self, didReceive: event)
+    }
+
+    /// Asks the delegate where `item` goes, as the engine does after `created`.
+    public func chooseDestination(for item: DownloadItem) async -> URL? {
+        await delegate?.downloads(self, destinationFor: item, suggestedName: item.suggestedFileName)
     }
 }
