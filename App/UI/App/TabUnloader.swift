@@ -4,14 +4,14 @@ import Foundation
 
 /// The numbers the unloader runs on, kept in one place so the hidden tabs measurements can tune them.
 enum UnloadTuning {
-    /// Idle limits and loaded tab limits per memory pressure level. Placeholders until measured.
+    /// Idle limits, loaded tab limits and the recently audible window, from the hidden tab measurements.
     static let policy = UnloadPolicy.Configuration.default
     /// How often the unloader looks for idle tabs while it is on. Memory pressure events run a pass at once.
     static let passInterval: TimeInterval = 60
 }
 
 /// Unloads tabs the person has not used for a while, or when the Mac runs short of memory, so many open tabs stay
-/// cheap (see spec/unload.md). Off unless the `UnloadTabsEnabled` setting is on.
+/// cheap (see spec/unload.md). On unless the `UnloadTabsEnabled` setting is off (`UnloadPolicy.enabledByDefault`).
 ///
 /// Each window's `TabUnloadFeature` registers itself and lists the window's loaded tabs. A pass runs `UnloadPolicy`
 /// over every window's tabs at once: their last activity from `TabActivityLog` (or when the page loaded, if later),
@@ -19,7 +19,7 @@ enum UnloadTuning {
 /// `UnloadTuning.passInterval` and on each memory pressure event; turning the setting off, or quitting, stops both.
 @MainActor
 final class TabUnloader: AppFeature {
-    /// The setting that turns unloading on, in `AppSettings.defaults`. Off by default.
+    /// The setting that turns unloading on or off, in `AppSettings.defaults`; unset, `UnloadPolicy.enabledByDefault`.
     static let enabledKey = "UnloadTabsEnabled"
 
     private var windows: [WeakWindow] = []
@@ -55,7 +55,8 @@ final class TabUnloader: AppFeature {
 
     /// True while the setting is on and the app is not quitting.
     var isEnabled: Bool {
-        !quitting && !BowEngine.isQuitting && AppSettings.defaults.bool(forKey: Self.enabledKey)
+        !quitting && !BowEngine.isQuitting
+            && (AppSettings.defaults.object(forKey: Self.enabledKey) as? Bool ?? UnloadPolicy.enabledByDefault)
     }
 
     /// True while the pass timer and the memory pressure source are running.
