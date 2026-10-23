@@ -9,7 +9,7 @@ import BowCore
 /// outline keeps every section expanded and never shows a disclosure triangle for it.
 ///
 /// Extension point: a new section (or a section that replaces one, such as the Favorites grid) is one new file with
-/// a type conforming to this protocol plus one line in `SidebarSections.all`.
+/// a type conforming to this protocol plus one line in `SidebarSections.all` (`SidebarSectionList.swift`).
 @MainActor
 protocol SidebarSection {
     init()
@@ -38,17 +38,6 @@ enum SidebarZone: String, Sendable {
     case favorites
     case pinned
     case today
-}
-
-/// Every sidebar section, top to bottom. To add one, add its file under `App/UI/Sidebar/` and one line here.
-@MainActor
-enum SidebarSections {
-    static let all: [any SidebarSection.Type] = [
-        FavoritesSection.self,
-        PinnedSection.self,
-        DividerSection.self,
-        TodaySection.self,
-    ]
 }
 
 /// The pinned tabs of the Space on screen, with their folders as expandable rows.

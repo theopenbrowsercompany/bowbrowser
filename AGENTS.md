@@ -19,6 +19,8 @@ Start every session in `~/code/GitHub/bowbrowser`: the maintainer's `.claude/set
     A new window feature is a new file here plus one line in `WindowFeatures.swift`; it handles and validates its own menu items through the responder chain and adds them in `addMenuItems(to:)`.
   - `App/UI/App/`: app-level services shared by every window (today the per-profile permission stores).
     A new service is a new `AppFeature` file here plus one line in `AppFeatures.swift`.
+  - `App/UI/Sidebar/`: the sidebar outline (`SidebarView`) with its sections, context menu items and drop rules.
+    A new section, menu provider or drop rule is a new file here plus one line in `SidebarSectionList.swift`, `SidebarMenuList.swift` or `SidebarDropRuleList.swift`.
 - `E2E/`: the `make e2e` harness, compiled into Debug builds only (Release leaves out its code and fixtures).
   - `E2E/Harness/`: the runner, waits, PASS and FAIL report, watchdog, off-screen window, the page protocol (`E2EApp`, `E2EPage`) and `E2EAppAdapter.swift`, the one file that knows the bridge.
     Page input (`E2EInput.swift`: click, type, keys) goes through the DevTools Input domain with focus emulation on; app shortcuts go through the app's menu, never DevTools.
@@ -30,7 +32,7 @@ Start every session in `~/code/GitHub/bowbrowser`: the maintainer's `.claude/set
 - `App/Helper/`: the CEF helper process. It starts Chromium's macOS sandbox before loading CEF, and the build packages it as the ad hoc signed helper apps Chromium needs (GPU, renderer, plugin, alerts).
 - `BowCore/`: a Swift package for browser logic that needs no UI or engine (today: address and search input). Its tests run in seconds.
 - `cef.lock`: the pinned CEF version and checksum. `Vendor/cef` links to one shared copy outside the repository and is gitignored.
-- `.gitattributes` merges the one-entry-per-line lists (`WindowFeatures.swift`, `AppFeatures.swift`, `E2EAreas.swift`, the bridging header) by union, so two branches that each add a line do not conflict; `make guards` fails on a duplicate entry, a duplicate test name or a line that breaks the format.
+- `.gitattributes` merges the one-entry-per-line lists (`WindowFeatures.swift`, `AppFeatures.swift`, `E2EAreas.swift`, the sidebar's `SidebarSectionList.swift`, `SidebarMenuList.swift` and `SidebarDropRuleList.swift`, the bridging header) by union, so two branches that each add a line do not conflict; `make guards` fails on a duplicate entry, a duplicate test name or a line that breaks the format.
 - `project.yml`: XcodeGen spec. `Bow.xcodeproj` is generated from it and not committed, so edit `project.yml`, never the project file.
 - `spec/`: behavior specs, one per feature area, following `spec/_template.md`.
 - `.claude/agents/`: subagent definitions the lead session uses: `bow-worker` builds one work item in its own worktree, and `bow-reviewer` reviews a branch read-only. Both are kept off Plane, and the reviewer cannot edit files.
