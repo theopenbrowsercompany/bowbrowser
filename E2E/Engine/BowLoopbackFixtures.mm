@@ -1,5 +1,5 @@
 #import "BowLoopbackFixtures.h"
-#import "BowLoopbackFixtures+Identity.h"
+#import "BowLoopbackFixtures+Shared.h"
 
 #import <Network/Network.h>
 #import <Security/Security.h>
@@ -154,6 +154,18 @@ enum class Listener { auth, certificate };
 
 sec_identity_t BowLoopbackFixtureIdentity(NSError** error) {
   return MakeIdentity(error);
+}
+
+void BowLoopbackBind(nw_parameters_t parameters) {
+  BindToLoopback(parameters);
+}
+
+NSString* BowLoopbackHeaderValue(NSString* head, NSString* name) {
+  return HeaderValue(head, name);
+}
+
+NSString* BowLoopbackDescribe(nw_error_t error) {
+  return Describe(error);
 }
 
 @implementation BowLoopbackFixtures {

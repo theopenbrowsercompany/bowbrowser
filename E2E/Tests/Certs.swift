@@ -138,6 +138,9 @@ struct CertsComponentsTest: E2ETest {
         var problems: [String] = []
         var seen: [String] = []
         for component in E2ECertComponent.allCases {
+            // Only requests that arrive during this component's own check count, so an earlier request that named
+            // it (a background check, or the other component's) cannot stand in for one this check never sent.
+            let before = server.requests.count
             let result = try await run.step(
                 "check the \(component.label) for an update", timeout: E2ETimeouts.firstLoad
             ) {
@@ -148,7 +151,7 @@ struct CertsComponentsTest: E2ETest {
                 }
             }
             // The stand-in records a request before it answers, and the check completes after the answer.
-            let requests = server.requests.filter { $0.body.contains(component.rawValue) }
+            let requests = server.requests.dropFirst(before).filter { $0.body.contains(component.rawValue) }
             let urls = Array(Set(requests.map { "\($0.method) \($0.e2eURL)" })).sorted()
             seen.append(
                 "\(component.label): \(urls.isEmpty ? "no request" : urls.joined(separator: " and ")) (\(result))")
