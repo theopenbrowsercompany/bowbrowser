@@ -85,10 +85,10 @@ extension E2ETestApp: E2EFoldersApp {
             ? (above, 0) : (outline.parent(forItem: above), outline.childIndex(forItem: above) + 1)
         // A person aims at the icon, 8 points into the row's cell.
         let pointerX = outline.frameOfCell(atColumn: 0, row: xRow).minX + 8
-        // What validateDrop does with it: retarget the level, then resolve the drop the outline shows its gap at.
-        let target = outline.retargetedDrop(
-            proposedItem: proposed.item, childIndex: proposed.childIndex, pointerX: pointerX)
-        guard let proposal = sidebar.proposeDrop(of: id, on: target.item as? SidebarNode, childIndex: target.childIndex)
+        // The same call validateDrop makes: retarget the level, then resolve the drop the outline shows its gap at.
+        guard
+            let proposal = sidebar.validatedDrop(
+                of: id, proposedItem: proposed.item, childIndex: proposed.childIndex, pointerX: pointerX)
         else { throw E2EError("the sidebar refused to drop row \(row) below row \(gapRow) at row \(xRow)'s x") }
         let gapLevel = outline.level(forItem: proposal.node) + 1
         guard sidebar.acceptDrop(of: id, on: proposal.node, childIndex: proposal.childIndex) else {

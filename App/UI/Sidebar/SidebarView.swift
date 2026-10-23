@@ -784,16 +784,27 @@ final class SidebarView: NSView, NSOutlineViewDataSource, NSOutlineViewDelegate,
         proposedItem item: Any?,
         proposedChildIndex index: Int
     ) -> NSDragOperation {
-        let target =
-            (outlineView as? SidebarOutlineView)?.retargetedDrop(
-                proposedItem: item, childIndex: index, pointerX: outlineView.convert(info.draggingLocation, from: nil).x
-            ) ?? (item: item, childIndex: index)
         // Only drags that start in this sidebar: its outline, or a view inside it such as the Favorites grid.
         guard (info.draggingSource as? NSView)?.isDescendant(of: self) == true, let id = draggedItem(info),
-            let proposal = proposeDrop(of: id, on: target.item as? SidebarNode, childIndex: target.childIndex)
+            validatedDrop(
+                of: id, proposedItem: item, childIndex: index,
+                pointerX: outlineView.convert(info.draggingLocation, from: nil).x) != nil
         else { return [] }
-        outlineView.setDropItem(proposal.node, dropChildIndex: proposal.childIndex)
         return .move
+    }
+
+    /// What `validateDrop` does with the outline's proposal: retarget its level to the pointer's x, resolve the drop
+    /// and show the outline's gap there. The outline's drag and the e2e drag both go through here.
+    func validatedDrop(of id: SidebarItemID, proposedItem item: Any?, childIndex index: Int, pointerX: CGFloat)
+        -> ProposedDrop?
+    {
+        let target =
+            (outlineView as? SidebarOutlineView)?.retargetedDrop(
+                proposedItem: item, childIndex: index, pointerX: pointerX) ?? (item: item, childIndex: index)
+        guard let proposal = proposeDrop(of: id, on: target.item as? SidebarNode, childIndex: target.childIndex)
+        else { return nil }
+        outlineView.setDropItem(proposal.node, dropChildIndex: proposal.childIndex)
+        return proposal
     }
 
     func outlineView(
