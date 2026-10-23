@@ -75,31 +75,45 @@ fi
 # The hook checks the added lines and files of every commit, so a line added in one commit and removed in a later one
 # passes the net checks above and is still refused at the push. Check each commit in <merge base>..HEAD the same way.
 commit_failed=0
+bad_commit=
 if [ "$from" != HEAD ]; then
   while IFS= read -r commit; do
     [ -n "$commit" ] || continue
-    label="$(git rev-parse --short "$commit") $(git log -1 --format=%s "$commit")"
-    cfiles=$(git diff-tree --root --no-commit-id --name-only -r --diff-filter=A "$commit" | grep -iE "$file_pattern")
+    label="$(git rev-parse --short "$commit") $(git log -1 --format=%s "$commit")"    cfiles=$(git diff-tree --root --no-commit-id --name-only -r --diff-filter=A "$commit" | grep -iE "$file_pattern")
     if [ -n "$cfiles" ]; then
       echo "check-private-paths: commit $label adds a disallowed file type:" >&2
       echo "$cfiles" | sed 's/^/    /' >&2
       commit_failed=1
+      [ -n "$bad_commit" ] || bad_commit=$commit
     fi
     clines=$(git diff-tree --root --no-commit-id -r -p -U0 --no-color --no-ext-diff "$commit" -- . "${excludes[@]}" | scan)
     if [ -n "$clines" ]; then
       echo "check-private-paths: commit $label adds a home directory, Arc profile or private repository path:" >&2
       echo "$clines" | sed 's/^/    /' >&2
       commit_failed=1
+      [ -n "$bad_commit" ] || bad_commit=$commit
     fi
   done < <(git rev-list --reverse "$from..HEAD")
 fi
 if [ "$commit_failed" -ne 0 ]; then
-  echo "check-private-paths: fix the commit named above, not the branch tip: amend it with a fixup commit (git commit --fixup <hash>, then git rebase -i --autosquash <hash>~1 with GIT_SEQUENCE_EDITOR=true) so the final tree stays the same. Never squash the whole branch." >&2
+  # A fixup commit cannot do this: when a later commit removed the line, the tip is clean and there is nothing to commit.
+  # Steps for the first commit named above (rerun after it for the next one); no editor needed.
+  bad=$(git rev-parse --short "$bad_commit")
+  {
+    echo "check-private-paths: fix the commit named above in place, not the branch tip, and never squash the whole branch. Steps for $bad:"
+    echo "    old=\$(git rev-parse HEAD)"
+    echo "    GIT_SEQUENCE_EDITOR=\"sed -i '' 's/^pick $bad/edit $bad/'\" git rebase -i $bad~1"
+    echo "    (remove the offending line or file from that commit's change, then git add it)"
+    echo "    git commit --amend --no-edit"
+    echo "    git rebase --continue"
+    echo "    (on a conflict in a later commit, take that later commit's version, git checkout --theirs <file>, git add <file>, then git rebase --continue again, so the final tree stays the same)"
+    echo "    git diff \$old HEAD    (must print nothing)"
+  } >&2
   failed=1
 fi
 
 if [ "$failed" -ne 0 ]; then
-  echo "check-private-paths: the pre-push hook would refuse this. Remove the lines or files above from the branch (use /tmp or relative paths in tests)." >&2
+  echo "check-private-paths: the pre-push hook would refuse this. Remove the lines or files above from the commit that adds them (use /tmp or relative paths in tests)." >&2
   exit 1
 fi
 echo "check-private-paths: ok"

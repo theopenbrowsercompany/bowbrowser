@@ -106,9 +106,30 @@ has "a path added then removed fails" "$out" "exit=1"
 has "it names the first commit" "$out" "commit $first spells a path"
 has "it names the commit's file and line" "$out" "E2E/Tests/T.swift:1:"
 lacks "it does not name the fixing commit" "$out" "commit $(g rev-parse --short HEAD) "
-has "it tells how to fix it" "$out" "Never squash the whole branch"
+has "it tells how to fix it" "$out" "never squash the whole branch"
+has "it prints the commit's real hash in the steps" "$out" "edit $first/"
+# Follow the printed steps: the line is removed from the first commit, the later commit conflicts and takes its own
+# version, and the final tree is unchanged.
+old=$(g rev-parse HEAD)
+seq_cmd=$(echo "$out" | grep GIT_SEQUENCE_EDITOR | sed 's/^ *//')
+(cd "$repo" && GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t eval "$seq_cmd") > /dev/null 2>&1
+has "the rebase stops at the first commit" "$(g status 2> /dev/null)" "rebase in progress"
+printf 'let t = 0\n' > "$repo/E2E/Tests/T.swift"
+g add E2E/Tests/T.swift
+g commit -q --amend --no-edit
+g rebase --continue > /dev/null 2>&1
+if [ -d "$repo/.git/rebase-merge" ]; then
+  g checkout --theirs E2E/Tests/T.swift
+  g add E2E/Tests/T.swift
+  GIT_EDITOR=true g rebase --continue > /dev/null 2>&1
+fi
+lacks "the rebase is finished" "$(g status 2> /dev/null)" "rebase in progress"
+lacks "the final tree is unchanged" "$(g diff "$old" HEAD)" "diff"
+out=$(run)
+has "the check passes after the steps" "$out" "exit=0"
+has "the history has the same number of commits" "$(g rev-list --count "$old")" "$(g rev-list --count HEAD)"
 # A clean history of several commits passes.
-g reset -q --hard "$first"~1
+g reset -q --hard refs/remotes/origin/main
 printf 'let t = 1\n' > "$repo/E2E/Tests/T.swift"
 g add -A
 g commit -qm "clean one"
