@@ -49,7 +49,7 @@ People rely on it every day, and every automated run relies on the app exiting o
 7. Run `make e2e`: the `app.quit` test loads a page in an off-screen window, quits, and prints `PASS app.quit: closed=<s> limit 2, windows=0, stopped=<s> (no limit)` after every other check and a final `E2E: PASS n/n`, exiting with code 0.
    `closed` is the closing part, `windows` the number of the app's windows the window server still has on screen after Chromium's shutdown, and `stopped` the time until Chromium's shutdown returned, just before the process exits, printed for information.
 
-## Why the automated check has two limits
+## Why the automated check limits closing and not Chromium's shutdown
 
 Timestamps taken through quitting during full `make e2e` runs, while other worktrees built at once (load average 8 to 30 on 16 cores), showed where the time goes:
 
@@ -73,7 +73,7 @@ Now the app takes every window off screen the moment the loop ends, and the chec
 - no window of the app on screen, asked of the window server after Chromium's shutdown;
 - the whole quit (`stopped`) printed for information, with no limit, so a drift still shows in the reports.
 
-A quit that hangs in Chromium's shutdown still fails: the runner's hang watchdog ends the run with `E2E: TIMEOUT app.quit` 6 seconds after the quit started.
+A quit that hangs in Chromium's shutdown still fails: the runner's hang watchdog ends the run with `E2E: TIMEOUT app.quit` 8 seconds after the quit started, which leaves room above the slowest shutdown seen (5.4 seconds).
 
 ## Chromium's teardown watchdog
 
@@ -81,7 +81,7 @@ Chromium bounds its own shutdown: when it has not finished 10 seconds after its 
 Under heavy load (load average 24 to 44 on 16 cores) full `make e2e` runs on two branches hit it after every test had passed, and each ended as a crash without a summary line.
 Holding one shutdown-blocking task for 20 seconds reproduces it every time.
 The runner's hang watchdog for quitting used to wait 15 seconds, so Chromium's always fired first.
-It now fires 6 seconds after the quit starts, before Chromium's can: a quit that slow ends with `E2E: TIMEOUT app.quit` at once, then a stack sample in `hang.txt` showing where Chromium's shutdown waits, unless Chromium ends the process during the sample.
+It now fires 8 seconds after the quit starts, before Chromium's can: a quit that slow ends with `E2E: TIMEOUT app.quit` at once, then a stack sample in `hang.txt` showing where Chromium's shutdown waits, unless Chromium ends the process during the sample.
 
 Each test's in-memory profile stays alive until quitting, which was a suspect for the slow shutdowns.
 Quitting after the quit test alone took 0.047 to 0.088 seconds and after a full run (17 more profiles) 0.096 to 0.137 seconds, at load average 7 to 11.
