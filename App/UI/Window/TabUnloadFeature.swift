@@ -71,15 +71,16 @@ final class TabUnloadFeature: NSResponder, BrowserWindowFeature {
 
     /// Whether `event` types into an editable field: a key down or character with text, not another app shortcut
     /// (Command or Control held) than paste, cut or undo, and not a key that only moves (Tab, Escape, the arrow and
-    /// function keys, which macOS reports as characters in the private use range).
+    /// function keys, which macOS reports as characters in the private use range, where Forward Delete edits).
     static func editsText(_ event: EngineKeyEvent) -> Bool {
         guard event.kind != .keyUp, event.isInEditableField, !event.modifiers.contains(.control) else { return false }
         if event.modifiers.contains(.command) {
             return ["v", "x", "z"].contains(event.charactersIgnoringModifiers.lowercased())
         }
         let moves: Set<UInt32> = [0x09, 0x19, 0x1B]
+        let forwardDelete: UInt32 = 0xF728
         return event.characters.unicodeScalars.contains {
-            !moves.contains($0.value) && !(0xF700...0xF8FF).contains($0.value)
+            $0.value == forwardDelete || (!moves.contains($0.value) && !(0xF700...0xF8FF).contains($0.value))
         }
     }
 
