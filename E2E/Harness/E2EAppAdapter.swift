@@ -39,7 +39,10 @@ final class E2EAppAdapter: E2EApp {
             defer: false
         )
         let controller = delegate.openWindow(url: url, profile: engineProfile, window: window)
-        controller.onTabEvent = { [weak self] tab, event in
+        controller.onTabEvent = { [weak self, unowned controller] tab, event in
+            if case .stateChanged = event, let row = Self.sidebarRow(of: tab, in: controller) {
+                self?.pages[tab.tabID]?.sidebarRowHistory.append(row)
+            }
             self?.pages[tab.tabID]?.tabDidReceive(event)
             if event == .closed { self?.pages[tab.tabID] = nil }
         }
@@ -212,6 +215,8 @@ private final class TabPage: E2EPage {
     private var loads: [Result<Int, E2EError>] = []
     private var loadWaiters: [(load: Int, continuation: CheckedContinuation<Int, Error>)] = []
     private(set) var navigationEvents: [E2ENavigationEvent] = []
+    /// The tab's sidebar row after each state change, recorded by the adapter.
+    var sidebarRowHistory: [E2ESidebarRow] = []
     var navigationPolicy: ((URL) -> Bool)?
     var leavePromptAnswer = true
     private(set) var leavePrompts = 0
@@ -404,4 +409,105 @@ private final class WindowFindBar: E2EFindBar {
 /// and the dictionary is never touched elsewhere, so passing it along is safe.
 private struct MainThreadResult: @unchecked Sendable {
     let value: [String: Any]
+}
+
+// The sidebar and tab commands over the window controller and its TabSidebarView.
+extension E2EAppAdapter: E2ESidebarApp {
+    func sidebarRows(of page: any E2EPage) throws -> [E2ESidebarRow] {
+        let controller = try Self.tabPage(page).controller
+        return controller.tabs.compactMap { Self.sidebarRow(of: $0, in: controller) }
+    }
+
+    func sidebarRowHistory(of page: any E2EPage) -> [E2ESidebarRow] {
+        (page as? TabPage)?.sidebarRowHistory ?? []
+    }
+
+    /// The row of `tab` as the sidebar draws it, made if the table has not laid it out yet.
+    fileprivate static func sidebarRow(of tab: any EngineTab, in controller: BrowserWindowController)
+        -> E2ESidebarRow?
+    {
+        guard let id = controller.modelID(of: tab), let row = controller.sidebar.tabList.index(of: id) else {
+            return nil
+        }
+        let table = controller.sidebar.tableView
+        guard let view = table.view(atColumn: 0, row: row, makeIfNecessary: true) as? TabSidebarRow else {
+            return nil
+        }
+        return E2ESidebarRow(
+            title: view.titleField.stringValue,
+            isLoading: view.isLoading,
+            hasFavicon: view.hasFavicon,
+            isActive: table.rowView(atRow: row, makeIfNecessary: true)?.isSelected ?? false
+        )
+    }
+
+    func clickSidebarRow(of page: any E2EPage) throws {
+        let page = try Self.tabPage(page)
+        let sidebar = page.controller.sidebar
+        guard let id = page.controller.modelID(of: page.tab), let row = sidebar.tabList.index(of: id) else {
+            throw E2EError("tab \(page.tab.tabID) has no sidebar row")
+        }
+        // A click selects the row; the table reports the new selection to the sidebar the same way.
+        sidebar.tableView.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
+    }
+
+    func clickSidebarClose(of page: any E2EPage) throws {
+        let page = try Self.tabPage(page)
+        guard let id = page.controller.modelID(of: page.tab), let view = page.controller.sidebar.rowView(for: id)
+        else {
+            throw E2EError("tab \(page.tab.tabID) has no sidebar row")
+        }
+        guard !view.closeButton.isHidden else { throw E2EError("the row's close button is not showing") }
+        try Self.click(view.closeButton)
+    }
+
+    func clickNewTab(besides page: any E2EPage, opening url: URL) throws -> any E2EPage {
+        let controller = try Self.tabPage(page).controller
+        let before = Set(controller.tabs.map(\.tabID))
+        controller.newTabURL = url
+        try Self.click(controller.sidebar.newTabButton)
+        guard let tab = controller.tabs.first(where: { !before.contains($0.tabID) }) else {
+            throw E2EError("the New Tab button opened no tab")
+        }
+        return track(tab, in: controller)
+    }
+
+    /// Sends `button`'s action to its target, as a click on it ends up doing. `performClick(_:)` is not used: it
+    /// runs the run loop while it shows the button pressed, so the engine's events for a tab the click opens
+    /// would arrive before the test could track the tab.
+    private static func click(_ button: NSButton) throws {
+        guard button.isEnabled, !button.isHiddenOrHasHiddenAncestor, let action = button.action,
+            NSApp.sendAction(action, to: button.target, from: button)
+        else {
+            throw E2EError("the button \"\(button.accessibilityLabel() ?? button.title)\" cannot be clicked")
+        }
+    }
+
+    func chooseMenuItem(commandKey key: String, in page: any E2EPage) throws {
+        let controller = try Self.tabPage(page).controller
+        guard let item = Self.menuItem(commandKey: key, in: NSApp.mainMenu), let action = item.action else {
+            throw E2EError("no menu item has the shortcut Command-\(key)")
+        }
+        // An e2e window never becomes key, so the item is sent to the page's window rather than the key window.
+        let target: Any? = controller.responds(to: action) ? controller : controller.window
+        guard NSApp.sendAction(action, to: target, from: item) else {
+            throw E2EError("the menu item \"\(item.title)\" did nothing")
+        }
+    }
+
+    private static func menuItem(commandKey key: String, in menu: NSMenu?) -> NSMenuItem? {
+        for item in menu?.items ?? [] {
+            if item.keyEquivalent == key, item.keyEquivalentModifierMask == .command { return item }
+            if let found = menuItem(commandKey: key, in: item.submenu) { return found }
+        }
+        return nil
+    }
+
+    func moveTab(_ page: any E2EPage, to index: Int) throws {
+        let page = try Self.tabPage(page)
+        guard let id = page.controller.modelID(of: page.tab) else {
+            throw E2EError("tab \(page.tab.tabID) is not in its window")
+        }
+        page.controller.sidebar(page.controller.sidebar, move: id, to: index)
+    }
 }

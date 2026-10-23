@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Page</title>
+  <link rel="icon" type="image/png" href="icon.png">
+  <style>
+    body { margin: 0; font: 16px -apple-system, sans-serif; background: #fff; color: #111; }
+    h1 { margin: 0; padding: 24px; background: #e85a28; color: #fff; }
+  </style>
+  <script>
+    // Titled after its `name` parameter, so the sidebar lists the tabs by name. bowLoadID changes with every new
+    // document, so a reload on switching shows up.
+    window.bowLoadID = String(Math.random()).slice(2) + "-" + Date.now();
+    document.title = new URLSearchParams(location.search).get("name") || "?";
+  </script>
+</head>
+<body>
+  <h1>Sidebar fixture</h1>
+  <p style="padding: 0 24px">A page with a title and a site icon for the sidebar checks.</p>
+</body>
+</html>

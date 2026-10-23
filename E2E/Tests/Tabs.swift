@@ -4,7 +4,70 @@ import Foundation
 /// Fixtures in E2E/Fixtures/tabs/.
 @MainActor
 enum TabsTests {
-    static let all: [any E2ETest] = [TabsSwitchTest(), TabsBeforeUnloadTest(), TabsCloseWindowTest()]
+    static let all: [any E2ETest] = [
+        TabsSwitchTest(), TabsBeforeUnloadTest(), TabsCloseWindowTest(), TabsModelTest(),
+    ]
+}
+
+/// Drives the window's tab list through the app and checks the order and active tab the sidebar shows after each
+/// operation: open (New Tab opens right after the active tab), close (Command-W on the active tab activates the
+/// one after it), select (a sidebar click) and move (a tab dropped at a new position stays active).
+struct TabsModelTest: E2ETest {
+    let name = "tabs.model"
+
+    func run(_ run: E2ERun) async throws {
+        let app = try SidebarWaits.app(run)
+        let url = { (name: String) in E2EFixture.url("tabs/counter.html?name=\(name)") }
+        let one = try await run.step("open window", timeout: E2ETimeouts.firstLoad) {
+            let page = try await run.app.openWindow(at: url("1"))
+            _ = try await page.waitForLoad(after: 0)
+            return page
+        }
+        var results: [String] = []
+        /// Waits for the sidebar to read `expected` (as `SidebarWaits.summary` writes it) and records the
+        /// operation as passed, or records what the sidebar read instead when the wait gives up.
+        func expect(_ operation: String, _ expected: String, shown: any E2EPage) async throws {
+            let deadline = Date().addingTimeInterval(2)
+            var rows = try app.sidebarRows(of: one)
+            while SidebarWaits.summary(rows) != expected, Date() < deadline {
+                try await Task.sleep(nanoseconds: 10_000_000)
+                rows = try app.sidebarRows(of: one)
+            }
+            let summary = SidebarWaits.summary(rows)
+            if summary != expected {
+                results.append("\(operation): \(summary), expected \(expected)")
+            } else if !shown.isShown {
+                results.append("\(operation): the active tab is not shown")
+            } else {
+                results.append(operation)
+            }
+        }
+
+        let (two, three) = try await run.step("open", timeout: E2ETimeouts.firstLoad) {
+            let two = try app.clickNewTab(besides: one, opening: url("2"))
+            _ = try await two.waitForLoad(after: 0)
+            try app.clickSidebarRow(of: one)
+            let three = try app.clickNewTab(besides: one, opening: url("3"))
+            _ = try await three.waitForLoad(after: 0)
+            try await expect("open", "tabs=[Tab 1,Tab 3,Tab 2] active=Tab 3", shown: three)
+            return (two, three)
+        }
+        try await run.step("close", timeout: E2ETimeouts.step) {
+            try app.chooseMenuItem(commandKey: "w", in: three)
+            while !three.isClosed { try await Task.sleep(nanoseconds: 10_000_000) }
+            try await expect("close", "tabs=[Tab 1,Tab 2] active=Tab 2", shown: two)
+        }
+        try await run.step("select", timeout: E2ETimeouts.step) {
+            try app.clickSidebarRow(of: one)
+            try await expect("select", "tabs=[Tab 1,Tab 2] active=Tab 1", shown: one)
+        }
+        try await run.step("move", timeout: E2ETimeouts.step) {
+            try app.moveTab(one, to: 1)
+            try await expect("move", "tabs=[Tab 2,Tab 1] active=Tab 1", shown: one)
+        }
+        let passed = results == ["open", "close", "select", "move"]
+        run.check(name, passed: passed, results.joined(separator: passed ? "," : "; "))
+    }
 }
 
 /// Closes a tab whose page has an unsaved draft and a beforeunload handler: staying at the leave prompt keeps the

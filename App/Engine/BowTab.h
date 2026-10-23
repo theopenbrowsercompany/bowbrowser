@@ -1,4 +1,4 @@
-#import <Foundation/Foundation.h>
+#import <AppKit/AppKit.h>
 
 #import "BowTabNavigationDelegate.h"
 #import "BowTabUIDelegate.h"
@@ -75,6 +75,14 @@ NS_SWIFT_UI_ACTOR
 /// with YES once the page is destroyed, or NO when the person chose to stay on the page (at the UI delegate's
 /// JavaScript dialog, or at the tab's own prompt when the delegate has none).
 - (void)closeWithCompletion:(void (^)(BOOL closed))completion NS_SWIFT_NAME(close(completion:));
+
+/// Downloads the site icon at `url` (usually the state's `faviconURL`) through the tab's own profile, at most
+/// `maxPixelSize` pixels on a side, and calls `completion` on a later main thread task with the image, or nil when
+/// the download failed or the tab has no browser.
+- (void)loadFaviconAtURL:(NSURL*)url
+            maxPixelSize:(NSUInteger)maxPixelSize
+              completion:(void (^)(NSImage* _Nullable image))completion
+    NS_SWIFT_NAME(loadFavicon(at:maxPixelSize:completion:));
 
 /// Receives the tab's main frame navigations and decides their policy. Held weakly.
 @property(nonatomic, weak, nullable) id<BowTabNavigationDelegate> navigationDelegate;

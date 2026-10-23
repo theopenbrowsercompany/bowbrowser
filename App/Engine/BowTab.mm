@@ -12,6 +12,7 @@
 #include "include/cef_browser.h"
 #include "include/cef_client.h"
 #include "include/cef_find_handler.h"
+#include "include/cef_image.h"
 
 namespace {
 
@@ -30,6 +31,40 @@ uint64_t gNextTabID = 1;
 #if BOW_E2E  // E2E seam: set by BowEngineAnswerLeavePrompts, so e2e runs answer leave prompts off screen.
 std::function<void(uint64_t, bool, std::function<void(bool)>)> gLeavePromptAnswerer;
 #endif
+
+// Hands a downloaded site icon to the tab's caller as an NSImage with every scale the download has.
+class FaviconCallback : public CefDownloadImageCallback {
+ public:
+  explicit FaviconCallback(void (^completion)(NSImage* _Nullable)) : completion_([completion copy]) {}
+
+  void OnDownloadImageFinished(const CefString&, int, CefRefPtr<CefImage> image) override {
+    NSImage* result = nil;
+    if (image && !image->IsEmpty()) {
+      result = [[NSImage alloc] initWithSize:NSMakeSize(image->GetWidth(), image->GetHeight())];
+      for (float scale : {1.0f, 2.0f}) {
+        int width = 0;
+        int height = 0;
+        CefRefPtr<CefBinaryValue> png = image->GetAsPNG(scale, true, width, height);
+        if (!png || png->GetSize() == 0) continue;
+        NSMutableData* data = [NSMutableData dataWithLength:png->GetSize()];
+        png->GetData(data.mutableBytes, data.length, 0);
+        NSBitmapImageRep* rep = [NSBitmapImageRep imageRepWithData:data];
+        if (!rep) continue;
+        rep.size = result.size;
+        [result addRepresentation:rep];
+      }
+      if (result.representations.count == 0) result = nil;
+    }
+    void (^completion)(NSImage* _Nullable) = completion_;
+    dispatch_async(dispatch_get_main_queue(), ^{
+      completion(result);
+    });
+  }
+
+ private:
+  void (^completion_)(NSImage* _Nullable);
+  IMPLEMENT_REFCOUNTING(FaviconCallback);
+};
 
 // The text of the ERR_ABORTED failures the tab reports itself, matching how the engine names its errors.
 NSString* const kAbortedText = @"ERR_ABORTED";
@@ -1243,6 +1278,19 @@ class BowTabClient : public CefClient,
   }
   // Each close request asks the page again, as quitting again does.
   BowEngineCloseBrowser(_browser, true);
+}
+
+- (void)loadFaviconAtURL:(NSURL*)url
+            maxPixelSize:(NSUInteger)maxPixelSize
+              completion:(void (^)(NSImage* _Nullable))completion {
+  if (!_browser || self.willClose || self.closed) {
+    dispatch_async(dispatch_get_main_queue(), ^{
+      completion(nil);
+    });
+    return;
+  }
+  _browser->GetHost()->DownloadImage(url.absoluteString.UTF8String, true, static_cast<uint32_t>(maxPixelSize), false,
+                                     new FaviconCallback(completion));
 }
 
 @end

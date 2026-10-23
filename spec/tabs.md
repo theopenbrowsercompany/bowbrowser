@@ -50,6 +50,23 @@ The list is the base for pinned tabs, folders, spaces and restoring tabs after a
 - Asking for a tab that does not exist (select, close, move or update with an unknown identity) changes nothing.
 - Opening a tab whose identity is already in the list is refused and changes nothing.
 
+### Sidebar
+
+- Every window has a sidebar on its left, a fixed width, listing the window's tabs top to bottom in tab list order.
+  The page fills the rest of the window, below any toolbar.
+- Each row shows the tab's site icon and its title.
+  A page without a title yet shows its address's host, and a tab with nothing loaded shows "New Tab".
+  A page without a site icon, or whose icon cannot be loaded, shows a globe.
+  Long titles are cut short with an ellipsis, and the full title shows on hover.
+- While a tab's page loads, its row shows a small spinner in place of the icon.
+- A row changes as soon as its page reports a new title, icon or loading state.
+- The active tab's row is highlighted.
+- Clicking a row makes that tab active and shows its page, as it was left.
+- The active row, and any row under the pointer, shows a close button; clicking it closes that tab the same way as any other close (the page's beforeunload handler runs first).
+- A New Tab button above the list opens a new tab right after the active tab and shows it.
+- Dragging a row to another position moves that tab there; the active tab stays the same.
+- File > New Tab (Command-T) opens a new tab, File > Close Tab (Command-W) closes the active tab, and File > Close Window (Shift-Command-W) closes the window with all its tabs.
+
 ## Edge cases
 
 - A tab still opening when it is closed closes as soon as its page exists.
@@ -66,7 +83,7 @@ The list is the base for pinned tabs, folders, spaces and restoring tabs after a
 2. Run `make e2e`: `PASS tabs.beforeunload: stay=kept leave=closed` shows a tab with a typed draft and a beforeunload handler asked once on close, kept with the same document and draft after Cancel, and closed after a second close and Leave.
 3. Run `make e2e`: `PASS tabs.close: neighbor=shown closed=true prompts=0` shows the neighbor tab shown after the draft tab closed, and a page without a handler closed at once without a prompt.
 4. Run `make e2e`: `PASS tabs.close-window` shows a window with three tabs, one shown and two hidden, closing all three and then itself while the app keeps running.
-5. By hand (until tabs have a close command of their own): open a page with a form in a window, type into it, close the window; the prompt appears as a sheet; choose Cancel and the window and text are still there; close again and choose Leave and the window is gone.
+5. By hand: open a page with a form in a window, type into it, press Command-W; the prompt appears as a sheet; choose Cancel and the tab and text are still there; press Command-W again and choose Leave and the tab is gone (with the window, when it was the last tab).
 6. Tab list, starting with tabs A, B, C and A active: open a tab X after the active tab. Expected order A, X, B, C with X active.
 7. Tab list, starting with tabs A, B, C and B active: close B. Expected order A, C with C active.
 8. Tab list, starting with tabs A, B, C and C active: close C. Expected order A, B with B active.
@@ -74,10 +91,15 @@ The list is the base for pinned tabs, folders, spaces and restoring tabs after a
 10. Tab list, starting with one tab: close it. Expected an empty list with no active tab.
 11. Tab list, starting with tabs A, B, C and B active: move B to the first position. Expected order B, A, C with B still active.
 12. Tab list, starting with tabs A, B: open X in the background. Expected order A, B, X with the active tab unchanged.
+13. Run `make e2e`: `PASS tabs.model: open,close,select,move` shows the app's window following the tab list: New Tab opens after the active tab, Command-W on the active tab activates the one after it, a sidebar click selects, and a moved tab stays active, with the sidebar's order and highlight matching after each step.
+14. Run `make e2e`: `PASS sidebar.tabs: tabs=[A,B] active=B` shows a window with tab A and tab B (opened with the New Tab button) listed with their icons and titles and B highlighted, B's row showing a spinner while it loaded and then its title, a title change reaching the row, and clicking each row showing its page without reloading it.
+15. Run `make e2e`: `PASS sidebar.close: button=closed cmd-w=closed` shows one tab closed with its row's close button and another with Command-W, each leaving A and B with B active.
+16. By hand: drag a row to another position in the sidebar; the tab moves there and the highlighted tab stays the same.
 
 ## Out of scope
 
-- A tab strip or sidebar, its look and its drag and drop, keyboard shortcuts for switching and closing tabs, and reopening closed tabs.
+- Keyboard shortcuts for switching tabs, reopening closed tabs, and moving tabs between windows.
+- How the sidebar looks beyond the rows above (collapsing, resizing, themes, a hidden title bar).
 - Pinned tabs, favorites, folders, archiving of old tabs and sleeping tabs to save memory.
 - Several spaces, and tabs mirrored across windows.
 - Saving the tab list to disk and restoring it on launch.
