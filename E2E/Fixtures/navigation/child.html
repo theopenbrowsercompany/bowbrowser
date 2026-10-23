@@ -1,0 +1,15 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Navigation child</title>
+</head>
+<body>
+  <h1>Navigation child</h1>
+  <script>
+    // Reports back to the page that opened this one, when it still can, then closes, as a sign in popup does.
+    if (window.opener) window.opener.postMessage("opened" + location.search, "*");
+    setTimeout(() => window.close(), 0);
+  </script>
+</body>
+</html>

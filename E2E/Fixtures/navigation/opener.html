@@ -1,0 +1,16 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Navigation opener</title>
+</head>
+<body>
+  <h1>Navigation opener</h1>
+  <p>The nav.popup test opens child.html from here with window.open.</p>
+  <script>
+    // Messages child pages post back through window.opener, in order.
+    window.bowMessages = [];
+    window.addEventListener("message", (event) => window.bowMessages.push(String(event.data)));
+  </script>
+</body>
+</html>
