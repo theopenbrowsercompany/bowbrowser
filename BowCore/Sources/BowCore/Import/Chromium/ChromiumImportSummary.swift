@@ -53,7 +53,11 @@ public struct ChromiumImportSummary: Equatable, Sendable {
         var problems: [ChromiumImportError] = []
         var visits: [ChromiumVisit] = []
         var bookmarks: ChromiumBookmarks?
-        do { visits = try ChromiumHistory.load(profileFolder: folder) } catch let e as ChromiumImportError {
+        do {
+            let report = try ChromiumHistory.loadReport(profileFolder: folder)
+            visits = report.visits
+            if report.undatedCount > 0 { problems.append(.undatedVisits(count: report.undatedCount)) }
+        } catch let e as ChromiumImportError {
             problems.append(e)
         } catch {}
         do { bookmarks = try ChromiumBookmarks.load(profileFolder: folder) } catch let e as ChromiumImportError {

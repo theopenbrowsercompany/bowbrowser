@@ -151,13 +151,50 @@ import Testing
         #expect(!FileManager.default.fileExists(atPath: folder.appendingPathComponent("History-journal").path))
     }
 
-    @Test func historyReadsADatabaseAFakeBrowserHoldsOpen() throws {
+    @Test func historyIncludesCommittedWalFramesFromARunningWriter() throws {
         let folder = try Self.tempFolder()
         defer { try? FileManager.default.removeItem(at: folder) }
         let db = try Self.writeHistory(to: folder, closeAfterwards: false)
         defer { sqlite3_close(db) }
-        #expect(sqlite3_exec(db, "BEGIN EXCLUSIVE", nil, nil, nil) == SQLITE_OK)
-        #expect(try ChromiumHistory.load(profileFolder: folder).count == 3)
+        // A browser in WAL mode that never checkpoints: new visits live only in the -wal file.
+        #expect(sqlite3_exec(db, "PRAGMA journal_mode=WAL; PRAGMA wal_autocheckpoint=0;", nil, nil, nil) == SQLITE_OK)
+        let later = Self.t0 + 300_000_000
+        #expect(
+            sqlite3_exec(
+                db,
+                """
+                INSERT INTO urls (id, url, title) VALUES (4, 'https://example.com/wal', 'From the WAL');
+                INSERT INTO visits (url, visit_time, transition) VALUES (4, \(later), 0);
+                BEGIN;
+                INSERT INTO visits (url, visit_time, transition) VALUES (4, \(later + 1), 0);
+                """, nil, nil, nil) == SQLITE_OK)
+        let main = folder.appendingPathComponent("History")
+        let before = try Data(contentsOf: main)
+        let visits = try ChromiumHistory.load(profileFolder: folder)
+        // The committed WAL visit is there, the writer's open transaction is not.
+        #expect(visits.last?.url == "https://example.com/wal")
+        #expect(visits.count == 4)
+        #expect(try Data(contentsOf: main) == before)
+    }
+
+    @Test func undatedVisitsAreCountedNotSilentlyDropped() throws {
+        let folder = try Self.tempFolder()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let db = try Self.writeHistory(to: folder, closeAfterwards: false)
+        sqlite3_exec(db, "INSERT INTO visits (url, visit_time, transition) VALUES (1, 0, 0);", nil, nil, nil)
+        sqlite3_close(db)
+        let report = try ChromiumHistory.loadReport(profileFolder: folder)
+        #expect(report.visits.count == 3)
+        #expect(report.undatedCount == 1)
+
+        let userData = folder.appendingPathComponent("ud")
+        let profileFolder = userData.appendingPathComponent("Default")
+        try FileManager.default.createDirectory(at: profileFolder, withIntermediateDirectories: true)
+        try FileManager.default.copyItem(
+            at: folder.appendingPathComponent("History"), to: profileFolder.appendingPathComponent("History"))
+        let summary = ChromiumImportSummary.dryRun(
+            userDataFolder: userData, profile: ChromiumProfile(directory: "Default", displayName: "P"))
+        #expect(summary.problems.contains(.undatedVisits(count: 1)))
     }
 
     @Test func missingHistoryIsReported() throws {

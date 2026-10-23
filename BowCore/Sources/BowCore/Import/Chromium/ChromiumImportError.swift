@@ -8,12 +8,15 @@ public enum ChromiumImportError: Error, Equatable, CustomStringConvertible, Send
     case malformed(file: String, reason: String)
     /// The History database could not be copied or opened.
     case database(file: String, reason: String)
+    /// Visits left out of the import because their time was unusable.
+    case undatedVisits(count: Int)
 
     public var description: String {
         switch self {
         case .missingFile(let name): return "\(name) was not found in the profile folder"
         case .malformed(let file, let reason): return "\(file) could not be read: \(reason)"
         case .database(let file, let reason): return "\(file) could not be opened: \(reason)"
+        case .undatedVisits(let count): return "\(count) visit\(count == 1 ? "" : "s") without a usable date left out"
         }
     }
 }
