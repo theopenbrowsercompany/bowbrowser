@@ -18,6 +18,9 @@ extension E2EAppAdapter {
         var persistence: [String: Bool] = [:]
         for space in seed.spaces {
             guard case .new(let profile) = space.profile else { continue }
+            if profile.id == testProfileID {
+                throw E2EError("the seed names the test's own profile \"\(profile.id)\" as new; use .test")
+            }
             if let earlier = persistence[profile.id], earlier != profile.isPersistent {
                 throw E2EError(
                     "the seed names the new profile \"\(profile.id)\" both persistent and in memory")
@@ -142,9 +145,13 @@ extension E2ETestApp: E2EStoreSeedApp {
         return try await adapter.openWindow(seeded: seed, token: token)
     }
 
-    var testProfileID: String { adapter.testProfileID }
+    func testProfileID() throws -> String {
+        try adapter.requireActive(token, "read the test's profile ID")
+        return adapter.testProfileID
+    }
 
     func storeEntry(id: String, in page: any E2EPage) throws -> E2EStoreEntry? {
-        try adapter.storeEntry(id: id, in: page)
+        try adapter.requireActive(token, "read the sidebar store")
+        return try adapter.storeEntry(id: id, in: page)
     }
 }

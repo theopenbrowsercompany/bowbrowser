@@ -10,11 +10,14 @@ extension E2EAppAdapter {
         return shortcutItems(in: NSApp.mainMenu).first { shortcut(of: $0) == wanted }
     }
 
-    /// Every visible main menu item with a shortcut, depth first. A hidden item is skipped with its submenu, as
-    /// AppKit skips them for key presses.
+    /// Every main menu item whose shortcut a key press can reach, depth first. A hidden item is skipped with its
+    /// submenu, as AppKit skips them for key presses, unless it allows its key equivalent while hidden (its submenu
+    /// is still skipped).
     private static func shortcutItems(in menu: NSMenu?) -> [NSMenuItem] {
-        (menu?.items ?? []).filter { !$0.isHidden }.flatMap { item in
-            (item.keyEquivalent.isEmpty ? [] : [item]) + shortcutItems(in: item.submenu)
+        (menu?.items ?? []).flatMap { item -> [NSMenuItem] in
+            let reachable = !item.isHidden || item.allowsKeyEquivalentWhenHidden
+            let own = reachable && !item.keyEquivalent.isEmpty ? [item] : []
+            return own + (item.isHidden ? [] : shortcutItems(in: item.submenu))
         }
     }
 
@@ -119,7 +122,16 @@ extension E2EAppAdapter {
         case .handler(let handler):
             target = handler
         }
-        if let validator = target as? NSMenuItemValidation, !validator.validateMenuItem(item) {
+        // AppKit asks validateMenuItem(_:), or validateUserInterfaceItem(_:) when the target has only that.
+        let enabled: Bool
+        if let validator = target as? NSMenuItemValidation {
+            enabled = validator.validateMenuItem(item)
+        } else if let validator = target as? NSUserInterfaceValidations {
+            enabled = validator.validateUserInterfaceItem(item)
+        } else {
+            enabled = true
+        }
+        if !enabled {
             throw E2EError("\"\(item.title)\" (\(shortcut)) is disabled")
         }
         // Sent straight to the chosen target, so it only fails when that target stops responding.
@@ -156,6 +168,7 @@ extension E2ETestApp: E2EMenuApp {
     }
 
     func menuRoutes(in page: any E2EPage) throws -> [E2EMenuRoute] {
-        try adapter.menuRoutes(in: page)
+        try adapter.requireActive(token, "read the menu routes")
+        return try adapter.menuRoutes(in: page)
     }
 }
