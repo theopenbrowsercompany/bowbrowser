@@ -159,8 +159,12 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
     }
 
     private func stepFind(forward: Bool) {
-        if findBar.isHidden { showFindBar(nil) }
-        runFind(forward: forward)
+        // A closed bar opens and searches again, which already makes a match active; stepping too would skip one.
+        if findBar.isHidden {
+            showFindBar(nil)
+        } else {
+            runFind(forward: forward)
+        }
     }
 
     /// Searches the find bar's tab for the bar's text: a new search when the text changed, otherwise a step to the

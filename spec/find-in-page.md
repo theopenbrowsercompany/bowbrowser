@@ -14,7 +14,7 @@ It is basic browser behavior that people reach for by reflex, so it must open in
   Emptying the field clears the highlights and the count.
 - Enter, the down arrow button, and Edit > Find > Find Next (Cmd+G) make the next match active; after the last match comes the first.
 - Shift+Enter, the up arrow button, and Edit > Find > Find Previous (Shift+Cmd+G) make the previous match active; before the first match comes the last.
-  Cmd+G and Shift+Cmd+G open the bar first when it is closed.
+  When the bar is closed, Cmd+G and Shift+Cmd+G open it and search again, as Cmd+F does.
 - Escape, or the close button, hides the bar and clears the highlights.
   The active match stays selected in the page, as in other browsers, and the keyboard goes back to the page.
   The bar keeps its text for the next Cmd+F.
