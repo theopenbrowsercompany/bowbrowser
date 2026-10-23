@@ -5,9 +5,10 @@ import BowCore
 /// bottom, with the grid exactly as tall as its rows.
 enum FavoritesGridLayout {
     static let columns = 4
-    static let tileHeight: CGFloat = 40
-    static let spacing: CGFloat = 6
-    static let insets = NSEdgeInsets(top: 4, left: 10, bottom: 8, right: 10)
+    static let tileHeight: CGFloat = 44
+    static let spacing: CGFloat = 8
+    static let insets = NSEdgeInsets(
+        top: 4, left: BowBrand.sidebarLeading, bottom: 8, right: BowBrand.sidebarTrailing)
     /// The height of a grid without Favorites: a thin strip that still takes a tab dropped on it.
     static let emptyHeight: CGFloat = 12
 
@@ -255,7 +256,8 @@ final class FavoriteTileView: NSView, NSDraggingSource {
         self.item = item
         super.init(frame: .zero)
         wantsLayer = true
-        layer?.cornerRadius = 8
+        layer?.cornerRadius = BowBrand.radiusTile
+        layer?.cornerCurve = .continuous
         iconView.imageScaling = .scaleProportionallyUpOrDown
         letterField.alignment = .center
         letterField.font = .systemFont(ofSize: 13, weight: .semibold)
@@ -269,8 +271,8 @@ final class FavoriteTileView: NSView, NSDraggingSource {
         NSLayoutConstraint.activate([
             iconView.centerXAnchor.constraint(equalTo: centerXAnchor),
             iconView.centerYAnchor.constraint(equalTo: centerYAnchor),
-            iconView.widthAnchor.constraint(equalToConstant: 18),
-            iconView.heightAnchor.constraint(equalToConstant: 18),
+            iconView.widthAnchor.constraint(equalToConstant: 20),
+            iconView.heightAnchor.constraint(equalToConstant: 20),
             letterField.centerXAnchor.constraint(equalTo: centerXAnchor),
             letterField.centerYAnchor.constraint(equalTo: centerYAnchor),
             letterField.widthAnchor.constraint(equalToConstant: 20),
@@ -301,7 +303,7 @@ final class FavoriteTileView: NSView, NSDraggingSource {
     override var wantsUpdateLayer: Bool { true }
 
     override func updateLayer() {
-        let fill = isActive ? NSColor.labelColor.withAlphaComponent(0.18) : NSColor.labelColor.withAlphaComponent(0.07)
+        let fill = isActive ? BowBrand.active : BowBrand.pin
         effectiveAppearance.performAsCurrentDrawingAppearance { layer?.backgroundColor = fill.cgColor }
     }
 

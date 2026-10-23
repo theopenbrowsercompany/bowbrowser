@@ -29,7 +29,8 @@ extension E2EAppAdapter {
             spaces: graph.spaces.map(\.title),
             active: graph.activeSpace?.title ?? "none",
             tabs: Array(tabs),
-            header: header?.stringValue ?? "none",
+            // The header shows the name uppercase; its tooltip keeps it as typed.
+            header: header?.toolTip ?? "none",
             footer: footer.map {
                 ($0.accessibilityLabel() ?? "?") + ($0.accessibilityValue() as? String == "on screen" ? "*" : "")
             }

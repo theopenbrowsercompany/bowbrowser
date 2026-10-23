@@ -82,7 +82,7 @@ The list comes from the saved sidebar (see `sidebar-store.md`): a window's tabs 
 ### Sidebar
 
 - Every window has a sidebar on its left, a fixed width, listing the window's tabs top to bottom in tab list order.
-  The page fills the rest of the window, below any toolbar.
+  The page fills the rest of the window as a card (see `window-look.md`).
 - Each row shows the tab's site icon and its title.
   A page without a title yet shows its address's host, and a tab with nothing loaded shows "New Tab".
   A page without a site icon, or whose icon cannot be loaded, shows a globe.

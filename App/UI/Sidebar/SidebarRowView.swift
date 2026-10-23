@@ -1,16 +1,10 @@
 import AppKit
 
-/// The row view behind each sidebar item: the active tab's row is a lifted Card colored rounded rect with a very light
-/// shadow, a hovered row gets a light Hover tint, and every other row has no background. The outline's own selection
-/// highlight is not drawn, and the row is never emphasized, so titles keep their own color when selected.
+/// The row view behind each sidebar item: the active tab's row is a lifted Active colored rounded rect with the
+/// brand's soft shadow, a hovered row gets the Pin tint, and every other row has no background. The outline's own
+/// selection highlight is not drawn, and the row is never emphasized, so titles keep their own color when selected.
 @MainActor
 final class SidebarRowView: NSTableRowView {
-    /// Space between the lifted rect and the sidebar's edges.
-    static let horizontalInset = BowBrand.space8
-    static let shadowOpacity: Float = 0.08
-    static let shadowRadius: CGFloat = 2
-    static let shadowOffset = CGSize(width: 0, height: -1)
-
     /// The rounded rect behind the row's cell, below it.
     let liftView = SidebarRowLift()
     private var isHovered = false {
@@ -20,6 +14,8 @@ final class SidebarRowView: NSTableRowView {
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
+        // The lift view stands for the selection, so the system's highlight is not drawn.
+        selectionHighlightStyle = .none
         addSubview(liftView, positioned: .below, relativeTo: nil)
         updateLift()
     }
@@ -43,9 +39,13 @@ final class SidebarRowView: NSTableRowView {
 
     override func layout() {
         super.layout()
-        liftView.frame = bounds.insetBy(dx: Self.horizontalInset, dy: 0)
+        // Within the sidebar's padding.
+        var frame = bounds
+        frame.origin.x += BowBrand.sidebarLeading
+        frame.size.width = max(frame.width - BowBrand.sidebarLeading - BowBrand.sidebarTrailing, 0)
+        liftView.frame = frame
         liftView.layer?.shadowPath = CGPath(
-            roundedRect: liftView.bounds, cornerWidth: BowBrand.radiusSmall, cornerHeight: BowBrand.radiusSmall,
+            roundedRect: liftView.bounds, cornerWidth: BowBrand.radiusRow, cornerHeight: BowBrand.radiusRow,
             transform: nil)
     }
 
@@ -71,10 +71,10 @@ final class SidebarRowView: NSTableRowView {
         isHovered = false
     }
 
-    /// The color behind the row now: Card when selected, Hover when hovered, none otherwise.
+    /// The color behind the row now: Active when selected, Pin when hovered, none otherwise.
     var liftColor: NSColor? {
-        if isSelected { return BowBrand.card }
-        if isHovered { return BowBrand.hover }
+        if isSelected { return BowBrand.active }
+        if isHovered { return BowBrand.pin }
         return nil
     }
 
@@ -83,7 +83,7 @@ final class SidebarRowView: NSTableRowView {
         effectiveAppearance.performAsCurrentDrawingAppearance {
             layer.backgroundColor = liftColor?.cgColor
         }
-        layer.shadowOpacity = isSelected ? Self.shadowOpacity : 0
+        liftView.shadow = isSelected ? BowBrand.softShadow() : nil
     }
 }
 
@@ -94,13 +94,9 @@ final class SidebarRowLift: NSView {
         super.init(frame: frameRect)
         wantsLayer = true
         guard let layer else { return }
-        layer.cornerRadius = BowBrand.radiusSmall
+        layer.cornerRadius = BowBrand.radiusRow
         layer.cornerCurve = .continuous
         layer.masksToBounds = false
-        layer.shadowColor = NSColor.black.cgColor
-        layer.shadowRadius = SidebarRowView.shadowRadius
-        layer.shadowOffset = SidebarRowView.shadowOffset
-        layer.shadowOpacity = 0
     }
 
     @available(*, unavailable)

@@ -39,9 +39,10 @@ final class CommandBarOverlay: NSView {
     }
 }
 
-/// The floating panel: the field and up to `CommandBarRanker.maxResults` rows.
+/// The floating panel: the field and up to `CommandBarRanker.maxResults` rows, on a White rounded panel with the
+/// brand's soft shadow. It sits over the page card, which is White in both appearances, so it always draws light.
 @MainActor
-final class CommandBarPanel: NSVisualEffectView, NSTextFieldDelegate {
+final class CommandBarPanel: NSView, NSTextFieldDelegate {
     static let width: CGFloat = 640
 
     let field = NSTextField()
@@ -62,14 +63,14 @@ final class CommandBarPanel: NSVisualEffectView, NSTextFieldDelegate {
 
     override init(frame: NSRect) {
         super.init(frame: frame)
-        material = .popover
-        blendingMode = .withinWindow
-        state = .active
+        appearance = NSAppearance(named: .aqua)
         wantsLayer = true
-        layer?.cornerRadius = 12
-        layer?.masksToBounds = true
-        layer?.borderWidth = 1
-        layer?.borderColor = NSColor.separatorColor.cgColor
+        if let layer {
+            layer.backgroundColor = BowBrand.page.cgColor
+            layer.cornerRadius = BowBrand.radiusPanel
+            layer.cornerCurve = .continuous
+        }
+        shadow = BowBrand.softShadow()
 
         field.isBordered = false
         field.drawsBackground = false

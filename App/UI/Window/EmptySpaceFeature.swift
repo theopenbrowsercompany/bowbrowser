@@ -55,13 +55,15 @@ final class EmptySpaceFeature: NSResponder, BrowserWindowFeature {
     }
 }
 
-/// A plain Card colored view: the Bow mark, then "No tabs in this Space" and a New Tab button, or, for an active tab
+/// A plain Page colored view: the Bow mark, then "No tabs in this Space" and a New Tab button, or, for an active tab
 /// with no page loaded, "This tab is not loaded" and a Load Tab button.
 @MainActor
 final class EmptySpaceView: NSView {
-    /// The Bow mark, from the brand kit (its dark version in dark mode), at 64 points.
+    /// The Bow mark, from the brand kit, at 64 points.
     let markView = NSImageView()
     static let markSize: CGFloat = 64
+    static let pillHeight: CGFloat = 32
+    static let pillWidth: CGFloat = 112
     let messageLabel = NSTextField(labelWithString: "No tabs in this Space")
     let newTabButton = NSButton(title: "New Tab", target: nil, action: nil)
     let loadTabButton = NSButton(title: "Load Tab", target: nil, action: nil)
@@ -77,18 +79,35 @@ final class EmptySpaceView: NSView {
 
     init() {
         super.init(frame: .zero)
+        // It fills the page card, which is White in both appearances, so it always draws light.
+        appearance = NSAppearance(named: .aqua)
         loadTabButton.isHidden = true
         wantsLayer = true
-        layer?.backgroundColor = BowBrand.card.cgColor
+        layer?.backgroundColor = BowBrand.page.cgColor
+        // Filled pill buttons: Jam Deep with white text.
+        for button in [newTabButton, loadTabButton] {
+            button.isBordered = false
+            button.wantsLayer = true
+            button.layer?.backgroundColor = BowBrand.button.cgColor
+            button.layer?.cornerRadius = Self.pillHeight / 2
+            button.attributedTitle = NSAttributedString(
+                string: button.title,
+                attributes: [.font: NSFont.systemFont(ofSize: 13, weight: .semibold), .foregroundColor: NSColor.white])
+            button.translatesAutoresizingMaskIntoConstraints = false
+            NSLayoutConstraint.activate([
+                button.heightAnchor.constraint(equalToConstant: Self.pillHeight),
+                button.widthAnchor.constraint(equalToConstant: Self.pillWidth),
+            ])
+        }
         markView.image = NSImage(named: "BowMark")
         markView.imageScaling = .scaleProportionallyUpOrDown
         markView.setAccessibilityLabel("Bow")
         messageLabel.font = .systemFont(ofSize: 15)
-        messageLabel.textColor = BowBrand.secondaryText
+        messageLabel.textColor = BowBrand.soft
         let stack = NSStackView(views: [markView, messageLabel, newTabButton, loadTabButton])
         stack.orientation = .vertical
-        stack.spacing = BowBrand.space12
-        stack.setCustomSpacing(BowBrand.space16, after: markView)
+        stack.spacing = 12
+        stack.setCustomSpacing(16, after: markView)
         stack.translatesAutoresizingMaskIntoConstraints = false
         addSubview(stack)
         NSLayoutConstraint.activate([
@@ -104,10 +123,4 @@ final class EmptySpaceView: NSView {
         fatalError("init(coder:) is not supported")
     }
 
-    override var wantsUpdateLayer: Bool { true }
-
-    /// Follows light and dark mode.
-    override func updateLayer() {
-        layer?.backgroundColor = BowBrand.card.cgColor
-    }
 }

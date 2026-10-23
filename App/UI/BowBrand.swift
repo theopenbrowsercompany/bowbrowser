@@ -1,51 +1,82 @@
 import AppKit
 
-/// Bow's brand values in one place: the Apricot Jam palette, copied exactly from the brand kit's `tokens/colors.css`,
-/// the radii and the spacing scale. Views use the role colors (frame, card, text, line), which follow light and dark
-/// mode: light mode is Cream grounds with Cocoa text, dark mode is Night grounds with Cream text.
+/// Bow's look in one place: the brand's colors as light and dark tokens, the radii, the shadow and the spacing.
+/// The palette comes from the brand kit (`tokens/colors.css`, the Apricot Jam palette); each token resolves to its
+/// light or dark value with the appearance it is drawn in.
 enum BowBrand {
-    // MARK: Palette (tokens/colors.css)
+    // MARK: Tokens (light / dark)
 
-    static let cocoa = NSColor(srgbRed: 0x3A / 255, green: 0x1F / 255, blue: 0x14 / 255, alpha: 1)
-    static let jam = NSColor(srgbRed: 0xE8 / 255, green: 0x74 / 255, blue: 0x3B / 255, alpha: 1)
-    static let apricot = NSColor(srgbRed: 0xFF / 255, green: 0xC0 / 255, blue: 0x8A / 255, alpha: 1)
-    static let cream = NSColor(srgbRed: 0xFF / 255, green: 0xF3 / 255, blue: 0xE6 / 255, alpha: 1)
-    static let white = NSColor(srgbRed: 1, green: 1, blue: 1, alpha: 1)
-    static let cocoaSoft = NSColor(srgbRed: 0x7A / 255, green: 0x5A / 255, blue: 0x48 / 255, alpha: 1)
-    static let crust = NSColor(srgbRed: 0xF0 / 255, green: 0xDC / 255, blue: 0xC8 / 255, alpha: 1)
-    static let night = NSColor(srgbRed: 0x2A / 255, green: 0x17 / 255, blue: 0x10 / 255, alpha: 1)
-
-    // MARK: Roles
-
-    /// The window's frame: the one surface behind the sidebar, the title bar and the page card.
-    static let frame = dynamic(light: cream, dark: night)
-    /// The page card and the selected sidebar row.
-    static let card = dynamic(light: white, dark: cocoa)
-    /// Primary text: tab titles, the Space name.
-    static let text = dynamic(light: cocoa, dark: cream)
-    /// Secondary text and icons: New Tab, the Space switcher, empty state lines.
-    static let secondaryText = dynamic(light: cocoaSoft, dark: crust)
+    /// The window's frame: the one surface behind the sidebar and the window buttons.
+    static let frame = dynamic(light: 0xFFF3E6, dark: 0x2A1710)
+    /// Primary text: tab titles.
+    static let text = dynamic(light: 0x3A1F14, dark: 0xFFF3E6)
+    /// Secondary text and icons: the Space name, New Tab, the window's navigation buttons, inactive Space dots.
+    static let soft = dynamic(light: 0x7A5A48, dark: 0xC9A891)
+    /// The active tab's row.
+    static let active = dynamic(light: 0xFFFFFF, dark: 0x3D2519)
+    /// Favorite tiles and the hovered row.
+    static let pin = dynamic(light: 0xFCE7D3, dark: 0x3A2318)
     /// Lines and dividers.
-    static let line = dynamic(light: crust, dark: cocoaSoft)
-    /// The tint under a hovered sidebar row.
-    static let hover = dynamic(light: crust, dark: cocoa)
+    static let line = dynamic(light: 0xF0DCC8, dark: 0x4A2F22)
+    /// The page card and the command bar's panel, White in both appearances.
+    static let page = color(0xFFFFFF)
+    /// Jam: the active Space's dot.
+    static let accent = color(0xE8743B)
+    /// Apricot: the ring around the active Space's dot.
+    static let ring = color(0xFFC08A)
+    /// Jam Deep: filled buttons, with white text.
+    static let button = color(0xB84E1B)
+    /// Night: the shadow's color.
+    static let shadow = color(0x2A1710)
 
     // MARK: Shape
 
-    /// The small radius: the page card and sidebar rows.
-    static let radiusSmall: CGFloat = 14
-    /// The card radius.
-    static let radiusCard: CGFloat = 24
+    /// The page card.
+    static let radiusCard: CGFloat = 10
+    /// Tab rows.
+    static let radiusRow: CGFloat = 9
+    /// Favorite tiles.
+    static let radiusTile: CGFloat = 10
+    /// The command bar's panel.
+    static let radiusPanel: CGFloat = 14
 
-    /// The spacing scale.
-    static let space4: CGFloat = 4
-    static let space8: CGFloat = 8
-    static let space12: CGFloat = 12
-    static let space16: CGFloat = 16
+    /// The one soft shadow under the active row, the page card and the command bar (0 1 3 at 14 percent Night): a
+    /// 1 point downward offset and a 3 point blur. A view takes it through its `shadow` property, which AppKit keeps
+    /// its layer's shadow in step with.
+    static let shadowOpacity: CGFloat = 0.14
+    static let shadowBlur: CGFloat = 3
+    static let shadowOffset = NSSize(width: 0, height: -1)
+
+    static func softShadow() -> NSShadow {
+        let soft = NSShadow()
+        soft.shadowColor = shadow.withAlphaComponent(shadowOpacity)
+        soft.shadowBlurRadius = shadowBlur
+        soft.shadowOffset = shadowOffset
+        return soft
+    }
+
+    // MARK: Spacing
+
+    /// The page card's inset from the frame.
+    static let pageInset: CGFloat = 8
+    /// The sidebar's padding: top and leading 14, trailing and bottom 12.
+    static let sidebarLeading: CGFloat = 14
+    static let sidebarTrailing: CGFloat = 12
+    static let sidebarBottom: CGFloat = 12
+    /// The gap between the sidebar's blocks.
+    static let sidebarGap: CGFloat = 14
+
+    private static func color(_ rgb: Int) -> NSColor {
+        NSColor(
+            srgbRed: CGFloat((rgb >> 16) & 0xFF) / 255, green: CGFloat((rgb >> 8) & 0xFF) / 255,
+            blue: CGFloat(rgb & 0xFF) / 255, alpha: 1)
+    }
 
     /// A color that is `light` in light mode and `dark` in dark mode.
-    private static func dynamic(light: NSColor, dark: NSColor) -> NSColor {
-        NSColor(name: nil) { appearance in
+    private static func dynamic(light: Int, dark: Int) -> NSColor {
+        let light = color(light)
+        let dark = color(dark)
+        return NSColor(name: nil) { appearance in
             appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua ? dark : light
         }
     }

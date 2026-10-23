@@ -48,14 +48,21 @@ final class SidebarNode: NSObject {
 /// `slideOutline(_:change:)` slides the outline's content out for new content.
 @MainActor
 final class SidebarView: NSView, NSOutlineViewDataSource, NSOutlineViewDelegate, NSMenuDelegate {
-    static let width: CGFloat = 240
-    private static let rowHeight: CGFloat = 32
+    static let width: CGFloat = 264
+    private static let rowHeight: CGFloat = 34
+    /// Rows inside a folder or split are a little shorter.
+    private static let childRowHeight: CGFloat = 32
+    /// The top row's height, level with the window buttons.
+    private static let topRowHeight: CGFloat = 22
     /// The pasteboard type of a dragged sidebar item: its ID as a string. A header view that drags items of its own
     /// (the Favorites grid) writes and reads this type, so its drags and the outline's go both ways.
     static let dragType = NSPasteboard.PasteboardType("dev.bowbrowser.sidebar-item")
 
     weak var delegate: (any SidebarViewDelegate)?
     let newTabButton: NSButton
+    /// The row at the top of the sidebar, level with the window's close, minimize and zoom buttons, which the
+    /// window fills from the trailing edge (the back, forward and reload buttons).
+    let topRow = NSStackView()
     let outlineView = NSOutlineView()
     /// The top accessory slot, between the New Tab button and the outline; empty, it takes no room.
     let topSlot = NSStackView()
@@ -114,7 +121,8 @@ final class SidebarView: NSView, NSOutlineViewDataSource, NSOutlineViewDelegate,
         newTabButton.isBordered = false
         newTabButton.imagePosition = .imageLeading
         newTabButton.alignment = .left
-        newTabButton.contentTintColor = BowBrand.secondaryText
+        newTabButton.contentTintColor = BowBrand.soft
+        topRow.orientation = .horizontal
         newTabButton.font = .systemFont(ofSize: 13)
         newTabButton.setAccessibilityLabel("New Tab")
 
@@ -123,8 +131,10 @@ final class SidebarView: NSView, NSOutlineViewDataSource, NSOutlineViewDelegate,
         outlineView.outlineTableColumn = column
         outlineView.headerView = nil
         outlineView.style = .sourceList
+        // Rows draw their own selection (`SidebarRowView`), so the outline draws none.
+        outlineView.selectionHighlightStyle = .none
         outlineView.indentationPerLevel = 10
-        outlineView.intercellSpacing = NSSize(width: 0, height: 2)
+        outlineView.intercellSpacing = NSSize(width: 0, height: 0)
         outlineView.backgroundColor = .clear
         outlineView.allowsEmptySelection = true
         outlineView.allowsMultipleSelection = false
@@ -153,7 +163,8 @@ final class SidebarView: NSView, NSOutlineViewDataSource, NSOutlineViewDelegate,
         emptyHeight.priority = .defaultLow
         emptyHeight.isActive = true
         footer.orientation = .horizontal
-        footer.edgeInsets = NSEdgeInsets(top: 0, left: BowBrand.space12, bottom: 0, right: BowBrand.space12)
+        footer.edgeInsets = NSEdgeInsets(
+            top: 0, left: BowBrand.sidebarLeading, bottom: BowBrand.sidebarBottom, right: BowBrand.sidebarTrailing)
         for accessory in accessories {
             switch type(of: accessory).placement {
             case .top: topSlot.addArrangedSubview(accessory.view)
@@ -164,21 +175,27 @@ final class SidebarView: NSView, NSOutlineViewDataSource, NSOutlineViewDelegate,
         connectSwipes()
 
         // The sidebar draws no background of its own: it is part of the window's one Frame colored surface.
-        for view in [newTabButton, topSlot, scrollView, footer] as [NSView] {
+        for view in [topRow, newTabButton, topSlot, scrollView, footer] as [NSView] {
             view.translatesAutoresizingMaskIntoConstraints = false
             addSubview(view)
         }
+        // The window buttons sit centered in the title bar, which the sidebar runs under with full size content (its
+        // safe area starts below it): the top row is centered there too.
+        let topRowCenter = topAnchor.anchorWithOffset(to: topRow.centerYAnchor).constraint(
+            equalTo: topAnchor.anchorWithOffset(to: safeAreaLayoutGuide.topAnchor), multiplier: 0.5)
         NSLayoutConstraint.activate([
-            newTabButton.leadingAnchor.constraint(equalTo: leadingAnchor, constant: BowBrand.space16),
-            newTabButton.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -BowBrand.space8),
-            // Below the title bar, which the sidebar runs under when the window uses full size content.
-            newTabButton.topAnchor.constraint(equalTo: safeAreaLayoutGuide.topAnchor, constant: BowBrand.space8),
+            topRowCenter,
+            topRow.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -BowBrand.sidebarTrailing),
+            topRow.heightAnchor.constraint(equalToConstant: Self.topRowHeight),
+            newTabButton.leadingAnchor.constraint(equalTo: leadingAnchor, constant: BowBrand.sidebarLeading),
+            newTabButton.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -BowBrand.sidebarTrailing),
+            newTabButton.topAnchor.constraint(equalTo: topRow.bottomAnchor, constant: BowBrand.sidebarGap),
             newTabButton.heightAnchor.constraint(equalToConstant: 28),
             scrollView.leadingAnchor.constraint(equalTo: leadingAnchor),
             scrollView.trailingAnchor.constraint(equalTo: trailingAnchor),
             topSlot.leadingAnchor.constraint(equalTo: leadingAnchor),
             topSlot.trailingAnchor.constraint(equalTo: trailingAnchor),
-            topSlot.topAnchor.constraint(equalTo: newTabButton.bottomAnchor, constant: BowBrand.space4),
+            topSlot.topAnchor.constraint(equalTo: newTabButton.bottomAnchor, constant: 4),
             scrollView.topAnchor.constraint(equalTo: topSlot.bottomAnchor),
             scrollView.bottomAnchor.constraint(equalTo: footer.topAnchor),
             footer.leadingAnchor.constraint(equalTo: leadingAnchor),
@@ -645,7 +662,10 @@ final class SidebarView: NSView, NSOutlineViewDataSource, NSOutlineViewDelegate,
     }
 
     func outlineView(_ outlineView: NSOutlineView, heightOfRowByItem item: Any) -> CGFloat {
-        guard case .section(let index)? = (item as? SidebarNode)?.key else { return Self.rowHeight }
+        guard case .section(let index)? = (item as? SidebarNode)?.key else {
+            // Sections are level 0 and their items level 1; deeper rows are inside a folder or split.
+            return outlineView.level(forItem: item) > 1 ? Self.childRowHeight : Self.rowHeight
+        }
         return headerHeights.indices.contains(index) ? headerHeights[index] : max(sections[index].headerHeight, 1)
     }
 

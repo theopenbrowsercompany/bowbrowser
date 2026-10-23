@@ -1,24 +1,33 @@
 import AppKit
 import BowCore
 
-/// The window toolbar's back, forward and reload buttons. The reload button turns into a stop button while the
-/// page loads, which is how the toolbar shows the loading state. The window's `NavigationFeature` pushes every
-/// change of its `NavigationControls` through `show(_:)`; the buttons never validate themselves, so they change
-/// exactly when the selected tab's state does.
+/// The window's back, forward and reload buttons: plain icons in a row (`view`), which the window places in the
+/// sidebar's top row beside the window buttons. The reload button turns into a stop button while the page loads,
+/// which is how the row shows the loading state. The window's `NavigationFeature` pushes every change of its
+/// `NavigationControls` through `show(_:)`; the buttons never validate themselves, so they change exactly when the
+/// selected tab's state does.
 @MainActor
-final class NavigationToolbar: NSObject, NSToolbarDelegate {
+final class NavigationToolbar: NSObject {
     enum Item: String, CaseIterable {
         case back, forward, reload
-
-        var identifier: NSToolbarItem.Identifier { NSToolbarItem.Identifier("bow.navigation.\(rawValue)") }
     }
+
+    /// The icons' point size.
+    static let symbolSize: CGFloat = 17
 
     let backButton = NavigationToolbar.button(symbol: "chevron.left", label: "Back")
     let forwardButton = NavigationToolbar.button(symbol: "chevron.right", label: "Forward")
     /// Reload while idle, stop while loading.
     let reloadButton = NavigationToolbar.button(symbol: "arrow.clockwise", label: "Reload")
+    /// The three buttons in a row.
+    let view: NSStackView
 
-    private let toolbar = NSToolbar(identifier: "bow.browser")
+    override init() {
+        view = NSStackView(views: [backButton, forwardButton, reloadButton])
+        view.orientation = .horizontal
+        view.spacing = 4
+        super.init()
+    }
 
     /// The button for `item`.
     func button(_ item: Item) -> NSButton {
@@ -29,20 +38,14 @@ final class NavigationToolbar: NSObject, NSToolbarDelegate {
         }
     }
 
-    /// Adds the toolbar to `window`, sending the buttons' actions to `target`.
+    /// Sends the buttons' actions to `target`. The page title stays the window's title (the Window menu and Mission
+    /// Control show it) but is not drawn.
     func install(in window: NSWindow, target: NavigationFeature) {
         backButton.target = target
         backButton.action = #selector(NavigationFeature.goBack(_:))
         forwardButton.target = target
         forwardButton.action = #selector(NavigationFeature.goForward(_:))
         reloadButton.target = target
-        toolbar.delegate = self
-        toolbar.displayMode = .iconOnly
-        toolbar.allowsUserCustomization = false
-        window.toolbar = toolbar
-        window.toolbarStyle = .unified
-        // The page title stays the window's title (the Window menu and Mission Control show it) but is not drawn,
-        // so the buttons sit right after the window buttons, as in other browsers.
         window.titleVisibility = .hidden
         show(.disabled)
     }
@@ -62,34 +65,17 @@ final class NavigationToolbar: NSObject, NSToolbarDelegate {
         }
     }
 
-    /// The buttons sit at the leading edge, next to the window buttons, as in other browsers.
-    func toolbarDefaultItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
-        Item.allCases.map(\.identifier) + [.flexibleSpace]
-    }
-
-    func toolbarAllowedItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
-        Item.allCases.map(\.identifier) + [.flexibleSpace]
-    }
-
-    func toolbar(
-        _ toolbar: NSToolbar,
-        itemForItemIdentifier itemIdentifier: NSToolbarItem.Identifier,
-        willBeInsertedIntoToolbar flag: Bool
-    ) -> NSToolbarItem? {
-        guard let item = Item.allCases.first(where: { $0.identifier == itemIdentifier }) else { return nil }
-        let toolbarItem = NSToolbarItem(itemIdentifier: itemIdentifier)
-        let button = button(item)
-        toolbarItem.view = button
-        toolbarItem.label = button.toolTip ?? ""
-        // `show(_:)` sets each button's state; validation would fight it.
-        toolbarItem.autovalidates = false
-        return toolbarItem
-    }
-
     private static func button(symbol: String, label: String) -> NSButton {
-        let button = NSButton(frame: NSRect(x: 0, y: 0, width: 32, height: 28))
-        button.bezelStyle = .toolbar
+        let button = NSButton(frame: NSRect(x: 0, y: 0, width: 24, height: 22))
+        button.isBordered = false
         button.imagePosition = .imageOnly
+        button.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: symbolSize, weight: .regular)
+        button.contentTintColor = BowBrand.soft
+        button.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([
+            button.widthAnchor.constraint(equalToConstant: 24),
+            button.heightAnchor.constraint(equalToConstant: 22),
+        ])
         configure(button, symbol: symbol, label: label)
         return button
     }

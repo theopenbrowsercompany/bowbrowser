@@ -1,8 +1,9 @@
 import Foundation
 
-/// The window's look as a test reads it: the app icon in the bundle, the title bar style, the page card, the frame
-/// color and the active row's colors, plus window size and appearance changes and screenshots for the maintainer.
-/// E2E/Harness/E2EAppAdapter+Design.swift implements it; every action is refused once the test has ended.
+/// The window's look as a test reads it: the app icon in the bundle, the title bar style, the sidebar's top row,
+/// the page card, the frame color and the active row, plus window size and appearance changes and screenshots for
+/// the maintainer. E2E/Harness/E2EAppAdapter+Design.swift implements it; every action is refused once the test has
+/// ended.
 @MainActor
 protocol E2EDesignApp: E2EApp {
     /// What `page`'s window and the app bundle look like now. Colors are read in the window's own appearance.
@@ -24,16 +25,22 @@ struct E2EDesignLook {
     var iconFileExists: Bool
     var fullSizeContent: Bool
     var titlebarTransparent: Bool
+    /// True when the window has a toolbar.
+    var hasToolbar: Bool
+    var sidebarWidth: Double
     /// True when the window's close, minimize and zoom buttons sit within the sidebar's width.
     var windowButtonsOverSidebar: Bool
-    /// True when the toolbar's back button draws in the dark appearance, as it must when the window is dark.
-    var toolbarDark: Bool
-    /// The title bar's height, which the page card's top inset matches.
-    var titleBarHeight: Double
+    /// True when the back, forward and reload buttons sit in the sidebar, after the window buttons and level with
+    /// them (centers within 2 points).
+    var navigationInSidebarRow: Bool
+    /// True when the navigation buttons draw in the dark appearance, as they must when the window is dark.
+    var navigationDark: Bool
     /// The page area's insets: top, left, bottom, right.
     var pageInsets: [Double]
     var pageCornerRadius: Double
     var pageCornerContinuous: Bool
+    /// True when a click 4 points below the page card's top edge reaches the page, not the title bar.
+    var pageTopClickable: Bool
     var pageShadowOpacity: Double
     var pageShadowRadius: Double
     /// True when the page shadow has a shadow path the size of its view.
@@ -43,10 +50,14 @@ struct E2EDesignLook {
     var shadowFrame: CGRect
     /// The window's background, which the frame (sidebar and title bar) shows.
     var frameColor: String?
-    /// The active tab's row: its lifted background and its title color.
+    /// The active tab's row: its lifted background, its shadow opacity, its height, corner radius, and its title's
+    /// color and weight.
     var selectedRowBackground: String?
-    var selectedRowText: String?
+    var selectedRowShadowOpacity: Double
+    var selectedRowHeight: Double
     var selectedRowCornerRadius: Double
+    var selectedRowText: String?
+    var selectedRowBold: Bool
     /// The empty state: shown, and its Bow mark's point size (0 without one).
     var showsEmptyState: Bool
     var emptyStateMarkSize: Double
