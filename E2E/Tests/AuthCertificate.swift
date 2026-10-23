@@ -126,17 +126,27 @@ struct CertificateSplitTest: E2ETest {
             try await AuthTests.loadBadCertificate(app, in: other, besides: page)
             return (shown, try app.certificateCovers(besides: page), try app.certificatePageHasKeyboard(besides: page))
         }
-        let (moved, usable) = try await run.step("move the divider and use the other pane", timeout: E2ETimeouts.step) {
+        let (moved, clickedIn, usable) = try await run.step(
+            "move the divider, click into the page, then use the other pane", timeout: E2ETimeouts.step
+        ) {
             try panes.dragPaneDivider(0, to: 0.35, besides: page)
             var moved = try app.certificateCovers(besides: page)
             _ = try await E2EWaits.until {
                 moved = try app.certificateCovers(besides: page)
                 return moved.last??.frame == moved.last??.paneFrame
             }
+            // A click on the certificate page focuses its pane and gives the page the keyboard.
+            try panes.clickPane(at: 1, besides: page)
+            let clickedIn = try await E2EWaits.until {
+                try panes.panes(besides: page).focusedIndex == 1 && app.certificatePageHasKeyboard(besides: page)
+            }
             try panes.clickPane(at: 0, besides: page)
-            let focused = try await E2EWaits.until { try panes.panes(besides: page).focusedIndex == 0 }
+            let focused = try await E2EWaits.until {
+                try panes.panes(besides: page).focusedIndex == 0 && !app.certificatePageHasKeyboard(besides: page)
+            }
             let runs = try await page.evaluate("1 + 1") as? Int == 2
-            return (moved, focused && runs)
+            let stillShown = try app.certificateErrorPage(besides: page) != nil
+            return (moved, clickedIn && stillShown, focused && runs)
         }
         let (closed, after) = try await run.step("close the failed pane's tab", timeout: E2ETimeouts.step) {
             let closed = try await run.app.closeTab(other)
@@ -148,11 +158,11 @@ struct CertificateSplitTest: E2ETest {
         }
         run.check(
             name,
-            passed: shown && onlySecondPane(covers) && !keyboard && onlySecondPane(moved) && moved != covers && usable
-                && closed
-                && after == [nil],
+            passed: shown && onlySecondPane(covers) && !keyboard && onlySecondPane(moved) && moved != covers
+                && clickedIn && usable && closed && after == [nil],
             "shown=\(shown) covers=\(covers.map { $0?.description ?? "none" }) page-keyboard=\(keyboard) "
-                + "after-drag=\(moved.map { $0?.description ?? "none" }) other-pane-usable=\(usable) "
+                + "after-drag=\(moved.map { $0?.description ?? "none" }) click-focuses-its-pane=\(clickedIn) "
+                + "other-pane-usable=\(usable) "
                 + "closed=\(closed) after-close=\(after.map { $0?.description ?? "none" })")
     }
 }
