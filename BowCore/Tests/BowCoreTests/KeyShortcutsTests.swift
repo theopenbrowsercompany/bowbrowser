@@ -65,6 +65,16 @@ import Testing
         #expect(!KeyShortcuts.conflicts(in: twice).isEmpty)
     }
 
+    @Test func pageFullscreenSharesEscapeWithTheOverlaysOnly() {
+        let escape = key("\u{1b}", [], keyCode: KeyChord.escapeKeyCode)
+        #expect(KeyShortcuts.shortcut(for: escape, claimedBy: .pageFullscreen) == .exitPageFullscreen)
+        #expect(KeyShortcuts.shortcut(for: escape, claimedBy: .commandBar) == .closeCommandBar)
+        #expect(KeyShortcuts.conflicts().isEmpty)
+        // Page fullscreen claiming an unshared key someone else holds still conflicts.
+        let unshared = KeyShortcuts.claims + [KeyShortcutClaim(.newTab, .pageFullscreen)]
+        #expect(KeyShortcuts.conflicts(in: unshared).map(\.chord) == [.character("t", .command)])
+    }
+
     @Test func onlyKeyDownsMatch() {
         #expect(!KeyShortcut.changeURL.matches(key("l", .command, kind: .keyUp)))
         #expect(!KeyShortcut.changeURL.matches(key("l", .command, kind: .character)))

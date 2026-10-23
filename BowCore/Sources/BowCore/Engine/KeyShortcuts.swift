@@ -85,13 +85,16 @@ public enum KeyShortcut: String, CaseIterable, Hashable, Sendable {
     case recentTabs
     /// Ctrl+Shift+Tab: the recent tabs switcher, one tab back.
     case recentTabsBack
+    /// Escape while a page fills the window (page fullscreen): the page leaves fullscreen, as in Chrome and Arc.
+    /// Claimed only while a page is fullscreen, so it shares Escape with the overlays (`KeyShortcuts.sharedShortcuts`).
+    case exitPageFullscreen
 
     /// Every key that triggers the shortcut.
     public var chords: [KeyChord] {
         switch self {
         case .newTab: [.character("t", .command)]
         case .changeURL: [.character("l", .command)]
-        case .closeCommandBar: [KeyChord(.keyCode(KeyChord.escapeKeyCode), [])]
+        case .closeCommandBar, .exitPageFullscreen: [KeyChord(.keyCode(KeyChord.escapeKeyCode), [])]
         case .copyURL: [.character("c", [.command, .shift])]
         case .toggleToolbar: [.character("d", [.command, .shift])]
         case .zoomIn: [.character("=", .command), .character("+", .command), .character("+", [.command, .shift])]
@@ -118,6 +121,8 @@ public enum KeyShortcutOwner: String, Hashable, Sendable {
     case zoom
     /// The recent tabs switcher.
     case recentTabs
+    /// Page fullscreen: Escape while a page fills the window.
+    case pageFullscreen
 }
 
 /// One feature's claim on one shortcut.
@@ -143,8 +148,9 @@ public struct KeyShortcutConflict: Hashable, Sendable, CustomStringConvertible {
 }
 
 public enum KeyShortcuts {
-    /// Shortcuts several features may claim, because each claims the key only while its own overlay shows.
-    public static let sharedShortcuts: Set<KeyShortcut> = [.closeCommandBar]
+    /// Shortcuts several features may claim, and that may share their key with each other, because each claims the
+    /// key only while its own overlay (or fullscreen page) shows.
+    public static let sharedShortcuts: Set<KeyShortcut> = [.closeCommandBar, .exitPageFullscreen]
 
     /// Every shortcut a window feature claims before the page, with the feature that claims it. A feature claims a
     /// key only through `shortcut(for:claimedBy:)`, so a key missing here never reaches it. One entry per line.
@@ -160,6 +166,7 @@ public enum KeyShortcuts {
         KeyShortcutClaim(.recentTabs, .recentTabs),
         KeyShortcutClaim(.recentTabsBack, .recentTabs),
         KeyShortcutClaim(.closeCommandBar, .recentTabs),
+        KeyShortcutClaim(.exitPageFullscreen, .pageFullscreen),
     ]
 
     /// The shortcut `event` triggers among those `owner` claims in `claims`, or nil. A feature's
@@ -177,15 +184,15 @@ public enum KeyShortcuts {
     public static func conflicts(in claims: [KeyShortcutClaim] = claims) -> [KeyShortcutConflict] {
         var byChord: [KeyChord: [KeyShortcutClaim]] = [:]
         var order: [KeyChord] = []
-        // A shared shortcut may be claimed by several owners, once each; its key still conflicts with any other
-        // shortcut's.
+        // A shared shortcut may be claimed by several owners, once each, and may share its key with another shared
+        // shortcut; its key still conflicts with any unshared shortcut's.
         var seenShared: Set<KeyShortcutClaim> = []
         for claim in claims {
             if sharedShortcuts.contains(claim.shortcut), !seenShared.contains(claim) {
                 seenShared.insert(claim)
                 for chord in claim.shortcut.chords {
                     if byChord[chord] == nil { order.append(chord) }
-                    if !(byChord[chord] ?? []).contains(where: { $0.shortcut == claim.shortcut }) {
+                    if !(byChord[chord] ?? []).contains(where: { sharedShortcuts.contains($0.shortcut) }) {
                         byChord[chord, default: []].append(claim)
                     }
                 }
