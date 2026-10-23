@@ -21,6 +21,17 @@ Bow keeps it in one file of its own, separate from the engine's session data.
   A folder cannot be moved into itself or into anything inside it; Bow refuses such a move and changes nothing.
 - Deleting a folder either deletes everything inside it, or keeps its contents: the tabs, split views and folders inside take the folder's place under its parent, in their order, and sub-folders keep their own contents.
 - Empty folders are kept, and so is a closed folder's contents: closing a folder hides its items but never changes them.
+- Favorites are the row of icons at the top of the sidebar.
+  There is one Favorites row per profile, and every Space of that profile shows the same row; a Space on another profile shows that profile's own row, which starts empty.
+  Until the person can choose profiles, every Space uses the default profile and so shares one row.
+- A Favorite is a tab that remembers the address and title it was saved with, like a pinned tab.
+  Browsing inside it does not change what it returns to.
+- Favorites hold tabs only, in the order the person set; folders and split views cannot go into Favorites.
+- A Favorite can be added as a new address, or an open tab can be made a Favorite; the tab then leaves its section and returns to the page it was on when it was made a Favorite.
+  Favorites can be reordered, and the new order is where the Favorite ends up.
+- Removing a Favorite does not close it: it becomes an ordinary tab at the top of the Space on screen's tabs (or its pinned tabs), with the address it was saved with.
+  A Favorite can also be deleted for good.
+- Archiving never touches Favorites.
 - The sidebar file lives in Bow's Application Support folder (`~/Library/Application Support/Bow/Sidebar.json`).
   Browsing history and site icons are not stored in it.
 
@@ -58,6 +69,14 @@ Bow keeps it in one file of its own, separate from the engine's session data.
 - The file's structure disagrees with itself (a tab whose folder no longer lists it, a folder listing a tab that is gone, items pointing at each other in a loop, a Space whose section is missing): Bow repairs it on launch.
   Tabs, folders and splits that have no valid place are never deleted; they are collected in a folder named "Recently recovered", keeping their contents.
   That folder is created at the top of the current Space's pinned section, and if it already exists wherever the person put it, recovered items are added to its end.
+- A Space is created on a profile that has no Favorites row yet: the row is created with it.
+  Deleting the last Space of a profile keeps that profile's Favorites.
+- Adding a Favorite to a profile Bow does not know is refused and changes nothing.
+- A selected Favorite stays selected when switching to a Space of the same profile; switching to a Space of another profile selects that Space's own tab instead.
+  Selecting a Favorite from somewhere else shows a Space of its profile when the Space on screen is on another profile.
+- A sidebar saved before Favorites were per profile opens with its one Favorites row on the default profile, and a copy of the old file is kept as `Sidebar.version-1.json`.
+- A Favorites row that is missing is created empty on launch for the default profile and for every profile a Space uses.
+  A folder or split view found inside Favorites goes to "Recently recovered".
 - A single entry in the file cannot be read (for example one tab saved in a form this Bow does not know): only that entry is left out, the rest of the sidebar opens, and anything that was inside it goes to "Recently recovered".
 - Whenever launch had to repair the file, a copy of it as it was is kept beside it as `Sidebar.repaired-<date>-<time>.json` before Bow saves over it.
 - A Space's pinned and unpinned sections are removed only together with the Space, and the last Space cannot be deleted: there is always at least one Space.
@@ -85,9 +104,19 @@ Bow keeps it in one file of its own, separate from the engine's session data.
 15. Drag a pinned tab above another one, then drag it to the tabs section: the order changes, then it leaves the pinned section and sits on top of the tabs.
 16. Run `make e2e`: `pinned.reset` prints `PASS pinned.reset: saved=A navigated=B reset=A`.
 
+12. Add two Favorites A and B, then make an open tab C a Favorite at the front: the row reads C, A, B and C returns to the page it was on when it was made a Favorite.
+    Move A to the end: the row reads C, B, A.
+    Remove B: it is a tab at the top of the Space on screen and the row reads C, A.
+    Quit and relaunch: the row and the saved addresses are the same.
+13. With two Spaces on the default profile, both show the row C, A.
+    Create a Space on another profile: its row is empty, and adding a Favorite there leaves the other row unchanged.
+14. Try to make a folder or a split view a Favorite: Bow refuses and nothing changes.
+
 ## Out of scope
 
 - How tabs, folders and Spaces look and how they are dragged in the sidebar.
+- How the Favorites icon grid looks, and dragging into, within and out of it.
+- Choosing a profile for a Space, and confirming a move between profiles.
 - Archiving closed tabs and the archive's own file.
 - Importing an Arc sidebar.
 - Syncing the sidebar between devices.
