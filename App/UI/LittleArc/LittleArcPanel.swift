@@ -76,7 +76,7 @@ final class LittleArcPanel: NSObject, NSWindowDelegate, EngineTabDelegate, NSMen
         webView = BowWebView(frame: NSRect(origin: .zero, size: frame.size))
         dialogs = PageDialogSheets(window: window, shownTab: tab.tabID)
         // A page whose profile has no permission store has its requests dismissed, as in a browser window.
-        prompts = PermissionPrompts(hostView: webView) { _ in permissions }
+        prompts = PermissionPrompts { _ in permissions }
         super.init()
         window.isReleasedWhenClosed = false
         window.delegate = self
@@ -119,7 +119,7 @@ final class LittleArcPanel: NSObject, NSWindowDelegate, EngineTabDelegate, NSMen
 
         tab.delegate = self
         webView.show(tab)
-        prompts.show(tab)
+        prompts.show([(tab: tab, view: webView)])
     }
 
     /// Shows the panel: in front, with the keyboard in its page, when it takes focus; else ordered in without
