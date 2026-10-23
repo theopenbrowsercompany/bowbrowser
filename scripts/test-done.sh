@@ -69,6 +69,28 @@ case "$*" in
         echo "E2E: FAIL $((n - 1))/$n repeats passed; failed: repeat 3"
         exit 2
         ;;
+      5) # a filler test fails on a check that does not start with the test's name
+        echo "REPEAT smoke.a $((n - 1))/$n"
+        echo "FAIL smoke.a_sidebar: it failed"
+        echo "RESULT smoke.a fail seconds=1 checks=0/1"
+        echo "E2E: FAIL $((n - 1))/$n repeats passed; failed: repeat 3"
+        exit 2
+        ;;
+      6) # a changed test fails on a check named like the filler test, and the filler fails too
+        echo "REPEAT smoke.a $((n - 1))/$n"
+        echo "FAIL smoke.a.shared: it failed"
+        echo "RESULT x.one fail seconds=1 checks=0/1"
+        echo "FAIL smoke.a.check: it failed"
+        echo "RESULT smoke.a fail seconds=1 checks=0/1"
+        echo "E2E: FAIL $((n - 1))/$n repeats passed; failed: repeat 3"
+        exit 2
+        ;;
+      7) # a filler test fails but make's summary is not a FAIL naming repeats
+        echo "REPEAT smoke.a $((n - 1))/$n"
+        echo "FAIL smoke.a.check: it failed"
+        echo "E2E: FAIL killed"
+        exit 2
+        ;;
     esac
     ;;
   *release*)
@@ -216,8 +238,10 @@ has "DONE_REPEAT and DONE_REPEAT_SHARDS override the numbers" "$(cat "$tmp/log")
 check "two changed tests in 2 shards need no filler" "" "$(grep 'e2e-run.*smoke' "$tmp/log")"
 has "the block says the overridden count" "$out" "ok (4 repeats in 2 shards of x.one,x.two)"
 out=$(DONE_REPEAT=0 run 0 0)
-has "a bad DONE_REPEAT is refused" "$out" "DONE_REPEAT and DONE_REPEAT_SHARDS must be whole numbers"
+has "a bad DONE_REPEAT is refused" "$out" "DONE_REPEAT must be a whole number of 2 or more"
 has "a bad DONE_REPEAT exits 2" "$out" "exit=2"
+out=$(DONE_REPEAT=1 run 0 0)
+has "DONE_REPEAT=1 is refused (it would turn the retry back on)" "$out" "exit=2"
 out=$(DONE_REPEAT_SHARDS=x run 0 0)
 has "a bad DONE_REPEAT_SHARDS is refused" "$out" "exit=2"
 out=$(run 0 0)
@@ -239,6 +263,15 @@ has "a crash exits 1" "$out" "exit=1"
 out=$(run 0 0 4)
 has "a failing check no test owns fails the run even with a filler failure" "$out" \
   "FAIL (check chromium.errors is a changed test's or no test's)"
+out=$(run 0 0 5)
+has "a filler test's check not named after it still belongs to it" "$out" "changed tests, repeated: ok (20 repeats in 3 shards of x.one,x.two)"
+has "a filler test's other-named check leaves done passing" "$out" "done: PASS"
+out=$(run 0 0 6)
+has "a check printed before a changed test's RESULT line is the changed test's" "$out" \
+  "FAIL (check smoke.a.shared is a changed test's or no test's)"
+has "a changed test's other-named check exits 1" "$out" "exit=1"
+out=$(run 0 0 7)
+has "a filler failure with a summary that does not name repeats fails the run" "$out" "changed tests, repeated: FAIL (FAIL killed)"
 # Three changed tests fill the 3 shards: no smoke padding.
 printf 'let name = "x.one"\nlet name = "x.two"\nlet name = "x.three"\n' > "$repo/E2E/Tests/X.swift"
 g commit -qam "a third test"
