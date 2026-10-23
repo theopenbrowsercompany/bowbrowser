@@ -9,6 +9,7 @@
 enum SidebarAccessories {
     static let all: [any SidebarAccessory.Type] = [
         DownloadsFooterButton.self,
+        ArchiveFooterButton.self,
         SpaceSwitcher.self,
         URLField.self,
     ]
