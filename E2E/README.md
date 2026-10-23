@@ -14,6 +14,9 @@ Agents use it, not `make smoke`, for "Done when" checks: the window stays off sc
 `make e2e-run` does the same without building, to rerun the last build (for example a test that looked like load).
 `E2E=` goes to the app as one `--e2e=` value, and the app refuses a selection it does not know with exit 64.
 A harness self test that ends its run on purpose (`selectedByNameOnly` in `E2ETest`, for example `engine.watchdog-tracking-loop`) runs only when the selection names it exactly: `all`, areas, globs and tags skip it, also when the wrapper resolves a sharded selection, and `E2E=list` ends its line with `by-name-only`.
+The same rule keeps opt-in measurements out of every normal run (the `s3` tests, see their area file): such a test may also set `switchOverride` (engine switches it removes or adds for its run) and `timeLimit` (its own limit instead of 120 seconds).
+Switches are process wide, so a selection whose tests need different switches stops before it starts with exit 64, naming two of them; select them in separate runs.
+A test may write result files of its own into the run folder (`E2ERun.outputDirectory`).
 
 ## Run folder, report and results.json
 

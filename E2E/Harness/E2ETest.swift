@@ -20,6 +20,14 @@ protocol E2ETest {
     /// tags skip it, so normal runs never pay for it, and `--e2e=list` marks its line `by-name-only`. Defaults to
     /// false.
     var selectedByNameOnly: Bool { get }
+    /// Changes to the engine's switches this test runs with (for example a measurement that needs Chromium's own
+    /// background throttling back), or nil for the harness's switches. Switches are process wide, so the runner
+    /// refuses a selection whose tests need different switches. Give it only to a `selectedByNameOnly` test, so
+    /// `all`, areas, globs and tags never mix it with the others. Defaults to nil.
+    var switchOverride: E2ESwitchOverride? { get }
+    /// The seconds the whole test may take, steps and code between them. Defaults to `E2ERun.testTimeout`; only a
+    /// `selectedByNameOnly` test (a long measurement) should need more.
+    var timeLimit: TimeInterval { get }
     func run(_ run: E2ERun) async throws
 }
 
@@ -28,6 +36,8 @@ extension E2ETest {
     var tags: [String] { [] }
     var quitsApp: Bool { false }
     var selectedByNameOnly: Bool { false }
+    var switchOverride: E2ESwitchOverride? { nil }
+    var timeLimit: TimeInterval { E2ERun.testTimeout }
     /// The part of the name before the first dot, which `--e2e=<area>` selects.
     var area: String { String(name.prefix { $0 != "." }) }
 }
@@ -62,6 +72,22 @@ enum E2ETests {
         return tests.filter { chosen.contains($0.name) }
     }
 
+    /// The engine switches for running `tests` in one app: `base` changed by their `switchOverride`. Throws when two
+    /// of them need different switches, since switches cannot change once the engine has started.
+    static func switches(for tests: [any E2ETest], base: [String: String]) throws -> [String: String] {
+        var chosen: (test: String, switches: [String: String])?
+        for test in tests {
+            let switches = test.switchOverride?.applied(to: base) ?? base
+            if let chosen, chosen.switches != switches {
+                throw E2EError(
+                    "\(chosen.test) and \(test.name) need different engine switches, so they cannot run in one app; "
+                        + "select them in separate runs")
+            }
+            if chosen == nil { chosen = (test.name, switches) }
+        }
+        return chosen?.switches ?? base
+    }
+
     /// Throws when two tests share a name or a check, which would make their lines ambiguous, or a test declares a
     /// check the runner records itself.
     static func checkUnique(_ tests: [any E2ETest] = all) throws {
@@ -77,6 +103,20 @@ enum E2ETests {
                 guard checks.insert(check).inserted else { throw E2EError("two e2e tests declare the check \(check)") }
             }
         }
+    }
+}
+
+/// Switches a test removes from and adds to the harness's engine switches (`E2ETest.switchOverride`).
+struct E2ESwitchOverride: Equatable {
+    /// Harness switches to leave out, by name without dashes.
+    var removing: Set<String> = []
+    /// Switches to add or replace, by name without dashes, with their values ("" for none).
+    var adding: [String: String] = [:]
+
+    func applied(to base: [String: String]) -> [String: String] {
+        var switches = base.filter { !removing.contains($0.key) }
+        switches.merge(adding) { _, added in added }
+        return switches
     }
 }
 
