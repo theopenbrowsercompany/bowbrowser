@@ -148,12 +148,14 @@ final class E2ERunner {
             "disable-backgrounding-occluded-windows": "",
             "disable-background-timer-throttling": "",
             "disable-features": "MacWebContentsOcclusion",
-            // No updates, first run work or network of any kind; fixtures are served without DNS.
+            // No updates, first run work or network of any kind; fixtures are served without DNS, except the
+            // loopback fixtures' two hosts, which resolve to their listeners on 127.0.0.1 (the first rule that
+            // matches a host wins).
             "disable-component-update": "",
             "disable-background-networking": "",
             "no-first-run": "",
             "no-proxy-server": "",
-            "host-resolver-rules": "MAP * ~NOTFOUND",
+            "host-resolver-rules": E2ELoopback.start() + "MAP * ~NOTFOUND",
             // The same colors and language on every machine.
             "force-color-profile": "srgb",
             "lang": "en-US",
@@ -313,6 +315,7 @@ final class E2ERunner {
     /// Called after the engine has shut down: reports the quit check and the summary, then cleans up.
     func engineDidStop() {
         watchdog.disarm()
+        E2ELoopback.stop()
         if let quitCheck {
             // Two times: the app closing every page and ending its message loop, which a person waits for, and
             // the quit up to the end of Chromium's own shutdown, which grows with machine load (spec/quit.md).

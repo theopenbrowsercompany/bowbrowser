@@ -6,7 +6,7 @@ import Foundation
 /// with their defaults until the features that use them land. Fixtures in E2E/Fixtures/engine/.
 @MainActor
 enum EngineTests {
-    static let all: [any E2ETest] = [EngineHooksTest()]
+    static let all: [any E2ETest] = [EngineHooksTest(), EngineChallengesTest()]
 }
 
 /// Opens a probe tab on the fixture and walks it through every hook, one check each.
@@ -186,5 +186,74 @@ struct EngineHooksTest: E2ETest {
         run.check(
             "engine.close-reason", passed: reason == .page && !result.unloaded,
             "reason=\(reason.map { "\($0)" } ?? "none") unload-after-close=\(result.unloaded)")
+    }
+}
+
+/// A load's questions reach the window: a 401 with a Basic challenge from the loopback sign in fixture asks the
+/// window for a user name and password, and a self-signed certificate from the loopback TLS fixture asks it whether
+/// to go on. The window answers both with cancel (no feature takes them yet), so the 401 page shows and the
+/// certificate load fails, and neither fixture sees a request that got past its question.
+struct EngineChallengesTest: E2ETest {
+    let name = "engine.challenges"
+    let checks = ["engine.auth_hook", "engine.cert_hook"]
+
+    func run(_ run: E2ERun) async throws {
+        guard let challenges = run.app as? any E2EChallengesApp else {
+            throw E2EError("the app cannot record challenges")
+        }
+        let fixtures = try E2ELoopback.running()
+        let page = try await run.step("open window", timeout: E2ETimeouts.firstLoad) {
+            let page = try await run.app.openWindow(at: E2EFixture.url("engine/index.html"))
+            _ = try await page.waitForLoad(after: 0)
+            try challenges.recordChallenges(of: page)
+            return page
+        }
+
+        let auth = try await run.step("load a page that asks to sign in", timeout: E2ETimeouts.firstLoad) {
+            let ended = try await Self.load(E2ELoopback.authURL, in: page)
+            let title = ended.kind == .finish ? try await page.string("document.title") : ""
+            return (ended: ended, questions: try challenges.authChallenges(of: page), title: title)
+        }
+        let question = auth.questions.first
+        run.check(
+            "engine.auth_hook",
+            passed: auth.questions.count == 1 && question?.host == E2ELoopback.authHost && question?.realm == "bow"
+                && question?.scheme.lowercased() == "basic" && question?.isProxy == false
+                && question?.answered == true && question?.answeredUser == nil && auth.ended.kind == .finish
+                && auth.ended.code == 401 && auth.title == "Sign in required" && fixtures.authorizedRequests == 0,
+            "questions=\(auth.questions) ended=\(auth.ended) title=\(auth.title) "
+                + "unauthorized=\(fixtures.unauthorizedRequests) authorized=\(fixtures.authorizedRequests)")
+
+        let certificate = try await run.step("load a page with a bad certificate", timeout: E2ETimeouts.firstLoad) {
+            let ended = try await Self.load(E2ELoopback.badCertificateURL, in: page)
+            return (ended: ended, questions: try challenges.certificateErrors(of: page))
+        }
+        let error = certificate.questions.first
+        run.check(
+            "engine.cert_hook",
+            passed: certificate.questions.count == 1 && error?.url?.host == E2ELoopback.certificateHost
+                && error?.code == -202 && error?.proceeded == false && certificate.ended.kind == .fail
+                && certificate.ended.code == -202 && fixtures.certificateRequests == 0,
+            "questions=\(certificate.questions) ended=\(certificate.ended) served=\(fixtures.certificateRequests)")
+    }
+
+    /// Loads `url` in `page` and returns the event its load ended with, finished or failed.
+    private static func load(_ url: URL, in page: any E2EPage) async throws -> E2ENavigationEvent {
+        let before = page.finishedLoads
+        let events = page.navigationEvents.count
+        try page.load(url)
+        do {
+            _ = try await page.waitForLoad(after: before)
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch let error as E2EError where error.reason != nil {
+            throw error
+        } catch {
+            // A failed load throws; its events say how it failed.
+            guard page.finishedLoads > before else { throw error }
+        }
+        guard let ended = page.navigationEvents[events...].last(where: { $0.kind == .fail || $0.kind == .finish })
+        else { throw E2EError("the load of \(url) ended without a finish or fail event") }
+        return ended
     }
 }

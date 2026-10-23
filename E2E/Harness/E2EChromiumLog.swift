@@ -29,6 +29,12 @@ enum E2EKnownChromiumLines {
             #/\[[^\]]*:ERROR:gpu/command_buffer/service/shared_image/shared_image_manager\.cc:\d+\] SharedImageManager::ProduceOverlay: Trying to Produce a Overlay representation from a non-existent mailbox\./#,
             // The second line of the same pair (see the entry above), from the compositor that asked for the image.
             #/\[[^\]]*:ERROR:components/viz/service/display_embedder/skia_output_device_buffer_queue\.cc:\d+\] Invalid mailbox\./#,
+            // Chromium's TLS client logs every handshake that fails certificate verification. The only TLS server an
+            // e2e run reaches is the loopback certificate fixture (E2E/Engine/BowLoopbackFixtures), whose
+            // self-signed certificate nothing trusts on purpose, so loading https://badcert.bow.test/ logs exactly
+            // this once per connection with net_error -202 (ERR_CERT_AUTHORITY_INVALID), and engine.challenges
+            // checks that the load then fails with that error. Any other TLS error code still fails the check.
+            #/\[[^\]]*:ERROR:net/socket/ssl_client_socket_impl\.cc:\d+\] handshake failed; returned -1, SSL error code 1, net_error -202$/#,
         ]
     }
 
