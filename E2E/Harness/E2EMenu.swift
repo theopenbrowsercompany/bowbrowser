@@ -38,16 +38,17 @@ enum E2EMenuKey {
     static let end = character(0xF72B)
     static let pageUp = character(0xF72C)
     static let pageDown = character(0xF72D)
+    /// Delete (backspace), as AppKit menus write it. A menu may also write it as DEL ("\u{7F}"), which names the
+    /// same key.
     static let delete = "\u{8}"
     static let tab = "\t"
     static let `return` = "\r"
     static let escape = "\u{1B}"
     static let space = " "
 
-    /// Function key F`number`, F1 to F35.
+    /// Function key F`number`, F1 to F35; an empty key, which no menu item has, for any other number.
     static func function(_ number: Int) -> String {
-        precondition((1...35).contains(number), "F\(number) is not a function key")
-        return character(0xF704 + UInt32(number) - 1)
+        (1...35).contains(number) ? character(0xF704 + UInt32(number) - 1) : ""
     }
 
     /// The name a shortcut shows for `key`: "Up", "F5", "Esc", or the key itself.
@@ -63,8 +64,8 @@ enum E2EMenuKey {
 
     private static let names: [String: String] = [
         upArrow: "Up", downArrow: "Down", leftArrow: "Left", rightArrow: "Right", forwardDelete: "ForwardDelete",
-        home: "Home", end: "End", pageUp: "PageUp", pageDown: "PageDown", delete: "Delete", tab: "Tab",
-        `return`: "Return", escape: "Esc", space: "Space",
+        home: "Home", end: "End", pageUp: "PageUp", pageDown: "PageDown", delete: "Delete", "\u{7F}": "Delete",
+        tab: "Tab", `return`: "Return", escape: "Esc", space: "Space",
     ]
 
     private static func character(_ value: UInt32) -> String {
@@ -77,7 +78,7 @@ struct E2EMenuRoute: Equatable, CustomStringConvertible {
     var shortcut: String
     var title: String
     /// The class of the object in the test window that handles the item (along the window's responder chain, then
-    /// its window controller); "refused" for an app or window chrome action a test may not take (quitting, hiding,
+    /// its delegate and its window controller); "refused" for an app or window chrome action a test may not take (quitting, hiding,
     /// minimizing, zooming, full screen); "outside" for an item whose own target is not in the test window; "none"
     /// when nothing in the window handles it.
     var handler: String
@@ -90,15 +91,18 @@ struct E2EMenuRoute: Equatable, CustomStringConvertible {
 @MainActor
 protocol E2EMenuApp: E2EApp {
     /// The title of the main menu item whose shortcut is `key` with exactly `modifiers`, nil when none has it. A
-    /// hidden item, and every item in a hidden item's submenu, has no shortcut. An uppercase letter counts as Shift
+    /// hidden item has no shortcut unless it allows its key equivalent while hidden, as AppKit reads it, and every
+    /// item in a hidden item's submenu has none. An uppercase letter counts as Shift
     /// with that letter, the way AppKit reads a key equivalent, so "W" with Command and "w" with Shift and Command
     /// name the same item. Only letters fold: a symbol is matched as written, so name the symbol the item shows
-    /// ("{" with Command, not "[" with Shift and Command). Keys without a printable character are named by `E2EMenuKey`.
+    /// ("{" with Command, not "[" with Shift and Command). Keys without a printable character are named by
+    /// `E2EMenuKey`.
     func menuItemTitle(key: String, modifiers: E2EKeyModifiers) -> String?
     /// Chooses the menu item whose shortcut is `key` with exactly `modifiers`, sent to the first object along the
-    /// responder chain of the window `page` is in, then that window's controller, after the item validates, as the
-    /// shortcut does when that window is key. The application and its delegate are never asked, so an app level
-    /// fallback cannot stand in for a window command. Throws when no item has the shortcut, the item's action is
+    /// responder chain of the window `page` is in, then that window's delegate and controller, after the item
+    /// validates, as the shortcut does when that window is key. The application and its delegate are never asked, so
+    /// an app level fallback cannot stand in for a window command, and a shortcut only the app delegate handles
+    /// cannot be chosen in a test. Throws when no item has the shortcut, the item's action is
     /// refused (quitting, hiding, minimizing, zooming or full screen: only `app.quit` quits, through the runner),
     /// nothing in the window handles it, or the item is disabled.
     func chooseMenuItem(key: String, modifiers: E2EKeyModifiers, in page: any E2EPage) throws
