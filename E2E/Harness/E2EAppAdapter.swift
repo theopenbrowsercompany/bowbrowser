@@ -40,7 +40,8 @@ final class E2EAppAdapter {
         let engineProfile: (any EngineProfile)?
         switch profile {
         case .appDefault:
-            engineProfile = nil
+            // Named, so the window gets a sidebar of its own rather than the app's saved one.
+            engineProfile = delegate.engine.profile(id: .default)
         case .test:
             if testProfile == nil { testProfile = try createProfile(id: testProfileID, isPersistent: false) }
             engineProfile = testProfile
@@ -162,7 +163,9 @@ final class E2EAppAdapter {
 
     func openTab(at url: URL, besides page: any E2EPage, select: Bool, token: Int) throws -> any E2EPage {
         let controller = try Self.tabPage(page).controller
-        let tab = controller.openTab(url: url, select: select)
+        guard let tab = controller.openTab(url: url, select: select) else {
+            throw E2EError("the window opened no tab for \(url.absoluteString)")
+        }
         return track(tab, in: controller, token: token)
     }
 
@@ -496,7 +499,7 @@ private final class TabPage: E2EPage {
     var finishedLoads: Int { loads.count }
 
     var permissionPrompt: E2EPermissionPrompt? {
-        guard isShown, let prompt = controller.permissionPrompts.visiblePrompt else { return nil }
+        guard isShown, let prompt = controller.permissionPrompts?.visiblePrompt else { return nil }
         return E2EPermissionPrompt(
             kinds: Set(prompt.request.kinds.map(\.rawValue)),
             message: prompt.message,
@@ -787,6 +790,6 @@ extension BrowserWindowController {
     fileprivate var sidebarFeature: SidebarFeature { feature(SidebarFeature.self)! }
     fileprivate var sidebar: TabSidebarView { sidebarFeature.sidebar }
     fileprivate var findBar: FindBar { feature(FindFeature.self)!.findBar }
-    fileprivate var permissionPrompts: PermissionPrompts { feature(PermissionsFeature.self)!.prompts }
+    fileprivate var permissionPrompts: PermissionPrompts? { feature(PermissionsFeature.self)?.prompts }
     fileprivate var navigationToolbar: NavigationToolbar { feature(NavigationFeature.self)!.toolbar }
 }

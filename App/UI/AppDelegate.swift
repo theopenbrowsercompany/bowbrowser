@@ -27,6 +27,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     #if BOW_E2E
         private var e2eRunner: E2ERunner?  // E2E seam
     #endif
+    /// True once the engine has started and windows can open.
+    private var engineStarted = false
+    /// Links from other apps that arrived before the engine started.
+    private var pendingLinks: [URL] = []
     private var smokeTimer: Timer?
     private var smokeFinished = false
     /// The smoke run's window, for the navigation delegate methods that finish the run.
@@ -76,23 +80,60 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         #endif
 
-        let startURL = options.smokeInput.flatMap(AddressInput.resolve) ?? Self.homeURL
-        let controller = openWindow(url: startURL)
+        engineStarted = true
+        let controller: BrowserWindowController
         if options.isSmokeTest {
+            // A smoke run opens its page in a sidebar of its own, so it never adds tabs to the person's sidebar.
+            let startURL = options.smokeInput.flatMap(AddressInput.resolve) ?? Self.homeURL
+            controller = openWindow(url: startURL, profile: engine.profile(id: .default))
             // Stay in the background so a smoke run never takes the keyboard from whoever is typing.
             controller.window?.orderBack(nil)
             runSmokeTest(in: controller)
         } else {
+            // The saved sidebar comes back with only its active tab loading; an empty one opens the home page.
+            controller = openWindow(url: nil)
             controller.showWindow(nil)
             NSApp.activate()
         }
+        let links = pendingLinks
+        pendingLinks.removeAll()
+        for link in links { openLink(link) }
     }
 
     /// Called by main after the engine has shut down, just before the process exits with `BowEngine.exitCode`.
     @objc func engineDidStop() {
+        // The sidebar is saved after every change; this writes one a failed save left behind.
+        if engineStarted { appFeatures.require(SidebarStores.self).saveAll() }
         #if BOW_E2E
             e2eRunner?.engineDidStop()  // E2E seam
         #endif
+    }
+
+    /// Links from other apps (a link clicked in Mail, `open https://...`). Each opens in a new tab of the most recently
+    /// used browser window, in the profile of its Space on screen, or in a new window when none is open. Links that
+    /// arrive before the engine has started open once it has.
+    func application(_ application: NSApplication, open urls: [URL]) {
+        for url in urls where ["http", "https"].contains(url.scheme?.lowercased()) {
+            if engineStarted {
+                openLink(url)
+            } else {
+                pendingLinks.append(url)
+            }
+        }
+    }
+
+    /// Opens a link from another app. Until link routing rules exist, it opens in the profile of the target window's
+    /// Space on screen. Returns the window it opened in, or nil when it opened nowhere (an e2e run never opens an on
+    /// screen window for it).
+    @discardableResult
+    func openLink(_ url: URL) -> BrowserWindowController? {
+        if let controller = windowControllers.last {
+            return controller.openTab(url: url) != nil ? controller : nil
+        }
+        guard !options.isE2E else { return nil }
+        let controller = openWindow(url: url)
+        controller.showWindow(nil)
+        return controller
     }
 
     /// File > Close Tab (Cmd+W) when the key window has no tabs (a page's popup window, for example): closes that
@@ -106,18 +147,48 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         !options.isE2E
     }
 
-    /// Opens `url` in a new browser window on `profile` (the default profile when nil), or in `window` when given
-    /// (e2e runs pass an off-screen one).
+    /// Opens a browser window. With no `profile` it runs on the app's sidebar (saved in the data directory): it opens
+    /// `url` in a new tab, or restores the sidebar when `url` is nil (the home page when the sidebar has no tabs).
+    /// With a `profile` it runs on a new sidebar of its own whose one Space shows that profile, and opens `url`.
+    /// `window` is the window to use (e2e runs pass an off-screen one).
     func openWindow(
-        url: URL,
+        url: URL?,
         profile: (any EngineProfile)? = nil,
         window: BrowserWindow? = nil
     ) -> BrowserWindowController {
-        // The engine always has its default profile.
-        let profile = profile ?? engine.profile(id: .default)!
-        let controller = BrowserWindowController(url: url, profile: profile, appFeatures: appFeatures, window: window)
+        let stores = appFeatures.require(SidebarStores.self)
+        let store: SidebarStore
+        if profile == nil, let main = stores.main() {
+            store = main
+        } else {
+            // The engine always has its default profile.
+            let profile = profile ?? engine.profile(id: .default)!
+            do {
+                store = try stores.makeWindowStore(profile: SidebarStores.sidebarProfileID(of: profile.profileID))
+            } catch {
+                fatalError("cannot create a sidebar for a window: \(error)")
+            }
+        }
+        var url = url
+        if url == nil, store.graph.activeSpaceID.map({ store.graph.tabIDs(in: $0).isEmpty }) ?? true {
+            url = Self.homeURL
+        }
+        let engine = engine
+        let controller = BrowserWindowController(
+            store: store,
+            profiles: { engine.profile(id: SidebarStores.engineProfileID(of: $0)) },
+            url: url,
+            newTabURL: url ?? Self.homeURL,
+            appFeatures: appFeatures,
+            window: window
+        )
         controller.onClose = { [weak self] closed in
             self?.windowControllers.removeAll { $0 === closed }
+        }
+        // The most recently used browser window stays last, where links from other apps go.
+        controller.onBecomeMain = { [weak self] main in
+            guard let self, let index = self.windowControllers.firstIndex(where: { $0 === main }) else { return }
+            self.windowControllers.append(self.windowControllers.remove(at: index))
         }
         windowControllers.append(controller)
         return controller

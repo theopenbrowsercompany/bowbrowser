@@ -1,13 +1,18 @@
 import AppKit
 import BowCore
 
-/// A browser window: its tabs and the host view that shows the active one. The order of the tabs and which one is
-/// active live in a BowCore `TabList`; the window keeps one engine tab per entry. It reaches the engine only through
-/// the BowCore protocols, and is the delegate of each of its tabs.
+/// A browser window: its tabs and the host view that shows the active one. The window runs on a BowCore
+/// `SidebarStore`: its tabs are the tabs of the store's active Space (its pinned section, then its today section),
+/// and opening, selecting, closing and moving a tab are store changes, which the store saves as they happen. The
+/// window keeps one engine tab per sidebar tab that has loaded; a saved tab loads its page only once it is selected,
+/// so on launch only the active tab loads. Every engine tab is created in the profile of the Space that holds it.
+///
+/// It reaches the engine only through the BowCore protocols, and is the delegate of each of its tabs.
 ///
 /// Everything else a window does (the toolbar, find, permission prompts, the sidebar) is a `BrowserWindowFeature`
 /// listed in `WindowFeatures.all`. The window creates them, puts them in its responder chain, and tells them when
-/// the shown tab changes, what its tabs report and when a tab closes. Add a feature there, never here.
+/// the shown tab changes, what its tabs report, when a tab opens or closes, and when the store changes. Add a feature
+/// there, never here.
 @MainActor
 final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMenuItemValidation, EngineTabDelegate {
     static let styleMask: NSWindow.StyleMask = [.titled, .closable, .miniaturizable, .resizable]
@@ -22,38 +27,81 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
     private var pageLeadingConstraint: NSLayoutConstraint
     /// The window's features, in `WindowFeatures.all` order, which is also their order in the responder chain.
     private(set) var features: [any BrowserWindowFeature] = []
-    /// The window's tabs as BowCore models them: order, active tab, and what each page last reported.
-    private(set) var tabList = TabList()
-    /// The engine tab behind each entry of `tabList`.
+    /// The sidebar the window shows and changes: the source of truth for its tabs, their order and the active tab.
+    let store: SidebarStore
+    /// The engine profile behind a Space's profile ID, or nil when the engine has no such profile.
+    private let profiles: (SidebarProfileID) -> (any EngineProfile)?
+    /// What each sidebar tab the window knows last reported, under a runtime ID that lasts as long as the window.
+    private var runtimeTabs: [SidebarItemID: BrowserTab] = [:]
+    /// The sidebar tab behind each runtime ID, the reverse of `runtimeTabs`.
+    private var itemIDs: [BrowserTabID: SidebarItemID] = [:]
+    /// The engine tab of each sidebar tab that has loaded.
     private var engineTabs: [BrowserTabID: any EngineTab] = [:]
-    /// The tab list entry of each engine tab, the reverse of `engineTabs`.
+    /// The runtime ID of each engine tab, the reverse of `engineTabs`.
     private var modelIDs: [TabID: BrowserTabID] = [:]
+    /// Tabs the person is closing (Close Tab, a row's close button, `closeTab(_:)`), which leave the sidebar once
+    /// their page has closed. A tab that closes any other way (its window closing, quitting, its page closing
+    /// itself) keeps its place in the sidebar with its saved page.
+    private var closingByRequest: Set<BrowserTabID> = []
+    /// The Space the features were last told is on screen.
+    private var shownSpaceID: SidebarSpaceID?
     /// What the New Tab button and New Tab menu item open.
     var newTabURL: URL
     /// Called when the window has closed, so the owner can let go of this controller.
     var onClose: ((BrowserWindowController) -> Void)?
+    /// Called when the window becomes the main window.
+    var onBecomeMain: ((BrowserWindowController) -> Void)?
     /// Called with every event of the window's tabs, after the window has handled it.
     var onTabEvent: ((any EngineTab, TabEvent) -> Void)?
     /// Asked before every main frame navigation of the window's tabs; nil allows every navigation.
     var navigationPolicy: ((any EngineTab, EngineNavigation) -> NavigationPolicy)?
 
-    let profile: any EngineProfile
     /// The app's services (per-profile stores and the like), for features to look up.
     let appFeatures: AppFeatureSet
 
-    /// The window's open tabs, in tab list order.
+    /// The window's tabs as the sidebar lists them: the active Space's tabs in sidebar order with what each page last
+    /// reported, and the active tab. Saved tabs that have not loaded show their saved address and title.
+    var tabList: TabList {
+        let tabs = activeSpaceTabIDs.compactMap { runtimeTabs[$0] }
+        let active = activeItemID.flatMap { runtimeTabs[$0]?.id } ?? tabs.first?.id
+        return TabList(tabs: tabs, activeID: active) ?? TabList()
+    }
+
+    /// The window's loaded tabs in the active Space, in sidebar order.
     var tabs: [any EngineTab] { tabList.tabs.compactMap { engineTabs[$0.id] } }
 
     /// The tab `webView` shows, read back from the view so it always matches the screen (the view refuses a tab
     /// that is closing).
     var selectedTab: (any EngineTab)? { tabs.first { webView.isShowing($0) } }
 
-    /// Opens `url` in a new centered window on `profile`, or in `window` when given (e2e runs pass an off-screen
-    /// one), which is not cascaded: the caller places it. New tabs open `url` too until `newTabURL` is changed.
-    /// Features find the app's services in `appFeatures`.
+    /// The Space on screen.
+    var activeSpace: SidebarSpace? { store.graph.activeSpace }
+
+    /// The engine profile of the Space on screen, which new tabs open in. Nil when the engine has no profile for the
+    /// Space, in which case no tab opens.
+    var activeProfile: (any EngineProfile)? { activeSpace.flatMap { profiles($0.profileID) } }
+
+    /// The active Space's tabs in sidebar order: its pinned section, then its today section.
+    private var activeSpaceTabIDs: [SidebarItemID] {
+        store.graph.activeSpaceID.map { store.graph.tabIDs(in: $0) } ?? []
+    }
+
+    /// The store's active tab when the window lists it, else nil.
+    private var activeItemID: SidebarItemID? {
+        guard let id = store.graph.activeTabID, runtimeTabs[id] != nil else { return nil }
+        return id
+    }
+
+    /// Opens a window on `store` showing its active Space, in a new centered window or in `window` when given (e2e
+    /// runs pass an off-screen one), which is not cascaded: the caller places it. When `url` is given it opens in a
+    /// new tab; otherwise only the saved active tab loads, and the other saved tabs load once they are selected.
+    /// Each tab opens in the engine profile `profiles` gives for its Space. New tabs open `newTabURL`. Features find
+    /// the app's services in `appFeatures`.
     init(
-        url: URL,
-        profile: any EngineProfile,
+        store: SidebarStore,
+        profiles: @escaping (SidebarProfileID) -> (any EngineProfile)?,
+        url: URL?,
+        newTabURL: URL,
         appFeatures: AppFeatureSet,
         window givenWindow: BrowserWindow? = nil
     ) {
@@ -70,9 +118,10 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
         rootView = NSView(frame: NSRect(origin: .zero, size: contentSize))
         pageArea = NSView(frame: NSRect(origin: .zero, size: contentSize))
         pageLeadingConstraint = pageArea.leadingAnchor.constraint(equalTo: rootView.leadingAnchor)
-        self.profile = profile
+        self.store = store
+        self.profiles = profiles
         self.appFeatures = appFeatures
-        self.newTabURL = url
+        self.newTabURL = newTabURL
         window.title = "Bow"
         window.isReleasedWhenClosed = false
         super.init(window: window)
@@ -86,7 +135,11 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
         }
         window.delegate = self
         installFeatures()
-        openTab(url: url)
+        if let url {
+            openTab(url: url)
+        } else {
+            storeDidChange()
+        }
     }
 
     @available(*, unavailable)
@@ -148,20 +201,33 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
 
     // MARK: Tabs
 
-    /// Opens `url` in a new tab of this window's profile, right after the active tab, selecting it unless
-    /// `select` is false.
+    /// Opens `url` in a new tab in the active Space's today section, right after the active tab when that is a
+    /// today tab and at the end otherwise, selecting it unless `select` is false. The tab opens in the active Space's
+    /// profile; every way of opening a tab comes here. Returns nil, opening nothing, when the Space's profile is
+    /// missing or the store refuses the change.
     @discardableResult
-    func openTab(url: URL, select: Bool = true) -> any EngineTab {
-        let engineTab = profile.createTab(url: url)
-        engineTab.delegate = self
-        var model = BrowserTab(url: url)
-        model.apply(engineTab.state)
-        if model.url == nil { model.url = url }
-        engineTabs[model.id] = engineTab
-        modelIDs[engineTab.tabID] = model.id
-        tabList.open(model, activate: select)
-        showActiveTab()
-        return engineTab
+    func openTab(url: URL, select: Bool = true) -> (any EngineTab)? {
+        let graph = store.graph
+        guard let space = graph.activeSpace, let profile = profiles(space.profileID) else {
+            Self.report("the active Space has no profile, so the tab was not opened")
+            return nil
+        }
+        let today = space.unpinnedContainerID
+        let index = graph.activeTabID.flatMap { active -> Int? in
+            guard graph[active]?.parentID == today else { return nil }
+            return graph[today]?.childrenIDs.firstIndex(of: active).map { $0 + 1 }
+        }
+        let item = SidebarItem.tab(url: url.absoluteString)
+        let opened = change { store in
+            try store.transaction {
+                try store.mutate(.insert(item, parent: today, index: index))
+                if select || graph.activeTabID == nil { try store.mutate(.setActiveTab(item.id)) }
+            }
+        }
+        guard opened else { return nil }
+        let tab = load(item.id, url: url, in: profile)
+        storeDidChange()
+        return tab
     }
 
     /// Shows `tab`, one of this window's tabs.
@@ -170,47 +236,151 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
         select(id)
     }
 
-    /// Makes tab `id` active and shows it. A tab that is closing cannot be shown, and the active tab stays.
+    /// Makes tab `id` active and shows it, loading its saved page first if it has not loaded. A tab that is closing
+    /// cannot be shown, and the active tab stays.
     func select(_ id: BrowserTabID) {
-        guard let tab = engineTabs[id] else { return }
-        let previous = tabList.activeID
-        tabList.select(id)
-        showActiveTab()
-        if !webView.isShowing(tab), let previous, previous != id {
-            tabList.select(previous)
-            showActiveTab()
+        guard let item = itemIDs[id] else { return }
+        let previous = store.graph.activeTabID
+        change { try $0.selectTab(item) }
+        storeDidChange()
+        if let tab = engineTabs[id], !webView.isShowing(tab), let previous, previous != item {
+            change { try $0.selectTab(previous) }
+            storeDidChange()
         }
     }
 
-    /// Moves tab `id` to `index` in the tab list.
+    /// Moves tab `id` to `index` in the window's tab list: to the place of the tab that is at `index` once `id` has
+    /// left its own (in that tab's section or folder), or to the end of the today section past the last tab.
     func reorderTab(_ id: BrowserTabID, to index: Int) {
-        tabList.move(id, to: index)
+        guard let item = itemIDs[id], let space = activeSpace else { return }
+        let graph = store.graph
+        let others = activeSpaceTabIDs.filter { $0 != item }
+        let target = others.indices.contains(max(index, 0)) ? others[max(index, 0)] : nil
+        var mutation = SidebarMutation.move(item, parent: space.unpinnedContainerID, index: nil)
+        if let target, let parent = graph[target]?.parentID,
+            let position = graph[parent]?.childrenIDs.filter({ $0 != item }).firstIndex(of: target)
+        {
+            mutation = .move(item, parent: parent, index: position)
+        }
+        change { try $0.apply([mutation]) }
+        storeDidChange()
     }
 
     /// Closes `tab`, one of this window's tabs, after its page's beforeunload handler runs. Returns true once it has
     /// closed, and false when the person chose to stay at the page's leave prompt, which keeps the tab and its
-    /// page as they were. The window shows a neighbor when the shown tab closes, and closes with its last tab.
-    /// A tab that is not in this window (another window's, or one already closed) is left alone, and the result
-    /// is whether it is closed.
+    /// page as they were. The closed tab leaves the sidebar (a pinned tab only unloads and stays); the window shows a
+    /// neighbor when the shown tab closes, and closes with its last tab. A tab that is not in this window (another
+    /// window's, or one already closed) is left alone, and the result is whether it is closed.
     @discardableResult
     func closeTab(_ tab: any EngineTab) async -> Bool {
-        guard modelID(of: tab) != nil else { return tab.isClosed }
-        return await tab.close()
+        guard let id = modelID(of: tab) else { return tab.isClosed }
+        closingByRequest.insert(id)
+        let closed = await tab.close()
+        if !closed { closingByRequest.remove(id) }
+        return closed
     }
 
-    /// The tab list entry of `tab`, one of this window's tabs.
+    /// The runtime ID of `tab`, one of this window's tabs.
     func modelID(of tab: any EngineTab) -> BrowserTabID? {
         modelIDs[tab.tabID].flatMap { engineTabs[$0] === tab ? $0 : nil }
     }
 
-    /// The engine tab behind tab list entry `id`.
+    /// The engine tab behind runtime ID `id`, nil while its saved page has not loaded.
     func engineTab(for id: BrowserTabID) -> (any EngineTab)? {
         engineTabs[id]
     }
 
-    /// Shows the tab list's active tab in the web view, then tells the features.
+    /// The sidebar item behind runtime ID `id`.
+    func sidebarItemID(for id: BrowserTabID) -> SidebarItemID? {
+        itemIDs[id]
+    }
+
+    /// Runs `body` on the store and reports a refusal. Returns whether the change went through (a failed write keeps
+    /// it, unsaved, for the store to write with the next change or on quit). Callers follow with `storeDidChange()`.
+    @discardableResult
+    private func change(_ body: (SidebarStore) throws -> Void) -> Bool {
+        do {
+            try body(store)
+            return true
+        } catch SidebarStoreError.saveFailed(let reason) {
+            Self.report("saving the sidebar failed: \(reason)")
+            return true
+        } catch {
+            Self.report("the sidebar refused a change: \(error)")
+            return false
+        }
+    }
+
+    private static func report(_ message: String) {
+        FileHandle.standardError.write(Data("bow: \(message)\n".utf8))
+    }
+
+    /// Creates the engine tab of sidebar tab `item` on `url` in `profile`, the profile of the Space that holds it.
+    @discardableResult
+    private func load(_ item: SidebarItemID, url: URL, in profile: any EngineProfile) -> any EngineTab {
+        var model = runtimeTab(for: item, url: url)
+        let engineTab = profile.createTab(url: url)
+        engineTab.delegate = self
+        model.apply(engineTab.state)
+        if model.url == nil { model.url = url }
+        runtimeTabs[item] = model
+        engineTabs[model.id] = engineTab
+        modelIDs[engineTab.tabID] = model.id
+        for feature in features { feature.tabOpened(engineTab, item: item) }
+        return engineTab
+    }
+
+    /// The runtime tab of `item`, made from its saved page (or `url`) the first time.
+    @discardableResult
+    private func runtimeTab(for item: SidebarItemID, url: URL? = nil) -> BrowserTab {
+        if let tab = runtimeTabs[item] { return tab }
+        let saved = store.graph[item]?.tab
+        let tab = BrowserTab(url: url ?? saved?.savedPageURL, title: saved?.savedTitle ?? "")
+        runtimeTabs[item] = tab
+        itemIDs[tab.id] = item
+        return tab
+    }
+
+    /// Brings the window up to date with the store: the active Space's tabs, the active tab shown (loading its saved
+    /// page first unless `loadActive` is false), then tells the features.
+    private func storeDidChange(loadActive: Bool = true) {
+        let ids = activeSpaceTabIDs
+        for id in ids { runtimeTab(for: id) }
+        // Tabs that left the store or the Space on screen and have no page are forgotten.
+        let listed = Set(ids)
+        for (item, tab) in runtimeTabs where !listed.contains(item) && engineTabs[tab.id] == nil {
+            runtimeTabs[item] = nil
+            itemIDs[tab.id] = nil
+        }
+        if loadActive, let item = activeItemID, let runtime = runtimeTabs[item], engineTabs[runtime.id] == nil {
+            loadSaved(item)
+        }
+        if let space = activeSpace, space.id != shownSpaceID {
+            shownSpaceID = space.id
+            for feature in features { feature.activeSpaceChanged(space) }
+        }
+        for feature in features { feature.storeChanged(store.graph) }
+        showActiveTab()
+    }
+
+    /// Loads the saved page of `item` in the profile of the Space that holds it (or of the Favorites it is in).
+    private func loadSaved(_ item: SidebarItemID) {
+        let graph = store.graph
+        let profileID =
+            graph.spaceID(containing: item).flatMap { graph.space($0)?.profileID }
+            ?? graph.favoritesProfileID(containing: item)
+        guard let profileID, let profile = profiles(profileID) else {
+            Self.report("tab \(item) has no profile, so it was not loaded")
+            return
+        }
+        // A pinned tab returns to its saved address; any other tab to the page it last recorded.
+        let url = graph.pinnedURL(of: item) ?? graph[item]?.tab?.savedPageURL ?? newTabURL
+        load(item, url: url, in: profile)
+    }
+
+    /// Shows the active tab in the web view, then tells the features.
     private func showActiveTab() {
-        if let id = tabList.activeID, let tab = engineTabs[id] {
+        if let item = activeItemID, let id = runtimeTabs[item]?.id, let tab = engineTabs[id] {
             webView.show(tab)
         }
         updateTitle()
@@ -238,20 +408,32 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
 
     /// Validates the window's own commands; each feature validates its own.
     func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
-        menuItem.action == #selector(closeActiveTab(_:)) ? tabList.activeID != nil : true
+        guard menuItem.action == #selector(closeActiveTab(_:)) else { return true }
+        return tabList.activeID.flatMap { engineTabs[$0] } != nil
     }
 
     // MARK: Engine events
 
     func tab(_ tab: any EngineTab, didReceive event: TabEvent) {
-        if case .stateChanged(let state) = event, let id = modelID(of: tab) {
-            tabList.update(id, from: state)
-            if id == tabList.activeID { updateTitle() }
+        if case .stateChanged(let state) = event, let id = modelID(of: tab), let item = itemIDs[id] {
+            runtimeTabs[item]?.apply(state)
+            recordPage(of: item, state: state)
+            if item == activeItemID { updateTitle() }
         }
         for feature in features { feature.tab(tab, didReceive: event) }
         // A tab closes from this window, from quitting or from its page; the window follows its last tab.
         if event == .closed { tabClosed(tab) }
         onTabEvent?(tab, event)
+    }
+
+    /// Records the page a today tab shows as its saved page, so a relaunch brings it back on that page. Pinned tabs
+    /// and Favorites keep the address they were saved with.
+    private func recordPage(of item: SidebarItemID, state: EngineTabState) {
+        let graph = store.graph
+        guard let url = state.url, let saved = graph[item]?.tab, !graph.isPinned(item), !graph.isInFavorites(item),
+            saved.savedURL != url.absoluteString || saved.savedTitle != state.title
+        else { return }
+        change { try $0.apply([.setSavedPage(item, url: url.absoluteString, title: state.title)]) }
     }
 
     func tab(_ tab: any EngineTab, decidePolicyFor navigation: EngineNavigation) -> NavigationPolicy {
@@ -271,27 +453,61 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
         guard let id = modelID(of: tab) else { return }
         engineTabs[id] = nil
         modelIDs[tab.tabID] = nil
-        // The tab list picks the neighbor that becomes active when the active tab closes.
-        tabList.close(id)
-        if tabList.isEmpty {
+        guard closingByRequest.remove(id) != nil, let item = itemIDs[id] else {
+            // Closed with its window, by quitting or by its page: the tab keeps its place in the sidebar, unloaded,
+            // and the window follows its last open tab.
+            if engineTabs.isEmpty {
+                for feature in features { feature.selectedTabChanged(nil) }
+                window?.close()
+            } else {
+                storeDidChange(loadActive: false)
+            }
+            return
+        }
+        removeFromSidebar(item)
+        if activeSpaceTabIDs.isEmpty {
             for feature in features { feature.selectedTabChanged(nil) }
             window?.close()
         } else {
-            showActiveTab()
+            storeDidChange()
         }
+    }
+
+    /// Takes a tab the person closed out of the sidebar (a pinned tab only unloads and stays). When it was the active
+    /// tab, the tab after it becomes active, or the one before it when it was last.
+    private func removeFromSidebar(_ item: SidebarItemID) {
+        let graph = store.graph
+        let ids = activeSpaceTabIDs
+        var next = graph.activeTabID
+        if graph.activeTabID == item, let position = ids.firstIndex(of: item) {
+            let rest = ids.filter { $0 != item }
+            next = rest.isEmpty ? nil : rest[min(position, rest.count - 1)]
+        }
+        let removes = graph.closeOutcome(for: item) == .removeFromSidebar
+        change { store in
+            try store.transaction {
+                if removes { try store.mutate(.delete(item)) }
+                try store.mutate(.setActiveTab(next))
+            }
+        }
+        if removes, let runtime = runtimeTabs.removeValue(forKey: item) { itemIDs[runtime.id] = nil }
     }
 
     // MARK: Window
 
     func windowShouldClose(_ sender: NSWindow) -> Bool {
         if engineTabs.isEmpty { return true }
-        // Close every tab, each running its page's unload handlers; the window closes once the last one has.
-        // A page the person chooses to stay on keeps its tab and the window open. Each close request asks the
-        // pages again, as quitting again does.
-        for tab in tabs {
+        // Close every open tab, each running its page's unload handlers; the window closes once the last one has, and
+        // the tabs keep their place in the sidebar. A page the person chooses to stay on keeps its tab and the window
+        // open. Each close request asks the pages again, as quitting again does.
+        for tab in engineTabs.values {
             Task { _ = await tab.close() }
         }
         return false
+    }
+
+    func windowDidBecomeMain(_ notification: Notification) {
+        onBecomeMain?(self)
     }
 
     func windowWillClose(_ notification: Notification) {
