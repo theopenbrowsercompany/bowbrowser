@@ -5,6 +5,8 @@ import Foundation
 public enum SidebarRepair: Hashable, Sendable {
     /// Two items in the file shared an ID; the first was kept.
     case droppedDuplicateItem(SidebarItemID)
+    /// This many items or Spaces in the file could not be read and were left out; a copy of the file was kept.
+    case skippedUnreadableRecords(Int)
     case droppedDuplicateSpace(SidebarSpaceID)
     case createdSpace(SidebarSpaceID)
     case createdContainer(SidebarItemID, kind: SidebarContainer.Kind)
@@ -23,7 +25,8 @@ public enum SidebarRepair: Hashable, Sendable {
     case createdRecoveredFolder(SidebarItemID)
     /// The item had no valid place and was moved into the "Recently recovered" folder.
     case recovered(SidebarItemID)
-    case clearedActiveSpace
+    /// The active Space was missing or gone, so the first Space became active.
+    case resetActiveSpace(SidebarSpaceID)
     case clearedActiveTab
 }
 
@@ -40,8 +43,8 @@ extension SidebarGraph {
         repairRoots(&log)
         var orphans = repairParents(listingOrder: listingOrder, &log)
         orphans += breakCycles(excluding: orphans, &log)
-        placeOrphans(orphans, &log)
         repairActivePointers(&log)
+        placeOrphans(orphans, &log)
         return log
     }
 
@@ -194,7 +197,7 @@ extension SidebarGraph {
     /// pinned section when needed.
     private mutating func placeOrphans(_ orphans: [SidebarItemID], _ log: inout [SidebarRepair]) {
         guard !orphans.isEmpty else { return }
-        let targetSpace = activeSpaceID.flatMap { space($0) } ?? spaces[0]
+        let targetSpace = activeSpaceID.flatMap { space($0) } ?? spaces[0]  // Set by repairActivePointers.
         let section = targetSpace.pinnedContainerID
         var remaining = orphans
 
@@ -228,9 +231,9 @@ extension SidebarGraph {
     }
 
     private mutating func repairActivePointers(_ log: inout [SidebarRepair]) {
-        if let activeSpaceID, space(activeSpaceID) == nil {
-            self.activeSpaceID = nil
-            log.append(.clearedActiveSpace)
+        if activeSpaceID.flatMap({ space($0) }) == nil {
+            activeSpaceID = spaces[0].id
+            log.append(.resetActiveSpace(spaces[0].id))
         }
         if let activeTabID, items[activeTabID]?.data.isTab != true {
             self.activeTabID = nil

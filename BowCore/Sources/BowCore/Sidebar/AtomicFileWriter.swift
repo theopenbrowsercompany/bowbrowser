@@ -62,9 +62,10 @@ struct AtomicFileWriter {
             var offset = 0
             while offset < buffer.count, let base = buffer.baseAddress {
                 let written = Darwin.write(descriptor, base + offset, buffer.count - offset)
-                if written < 0 {
-                    if errno == EINTR { continue }
-                    failure = WriteError(operation: "write", code: errno)
+                if written < 0 && errno == EINTR { continue }
+                if written <= 0 {
+                    // A write that makes no progress would loop forever; treat it as an I/O error.
+                    failure = WriteError(operation: "write", code: written < 0 ? errno : EIO)
                     return
                 }
                 offset += written

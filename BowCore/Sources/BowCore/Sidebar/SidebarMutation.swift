@@ -1,11 +1,12 @@
 import Foundation
 
-/// Why the store refused a request. The store is left exactly as it was before the refused call.
+/// Why the store refused a request. Apart from `saveFailed`, the store is left exactly as it was before the call.
 public enum SidebarStoreError: Error, Equatable, CustomStringConvertible {
     /// A transaction was begun while another one was open.
     case nestedTransaction
-    /// A mutation or commit was attempted without an open transaction, or a repair or save during one.
+    /// A mutation or commit was attempted without an open transaction.
     case noOpenTransaction
+    /// A save or repair was attempted while a transaction was open.
     case transactionInProgress
     case itemNotFound(SidebarItemID)
     case itemAlreadyExists(SidebarItemID)
@@ -22,9 +23,9 @@ public enum SidebarStoreError: Error, Equatable, CustomStringConvertible {
     /// The sidebar file could not be read and could not be moved aside, so the store refuses to start rather than
     /// risk overwriting it.
     case unreadableFileNotSetAside(String)
-    /// An older file could not be copied before migrating it, so the store refuses to start rather than replace the
-    /// only copy with the migrated version.
-    case migrationBackupFailed(String)
+    /// The file had to be migrated or repaired on open but could not be copied first, so the store refuses to start
+    /// rather than later replace the only copy.
+    case backupFailed(String)
 
     public var description: String {
         switch self {
@@ -42,8 +43,8 @@ public enum SidebarStoreError: Error, Equatable, CustomStringConvertible {
         case .saveFailed(let reason): return "saving the sidebar failed: \(reason)"
         case .unreadableFileNotSetAside(let reason):
             return "the unreadable sidebar file could not be set aside: \(reason)"
-        case .migrationBackupFailed(let reason):
-            return "the sidebar file could not be copied before migrating: \(reason)"
+        case .backupFailed(let reason):
+            return "the sidebar file could not be copied before changing it: \(reason)"
         }
     }
 }
@@ -69,7 +70,7 @@ public enum SidebarMutation: Equatable, Sendable {
     case deleteSpace(SidebarSpaceID)
     case moveSpace(SidebarSpaceID, index: Int)
     case renameSpace(SidebarSpaceID, title: String)
-    case setActiveSpace(SidebarSpaceID?)
+    case setActiveSpace(SidebarSpaceID)
     case setActiveTab(SidebarItemID?)
 }
 
@@ -156,7 +157,7 @@ extension SidebarGraph {
             spaces[position].title = title
 
         case .setActiveSpace(let id):
-            if let id, space(id) == nil { throw .spaceNotFound(id) }
+            guard space(id) != nil else { throw .spaceNotFound(id) }
             activeSpaceID = id
 
         case .setActiveTab(let id):

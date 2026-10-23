@@ -24,8 +24,8 @@ public final class SidebarStore {
         public var origin: Origin
         /// The version the file was migrated from, or nil when no migration ran.
         public var migratedFrom: Int?
-        /// A copy of the file as it was before migrating, kept beside it.
-        public var migrationBackupURL: URL?
+        /// A copy of the file as it was, kept beside it when opening had to migrate or repair it.
+        public var backupURL: URL?
         /// What the cleanup pass fixed while opening; empty for a sound file.
         public var repairs: [SidebarRepair]
     }
@@ -83,12 +83,10 @@ public final class SidebarStore {
                 let decoded = try SidebarFileFormat.decode(data, currentVersion: currentVersion, migrations: migrations)
                 graph = decoded.graph
                 repairs = decoded.duplicateItemIDs.map { .droppedDuplicateItem($0) }
-                if let version = decoded.migratedFrom {
-                    migratedFrom = version
-                    backupURL = try Self.keepCopy(of: fileURL, suffix: "version-\(version)")
+                if decoded.skippedRecordCount > 0 {
+                    repairs.append(.skippedUnreadableRecords(decoded.skippedRecordCount))
                 }
-            } catch let error as SidebarStoreError {
-                throw error
+                migratedFrom = decoded.migratedFrom
             } catch {
                 let setAside = try Self.setAside(fileURL)
                 graph = .fresh()
@@ -97,10 +95,16 @@ public final class SidebarStore {
         }
 
         repairs += graph.repair()
+        // Before the first save replaces a file that had to change, keep it as it was.
+        if origin == .loaded, let version = migratedFrom {
+            backupURL = try Self.keepCopy(of: fileURL, suffix: "version-\(version)")
+        } else if origin == .loaded, !repairs.isEmpty {
+            backupURL = try Self.keepCopy(of: fileURL, suffix: "repaired-\(Self.timestamp())")
+        }
         self.graph = graph
         hasUnsavedChanges = origin != .loaded || migratedFrom != nil || !repairs.isEmpty
         openReport = OpenReport(
-            origin: origin, migratedFrom: migratedFrom, migrationBackupURL: backupURL, repairs: repairs)
+            origin: origin, migratedFrom: migratedFrom, backupURL: backupURL, repairs: repairs)
     }
 
     // MARK: Transactions
@@ -128,7 +132,11 @@ public final class SidebarStore {
     public func commitTransaction() throws(SidebarStoreError) {
         guard let draft else { throw .noOpenTransaction }
         self.draft = nil
-        guard draft != graph else { return }
+        guard draft != graph else {
+            // Nothing changed, but retry a write an earlier commit could not finish.
+            try save()
+            return
+        }
         let problems = draft.integrityProblems()
         guard problems.isEmpty else { throw .integrityCheckFailed(problems) }
         graph = draft
@@ -195,33 +203,44 @@ public final class SidebarStore {
 
     /// Moves an unreadable file to a new name beside it, never replacing an earlier one.
     private static func setAside(_ url: URL) throws(SidebarStoreError) -> URL {
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.dateFormat = "yyyyMMdd-HHmmss"
-        let stamp = formatter.string(from: Date())
-        for attempt in 0..<100 {
-            let destination = sibling(of: url, suffix: "unreadable-\(stamp)" + (attempt == 0 ? "" : "-\(attempt)"))
-            guard !FileManager.default.fileExists(atPath: destination.path) else { continue }
-            do {
-                try FileManager.default.moveItem(at: url, to: destination)
-                return destination
-            } catch {
-                throw .unreadableFileNotSetAside(String(describing: error))
-            }
+        guard let destination = freeSibling(of: url, suffix: "unreadable-\(timestamp())") else {
+            throw .unreadableFileNotSetAside("no free name beside \(url.lastPathComponent)")
         }
-        throw .unreadableFileNotSetAside("no free name beside \(url.lastPathComponent)")
+        do {
+            try FileManager.default.moveItem(at: url, to: destination)
+        } catch {
+            throw .unreadableFileNotSetAside(String(describing: error))
+        }
+        return destination
     }
 
-    /// Copies the file before migrating it, unless a copy with that name already exists.
+    /// Copies the file to a new name beside it, never replacing an earlier copy.
     private static func keepCopy(of url: URL, suffix: String) throws(SidebarStoreError) -> URL {
-        let destination = sibling(of: url, suffix: suffix)
-        guard !FileManager.default.fileExists(atPath: destination.path) else { return destination }
+        guard let destination = freeSibling(of: url, suffix: suffix) else {
+            throw .backupFailed("no free name beside \(url.lastPathComponent)")
+        }
         do {
             try FileManager.default.copyItem(at: url, to: destination)
         } catch {
-            throw .migrationBackupFailed(String(describing: error))
+            throw .backupFailed(String(describing: error))
         }
         return destination
+    }
+
+    /// `Sidebar.<suffix>.json`, or `Sidebar.<suffix>-<n>.json` when that name is taken.
+    private static func freeSibling(of url: URL, suffix: String) -> URL? {
+        for attempt in 0..<1000 {
+            let candidate = sibling(of: url, suffix: attempt == 0 ? suffix : "\(suffix)-\(attempt)")
+            if !FileManager.default.fileExists(atPath: candidate.path) { return candidate }
+        }
+        return nil
+    }
+
+    private static func timestamp() -> String {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "yyyyMMdd-HHmmss"
+        return formatter.string(from: Date())
     }
 
     /// `Sidebar.json` with suffix `x` becomes `Sidebar.x.json` in the same folder.
