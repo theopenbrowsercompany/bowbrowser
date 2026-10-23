@@ -2,10 +2,12 @@
 # Runs a command (an xcodebuild) while holding one of N build slots shared by every worktree and checkout, so
 # parallel agents take turns instead of all compiling at once.
 #
-#   scripts/build-lock.sh <command> [args...]
+#   scripts/build-lock.sh [--pool build|e2e] <command> [args...]
 #
-# BOW_BUILD_SLOTS   number of builds that may run at once (default 2)
-# BOW_LOCK_DIR      lock state folder (default ~/Library/Caches/bowbrowser/build-lock)
+# Two separate pools of slots: "build" (default, for xcodebuild) and "e2e" (for launching the built app).
+# BOW_BUILD_SLOTS   builds that may run at once (default 3)
+# BOW_E2E_SLOTS     e2e runs that may run at once (default 3)
+# BOW_LOCK_DIR      lock state folder (default ~/Library/Caches/bowbrowser/build-lock); one subfolder per pool
 #
 # How it works, with only bash, mkdir, perl (for a microsecond clock) and kill -0:
 # - A build first takes a ticket, a file named <microsecond time>.<pid> in queue/. Tickets are served in name
@@ -16,11 +18,21 @@
 # - The slot and ticket are released when the command ends, fails, or this script gets INT, TERM or HUP.
 set -u
 
-slots=${BOW_BUILD_SLOTS:-2}
-dir=${BOW_LOCK_DIR:-$HOME/Library/Caches/bowbrowser/build-lock}
+pool=build
+if [ "${1:-}" = "--pool" ]; then
+  pool=${2:-}
+  shift 2 2>/dev/null || shift $#
+fi
+case $pool in
+  build) slots_var=BOW_BUILD_SLOTS ;;
+  e2e) slots_var=BOW_E2E_SLOTS ;;
+  *) echo "build-lock: unknown pool '$pool' (use build or e2e)" >&2; exit 2 ;;
+esac
+slots=${!slots_var:-3}
+dir=${BOW_LOCK_DIR:-$HOME/Library/Caches/bowbrowser/build-lock}/$pool
 
 case $slots in '' | *[!0-9]* | 0)
-  echo "build-lock: BOW_BUILD_SLOTS must be a positive number, got '$slots'" >&2
+  echo "build-lock: $slots_var must be a positive number, got '$slots'" >&2
   exit 2
   ;;
 esac
@@ -113,14 +125,14 @@ while :; do
   if [ "$oldest" = "$ticket" ] && try_claim; then break; fi
   if [ "$told" = no ]; then
     ahead=$(live_tickets | grep -n -F "$ticket" | cut -d: -f1)
-    echo "build-lock: waiting for a build slot ($(running_count) of $slots running, $((${ahead:-1} - 1)) waiting ahead of this build)" >&2
+    echo "build-lock: waiting for a $pool slot ($(running_count) of $slots running, $((${ahead:-1} - 1)) waiting ahead of this one)" >&2
     told=yes
   fi
   sleep 1
 done
 rm -f "$ticket"
 ticket=""
-[ "$told" = no ] || echo "build-lock: got a build slot after $((SECONDS - start))s" >&2
+[ "$told" = no ] || echo "build-lock: got a $pool slot after $((SECONDS - start))s" >&2
 
 "$@" &
 child=$!
