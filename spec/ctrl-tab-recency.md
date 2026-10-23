@@ -38,11 +38,20 @@ Each window remembers the order its tabs were used in, and the switcher shows th
 3. Hold Ctrl, press Tab, then Shift+Tab, release Ctrl: the window stays on the current tab.
 4. Hold Ctrl and press Escape: the overlay closes and the current tab stays selected.
 5. Close the active tab while the overlay is open, then release Ctrl: the window selects a tab that is still open.
-6. Run `make e2e`: it prints `PASS mru: order=[C,A,B]`.
+6. Run `make e2e`: `mru` prints its PASS lines for the checks above (`mru`, `mru.third`, `mru.shift`, `mru.escape`, `mru.space`, `mru.closes`, `mru.engine-key`).
    This check needs the app and is not part of BowCore unit tests.
 
 ## Out of scope
 
 - The switcher overlay, its drawing and the keyboard handling in `OnPreKeyEvent` are not covered by this spec's unit tests and are checked by the app and the e2e run.
-- The BowCore recency types are not yet wired into the app. The behavior above is the target, and the acceptance checks that need the app stay open until that work lands.
 - The tab strip order used by the sidebar and by Cmd+1 through Cmd+9 is not changed by this spec.
+
+## Switcher details
+
+- The overlay floats over the page card and lists each tab with its site icon, title and Space (emoji and name, no Space for a Favorite).
+  Tabs the window has never shown, such as another Space's tabs that have not loaded, follow the used ones, so every tab can be reached.
+- Choosing a tab in another Space brings that Space on screen, as choosing it in the command bar does.
+- Ctrl+Shift+Tab starts from the least recent end, since the first step goes back.
+- With fewer than two tabs the keys do nothing and no overlay shows.
+- The overlay also closes, keeping the shown tab, when its window stops being the key window.
+- The overlay watches the Ctrl release with an event monitor that exists only while the overlay shows.
