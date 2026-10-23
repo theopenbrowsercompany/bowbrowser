@@ -1,5 +1,23 @@
 import Foundation
 
+/// The Space an open tab lives in, as the command bar and the tab switcher show it, so a result says which
+/// sidebar it is in and which profile (logins, cookies) it will use.
+public struct SpaceSummary: Equatable, Hashable, Sendable {
+    public var id: SidebarSpaceID
+    public var name: String
+    public var profileID: SidebarProfileID
+
+    public init(id: SidebarSpaceID, name: String, profileID: SidebarProfileID) {
+        self.id = id
+        self.name = name
+        self.profileID = profileID
+    }
+
+    public init(_ space: SidebarSpace) {
+        self.init(id: space.id, name: space.title, profileID: space.profileID)
+    }
+}
+
 /// One thing a provider offers for the text in the command bar, before ranking.
 public struct CommandBarCandidate: Equatable, Sendable {
     public enum Kind: Equatable, Sendable {
@@ -18,12 +36,15 @@ public struct CommandBarCandidate: Equatable, Sendable {
     public var url: URL
     /// When the page was last visited or the tab last used, for breaking ties.
     public var lastUsed: Date?
+    /// The Space of an open tab. Nil for other kinds, and for a Favorite, which no single Space owns.
+    public var space: SpaceSummary?
 
-    public init(kind: Kind, title: String, url: URL, lastUsed: Date? = nil) {
+    public init(kind: Kind, title: String, url: URL, lastUsed: Date? = nil, space: SpaceSummary? = nil) {
         self.kind = kind
         self.title = title
         self.url = url
         self.lastUsed = lastUsed
+        self.space = space
     }
 }
 
@@ -41,6 +62,8 @@ public struct CommandBarResult: Equatable, Sendable, Identifiable {
     public var title: String
     public var url: URL
     public var action: CommandBarAction
+    /// Where an open tab result lives, for the row's Space icon and name. Nil for every other result.
+    public var space: SpaceSummary?
 
     /// Stable across keystrokes so the view can keep selection on the same row.
     public var id: String {
@@ -56,6 +79,7 @@ public struct CommandBarResult: Equatable, Sendable, Identifiable {
         kind = candidate.kind
         title = candidate.title
         url = candidate.url
+        if case .openTab = candidate.kind { space = candidate.space } else { space = nil }
         switch candidate.kind {
         case .openTab(let tab): action = .switchToTab(tab)
         case .history, .navigation, .search: action = .navigate(candidate.url)
@@ -77,12 +101,15 @@ public struct OpenTabInfo: Equatable, Sendable {
     public var title: String
     public var url: URL
     public var lastActive: Date
+    /// The Space the tab lives in, when known; see `OpenTabSpaces`.
+    public var space: SpaceSummary?
 
-    public init(id: UUID, title: String, url: URL, lastActive: Date) {
+    public init(id: UUID, title: String, url: URL, lastActive: Date, space: SpaceSummary? = nil) {
         self.id = id
         self.title = title
         self.url = url
         self.lastActive = lastActive
+        self.space = space
     }
 }
 
