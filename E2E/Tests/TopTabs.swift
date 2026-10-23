@@ -145,7 +145,8 @@ struct TopTabsLayoutTest: E2ETest {
         run.check(
             "toptabs.new-window",
             passed: second.sidebarHidden && second.barShown && second.pageInsets == [90, 8, 8, 8]
-                && second.items.count == 5 && second.urlText == "bow.test/chrome/page.html",
+                && second.items.count == 5 && abs(second.leadingPadding - 14) <= 0.5
+                && (second.items["back"]?.y ?? 0) >= 46 && second.urlText == "bow.test/chrome/page.html",
             "\(second)")
 
         let preRestore = try app.spaces(of: page)

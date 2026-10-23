@@ -76,7 +76,16 @@ final class TopTabsLayoutFeature: NSResponder, BrowserWindowFeature, NSMenuItemV
         refresh()
     }
 
-    func selectedTabChanged(_ tab: (any EngineTab)?) { refresh() }
+    /// The window's look places the buttons in the sidebar's row when the window first shows a tab, which can come
+    /// after this feature moved them into the toolbar row, so they are put where the layout wants them again.
+    func selectedTabChanged(_ tab: (any EngineTab)?) {
+        if applied, let navigation = window.feature(NavigationFeature.self)?.toolbar.view,
+            (navigation.superview === toolbarRow) != (layout == .topTabs)
+        {
+            placeNavigation()
+        }
+        refresh()
+    }
 
     func tab(_ tab: any EngineTab, didReceive event: TabEvent) {
         if case .stateChanged = event { refresh() }
