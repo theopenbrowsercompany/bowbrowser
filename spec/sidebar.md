@@ -16,6 +16,7 @@ Pinned tabs are the sites a person keeps; today's tabs are the ones they opened 
 - Folders in the pinned or today zone show as rows with a disclosure triangle and their contents indented below them.
   Opening or closing a folder with its triangle is saved, and a closed folder hides its contents.
 - Split views show as a row with their tabs below it; they are always open.
+  Clicking a split's row selects its focused tab, which shows the whole split (see `split-view.md`).
 - Dragging a row moves it within its zone, into a folder, or across the divider:
   - a today tab dropped among the pinned tabs is pinned there, and the page it shows becomes the address it returns to;
   - a pinned tab dropped among today's tabs is unpinned there, and keeps the page it shows;

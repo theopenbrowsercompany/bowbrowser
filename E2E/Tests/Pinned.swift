@@ -55,7 +55,10 @@ struct PinnedResetTest: E2ETest {
         }
         run.check(
             "pinned.menu",
-            passed: pin.before == ["Close Tab", "-", "Pin Tab"] && pin.after == ["Close Tab", "-", "Unpin Tab"]
+            // While B is selected, A's menu also offers to open A in a split view beside B (both in today); pinned,
+            // A is in another section than B, so no split is offered.
+            passed: pin.before == ["Close Tab", "-", "Pin Tab", "-", "Open in Split View"]
+                && pin.after == ["Close Tab", "-", "Unpin Tab"]
                 && label(pin.saved) == "A",
             "before=\(pin.before) after=\(pin.after) saved=\(label(pin.saved))")
 

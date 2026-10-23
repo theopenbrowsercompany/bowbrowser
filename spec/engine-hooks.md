@@ -23,7 +23,8 @@ This spec covers what those hooks promise; the features that use them have their
 - New Tab: choosing New Tab asks the features first (the command bar takes it once it exists); with no taker a new tab opens on the new tab page.
 - Page container: window chrome can inset the page area, round its corners and run the window's content under a transparent title bar without changing the window core; by default the page fills the window beside the sidebar with square corners.
 - Zoom: zooming a page zooms every tab on the same site in that profile, now and later.
-- Zoom keys and menu: Cmd+plus (also Cmd+=), Cmd+minus and Cmd+0 are taken before the page, and View > Zoom In, Zoom Out and Actual Size do the same.
+- Zoom keys and menu: Cmd+= (also Cmd+plus on a keyboard where plus needs no Shift), Cmd+minus and Cmd+0 are taken before the page, and View > Zoom In, Zoom Out and Actual Size do the same.
+  Cmd+Shift+plus (Cmd+Shift+= on a US keyboard) is Arc's Add Split View, not Zoom In (see `split-view.md`).
   Zoom In and Out move to the next preset size (25, 33, 50, 67, 75, 80, 90, 100, 110, 125, 150, 175, 200, 250, 300, 400, 500 percent), Actual Size goes back to 100%, and another site keeps its own zoom.
   The items are disabled at the largest and smallest size, and Actual Size at 100%; the keys are still taken there, so the page never sees them.
 - Crashed page: when a tab's page process ends (a crash, a kill or running out of memory), the page area shows "This page crashed" with a Reload button while that tab is shown.
