@@ -83,7 +83,8 @@ enum E2ETimeouts {
 /// Fixture page URLs. Files in E2E/Fixtures/<area>/ are served at `https://bow.test/<area>/`. Five paths need no
 /// file: `_redirect/<path>` redirects to `<path>`, `_204/<anything>` answers 204 No Content, `_error/<anything>`
 /// fails to load, `_hang/<anything>` never answers (a page loading it keeps loading until stopped), and
-/// `_slow/<name>` is a download named `<name>` that never finishes.
+/// `_slow/<name>` is a download named `<name>` that never finishes (`_slow/<bytes>/<name>` sends that many bytes,
+/// slowly, then finishes).
 enum E2EFixture {
     static func url(_ path: String) -> URL {
         URL(string: "https://bow.test/\(path)")!

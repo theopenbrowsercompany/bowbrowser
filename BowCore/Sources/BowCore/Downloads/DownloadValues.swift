@@ -28,6 +28,9 @@ public enum DownloadState: String, Equatable, Sendable {
     case cancelled
     /// Stopped by an error (network, disk, server). It may resume where it stopped.
     case interrupted
+    /// The engine stopped reporting it (its tab closed) and its file stopped changing without finishing, so it may
+    /// be stalled, failed or still running. Clearing it cancels it.
+    case unknown
 
     /// True for states nothing can leave: complete and cancelled.
     public var isFinal: Bool { self == .complete || self == .cancelled }
@@ -83,8 +86,8 @@ public struct DownloadItem: Equatable, Sendable, Identifiable {
     public var canPause: Bool { state == .inProgress }
     public var canResume: Bool { state == .paused || state == .interrupted }
     public var canCancel: Bool { !state.isFinal }
-    /// Only downloads that are not running leave the list.
-    public var canRemove: Bool { state.isFinal || state == .interrupted }
+    /// Only downloads that are not known to be running leave the list.
+    public var canRemove: Bool { state.isFinal || state == .interrupted || state == .unknown }
 
     /// The progress line the downloads list shows under the file name.
     public var statusText: String {
@@ -96,6 +99,7 @@ public struct DownloadItem: Equatable, Sendable, Identifiable {
         case .complete: return "Complete, \(received)"
         case .cancelled: return "Cancelled"
         case .interrupted: return "Failed, \(progress)"
+        case .unknown: return "Status unknown, \(progress)"
         }
     }
 

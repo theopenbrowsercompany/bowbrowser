@@ -14,6 +14,9 @@ typedef NS_ENUM(NSInteger, BowDownloadState) {
   BowDownloadStateCancelled,
   /// Stopped by an error; it may resume.
   BowDownloadStateInterrupted,
+  /// The tab that started it closed, so Chromium no longer reports it, and its file has stopped changing (or is
+  /// gone) without finishing. It may still be stalled, failed or running. It can be removed, which cancels it.
+  BowDownloadStateUnknown,
 } NS_SWIFT_NAME(BowDownloadItem.State);
 
 /// An immutable snapshot of one download, copied out of Chromium's download item when it changed.
@@ -62,6 +65,12 @@ NS_SWIFT_UI_ACTOR
 
 /// One profile's downloads, over Chromium's download handler. Every tab of the profile reports its downloads here.
 /// Without a delegate, downloads are refused (the Alloy runtime has no download UI of its own).
+///
+/// Chromium reports a download only through the tab that started it: once that tab closes, Chromium says nothing
+/// more about it (and CEF, which aborts every request of a closed browser, cancels it). From then on this object
+/// follows the download's file on disk instead, a few times a second: the file's size is the progress, the file
+/// reaching its known size means it completed, and the file disappearing means it was cancelled. Pause, resume and
+/// cancel still reach Chromium and show at once.
 NS_SWIFT_UI_ACTOR
 @interface BowDownloads : NSObject
 
@@ -77,7 +86,7 @@ NS_SWIFT_UI_ACTOR
 - (void)pauseDownload:(uint32_t)downloadID NS_SWIFT_NAME(pause(_:));
 - (void)resumeDownload:(uint32_t)downloadID NS_SWIFT_NAME(resume(_:));
 - (void)cancelDownload:(uint32_t)downloadID NS_SWIFT_NAME(cancel(_:));
-/// Takes a download that is complete, cancelled or interrupted out of `items`, reporting `didRemoveItem:`. The file
+/// Takes a download that is complete, cancelled, interrupted or unknown out of `items`, reporting `didRemoveItem:`. The file
 /// stays on disk. Running and paused downloads stay.
 - (void)removeDownload:(uint32_t)downloadID NS_SWIFT_NAME(remove(_:));
 

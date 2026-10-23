@@ -68,6 +68,8 @@ import Testing
         #expect(!complete.canPause && !complete.canResume && !complete.canCancel && complete.canRemove)
         let failed = DownloadItem(id: 1, state: .interrupted)
         #expect(failed.canResume && failed.canCancel && failed.canRemove)
+        let unknown = DownloadItem(id: 1, state: .unknown)
+        #expect(!unknown.canPause && !unknown.canResume && unknown.canCancel && unknown.canRemove)
     }
 
     @Test func progressIsUnknownWithoutASize() {
@@ -87,6 +89,7 @@ import Testing
         #expect(DownloadItem(id: 1, state: .cancelled).statusText == "Cancelled")
         #expect(DownloadItem(id: 1, state: .paused, receivedBytes: 0).statusText.hasPrefix("Paused, "))
         #expect(DownloadItem(id: 1, state: .complete).statusText.hasPrefix("Complete, "))
+        #expect(DownloadItem(id: 1, state: .unknown).statusText.hasPrefix("Status unknown, "))
     }
 }
 

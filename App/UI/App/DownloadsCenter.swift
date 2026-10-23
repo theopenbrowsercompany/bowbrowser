@@ -75,8 +75,9 @@ final class DownloadsCenter: AppFeature, EngineDownloadsDelegate {
         switch event {
         case .created(let item), .updated(let item):
             let key = DownloadEntry.Key(profileID: profileID, downloadID: item.id)
-            // An interrupted download keeps its file, since it can resume into it.
-            if list.entry(key)?.item.state.isFinal == true { reserved[key] = nil }
+            // An interrupted download keeps its file, since it can resume into it. One whose status is unknown lets
+            // go of its name; its partial file on disk still keeps a new download from taking it.
+            if let state = list.entry(key)?.item.state, state.isFinal || state == .unknown { reserved[key] = nil }
         case .removed(let id):
             reserved[DownloadEntry.Key(profileID: profileID, downloadID: id)] = nil
         }

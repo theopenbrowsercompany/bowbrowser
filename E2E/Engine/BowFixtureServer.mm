@@ -49,11 +49,12 @@ class ContinueReadTask : public CefTask {
   IMPLEMENT_REFCOUNTING(ContinueReadTask);
 };
 
-// A download that never finishes: an attachment named `fileName` of unknown length, sending a small chunk every
-// few milliseconds until it is cancelled, so tests can pause, resume and cancel it while it runs.
+// A slow download: an attachment named `fileName`, sending a small chunk every few milliseconds. With a `length`
+// of 0 or less it has no length and never finishes until it is cancelled, so tests can pause, resume and cancel it
+// while it runs; otherwise it declares and sends `length` bytes, then ends.
 class SlowDownloadHandler : public CefResourceHandler {
  public:
-  explicit SlowDownloadHandler(std::string fileName) : fileName_(std::move(fileName)) {}
+  SlowDownloadHandler(std::string fileName, int64_t length) : fileName_(std::move(fileName)), length_(length) {}
 
   bool Open(CefRefPtr<CefRequest> request, bool& handleRequest, CefRefPtr<CefCallback> callback) override {
     handleRequest = true;
@@ -61,7 +62,7 @@ class SlowDownloadHandler : public CefResourceHandler {
   }
 
   void GetResponseHeaders(CefRefPtr<CefResponse> response, int64_t& responseLength, CefString& redirectUrl) override {
-    responseLength = -1;
+    responseLength = length_ > 0 ? length_ : -1;
     response->SetStatus(200);
     response->SetStatusText("OK");
     response->SetMimeType("application/octet-stream");
@@ -70,7 +71,16 @@ class SlowDownloadHandler : public CefResourceHandler {
   }
 
   bool Read(void* dataOut, int bytesToRead, int& bytesRead, CefRefPtr<CefResourceReadCallback> callback) override {
-    const int chunk = bytesToRead < kChunk ? bytesToRead : kChunk;
+    int chunk = bytesToRead < kChunk ? bytesToRead : kChunk;
+    if (length_ > 0) {
+      const int64_t left = length_ - sent_;
+      if (left <= 0) {
+        bytesRead = 0;
+        return false;
+      }
+      if (left < chunk) chunk = static_cast<int>(left);
+      sent_ += chunk;
+    }
     memset(dataOut, 'x', chunk);
     // Asynchronous read: the buffer stays valid until the callback runs.
     bytesRead = 0;
@@ -85,6 +95,9 @@ class SlowDownloadHandler : public CefResourceHandler {
   static constexpr int kChunk = 1024;
   static constexpr int64_t kDelayMs = 20;
   const std::string fileName_;
+  const int64_t length_;
+  // Bytes handed out so far, for a download with a length. Read runs on the IO thread only.
+  int64_t sent_ = 0;
   const std::shared_ptr<bool> cancelled_ = std::make_shared<bool>(false);
 
   IMPLEMENT_REFCOUNTING(SlowDownloadHandler);
@@ -182,9 +195,21 @@ class FixtureHandlerFactory : public CefSchemeHandlerFactory {
     if (path.rfind(kNoContentPrefix, 0) == 0) return new EmptyResponseHandler(204);
     if (path.rfind(kHangPrefix, 0) == 0) return new HangingResponseHandler();
     if (path.rfind(kSlowPrefix, 0) == 0) {
+      // `/_slow/<name>` never ends; `/_slow/<bytes>/<name>` sends that many bytes, then ends.
       std::string fileName = path.substr(sizeof(kSlowPrefix) - 1);
+      int64_t length = 0;
+      const size_t slash = fileName.find('/');
+      if (slash != std::string::npos) {
+        const std::string bytes = fileName.substr(0, slash);
+        if (bytes.empty() || bytes.size() > 12 || bytes.find_first_not_of("0123456789") != std::string::npos) {
+          return NotFound();
+        }
+        length = std::stoll(bytes);
+        if (length <= 0) return NotFound();
+        fileName = fileName.substr(slash + 1);
+      }
       if (fileName.empty() || fileName.find_first_of("/\"\\") != std::string::npos) return NotFound();
-      return new SlowDownloadHandler(fileName);
+      return new SlowDownloadHandler(fileName, length);
     }
     if (path.back() == '/') path += "index.html";
 

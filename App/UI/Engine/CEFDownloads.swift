@@ -65,7 +65,8 @@ extension DownloadItem {
             case .complete: .complete
             case .cancelled: .cancelled
             case .interrupted: .interrupted
-            @unknown default: .interrupted
+            case .unknown: .unknown
+            @unknown default: .unknown
             }
         self.init(
             id: DownloadID(rawValue: item.downloadID),
