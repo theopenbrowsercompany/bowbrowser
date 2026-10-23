@@ -1184,7 +1184,7 @@ run crashdump
 runf="$BOW_E2E_ROOT/latest"
 check "crash reports: the run's outcome stays FLAKY" is "$code" 3
 check "crash reports: the summary stays the last line" is "$last" "E2E: FLAKY 1/1 after retrying a.one"
-check "crash reports: Crashpad's reports are copied into crash-reports" is "$(ls "$runf/crash-reports" | tr '\n' ' ')" "aaa.dmp bbb.dmp ccc.dmp "
+check "crash reports: Crashpad's reports are copied into crash-reports" is "$(ls "$runf/crash-reports" | tr '\n' ' ')" "aaa.dmp aaa.meta bbb.dmp ccc.dmp "
 check "crash reports: the copy has the report's content" is "$(cat "$runf/crash-reports/bbb.dmp")" dump2
 check "crash reports: the .meta file comes with its report" is "$(cat "$runf/crash-reports/aaa.meta")" meta1
 check "crash reports: a non report file is left" not test -e "$runf/crash-reports/note.txt"
