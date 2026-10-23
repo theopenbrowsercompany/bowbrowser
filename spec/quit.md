@@ -34,6 +34,7 @@ People rely on it every day, and every automated run relies on the app exiting o
 - Popup windows a page opened close along with everything else when quitting, and closing one leaves its opener's window open.
 - A page that loads more than once during a smoke run (a redirect or a script navigation) still produces one result line and keeps the first result's exit code.
 - A page that keeps its "leave this page?" prompt open blocks quitting until the person answers; a smoke run then fails with exit code 3 instead of hanging.
+- If Chromium's own shutdown has not finished 10 seconds after it began (only seen on a heavily loaded machine), Chromium ends the process itself with exit code 2 and logs `Teardown watchdog expired; recording dump and terminating.`; the app does not change this limit.
 
 ## Acceptance checks
 
@@ -59,15 +60,22 @@ Timestamps taken through quitting during full `make e2e` runs, while other workt
 
 So a single 2 second limit on the whole quit measured mostly how busy the machine was: one full run under heavy load took 2.72 seconds and failed, while closing never took more than 0.05 seconds in any measured run.
 The check now holds closing, the part the app controls and a person waits for, to 2 seconds, and gives the whole quit a separate limit of 5 seconds.
-That limit is about twice the slowest quit ever seen (2.72 seconds) and ten times the slowest in the measured runs, so load alone should not reach it, while a quit that stalls in Chromium's shutdown still fails the check before the runner's hang watchdog (7 seconds).
+That limit is about twice the slowest quit ever seen (2.72 seconds) and ten times the slowest in the measured runs, so load alone should not reach it, while a quit that stalls in Chromium's shutdown still fails the check before the runner's hang watchdog (6 seconds).
 A shutdown regression smaller than that passes the check, but every run prints both times, so a drift shows in the reports.
 
 ## Chromium's teardown watchdog
 
-Chromium bounds its own shutdown: if it has not finished 10 seconds after its teardown began, it logs `Teardown watchdog expired; recording dump and terminating.` and ends the process with exit code 2, without anything the app could print after it.
-Under heavy load (load average 24 to 44 on 16 cores) a full `make e2e` run once hit it, after every test had passed, so the run ended as a crash without a summary line.
-The runner's hang watchdog for quitting therefore fires at 7 seconds from the start of the quit, earlier than Chromium's can: a quit that slow ends with `E2E: TIMEOUT app.quit` and a stack sample in `hang.txt`, showing where Chromium's shutdown waits, instead of a silent crash.
-In normal use the same Chromium limit applies: a quit that takes Chromium more than 10 seconds ends the process with exit code 2.
+Chromium bounds its own shutdown: when it has not finished 10 seconds after its teardown began (inside `CefShutdown`, after the message loop ended), it ends the process with exit code 2, so nothing the app would print after shutdown appears.
+Under heavy load (load average 24 to 44 on 16 cores) full `make e2e` runs on two branches hit it after every test had passed, and each ended as a crash without a summary line.
+Holding one shutdown-blocking task for 20 seconds reproduces it every time.
+The runner's hang watchdog for quitting used to wait 15 seconds, so Chromium's always fired first.
+It now fires 6 seconds after the quit starts, before Chromium's can: a quit that slow ends with `E2E: TIMEOUT app.quit` at once, then a stack sample in `hang.txt` showing where Chromium's shutdown waits, unless Chromium ends the process during the sample.
+A quit between the check's 5 seconds and 6 seconds still fails the check with both times.
+
+Each test's in-memory profile stays alive until quitting, which was a suspect for the slow shutdowns.
+Quitting after the quit test alone took 0.047 to 0.088 seconds and after a full run (17 more profiles) 0.096 to 0.137 seconds, at load average 7 to 11.
+Releasing each test's profiles when the test ended (their contexts were destroyed then) made no measurable difference in five alternating pairs of full runs (0.079 to 0.138 seconds kept, 0.080 to 0.192 released), so the runner keeps them.
+None of the app's or the runner's code posts tasks that block Chromium's shutdown.
 
 ## Out of scope
 

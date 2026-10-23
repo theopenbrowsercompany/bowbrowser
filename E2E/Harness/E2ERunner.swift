@@ -29,10 +29,12 @@ final class E2ERunner {
     /// Quitting is checked against its own limit; this only stops a quit that hangs.
     /// It must fire well before Chromium's own teardown watchdog (`shutdown_watchdog_mac.cc`), which ends the
     /// process with exit code 2 and no summary ("Teardown watchdog expired") when Chromium's shutdown has not
-    /// finished 10 seconds after its teardown began, a moment always later than the quit start timed here. Firing
-    /// at 7 seconds prints the TIMEOUT line at once and leaves about 3 seconds for the stack sample and the
-    /// Chromium log report.
-    static let quitHangTimeout: TimeInterval = 7
+    /// finished 10 seconds after its teardown began (`BrowserProcessImpl::StartTearDown`, inside `CefShutdown`, so
+    /// always after the quit start timed here). Firing at 6 seconds prints the TIMEOUT line, the run's summary, at
+    /// once; the stack sample and the Chromium log report then usually finish in the 4 seconds left, and if
+    /// Chromium ends the process first the summary still stands. It stays above the quit check's own limit
+    /// (`stoppingWithin`, checked in `expectQuit`), so a quit slower than that check still reports its times.
+    static let quitHangTimeout: TimeInterval = 6
     /// While tests run, the run ends only when the main thread has not answered for this long.
     static let mainThreadStuckTimeout: TimeInterval = 10
     static let heartbeatInterval: TimeInterval = 0.25
@@ -573,6 +575,12 @@ final class E2ERun {
         guard !finished else { return }
         guard test.quitsApp else {
             check(name, passed: false, "expectQuit needs quitsApp in \(test.name)")
+            return
+        }
+        guard stopLimit < E2ERunner.quitHangTimeout else {
+            // A quit slower than the hang watchdog ends the run before this check could report it.
+            let limit = E2ERunner.quitHangTimeout
+            check(name, passed: false, "stoppingWithin must be below the quit hang limit (\(limit) s)")
             return
         }
         recorded.insert(name)
