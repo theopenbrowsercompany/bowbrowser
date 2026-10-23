@@ -61,7 +61,8 @@ public struct CertificateAllowances: Equatable, Sendable {
     /// What to do with `error` without asking: `.proceed` when the person already went past the same error on the
     /// same host this session and going on may still be offered (a host that turned strict since is asked again),
     /// nil to show the error page.
-    public func decision(for error: CertificateError, enforcement: CertificateEnforcement) -> CertificateErrorDecision? {
+    public func decision(for error: CertificateError, enforcement: CertificateEnforcement) -> CertificateErrorDecision?
+    {
         guard Self.mayOffer(error, enforcement: enforcement), let host = Self.host(of: error),
             allowed[host]?.contains(error.code) == true
         else { return nil }

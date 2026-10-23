@@ -54,8 +54,9 @@ import Testing
         let allowed = allowances.allow(error("https://example.com/a"), enforcement: .standard)
         #expect(allowed)
         // Another page and port on the same host, and the host in other cases or with a trailing dot.
-        for url in ["https://example.com/b", "https://example.com:8443/", "https://EXAMPLE.com/", "https://example.com./"]
-        {
+        for url in [
+            "https://example.com/b", "https://example.com:8443/", "https://EXAMPLE.com/", "https://example.com./",
+        ] {
             #expect(allowances.decision(for: error(url), enforcement: .standard) == .proceed)
         }
     }
