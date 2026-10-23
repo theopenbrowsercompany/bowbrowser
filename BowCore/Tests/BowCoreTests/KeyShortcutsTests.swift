@@ -65,6 +65,9 @@ import Testing
         #expect(
             KeyShortcuts.shortcut(for: key("\u{1b}", [], keyCode: KeyChord.escapeKeyCode), claimedBy: .recentTabs)
                 == .closeCommandBar)
+        #expect(
+            KeyShortcuts.shortcut(for: key("\u{1b}", [], keyCode: KeyChord.escapeKeyCode), claimedBy: .peek)
+                == .closeCommandBar)
         #expect(KeyShortcuts.conflicts().isEmpty)
         let twice = KeyShortcuts.claims + [KeyShortcutClaim(.closeCommandBar, .recentTabs)]
         #expect(!KeyShortcuts.conflicts(in: twice).isEmpty)
