@@ -150,13 +150,8 @@ struct TabsBeforeUnloadTest: E2ETest {
             guard status == 200 else { throw E2EError("the draft tab loaded with status \(status)") }
             return draft
         }
-        // Chromium asks before leaving only a page the person has interacted with.
         let loadID = try await run.step("type a draft", timeout: E2ETimeouts.step) {
-            try await draft.click("textarea")
-            try await draft.type("unsaved words")
-            guard try await draft.evaluate("navigator.userActivation.hasBeenActive") as? Bool == true else {
-                throw E2EError("the page has no user activation after typing")
-            }
+            try await draft.typeLeaveDraft()
             return try await draft.string("window.bowLoadID")
         }
         let loads = draft.finishedLoads

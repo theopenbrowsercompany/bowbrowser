@@ -57,3 +57,40 @@ struct E2EWindowState {
     /// The title the active row shows.
     var activeTitle: String
 }
+
+extension E2EPage {
+    /// Types a draft into the leave prompt fixture (E2E/Fixtures/tabs/leave.html), so closing it asks: its handler
+    /// asks only with text in the textarea, and Chromium asks only for a page the person has interacted with.
+    /// Waits for the page to paint, then confirms the textarea has focus before typing and holds the words with
+    /// user activation after. A click sent just after the load can land on the page without focusing the textarea
+    /// (focus stays on the body, the words are lost and the close never asks), so the click repeats until the
+    /// textarea has focus, leaving part of the step's wait budget for typing and the check.
+    func typeLeaveDraft() async throws {
+        try await E2EWaits.untilRendering(self)
+        let deadline = Date().addingTimeInterval(max(E2EWaits.budget() - E2EWaits.margin, 0.05))
+        let focused = "document.activeElement === document.querySelector('textarea')"
+        var lastProblem = "the textarea did not take focus"
+        while true {
+            do {
+                try await click("textarea")
+                if try await evaluate(focused) as? Bool == true { break }
+                lastProblem = "the textarea did not take focus"
+            } catch let error as E2EError where error.reason == .testEnded {
+                throw error
+            } catch let error as CancellationError {
+                throw error
+            } catch {
+                // Layout can still move right after the load: the element may briefly have no size or be covered.
+                lastProblem = "\(error)"
+            }
+            guard Date() < deadline else { throw E2EError("cannot focus the draft's textarea: \(lastProblem)") }
+            try await Task.sleep(nanoseconds: 50_000_000)
+        }
+        try await type("unsaved words")
+        let state = try await string(
+            "document.querySelector('textarea').value + '|' + navigator.userActivation.hasBeenActive")
+        guard state == "unsaved words|true" else {
+            throw E2EError("the draft did not take the words (value|activation=\(state))")
+        }
+    }
+}
