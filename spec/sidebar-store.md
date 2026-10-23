@@ -21,6 +21,14 @@ Bow keeps it in one file of its own, separate from the engine's session data.
   A folder cannot be moved into itself or into anything inside it; Bow refuses such a move and changes nothing.
 - Deleting a folder either deletes everything inside it, or keeps its contents: the tabs, split views and folders inside take the folder's place under its parent, in their order, and sub-folders keep their own contents.
 - Empty folders are kept, and so is a closed folder's contents: closing a folder hides its items but never changes them.
+- Collapse all closes every folder of the current Space at any depth, in the pinned section and in the tabs section, as one saved change.
+  The selected tab always stays visible: the folders above it stay open, and any of them that was closed is opened again.
+  When the selected tab is in another Space or in Favorites, nothing needs to stay open and every folder closes.
+  Other Spaces are not touched, tabs and their order do not change, and the closed state is saved like any other open or closed state.
+  Collapsing when everything is already closed changes nothing.
+  Expand all opens every folder of the current Space again.
+- A closed folder hides everything inside it, however deep; the rows the sidebar shows are the sections' items in order, without the contents of closed folders.
+  A split view's tabs are always shown.
 - Favorites are the row of icons at the top of the sidebar.
   There is one Favorites row per profile, and every Space of that profile shows the same row; a Space on another profile shows that profile's own row, which starts empty.
   Until the person can choose profiles, every Space uses the default profile and so shares one row.
@@ -110,6 +118,12 @@ Bow keeps it in one file of its own, separate from the engine's session data.
 18. With two Spaces on the default profile, both show the row C, A.
     Create a Space on another profile: its row is empty, and adding a Favorite there leaves the other row unchanged.
 19. Try to make a folder or a split view a Favorite: Bow refuses and nothing changes.
+20. Make folders client, project and phase (each inside the previous one) with a tab A in phase, plus folders reading and later holding tabs, and select A. Choose Collapse all: reading and later close, client, project and phase stay open and A is visible.
+    Quit and relaunch: the same folders are closed and open.
+21. Select a tab in "later", close "later" by hand, then choose Collapse all: "later" opens again so the selected tab is visible, and every other folder closes.
+22. With a second Space that has its own folders, choose Collapse all in the first Space: the second Space's folders keep their state.
+    Select a Favorite, then choose Collapse all: every folder of the current Space closes.
+23. Run `make e2e`: `collapse` prints `PASS collapse: collapsed=3 visible=A`.
 
 ## Out of scope
 
