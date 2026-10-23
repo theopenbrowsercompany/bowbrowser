@@ -147,6 +147,10 @@ class BowTabClient;
 - (void)requestPermission:(BowPermissionRequest*)request answer:(void (^)(BowPermissionDecision))answer;
 - (void)runContextMenu:(BowContextMenuRequest*)request callback:(CefRefPtr<CefRunContextMenuCallback>)callback;
 - (void)renderProcessTerminated:(BowProcessGoneReason)reason;
+/// DoClose of the tab's own browser: when it has downloads running or paused (which destroying it would cancel), the
+/// tab closes for the app at once while its browser stays alive, parked out of every window, until they end; then it
+/// is torn down. Returns NO, doing nothing, when it has none or the engine is quitting.
+- (BOOL)keepClosingBrowserForDownloads:(CefRefPtr<CefBrowser>)browser;
 - (void)findResultForSearch:(int)identifier
                       count:(int)count
                 activeMatch:(int)activeMatch

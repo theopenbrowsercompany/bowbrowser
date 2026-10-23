@@ -51,7 +51,16 @@ bool gParkPopups = false;
 #endif
 
 void QuitMessageLoopIfDone() {
-  if (!gQuitting || gMessageLoopQuit || !gBrowsers.empty() || gOpeningTabs.count > 0) return;
+  if (!gQuitting || gMessageLoopQuit || gOpeningTabs.count > 0) return;
+  if (!gBrowsers.empty()) {
+    // Once only closed tabs' browsers kept alive for their downloads are left, quitting closes them, which cancels
+    // the downloads. Not sooner, so a quit a page cancels (staying at its leave prompt) leaves them running.
+    for (const auto& [identifier, entry] : gBrowsers) {
+      if (!BowDownloadsKeepsBrowserAlive(identifier)) return;
+    }
+    BowDownloadsReleaseKeptBrowsers();
+    return;
+  }
   // CEF requires every OnBeforeClose before the loop ends; an empty map guarantees that.
   gMessageLoopQuit = true;
   CefQuitMessageLoop();

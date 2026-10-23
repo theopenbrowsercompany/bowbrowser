@@ -14,8 +14,8 @@ typedef NS_ENUM(NSInteger, BowDownloadState) {
   BowDownloadStateCancelled,
   /// Stopped by an error; it may resume.
   BowDownloadStateInterrupted,
-  /// The tab that started it closed, so Chromium no longer reports it, and its file has stopped changing (or is
-  /// gone) without finishing. It may still be stalled, failed or running. It can be removed, which cancels it.
+  /// The browser that started it closed, so Chromium no longer reports it, and its file has stopped changing (or
+  /// is gone) without finishing. It may still be stalled, failed or running. It can be removed, which cancels it.
   BowDownloadStateUnknown,
 } NS_SWIFT_NAME(BowDownloadItem.State);
 
@@ -66,11 +66,12 @@ NS_SWIFT_UI_ACTOR
 /// One profile's downloads, over Chromium's download handler. Every tab of the profile reports its downloads here.
 /// Without a delegate, downloads are refused (the Alloy runtime has no download UI of its own).
 ///
-/// Chromium reports a download only through the tab that started it: once that tab closes, Chromium says nothing
-/// more about it (and CEF, which aborts every request of a closed browser, cancels it). From then on this object
-/// follows the download's file on disk instead, a few times a second: the file's size is the progress, the file
-/// reaching its known size means it completed, and the file disappearing means it was cancelled. Pause, resume and
-/// cancel still reach Chromium and show at once.
+/// Chromium reports a download only through the browser that started it, and CEF cancels it when that browser is
+/// destroyed (it aborts every request of the browser). So a tab closing with a download running or paused keeps its
+/// browser, hidden, until its downloads end. Should the browser close anyway (a popup window closing, a quit, a
+/// crash), Chromium says nothing more about its downloads, and this object follows each one's file on disk instead,
+/// a few times a second: the file's size is the progress, the file reaching its known size means it completed, and
+/// the file disappearing means it was cancelled. Pause, resume and cancel still reach Chromium and show at once.
 NS_SWIFT_UI_ACTOR
 @interface BowDownloads : NSObject
 
