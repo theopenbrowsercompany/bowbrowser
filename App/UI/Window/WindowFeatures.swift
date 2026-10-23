@@ -10,5 +10,6 @@ enum WindowFeatures {
         SidebarFeature.self,
         DownloadsFeature.self,
         TabActivityFeature.self,
+        EmptySpaceFeature.self,
     ]
 }
