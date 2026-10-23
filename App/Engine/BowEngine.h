@@ -53,6 +53,11 @@ NS_SWIFT_UI_ACTOR
 /// Read it once `main` has returned from the message loop, for example in `engineDidStop`.
 @property(class, nonatomic, readonly) NSTimeInterval quitDuration;
 
+/// Seconds from the start of the quit clock until every page had closed and the message loop ended, before
+/// Chromium's own shutdown, or 0 before then. This is the app's part of `quitDuration`; the rest is Chromium
+/// stopping its threads and processes.
+@property(class, nonatomic, readonly) NSTimeInterval quitCloseDuration;
+
 /// Starts timing a quit (and the `quitTimeout` watchdog) without closing anything yet, for quits that begin by
 /// closing a window. `quit` starts it too; only the first call counts until a page cancels the quit.
 + (void)startQuitClock;

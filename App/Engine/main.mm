@@ -94,6 +94,7 @@ int main(int argc, char* argv[]) {
     CefRefPtr<BowCefApp> app(new BowCefApp(configuration));
     if (!CefInitialize(mainArgs, settings, app.get(), nullptr)) return CefGetExitCode();
     CefRunMessageLoop();
+    BowEngineMessageLoopDidEnd();
     CefShutdown();
     BowEngineDidShutDown();
     [delegate engineDidStop];
