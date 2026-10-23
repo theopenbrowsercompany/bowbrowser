@@ -264,7 +264,10 @@ import Testing
     @Test func anEditedFormStillCountsTowardTheLoadedTabLimit() {
         let edited = (1...7).map { minutes in tab(idleMinutes: Double(minutes)) { $0.hasEditedForm = true } }
         let plain = tab(idleMinutes: 0)
-        #expect(policy().decide(tabs: edited + [plain], pressure: .warning) == [UnloadDecision(id: plain.id, reason: .overLimit)])
+        #expect(
+            policy().decide(tabs: edited + [plain], pressure: .warning) == [
+                UnloadDecision(id: plain.id, reason: .overLimit)
+            ])
     }
 
     @Test func criticalPressureUnloadsAnEditedForm() {
@@ -283,6 +286,7 @@ import Testing
     @Test func aTabWithoutAnEditedFormStillUnloadsWhenIdle() {
         let plain = tab(idleMinutes: 61)
         let edited = tab(idleMinutes: 61) { $0.hasEditedForm = true }
-        #expect(policy().decide(tabs: [plain, edited], pressure: .normal) == [UnloadDecision(id: plain.id, reason: .idle)])
+        #expect(
+            policy().decide(tabs: [plain, edited], pressure: .normal) == [UnloadDecision(id: plain.id, reason: .idle)])
     }
 }
