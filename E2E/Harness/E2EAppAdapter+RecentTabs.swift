@@ -49,7 +49,8 @@ extension E2ETestApp: E2ERecentTabsApp {
             monitoring: feature.isMonitoring)
     }
 
-    private static func sendKey(keyCode: Int, characters: String, _ modifiers: KeyModifiers, to page: any E2EPage) throws
+    private static func sendKey(keyCode: Int, characters: String, _ modifiers: KeyModifiers, to page: any E2EPage)
+        throws
         -> Bool
     {
         let page = try E2EAppAdapter.tabPage(page)
