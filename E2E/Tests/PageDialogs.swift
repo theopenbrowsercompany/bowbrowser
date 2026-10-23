@@ -5,7 +5,8 @@ import Foundation
 /// answered at once and shown when the tab is, and its confirm and prompt cancelled; switching away, navigating,
 /// closing the tab or the window take the sheet down; a popup window's dialog never blocks the app. No dialog is ever
 /// an app modal panel. Fixtures in E2E/Fixtures/dialogs/: page.html asks through `bowAsk(kind, message, value)` and
-/// records what it got back in `bowResults`; popup.html, opened as a sized popup window, asks as it loads;
+/// records what it got back in `bowResults`; relay.html, opened in a popup panel by a sized `window.open`, opens a page in
+/// a popup window of the engine's own on a click and passes messages both ways; popup.html, opened so, asks as it loads;
 /// popup-sheet.html, opened in a real off screen popup window (`E2EPopupWindowsApp`), asks once its opener posts "go"
 /// and tells the opener each answer.
 @MainActor
@@ -288,19 +289,20 @@ struct PageDialogsCloseTest: E2ETest {
     }
 }
 
-/// A popup window of the engine's own (a sized `window.open`) asking for an alert and a confirm never blocks the
-/// app: an e2e run parks popups in no window, so both are answered at once as cancelled, and no app modal panel
+/// A popup window of the engine's own (opened by a popup panel's page) asking for an alert and a confirm never blocks
+/// the app: an e2e run parks popups in no window, so both are answered at once as cancelled, and no app modal panel
 /// shows.
 struct PageDialogsPopupTest: E2ETest {
     let name = "dialogs.popup_window"
 
     func run(_ run: E2ERun) async throws {
         let app = try PageDialogsTests.dialogsApp(run)
+        let popups = try PageDialogsTests.popupWindowsApp(run)
         let page = try await PageDialogsTests.openWindow(run)
         let (message, modal, sheet) = try await run.step(
             "open a popup window that asks", timeout: E2ETimeouts.firstLoad
         ) {
-            try await page.click("#popup")
+            try await PageDialogsTests.openPopupWindow(popups, page: page, button: "#popup")
             let message = try await E2EWaits.until(page, "window.bowMessages.find((m) => m.startsWith('popup:'))")
             return (message as? String ?? "", app.appModalPanelShown, try app.pageDialog(besides: page))
         }
@@ -316,13 +318,25 @@ extension PageDialogsTests {
         return app
     }
 
-    /// Clicks `button` in `page` to open popup-sheet.html in a hosted popup window, waits until it is ready, and
-    /// posts it "go". Returns how many hosted popup windows are open then.
+    /// Clicks `button` in `page`, which opens relay.html in a popup panel, then clicks #open in the panel's page,
+    /// which opens the relay's page in a popup window of the engine's own (the pages a panel's page opens go there).
+    static func openPopupWindow(_ popups: any E2EPopupWindowsApp, page: any E2EPage, button: String) async throws {
+        try await page.click(button)
+        _ = try await E2EWaits.until(
+            page,
+            "window.bowPopup && window.bowPopup.document.readyState === 'complete' "
+                + "&& window.bowPopup.document.getElementById('open')")
+        let panel = try popups.popupPanelPage(besides: page)
+        try await panel.click("#open")
+    }
+
+    /// Opens popup-sheet.html in a hosted popup window through `button` (`openPopupWindow`), waits until it is
+    /// ready, and posts it "go". Returns how many hosted popup windows are open then.
     static func openAskingPopup(
         _ run: E2ERun, _ popups: any E2EPopupWindowsApp, page: any E2EPage, button: String
     ) async throws -> Int {
         try await run.step("open a popup window that asks", timeout: E2ETimeouts.firstLoad) {
-            try await page.click(button)
+            try await openPopupWindow(popups, page: page, button: button)
             _ = try await E2EWaits.until(page, "window.bowMessages.includes('sheet-ready')")
             let windows = try popups.openPopupWindowCount()
             // After this the popup's dialogs hold the opener too (they share one page group), so nothing more is
@@ -437,7 +451,7 @@ struct PageDialogsPopupSheetQuitTest: E2ETest {
             let closed = try await TabEdgesTests.until({ try popups.openPopupWindowCount() == 0 })
             let modal = app.appModalPanelShown
             // The page ends with its window, so the opener sees its popup closed.
-            if closed { _ = try await E2EWaits.until(page, "window.bowPopup.closed") }
+            if closed { _ = try await E2EWaits.until(page, "window.bowPopup.bowChild.closed") }
             return (closed, try popups.openPopupWindowCount(), modal)
         }
         run.check(

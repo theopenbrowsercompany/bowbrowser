@@ -12,6 +12,10 @@ protocol E2EPopupWindowsApp: E2EApp {
     /// Parks popups again and asks every hosted popup still open to close as quitting does. Safe to call at any time,
     /// also after the test ended, and more than once.
     func stopHostingPopupWindows()
+    /// The page of the newest popup panel over `page`'s window, for input and scripts only (its loads are not
+    /// tracked): a sized popup from a click opens in a panel, and the pages a panel's page opens are the engine's
+    /// popup windows. Throws when no panel is open.
+    func popupPanelPage(besides page: any E2EPage) throws -> any E2EPage
     /// How many hosted popup windows are open.
     func openPopupWindowCount() throws -> Int
     /// The dialog sheet up on the newest open hosted popup window, or nil when none is.

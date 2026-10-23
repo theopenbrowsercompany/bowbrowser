@@ -59,6 +59,14 @@ extension E2ETestApp: E2EPopupWindowsApp {
         }
     }
 
+    func popupPanelPage(besides page: any E2EPage) throws -> any E2EPage {
+        try adapter.requireActive(token, "find the popup panel's page")
+        let controller = try E2EAppAdapter.tabPage(page).controller
+        let panels = (controller.window?.childWindows ?? []).compactMap { $0.delegate as? PopupPanel }
+        guard let panel = panels.last else { throw E2EError("no popup panel is open") }
+        return E2ETabPage(tab: panel.tab, controller: controller, adapter: adapter, token: token)
+    }
+
     func openPopupWindowCount() throws -> Int {
         try adapter.requireActive(token, "count the popup windows")
         return E2EPopupHosting.openWindows(of: token).count
