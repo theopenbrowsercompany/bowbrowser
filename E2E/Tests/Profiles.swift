@@ -121,7 +121,8 @@ struct ProfilesSpacesTest: E2ETest {
             try seeder.storeEntry(id: space, in: first)?.profileID ?? "none"
         }
         func until<T>(_ read: () throws -> T, _ condition: (T) -> Bool) async throws -> T {
-            try await FavoritesGridTests.settle(read, until: condition)
+            // Only the step's own limit ends the wait (E2EWaits gives up shortly before it with what it saw last).
+            try await E2EWaits.value(read, until: condition)
         }
         /// The page the window shows once it is a page in profile `id` that has loaded.
         func shown(in id: String) async throws -> any E2EPage {
@@ -131,7 +132,7 @@ struct ProfilesSpacesTest: E2ETest {
                     guard let page, !page.isClosed else { return false }
                     return (try? app.tabProfileID(of: page)) == id
                 })
-            // The settle gives up after a few seconds with what it saw last, so a slow profile fails here by name.
+            // The wait gives up near the step's limit with what it saw last, so a slow profile fails here by name.
             guard let page, !page.isClosed, (try? app.tabProfileID(of: page)) == id else {
                 let seen = page.flatMap { try? app.tabProfileID(of: $0) } ?? "no page"
                 throw E2EError("the window shows no page in profile \(id) (it shows \(seen))")
@@ -162,9 +163,12 @@ struct ProfilesSpacesTest: E2ETest {
             try await draft.type("unsaved words")
             draft.leavePromptAnswer = false
             try app.chooseSpaceMenuItem(["Profile", "New Profile\u{2026}"], in: first)
-            _ = try await until({ try app.sheetMessage(in: first) }, { $0 != nil })
+            guard try await until({ try app.sheetMessage(in: first) }, { $0 != nil }) != nil else {
+                throw E2EError("New Profile showed no sheet")
+            }
             try app.answerSheet("Create Profile", text: workName, in: first)
-            _ = try await until({ draft.leavePrompts }, { $0 >= 1 })
+            let prompts = try await until({ draft.leavePrompts }, { $0 >= 1 })
+            guard prompts >= 1 else { throw E2EError("the draft never asked before leaving") }
             // The page runs script again once its prompt is over and the close it answered was refused.
             _ = try await draft.evaluate("document.querySelector('textarea').value")
             return draft
@@ -179,7 +183,10 @@ struct ProfilesSpacesTest: E2ETest {
             draft.leavePromptAnswer = true
             try app.chooseSpaceMenuItem(["Profile", workName], in: first)
             let page = try await shown(in: workID)
-            _ = try await until({ first.isClosed && draft.isClosed }, { $0 })
+            let closed = try await until({ (first: first.isClosed, draft: draft.isClosed) }, { $0.first && $0.draft })
+            guard closed.first && closed.draft else {
+                throw E2EError("Work A's pages did not close (first closed: \(closed.first), draft closed: \(closed.draft))")
+            }
             return page
         }
         let menu = try app.spaceMenuTitles(in: first)
@@ -206,7 +213,9 @@ struct ProfilesSpacesTest: E2ETest {
             try app.switchToSpace(personal, besides: first)
             _ = try await shown(in: testProfile)
             try app.chooseSpaceMenuItem(["Profile", "New Profile\u{2026}"], in: first)
-            _ = try await until({ try app.sheetMessage(in: first) }, { $0 != nil })
+            guard try await until({ try app.sheetMessage(in: first) }, { $0 != nil }) != nil else {
+                throw E2EError("New Profile showed no sheet")
+            }
             try app.answerSheet("Create Profile", text: "\(testProfile) Personal", in: first)
             let id = try await until({ try profile(of: personal) }, { $0 != testProfile && $0 != workID })
             let page = try await shown(in: id)
