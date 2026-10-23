@@ -2,34 +2,35 @@ import AppKit
 import BowCore
 
 /// The certificate error page: when a tab's top level page fails its certificate check, the load is cancelled (the
-/// engine's own error page loads under it) and the page area shows "This connection is not secure" over it while that
+/// engine's own error page loads under it) and the tab's pane shows "This connection is not secure" over it while that
 /// tab is shown, naming the host and what is wrong in plain words, with Go back as its primary and only action, the
 /// default as Chrome's "Back to safety" is. Go back goes back in the tab's history, or closes the tab when it has no page to go back to, so the window
 /// shows what it shows after Cmd+W (the start screen when the Space has no other tab). Nothing offers to go on to the
 /// site: `CertificateErrorPages` holds the rules, and a way past waits until the engine can say whether the site
 /// requires HTTPS. The page goes when the tab starts another navigation, crashes or closes; a tab that failed in the
 /// background shows it once it is shown.
+///
+/// In split view the page covers only the pane whose tab failed, so the other panes stay usable. Over the focused pane
+/// it takes the keyboard as it comes up (`CertificateErrorPage.takesKeyboard`), so Return presses Go back, and gives it
+/// back to the page when it goes. While the shown tab shows it, the URL field shows the address that failed, marked not
+/// secure (`CertificateErrorPage.addressLine`), never the address of the page before.
 @MainActor
 final class CertificateErrorFeature: NSResponder, BrowserWindowFeature {
-    /// The page over the page area; hidden while the shown tab has no certificate error.
-    let errorView = CertificateErrorView()
+    /// One page view per pane, leading to trailing, made as panes appear; each sits over its pane and is hidden while
+    /// its pane's tab has no certificate error. The first is made with the window, so later page overlays (Peek's card)
+    /// stay above every one of them.
+    private(set) var errorViews: [CertificateErrorView] = []
+    /// The tab each page view covers, by view.
+    private var coveredTabs: [TabID?] = []
     private unowned let window: BrowserWindowController
     private var pages = CertificateErrorPages<TabID>()
+    /// The pane views whose frame changes move the pages over them.
+    private var observedPanes: Set<ObjectIdentifier> = []
 
     init(window: BrowserWindowController) {
         self.window = window
         super.init()
-        errorView.isHidden = true
-        errorView.translatesAutoresizingMaskIntoConstraints = false
-        window.pageArea.addSubview(errorView, positioned: .above, relativeTo: nil)
-        NSLayoutConstraint.activate([
-            errorView.leadingAnchor.constraint(equalTo: window.pageArea.leadingAnchor),
-            errorView.trailingAnchor.constraint(equalTo: window.pageArea.trailingAnchor),
-            errorView.topAnchor.constraint(equalTo: window.pageArea.topAnchor),
-            errorView.bottomAnchor.constraint(equalTo: window.pageArea.bottomAnchor),
-        ])
-        errorView.goBackButton.target = self
-        errorView.goBackButton.action = #selector(pressGoBack(_:))
+        addErrorView()
     }
 
     @available(*, unavailable)
@@ -52,6 +53,8 @@ final class CertificateErrorFeature: NSResponder, BrowserWindowFeature {
     }
 
     func selectedTabChanged(_ tab: (any EngineTab)?) { update() }
+
+    func paneDividerMoved(fractions: [Double]) { placeViews() }
 
     func tab(_ tab: any EngineTab, didReceive event: TabEvent) {
         switch event {
@@ -82,8 +85,12 @@ final class CertificateErrorFeature: NSResponder, BrowserWindowFeature {
     /// Tabs whose Go back waits for their failed load to settle.
     private var goBackPending: Set<TabID> = []
 
+    /// Go back on a page view, pressed or by Return: goes back in the tab that view covers.
     @objc private func pressGoBack(_ sender: Any?) {
-        guard let tab = window.selectedTab else { return }
+        guard let button = sender as? NSView,
+            let index = errorViews.firstIndex(where: { button.isDescendant(of: $0) }),
+            let id = coveredTabs[index], let tab = window.tabs.first(where: { $0.tabID == id })
+        else { return }
         goBack(tab)
     }
 
@@ -100,14 +107,104 @@ final class CertificateErrorFeature: NSResponder, BrowserWindowFeature {
         }
     }
 
+    // MARK: Showing
+
+    /// Adds a page view for one more pane: just above the page views before it, so it stays under any page overlay
+    /// placed since (the first goes on top of the page area as the window opens).
+    private func addErrorView() {
+        let view = CertificateErrorView()
+        view.isHidden = true
+        window.pageArea.addSubview(view, positioned: .above, relativeTo: errorViews.last)
+        view.goBackButton.target = self
+        view.goBackButton.action = #selector(pressGoBack(_:))
+        errorViews.append(view)
+        coveredTabs.append(nil)
+    }
+
+    /// Brings every pane's page view up to date with the tab its pane shows, then the keyboard and the URL field.
     private func update() {
-        let page = window.isClosing ? nil : window.selectedTab.flatMap { pages.page(for: $0.tabID) }
-        errorView.show(page)
+        let panes = window.isClosing ? [] : window.paneViews
+        let tabs = window.tabs
+        let focusedPane = panes.isEmpty ? nil : window.focusedPane
+        while errorViews.count < panes.count { addErrorView() }
+        for (index, view) in errorViews.enumerated() {
+            let pane = panes.indices.contains(index) ? panes[index] : nil
+            let tab = pane.flatMap { pane in tabs.first { pane.isShowing($0) } }
+            let page = tab.flatMap { pages.page(for: $0.tabID) }
+            coveredTabs[index] = page == nil ? nil : tab?.tabID
+            guard let pane, page != nil else {
+                hide(view, pane: pane, focused: pane != nil && pane === focusedPane)
+                continue
+            }
+            view.show(page)
+            observeFrame(of: pane)
+            place(view, over: pane)
+            view.outlined = panes.count > 1 && pane === focusedPane
+            if pane === focusedPane { takeKeyboard(view, over: pane) }
+        }
+        let shown = window.selectedTab.flatMap { pages.page(for: $0.tabID) }
+        let line = shown?.addressLine
+        window.feature(SidebarFeature.self)?.sidebar.accessory(URLField.self)?.field.certificateLine = line
+        window.feature(TopTabsLayoutFeature.self)?.urlField.certificateLine = line
+    }
+
+    /// Hides `view`; when it held the keyboard, the page of its pane gets it back (when that pane has focus).
+    private func hide(_ view: CertificateErrorView, pane: BowWebView?, focused: Bool) {
+        let hadKeyboard = !view.isHidden && view.window?.firstResponder === view
+        view.show(nil)
+        guard hadKeyboard, let nsWindow = window.window else { return }
+        if let pane, focused {
+            pane.focusAttachedTab()
+        }
+        if nsWindow.firstResponder === view { nsWindow.makeFirstResponder(nil) }
+    }
+
+    /// Gives `view`, coming up over the focused `pane`, the keyboard when it is in the page it covers or nowhere.
+    private func takeKeyboard(_ view: CertificateErrorView, over pane: BowWebView) {
+        guard let nsWindow = window.window, nsWindow.firstResponder !== view else { return }
+        let holder: CertificateErrorPage.KeyboardHolder
+        switch nsWindow.firstResponder {
+        case nil, is NSWindow:
+            holder = .nothing
+        case let responder as NSView where responder.isDescendant(of: pane):
+            holder = .coveredPage
+        case is NSText, is NSTextField:
+            holder = .textField
+        default:
+            holder = .elsewhere
+        }
+        if CertificateErrorPage.takesKeyboard(from: holder, inFocusedPane: true) { nsWindow.makeFirstResponder(view) }
+    }
+
+    /// Places each shown page view over its pane again.
+    private func placeViews() {
+        for (index, pane) in window.paneViews.enumerated() where index < errorViews.count {
+            if !errorViews[index].isHidden { place(errorViews[index], over: pane) }
+        }
+    }
+
+    private func place(_ view: CertificateErrorView, over pane: BowWebView) {
+        let frame = pane.convert(pane.bounds, to: window.pageArea)
+        if view.frame != frame { view.frame = frame }
+    }
+
+    /// Follows `pane`'s frame (a window resize, a divider moving, the panes changing), so its page stays over it.
+    private func observeFrame(of pane: BowWebView) {
+        guard observedPanes.insert(ObjectIdentifier(pane)).inserted else { return }
+        pane.postsFrameChangedNotifications = true
+        NotificationCenter.default.addObserver(
+            self, selector: #selector(paneFrameChanged(_:)), name: NSView.frameDidChangeNotification, object: pane)
+    }
+
+    @objc private func paneFrameChanged(_ notification: Notification) {
+        placeViews()
     }
 }
 
-/// The certificate error page over the page card: the title, the explanation, the engine's error name and a Go back
-/// pill, styled as the crashed tab page (Page fill, Text and Soft, the Jam Deep pill with white text).
+/// The certificate error page over a pane: the title, the explanation, the engine's error name and a Go back pill,
+/// styled as the crashed tab page (Page fill, Text and Soft, the Jam Deep pill with white text). It takes the keyboard
+/// so Return (or Enter) presses Go back, and over the focused pane of a split it draws the focus outline the pane
+/// draws, which it covers.
 @MainActor
 final class CertificateErrorView: NSView {
     static let pillHeight: CGFloat = 32
@@ -117,6 +214,14 @@ final class CertificateErrorView: NSView {
     let messageLabel = NSTextField(wrappingLabelWithString: "")
     let detailLabel = NSTextField(labelWithString: "")
     let goBackButton = NSButton(title: CertificateErrorPage.goBackTitle, target: nil, action: nil)
+
+    /// Whether it draws the pane's focus outline.
+    var outlined = false {
+        didSet {
+            layer?.borderColor = NSColor.controlAccentColor.cgColor
+            layer?.borderWidth = outlined ? PaneContainer.outlineWidth : 0
+        }
+    }
 
     init() {
         super.init(frame: .zero)
@@ -163,13 +268,34 @@ final class CertificateErrorView: NSView {
         fatalError("init(coder:) is not supported")
     }
 
-    /// Shows `page`, or hides the view for nil. Go back is the page's primary and only action; it takes no Return key
-    /// equivalent, since the window would then claim Return from the toolbar and every other field while the page shows.
+    /// Shows `page`, or hides the view for nil. Go back takes no Return key equivalent, since the window would then
+    /// claim Return from the command bar and every other field while the page shows; the view takes Return itself,
+    /// only while it has the keyboard.
     func show(_ page: CertificateErrorPage?) {
         if let page {
             messageLabel.stringValue = page.message
             detailLabel.stringValue = page.errorName
         }
         isHidden = page == nil
+    }
+
+    // MARK: Keyboard
+
+    override var acceptsFirstResponder: Bool { !isHidden }
+
+    /// A click on the page (not on its button) gives it the keyboard, as a click into a page does.
+    override func mouseDown(with event: NSEvent) {
+        window?.makeFirstResponder(self)
+    }
+
+    override func keyDown(with event: NSEvent) {
+        let menuModifiers = !event.modifierFlags.intersection([.command, .option, .control]).isEmpty
+        guard CertificateErrorPage.pressesGoBack(characters: event.characters, commandOptionOrControl: menuModifiers)
+        else {
+            super.keyDown(with: event)
+            return
+        }
+        // The same action a click on the pill sends.
+        goBackButton.performClick(nil)
     }
 }

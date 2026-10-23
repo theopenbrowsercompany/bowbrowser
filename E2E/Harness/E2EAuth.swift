@@ -18,6 +18,54 @@ protocol E2EAuthApp: E2EApp {
     func certificateErrorPage(besides page: any E2EPage) throws -> E2ECertificateErrorPage?
     /// Presses Go back on the certificate error page `page`'s window shows. Throws when it shows none.
     func pressCertificateGoBack(besides page: any E2EPage) throws
+    /// For each pane of `page`'s window, leading to trailing: the frame of the certificate error page over it in the
+    /// page area, and the pane's own frame there, or nil for a pane no page covers.
+    func certificateCovers(besides page: any E2EPage) throws -> [E2ECertificateCover?]
+    /// Whether the keyboard of `page`'s window is in a certificate error page.
+    func certificatePageHasKeyboard(besides page: any E2EPage) throws -> Bool
+    /// Presses and releases Return in `page`'s window as the keyboard does: the key events go through the window's
+    /// own dispatch to whatever has the keyboard.
+    func pressReturn(in page: any E2EPage) throws
+    /// What the URL fields of `page`'s window show: the sidebar's and the top tabs layout's.
+    func addressFields(of page: any E2EPage) throws -> E2EAddressFields
+    /// From now on, records every sign in question the page of the newest popup panel over `page`'s window asks, and
+    /// the panel's answer, readable after the panel and its window have gone. The panel still answers them all.
+    func recordPanelChallenges(besides page: any E2EPage) throws -> any E2EAuthRecording
+    /// The sign in sheet up on the newest popup panel over `page`'s window, or nil when none is.
+    func panelSignInSheet(besides page: any E2EPage) throws -> E2ESignInSheet?
+    /// Types into the newest popup panel's sign in sheet and presses Sign In, or presses Cancel when `user` is nil.
+    func answerPanelSignInSheet(besides page: any E2EPage, user: String?, password: String?) throws
+}
+
+/// The sign in questions a page asked and how each was answered, oldest first.
+@MainActor
+protocol E2EAuthRecording: AnyObject {
+    var auth: [E2EAuthQuestion] { get }
+}
+
+/// A certificate error page over a pane, as a test reads it.
+struct E2ECertificateCover: Equatable, CustomStringConvertible {
+    /// The page's frame in the page area.
+    var frame: CGRect
+    /// Its pane's frame in the page area.
+    var paneFrame: CGRect
+
+    var description: String {
+        "\(Int(frame.minX))+\(Int(frame.width))x\(Int(frame.height)) over \(Int(paneFrame.minX))+\(Int(paneFrame.width))"
+    }
+}
+
+/// The URL fields of a window, as a test reads them.
+struct E2EAddressFields: Equatable, CustomStringConvertible {
+    var sidebarText: String
+    var sidebarNotSecure: Bool
+    var topTabsText: String
+    var topTabsNotSecure: Bool
+
+    var description: String {
+        "sidebar=\"\(sidebarText)\"\(sidebarNotSecure ? " not-secure" : "") "
+            + "top-tabs=\"\(topTabsText)\"\(topTabsNotSecure ? " not-secure" : "")"
+    }
 }
 
 /// The sign in sheet as a test reads it.

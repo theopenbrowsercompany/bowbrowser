@@ -64,6 +64,43 @@ public struct CertificateErrorPage: Equatable, Sendable {
         return error.code == -214 ? "NET::ERR_CERTIFICATE_\(name)" : "NET::ERR_CERT_\(name)"
     }
 
+    /// What the URL field shows while the tab shows this page: the address that failed, marked not secure, as
+    /// Chrome's interstitial shows it, never the address of the page before (which the tab still reports, since the
+    /// failed load never committed).
+    public var addressLine: AddressLine {
+        AddressLine(text: AddressDisplay.text(for: error.url), security: .notSecure)
+    }
+
+    /// Where the keyboard is when the page comes up over a pane, or when that pane gets focus.
+    public enum KeyboardHolder: Equatable, Sendable {
+        /// Nothing holds it, or the window itself does.
+        case nothing
+        /// The page under this one, in the same pane: it is hidden, so keys typed there would go nowhere visible.
+        case coveredPage
+        /// A field the person types in (the command bar, a rename in the sidebar).
+        case textField
+        /// Anything else: another pane's page, the sidebar, a button.
+        case elsewhere
+    }
+
+    /// Whether the page takes the keyboard as it comes up over the focused pane, so Return presses Go back, as Chrome
+    /// focuses its interstitial: from the hidden page under it or from nothing, never from a field the person types in
+    /// or from anything else, and never over a pane that does not have focus.
+    public static func takesKeyboard(from holder: KeyboardHolder, inFocusedPane: Bool) -> Bool {
+        guard inFocusedPane else { return false }
+        switch holder {
+        case .nothing, .coveredPage: return true
+        case .textField, .elsewhere: return false
+        }
+    }
+
+    /// Whether a key press with `characters` presses Go back while the page has the keyboard: Return or the keypad's
+    /// Enter, with no Command, Option or Control held (which belong to the menus).
+    public static func pressesGoBack(characters: String?, commandOptionOrControl: Bool) -> Bool {
+        guard !commandOptionOrControl, let characters else { return false }
+        return characters == "\r" || characters == "\u{3}"
+    }
+
     /// Where Go back takes the person.
     public enum GoBack: Equatable, Sendable {
         /// Back in the tab's history, to the page before the one that failed.

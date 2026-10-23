@@ -11,5 +11,11 @@
 <body>
   <h1>Auth start</h1>
   <p>The page a sign in or certificate error test starts from, and the page Go back returns to.</p>
+  <button id="panel" onclick="window.bowPanel = window.open('panel.html', '', 'width=420,height=300')">Open a popup panel</button>
+  <script>
+    // What the popup panel posts back (panel.html).
+    window.bowMessages = [];
+    window.addEventListener("message", (event) => window.bowMessages.push(String(event.data)));
+  </script>
 </body>
 </html>

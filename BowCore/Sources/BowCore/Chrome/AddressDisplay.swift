@@ -29,3 +29,27 @@ public enum AddressDisplay {
 
     private static let defaultPorts = ["http": 80, "https": 443, "ftp": 21]
 }
+
+/// How the URL field marks the connection to the page it names.
+public enum AddressSecurity: Equatable, Sendable {
+    /// The usual lock.
+    case standard
+    /// The page could not be shown securely (its certificate failed): a crossed lock, as Chrome and Arc mark it.
+    case notSecure
+}
+
+/// What the URL field shows: its text (nil for the placeholder) and how it marks the connection.
+public struct AddressLine: Equatable, Sendable {
+    public var text: String?
+    public var security: AddressSecurity
+
+    public init(text: String?, security: AddressSecurity = .standard) {
+        self.text = text
+        self.security = security
+    }
+
+    /// The line for a tab at `url`: its address with the usual lock.
+    public static func tab(_ url: URL?) -> AddressLine {
+        AddressLine(text: AddressDisplay.text(for: url))
+    }
+}

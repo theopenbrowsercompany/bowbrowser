@@ -106,6 +106,12 @@ final class SidebarView: NSView, NSOutlineViewDataSource, NSOutlineViewDelegate,
     private var clipsBeforeSlides = false
     private var scrollLayerBeforeSlides = false
     private let accessories = SidebarAccessories.all.map { $0.init() }
+
+    /// The sidebar's accessory of type `type`, if `SidebarAccessories` lists one.
+    func accessory<Accessory: SidebarAccessory>(_ type: Accessory.Type) -> Accessory? {
+        accessories.lazy.compactMap { $0 as? Accessory }.first
+    }
+
     private(set) var content = SidebarContent(graph: .fresh(), tabs: [:], activeItem: nil)
     private var roots: [SidebarNode] = []
     private var nodes: [SidebarNode.Key: SidebarNode] = [:]

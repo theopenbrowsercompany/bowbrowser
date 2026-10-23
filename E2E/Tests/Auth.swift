@@ -16,6 +16,10 @@ enum AuthTests {
         AuthRetryTest(),
         AuthCloseTest(),
         CertificatePageTest(),
+        CertificateAddressTest(),
+        CertificateReturnTest(),
+        CertificateSplitTest(),
+        AuthPanelTest(),
     ]
 
     static let startURL = E2EFixture.url("auth/index.html")

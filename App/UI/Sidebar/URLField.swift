@@ -60,8 +60,8 @@ private final class FullWidthView: NSView {
     }
 }
 
-/// The field itself: 36 high, corner radius 10, the Active fill, a 13 point lock in the Soft color and one line of
-/// text in the UI font, cut at the end when it does not fit. It acts like a button: a click sends
+/// The field itself: 36 high, corner radius 10, the Active fill, a 13 point lock in the Soft color (a crossed lock in
+/// Jam Deep while the page is not secure) and one line of text in the UI font, cut at the end when it does not fit. It acts like a button: a click sends
 /// `CommandBarFeature.openFromURLField(_:)` up the responder chain, so it reaches the window's command bar.
 @MainActor
 final class URLFieldView: NSView {
@@ -81,9 +81,7 @@ final class URLFieldView: NSView {
     override init(frame: NSRect) {
         super.init(frame: frame)
         wantsLayer = true
-        lock.image = NSImage(systemSymbolName: "lock.fill", accessibilityDescription: nil)
         lock.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: Self.lockSize, weight: .regular)
-        lock.contentTintColor = BowBrand.soft
         lock.setContentHuggingPriority(.required, for: .horizontal)
         lock.setContentCompressionResistancePriority(.required, for: .horizontal)
         label.font = BowBrand.ui()
@@ -113,14 +111,36 @@ final class URLFieldView: NSView {
         fatalError("init(coder:) is not supported")
     }
 
-    /// Shows `address`, or the placeholder when it is nil.
+    /// The tab's own address, as last given to `show(_:)`.
+    private var tabAddress: String?
+    /// What the window's certificate error page puts in the field while the shown tab shows it (the address that
+    /// failed, not secure), in place of the tab's own address; nil otherwise. Set by `CertificateErrorFeature`.
+    var certificateLine: AddressLine? {
+        didSet { if certificateLine != oldValue { render() } }
+    }
+
+    /// True while the field marks its page not secure.
+    private(set) var isNotSecure = false
+
+    /// Shows `address`, or the placeholder when it is nil, unless `certificateLine` stands in for it.
     func show(_ address: String?) {
-        self.address = address
-        let text = address ?? AddressDisplay.placeholder
+        tabAddress = address
+        render()
+    }
+
+    private func render() {
+        let line = certificateLine ?? AddressLine(text: tabAddress)
+        address = line.text
+        isNotSecure = line.security == .notSecure
+        let text = line.text ?? AddressDisplay.placeholder
         label.stringValue = text
-        label.textColor = address == nil ? BowBrand.soft : BowBrand.text
-        toolTip = address
-        setAccessibilityLabel(text)
+        label.textColor = line.text == nil ? BowBrand.soft : BowBrand.text
+        lock.image = NSImage(
+            systemSymbolName: isNotSecure ? "lock.slash.fill" : "lock.fill",
+            accessibilityDescription: isNotSecure ? "Not secure" : nil)
+        lock.contentTintColor = isNotSecure ? BowBrand.button : BowBrand.soft
+        toolTip = isNotSecure ? "Not secure: \(text)" : line.text
+        setAccessibilityLabel(isNotSecure ? "Not secure, \(text)" : text)
     }
 
     // MARK: Clicking

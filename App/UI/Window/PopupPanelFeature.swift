@@ -72,6 +72,9 @@ final class PopupPanel: NSObject, NSWindowDelegate, EngineTabDelegate {
     /// The panel page's alert, confirm and prompt, as sheets on the panel under the same rules as a tab's. The panel
     /// always shows its page, so a dialog comes up at once.
     let dialogs: PageDialogSheets
+    /// The panel page's sign in requests (an identity provider behind HTTP sign in), as a sheet on the panel under the
+    /// same rules as a tab's, through the same presenter as its dialogs, so one waits for the other.
+    let signIn: SignInSheets
     private let navigationPolicy: ((any EngineTab, EngineNavigation) -> NavigationPolicy)?
     private var onClosed: ((PopupPanel) -> Void)?
 
@@ -97,6 +100,7 @@ final class PopupPanel: NSObject, NSWindowDelegate, EngineTabDelegate {
             defer: false)
         webView = BowWebView(frame: NSRect(origin: .zero, size: contentSize))
         dialogs = PageDialogSheets(window: window, shownTab: tab.tabID)
+        signIn = SignInSheets(window: window, shownTab: tab.tabID)
         super.init()
         window.isReleasedWhenClosed = false
         window.delegate = self
@@ -154,9 +158,10 @@ final class PopupPanel: NSObject, NSWindowDelegate, EngineTabDelegate {
     }
 
     private func removeWindow() {
-        // A dialog up as a sheet is answered as cancelled and taken down first: AppKit refuses to close a window
-        // that has a sheet.
+        // A dialog or sign in up as a sheet is answered as cancelled and taken down first: AppKit refuses to close a
+        // window that has a sheet.
         dialogs.close()
+        signIn.close()
         guard window.isVisible || window.parent != nil else { return }
         webView.detach()
         window.parent?.removeChildWindow(window)
@@ -187,6 +192,7 @@ final class PopupPanel: NSObject, NSWindowDelegate, EngineTabDelegate {
             window.subtitle = state.title.isEmpty ? "" : host
         case .didStartNavigation, .renderProcessGone:
             dialogs.navigated(tab.tabID)
+            signIn.navigated(tab.tabID)
         case .closed, .unloaded:
             finish()
         default:
@@ -196,6 +202,10 @@ final class PopupPanel: NSObject, NSWindowDelegate, EngineTabDelegate {
 
     func tab(_ tab: any EngineTab, runDialog dialog: PageDialog) async -> PageDialogAnswer {
         await dialogs.run(dialog, for: tab.tabID)
+    }
+
+    func tab(_ tab: any EngineTab, answer challenge: AuthChallenge) async -> AuthCredentials? {
+        await signIn.answer(challenge, for: tab.tabID)
     }
 
     func tab(_ tab: any EngineTab, decidePolicyFor navigation: EngineNavigation) -> NavigationPolicy {

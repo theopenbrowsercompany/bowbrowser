@@ -12,7 +12,8 @@ final class PaneContainer: NSSplitView, NSSplitViewDelegate {
     private var fractions: [Double] = []
     /// The pane drawn with the focus outline.
     private var focusedIndex = 0
-    private static let outlineWidth: CGFloat = 2
+    /// The focus outline's width, also drawn by a view a feature puts over the focused pane (the certificate page).
+    static let outlineWidth: CGFloat = 2
 
     override init(frame: NSRect) {
         super.init(frame: frame)

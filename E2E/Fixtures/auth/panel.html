@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Auth panel</title>
+</head>
+<body>
+  <h1>Auth panel</h1>
+  <script>
+    // Opened in a popup panel (a sized window.open from a click) by index.html's #panel button. Tells its opener it is
+    // ready, then goes where the opener posts "go:<address>", so the test can record the panel's questions first.
+    window.addEventListener("message", (event) => {
+      if (event.source !== window.opener || typeof event.data !== "string") return;
+      if (event.data.startsWith("go:")) location.href = event.data.slice(3);
+    });
+    window.opener.postMessage("panel-ready", "*");
+  </script>
+</body>
+</html>
