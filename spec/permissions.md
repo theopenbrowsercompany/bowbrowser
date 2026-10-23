@@ -14,7 +14,7 @@ Video calls, maps and web notifications work once allowed, and a site that was b
   The next time that site asks for the same thing, Bow answers without a prompt: allowed stays allowed, and blocked stays blocked.
 - A request that mixes kinds is allowed without a prompt only when every kind was allowed before, and refused without a prompt when any kind was blocked before; otherwise Bow asks.
 - Answers belong to one profile.
-  The same site in another Space with a different profile asks again.
+  The same site in another Space with a different profile asks again, also in the same window: each tab reads and writes the answers of the profile it runs in.
 - Answers in a profile kept on disk survive a restart; answers in an in-memory profile go away with it.
 - Pages also see the remembered answer when they check their permission state (for example through the Permissions API).
 - Screen sharing always asks, because the person picks what to share each time.
@@ -41,6 +41,7 @@ Video calls, maps and web notifications work once allowed, and a site that was b
 4. Quit and reopen Bow, then open the same site in the same profile and ask again: no prompt appears.
 5. Open the same page in a Space with another profile and ask: the prompt appears again; press Block and the page gets `NotAllowedError`, and asking again is refused without a prompt.
 6. `make e2e E2E=permissions.prompt` prints `PASS permissions.prompt: camera=asked allow=granted`.
+7. `make e2e E2E=permissions.per_profile` prints `PASS permissions.per_profile: work=granted personal=asked`: in one window, the camera allowed in a work Space's tab is still asked for in a personal Space's tab.
 
 ## Out of scope
 
