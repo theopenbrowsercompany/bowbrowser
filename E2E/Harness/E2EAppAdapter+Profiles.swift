@@ -36,7 +36,82 @@ extension E2EAppAdapter {
     }
 }
 
+extension E2EAppAdapter {
+    /// Follows `path` through `items` and its submenus to the last item, which must be enabled.
+    static func e2eMenuItem(at path: [String], in items: [NSMenuItem], menu: String) throws -> NSMenuItem {
+        var items = items
+        var chosen: NSMenuItem?
+        for title in path {
+            guard let item = items.first(where: { $0.title == title }) else {
+                throw E2EError("the \(menu) has no item \"\(path.joined(separator: "/"))\": \(items.map(\.title))")
+            }
+            chosen = item
+            items = item.submenu?.items ?? []
+        }
+        guard let item = chosen, item.isEnabled else {
+            throw E2EError("the \(menu)'s \"\(path.joined(separator: "/"))\" is disabled")
+        }
+        return item
+    }
+
+    func chooseTabMenuItem(path: [String], of page: any E2EPage) throws {
+        let item = try Self.e2eMenuItem(at: path, in: try tabMenuItems(of: page), menu: "tab menu")
+        guard let action = item.action, NSApp.sendAction(action, to: item.target, from: item) else {
+            throw E2EError("the tab menu's \"\(path.joined(separator: "/"))\" did nothing")
+        }
+    }
+
+    func spaceSubmenuTitles(_ path: [String], in page: any E2EPage) throws -> [String] {
+        let item = try Self.e2eMenuItem(at: path, in: try spaceMenu(in: page).items, menu: "Space menu")
+        return (item.submenu?.items ?? []).map { $0.isSeparatorItem ? "-" : $0.title + ($0.isEnabled ? "" : "!") }
+    }
+
+    func dropOnFavoritesGrid(item id: String, in page: any E2EPage) throws -> Bool {
+        let grid = try Self.favoritesGrid(of: page)
+        return grid.drop(SidebarItemID(id), at: grid.tiles.count)
+    }
+
+    func createRegisteredProfile(named name: String) throws -> String {
+        try delegate.appFeatures.require(ProfileRegistryStore.self).createProfile(named: name).id.rawValue
+    }
+
+    func deleteMarkedProfileFolders() -> [String] {
+        delegate.appFeatures.require(ProfileRegistryStore.self)
+            .deleteMarkedFolders(spaceProfiles: ProfileMoves.spaceProfiles())
+            .map { "\($0.folderName):\($0.outcome)" }
+    }
+}
+
 extension E2ETestApp: E2EProfilesApp {
+    func chooseTabMenuItem(path: [String], of page: any E2EPage) throws {
+        try adapter.requireActive(token, "choose \(path.joined(separator: " > ")) in a tab's menu")
+        try adapter.chooseTabMenuItem(path: path, of: page)
+    }
+
+    func sidebarItemID(of page: any E2EPage) throws -> String {
+        try E2EAppAdapter.sidebarItem(of: try E2EAppAdapter.tabPage(page)).rawValue
+    }
+
+    func spaceSubmenuTitles(_ path: [String], in page: any E2EPage) throws -> [String] {
+        try adapter.requireActive(token, "read the Space menu")
+        return try adapter.spaceSubmenuTitles(path, in: page)
+    }
+
+    func dropOnFavoritesGrid(item id: String, in page: any E2EPage) throws -> Bool {
+        try adapter.requireActive(token, "drop on the Favorites grid")
+        return try adapter.dropOnFavoritesGrid(item: id, in: page)
+    }
+
+    func createRegisteredProfile(named name: String) throws -> String {
+        try adapter.requireActive(token, "create a profile")
+        return try adapter.createRegisteredProfile(named: name)
+    }
+
+    func deleteMarkedProfileFolders() throws -> [String] {
+        try adapter.requireActive(token, "delete the marked profile folders")
+        return adapter.deleteMarkedProfileFolders()
+    }
+
     func shownPage(besides page: any E2EPage) throws -> (any E2EPage)? {
         try adapter.requireActive(token, "read the shown page")
         return try adapter.shownPage(besides: page, token: token)

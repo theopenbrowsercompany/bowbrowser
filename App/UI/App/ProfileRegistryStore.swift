@@ -75,6 +75,42 @@ final class ProfileRegistryStore: AppFeature {
         return try registry.create(name: name)
     }
 
+    /// The profiles the person may delete while the Spaces show `spaceProfiles`: every one but the default that no
+    /// Space points at. Empty when the registry cannot be opened.
+    func deletableProfiles(spaceProfiles: [SidebarProfileID]) -> [ProfileRecord] {
+        registry?.deletableProfiles(spaceProfiles: spaceProfiles) ?? []
+    }
+
+    /// Takes profile `id` out of the list and marks its folder for deletion at the next launch; the folder stays now,
+    /// since its engine storage may still be open. Throws when a Space still shows it, it is the default, or saving
+    /// fails.
+    func deleteProfile(_ id: SidebarProfileID, spaceProfiles: [SidebarProfileID]) throws {
+        guard let registry else { throw ProfileRegistryError.unreadableFileNotSetAside(openFailure ?? "not opened") }
+        try registry.markForDeletion(id, spaceProfiles: spaceProfiles)
+    }
+
+    /// The launch step: removes the folders of profiles deleted in an earlier run. The app calls it once its first
+    /// window is open and before any other profile's storage is set up, so no browser can hold a deleted profile's
+    /// folder (its storage is only ever created for a Space that shows it, and a profile is deleted only when none
+    /// does). A folder whose profile a Space in `spaceProfiles` shows again stays; one that cannot be removed is tried
+    /// again at the next launch. Returns what happened to each pending folder.
+    @discardableResult
+    func deleteMarkedFolders(spaceProfiles: [SidebarProfileID]) -> [ProfileRegistry.DeletionResult] {
+        guard let registry else { return [] }
+        do {
+            let results = try registry.applyPendingDeletions(spaceProfiles: spaceProfiles)
+            for result in results {
+                if case .failed(let reason) = result.outcome {
+                    Self.report("the deleted profile folder \(result.folderName) could not be removed: \(reason)")
+                }
+            }
+            return results
+        } catch {
+            Self.report("the profiles file could not be saved after deleting folders: \(error)")
+            return []
+        }
+    }
+
     private func setupFailed(_ record: ProfileRecord, _ reason: String) {
         // Checked again on every request, so a folder made writable works without a relaunch; told once.
         guard failedSetups.insert(record.id.rawValue.lowercased()).inserted else { return }

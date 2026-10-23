@@ -190,7 +190,7 @@ extension E2EAppAdapter {
     }
 
     /// The Space menu, as the Space name view builds it for a right click.
-    private func spaceMenu(in page: any E2EPage) throws -> NSMenu {
+    func spaceMenu(in page: any E2EPage) throws -> NSMenu {
         let controller = try Self.tabPage(page).controller
         guard let window = controller.window,
             let nameView = Self.views(in: controller.e2eSidebar.outlineView, SpaceNameView.self).first
