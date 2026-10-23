@@ -16,7 +16,8 @@ public final class SidebarStore {
         case loaded
         /// There was no file, so the sidebar starts empty.
         case freshBecauseMissing
-        /// The file could not be read. It was moved to `setAsideURL` untouched and the sidebar starts empty.
+        /// The file could not be read. It was moved to `setAsideURL` untouched and the sidebar starts empty. The app
+        /// tells the person, with that path, so they can recover it.
         case freshAfterSettingAside(setAsideURL: URL, reason: String)
     }
 
@@ -50,9 +51,10 @@ public final class SidebarStore {
 
     /// Opens the sidebar stored at `fileURL`, creating nothing on disk until the first save.
     ///
-    /// A missing file starts an empty sidebar. A file that cannot be read, decoded or migrated is moved aside under a
-    /// new name and never overwritten; if it cannot be moved, this throws `unreadableFileNotSetAside`. A readable file
-    /// is migrated to the current version (keeping a copy of the original) and repaired.
+    /// A missing file starts an empty sidebar. A file written by a newer Bow is left where it is and this throws
+    /// `fileFromNewerBuild`. Any other file that cannot be read, decoded or migrated is moved aside under a new name
+    /// and never overwritten; if it cannot be moved, this throws `unreadableFileNotSetAside`. A readable file is
+    /// migrated to the current version (keeping a copy of the original) and repaired.
     public convenience init(fileURL: URL) throws {
         try self.init(fileURL: fileURL, migrations: SidebarFileFormat.migrations, writer: AtomicFileWriter())
     }
@@ -91,6 +93,9 @@ public final class SidebarStore {
                     repairs.append(.skippedUnreadableRecords(decoded.skippedRecordCount))
                 }
                 migratedFrom = decoded.migratedFrom
+            } catch SidebarFileFormat.ReadError.newerVersion(let version) {
+                // A newer Bow shares this folder; setting its file aside would cost it the sidebar. Leave it alone.
+                throw SidebarStoreError.fileFromNewerBuild(version: version, readable: currentVersion)
             } catch {
                 let setAside = try Self.setAside(fileURL)
                 graph = .fresh()

@@ -96,7 +96,6 @@ import Testing
         ("array", Data("[1, 2]".utf8)),
         ("no version", Data(#"{"items": []}"#.utf8)),
         ("boolean version", Data(#"{"version": true}"#.utf8)),
-        ("newer version", Data(#"{"version": 99, "items": []}"#.utf8)),
         ("bad shape", Data(#"{"version": 1, "items": "nope", "spaces": []}"#.utf8)),
         ("no items", Data(#"{"version": 1, "spaces": []}"#.utf8)),
     ])
@@ -164,6 +163,44 @@ import Testing
             }
             #expect(try Data(contentsOf: url) == Data("broken".utf8))
         }
+    }
+
+    @Test func fileFromANewerBuildIsRefusedAndLeftWhereItIs() throws {
+        try withTemporaryFolder { folder in
+            let url = file(in: folder)
+            let contents = Data(#"{"version": 99, "items": []}"#.utf8)
+            try contents.write(to: url)
+            let refused = SidebarStoreError.fileFromNewerBuild(version: 99, readable: SidebarFileFormat.currentVersion)
+            #expect(throws: refused) {
+                _ = try SidebarStore(fileURL: url)
+            }
+            // Nothing set aside, copied or replaced: the newer Bow finds its file as it left it.
+            #expect(try folderContents(folder) == [SidebarStore.fileName])
+            #expect(try Data(contentsOf: url) == contents)
+        }
+    }
+
+    // MARK: Window sidebar folders
+
+    @Test func staleWindowSidebarFoldersOfStoppedProcessesAreRemoved() throws {
+        try withTemporaryFolder { folder in
+            let running = WindowSidebarFolders.folder(in: folder, processID: 100)
+            let stopped = WindowSidebarFolders.folder(in: folder, processID: 200)
+            let unrelated = folder.appendingPathComponent("bow-sidebars-notanumber", isDirectory: true)
+            let other = folder.appendingPathComponent("SomethingElse", isDirectory: true)
+            for url in [running, stopped, unrelated, other] {
+                try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+            }
+            try Data("{}".utf8).write(to: stopped.appendingPathComponent("window.json"))
+
+            let removed = WindowSidebarFolders.removeStale(in: folder) { $0 == 100 }
+            #expect(removed.map(\.lastPathComponent) == [stopped.lastPathComponent])
+            #expect(try folderContents(folder) == ["SomethingElse", "bow-sidebars-100", "bow-sidebars-notanumber"])
+        }
+    }
+
+    @Test func thisProcessCountsAsRunning() {
+        #expect(WindowSidebarFolders.processIsRunning(ProcessInfo.processInfo.processIdentifier))
     }
 
     // MARK: Versions
