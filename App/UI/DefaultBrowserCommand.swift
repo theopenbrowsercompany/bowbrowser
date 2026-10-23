@@ -14,14 +14,12 @@ protocol DefaultBrowserRegistrar {
 #if BOW_E2E
     /// The e2e build's registrar (E2E seam): the real one is not compiled into this build at all, so no e2e run can
     /// reach NSWorkspace's setter, even by a test that forgets to install its recorder. It answers like a system with
-    /// no default browser, counts every call it gets (the harness checks that count stays zero), and refuses them.
+    /// no default browser, and counts every registration it is asked for (the harness checks that count stays zero)
+    /// and refuses it.
     struct BlockedDefaultBrowserRegistrar: DefaultBrowserRegistrar {
         nonisolated(unsafe) static var calls = 0
 
-        func defaultHandler(forScheme scheme: String) -> URL? {
-            Self.calls += 1
-            return nil
-        }
+        func defaultHandler(forScheme scheme: String) -> URL? { nil }
 
         func register(bundleURL: URL, scheme: String) async throws {
             Self.calls += 1
