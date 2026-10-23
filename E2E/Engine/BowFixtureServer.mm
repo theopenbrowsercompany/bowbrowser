@@ -109,6 +109,8 @@ class EmptyResponseHandler : public CefResourceHandler {
       return;
     }
     response->SetStatus(status_);
+    // Without a MIME type Chromium treats the empty answer as a download instead of "no content" (harmless on the 302).
+    response->SetMimeType("text/plain");
     response->SetStatusText(status_ == 302 ? "Found" : "No Content");
     response->SetHeaderByName("Cache-Control", "no-store", true);
     if (!location_.empty()) redirectUrl = location_;
