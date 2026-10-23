@@ -10,9 +10,10 @@ enum PanesTests {
 }
 
 /// Tabs A to D in one window. Four panes show the four tabs side by side at equal widths with C focused; then two
-/// panes show A and B with A focused and outlined. Focusing pane 1 makes B the selected and active tab with the
+/// panes show A and C with A focused and outlined. Focusing pane 1 makes C the selected and active tab with the
 /// keyboard in its page; a click in pane 0 focuses A again. A view placed over the page area stays in front of the
-/// panes as they change. Closing A, the focused pane's tab, leaves B alone, filling the page area, focused and active.
+/// panes as they change. Closing A, the focused pane's tab, leaves C alone (the other pane, not B, A's sidebar
+/// neighbour), filling the page area, focused and active.
 struct PanesContractTest: E2ETest {
     let name = "panes.contract"
     let checks = ["panes.four", "panes.two", "panes.focus", "panes.click", "panes.overlay", "panes.close"]
@@ -29,7 +30,7 @@ struct PanesContractTest: E2ETest {
             for page in pages { _ = try await page.waitForLoad(after: 0) }
             return pages
         }
-        let (a, b) = (pages[0], pages[1])
+        let (a, c) = (pages[0], pages[2])
 
         let four = try await run.step("show four panes", timeout: E2ETimeouts.step) {
             let shown = try app.showPanes(pages, focused: pages[2])
@@ -44,12 +45,12 @@ struct PanesContractTest: E2ETest {
 
         let overlay = try app.addPageOverlay(besides: a)
         let two = try await run.step("show two panes", timeout: E2ETimeouts.step) {
-            let shown = try app.showPanes([a, b], focused: a)
+            let shown = try app.showPanes([a, c], focused: a)
             return (shown, try app.panes(besides: a))
         }
         run.check(
             "panes.two",
-            passed: two.0 && two.1.titles == ["A", "B"] && two.1.focusedIndex == 0 && two.1.selectedTitle == "A"
+            passed: two.0 && two.1.titles == ["A", "C"] && two.1.focusedIndex == 0 && two.1.selectedTitle == "A"
                 && two.1.activeTitle == "A" && two.1.fillsEqually() && two.1.outlined == [0],
             "shown=\(two.0) \(two.1)")
 
@@ -59,8 +60,8 @@ struct PanesContractTest: E2ETest {
         }
         run.check(
             "panes.focus",
-            passed: focus.0 && focus.1.titles == ["A", "B"] && focus.1.focusedIndex == 1
-                && focus.1.selectedTitle == "B" && focus.1.activeTitle == "B" && focus.1.outlined == [1]
+            passed: focus.0 && focus.1.titles == ["A", "C"] && focus.1.focusedIndex == 1
+                && focus.1.selectedTitle == "C" && focus.1.activeTitle == "C" && focus.1.outlined == [1]
                 && focus.1.keyboardInFocused,
             "focused=\(focus.0) \(focus.1)")
 
@@ -73,7 +74,7 @@ struct PanesContractTest: E2ETest {
         }
         run.check(
             "panes.click",
-            passed: click.titles == ["A", "B"] && click.selectedTitle == "A" && click.activeTitle == "A"
+            passed: click.titles == ["A", "C"] && click.selectedTitle == "A" && click.activeTitle == "A"
                 && click.outlined == [0],
             "\(click)")
 
@@ -82,15 +83,15 @@ struct PanesContractTest: E2ETest {
 
         let closed = try await run.step("close the focused pane's tab", timeout: E2ETimeouts.step) {
             guard try await run.app.closeTab(a) else { throw E2EError("tab A did not close") }
-            guard try await TabEdgesTests.until({ try app.panes(besides: b).titles.count == 1 }) else {
-                throw E2EError("the panes stayed: \(try app.panes(besides: b))")
+            guard try await TabEdgesTests.until({ try app.panes(besides: c).titles.count == 1 }) else {
+                throw E2EError("the panes stayed: \(try app.panes(besides: c))")
             }
-            return try app.panes(besides: b)
+            return try app.panes(besides: c)
         }
         run.check(
             "panes.close",
-            passed: closed.titles == ["B"] && closed.selectedTitle == "B" && closed.activeTitle == "B"
-                && closed.fillsEqually() && closed.outlined.isEmpty && b.isShown,
+            passed: closed.titles == ["C"] && closed.selectedTitle == "C" && closed.activeTitle == "C"
+                && closed.fillsEqually() && closed.outlined.isEmpty && c.isShown,
             "\(closed)")
     }
 }
