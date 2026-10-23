@@ -62,7 +62,8 @@ enum ArcJSON: Decodable, Equatable, Sendable {
     var scalarText: String? {
         switch self {
         case .string(let value): return value
-        case .number(let value): return value == value.rounded() ? String(Int(value)) : String(value)
+        case .number(let value):
+            return value == value.rounded() && abs(value) < 1e15 ? String(Int(value)) : String(value)
         case .object(let object):
             guard let key = object.keys.min() else { return nil }
             return object[key]?.scalarText

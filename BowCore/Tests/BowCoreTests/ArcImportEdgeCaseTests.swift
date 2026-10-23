@@ -106,6 +106,35 @@ private enum Sidebar {
     }
 }
 
+@Suite struct ArcImportTolerantReadingTests {
+    @Test func hugeNumbersInIconsDoNotCrash() throws {
+        let space = """
+            {"id": "s1", "title": "Home", "customInfo": {"iconType": {"emojiInt": 1e300}}, "containerIDs": []}
+            """
+        let text = "{\"sidebar\": {\"containers\": [{\"global\": {}, \"items\": [], \"spaces\": [\"s1\", \(space)]}]}}"
+        let result = try ArcImporter.parse(Sidebar.raw(text))
+        #expect(result.spaces.count == 1)
+        #expect(result.spaces[0].icon == nil)
+    }
+
+    @Test func nonStringContainerIdsAreReported() throws {
+        let space = "{\"id\": \"s1\", \"containerIDs\": [\"pinned\", 7]}"
+        let text = "{\"sidebar\": {\"containers\": [{\"global\": {}, \"items\": [], \"spaces\": [\"s1\", \(space)]}]}}"
+        let result = try ArcImporter.parse(Sidebar.raw(text))
+        #expect(result.report.skipped.map(\.reason) == [.malformedEntry])
+    }
+
+    @Test func foldersInsideSplitViewsAreReportedNotDropped() throws {
+        let pin = Sidebar.container("pin", children: ["sv"])
+        let split = Sidebar.item("sv", parent: "pin", title: nil, data: "{\"splitView\": {}}", children: ["a", "f"])
+        let a = Sidebar.tab("a", parent: "sv", url: "https://a.example.com")
+        let f = Sidebar.folder("f", parent: "sv")
+        let result = try ArcImporter.parse(Sidebar.file(items: [pin, split, a, f]))
+        #expect(result.report.splitViews == 1)
+        #expect(result.report.skipped.map(\.reason) == [.unsupportedItem])
+    }
+}
+
 @Suite struct ArcImportContainerKindTests {
     @Test func skipsKindsItDoesNotImportAndSaysSo() throws {
         let kinds = ["incognito", "littleBrowser", "standalone", "mystery"]
@@ -234,6 +263,7 @@ private enum Sidebar {
         #expect(lost.name == "Lost")
         #expect(lost.children.count == 1)
         #expect(result.report.recoveredItems == 2)
+        #expect(result.report.recoveredTabs == 2)
         // Recovered items do not inflate the pinned count.
         #expect(result.report.pinnedTabs == 1)
         #expect(result.report.skipped.isEmpty)

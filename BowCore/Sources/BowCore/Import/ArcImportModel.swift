@@ -137,6 +137,8 @@ public struct ArcImportReport: Equatable, Sendable {
     public var customNamedTabs: Int
     /// Orphaned top level items rescued into `ArcImportResult.recovered`.
     public var recoveredItems: Int
+    /// Tabs inside the recovered items, split view panes included. Not part of `pinnedTabs`.
+    public var recoveredTabs: Int
     public var skipped: [ArcImportSkipped]
 
     /// The one line the end to end run prints, for example `spaces=3 folders=5 depth=3 pinned=18`.
@@ -154,7 +156,7 @@ public struct ArcImportReport: Equatable, Sendable {
             "Favorites: \(favorites)",
             "Split views: \(splitViews)",
         ]
-        if recoveredItems > 0 { lines.append("Recovered items: \(recoveredItems)") }
+        if recoveredItems > 0 { lines.append("Recovered: \(recoveredItems) items with \(recoveredTabs) tabs") }
         if skipped.isEmpty {
             lines.append("Skipped: none")
         } else {
