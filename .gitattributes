@@ -1,5 +1,7 @@
 # Registration lists that every feature branch adds one line to. Union merges keep both sides' lines instead of
 # conflicting; `make guards` (scripts/check-lists.sh) then catches duplicates and broken one-entry-per-line format.
+# A union merge cannot delete: when one branch removes an entry and another adds one beside it, the removed line
+# comes back, so check the merged list by eye after landing a removal.
 App/UI/Window/WindowFeatures.swift merge=union
 App/UI/App/AppFeatures.swift merge=union
 E2E/Tests/E2EAreas.swift merge=union

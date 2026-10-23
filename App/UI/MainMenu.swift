@@ -35,6 +35,8 @@ enum MainMenu {
         for submenu in menus.all where !submenu.items.isEmpty {
             menu.addItem(item(for: submenu))
         }
+        // Once a feature adds a Help item, the menu also gets the system's Help search field.
+        if !menus.help.items.isEmpty { NSApp.helpMenu = menus.help }
         return menu
     }
 
