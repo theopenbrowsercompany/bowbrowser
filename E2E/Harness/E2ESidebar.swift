@@ -40,12 +40,25 @@ protocol E2ESidebarApp: E2EApp {
     func moveTab(_ page: any E2EPage, to index: Int) throws
 }
 
+/// One row of the sidebar outline (`E2EZonesApp.sidebarOutlineRows(of:)`): its text and its depth.
+struct E2EOutlineRow: Equatable, CustomStringConvertible {
+    var title: String
+    var level: Int
+
+    /// The title after one ">" per level: "pinned", ">Docs", ">>P1".
+    var description: String { String(repeating: ">", count: level) + title }
+}
+
 /// The sidebar's zones as a test sees them: Favorites, pinned and today, with a divider between pinned and today.
 @MainActor
 protocol E2EZonesApp: E2ESidebarApp {
     /// The rows of the sidebar outline of `page`'s window, top to bottom: each section's header as its zone
     /// ("favorites", "pinned", "today") or "divider", and each item as its title.
     func sidebarOutline(of page: any E2EPage) throws -> [String]
+    /// The same rows as `sidebarOutline(of:)` with each row's depth in the outline, so nesting shows: a section
+    /// header is at level 0, an item directly in a section at 1, and an item inside a folder one deeper than the
+    /// folder.
+    func sidebarOutlineRows(of page: any E2EPage) throws -> [E2EOutlineRow]
     /// The zone ("favorites", "pinned" or "today") `page`'s tab is listed in, nil when it is in none.
     func sidebarZone(of page: any E2EPage) throws -> String?
     /// Drags `page`'s tab onto the outline as a person does: onto row `row` of `sidebarOutline(of:)` (nil for
