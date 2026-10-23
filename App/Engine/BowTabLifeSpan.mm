@@ -254,6 +254,9 @@ void BowTabClient::OnBeforeClose(CefRefPtr<CefBrowser> browser) {
     // CEF skips OnBeforePopupAborted once the opener is gone, so popup tabs still waiting for a browser end here.
     FailPendingPopupTabs();
     [tab_ browserClosed];
+  } else {
+    // A popup window's dialog sheet goes with it (BowTabDialogs.mm).
+    OnResetDialogState(browser);
   }
   BowDownloadsBrowserClosed(browser->GetIdentifier());
   BowEngineBrowserClosed(browser);
