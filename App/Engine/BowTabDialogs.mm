@@ -266,9 +266,16 @@ bool BowTabClient::OnFileDialog(CefRefPtr<CefBrowser> browser,
 
 @end
 
-#if BOW_E2E  // E2E seam: the leave prompt hook declared in BowE2EHooks.h.
+#if BOW_E2E  // E2E seam: the leave prompt and popup dialog hooks declared in BowE2EHooks.h.
 void BowEngineAnswerLeavePrompts(
     std::function<void(uint64_t tabID, bool isReload, std::function<void(bool leave)> answer)> answerer) {
   gLeavePromptAnswerer = std::move(answerer);
+}
+
+NSAlert* BowEnginePopupDialogOnWindow(NSWindow* window) {
+  for (NSAlert* alert in PopupDialogs().allValues) {
+    if (alert.window.sheetParent == window) return alert;
+  }
+  return nil;
 }
 #endif

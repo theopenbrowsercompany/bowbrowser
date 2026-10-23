@@ -49,6 +49,7 @@ BowEngineConfiguration* gConfiguration = nil;
 NSTimeInterval gQuitCloseDuration = 0;
 std::vector<std::function<void(CefRefPtr<CefRequestContext>)>> gProfileContextObservers;
 bool gParkPopups = false;
+NSView* (^gPopupHost)(void) = nil;
 std::map<std::string, size_t> gParkedRequestsRefused;
 #endif
 
@@ -392,5 +393,27 @@ void BowEngineParkPopups() {
 
 bool BowEngineParksPopups() {
   return gParkPopups;
+}
+
+void BowEngineHostPopups(NSView* (^host)(void)) {
+  gPopupHost = [host copy];
+}
+
+NSView* BowEnginePopupParentView() {
+  NSView* hosted = gPopupHost ? gPopupHost() : nil;
+  return hosted ?: BowEngineParkingView();
+}
+
+bool BowEngineClosePopupInView(NSView* view) {
+  for (const auto& [identifier, entry] : gBrowsers) {
+    if (entry.tab) continue;
+    NSView* browserView = (__bridge NSView*)entry.browser->GetHost()->GetWindowHandle();
+    if (browserView && [browserView isDescendantOf:view]) {
+      // The same request quitting makes of every browser.
+      BowEngineCloseBrowser(entry.browser, false);
+      return true;
+    }
+  }
+  return false;
 }
 #endif
