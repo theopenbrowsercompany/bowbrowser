@@ -117,6 +117,14 @@ final class CertificateErrorFeature: NSResponder, BrowserWindowFeature {
         window.pageArea.addSubview(view, positioned: .above, relativeTo: errorViews.last)
         view.goBackButton.target = self
         view.goBackButton.action = #selector(pressGoBack(_:))
+        // The page sits over its pane, not in it, so the window's own focus-on-press does not see the pane under it.
+        let index = errorViews.count
+        view.onPress = { [weak self] in
+            guard let self, index != self.window.paneViews.firstIndex(where: { $0 === self.window.focusedPane }) else {
+                return
+            }
+            self.window.focusPane(at: index)
+        }
         errorViews.append(view)
         coveredTabs.append(nil)
     }
@@ -283,8 +291,20 @@ final class CertificateErrorView: NSView {
 
     override var acceptsFirstResponder: Bool { !isHidden }
 
-    /// A click on the page (not on its button) gives it the keyboard, as a click into a page does.
+    /// Only Go back and the error name (selectable, to copy) take a click of their own; a click anywhere else is the
+    /// page's, so it gets the keyboard rather than a label.
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        guard let hit = super.hitTest(point) else { return nil }
+        return hit.isDescendant(of: goBackButton) || hit.isDescendant(of: detailLabel) ? hit : self
+    }
+
+    /// Called as a click lands on the page (not on its button), before it takes the keyboard: the feature focuses the
+    /// pane under it, as a click into a pane's page does.
+    var onPress: (() -> Void)?
+
+    /// A click on the page (not on its button) focuses its pane and gives it the keyboard, as a click into a page does.
     override func mouseDown(with event: NSEvent) {
+        onPress?()
         window?.makeFirstResponder(self)
     }
 
