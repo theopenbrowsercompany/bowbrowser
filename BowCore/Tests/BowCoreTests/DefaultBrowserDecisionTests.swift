@@ -7,7 +7,6 @@ import Testing
 
     @Test func registersHttpThenHttps() {
         #expect(DefaultBrowser.schemes == ["http", "https"])
-        #expect(DefaultBrowser.probeScheme == "http")
     }
 
     @Test func defaultOnlyWhenTheHandlerIsThisApp() {
@@ -21,6 +20,15 @@ import Testing
         #expect(DefaultBrowser.isDefault(handler: URL(fileURLWithPath: "/tmp/Apps/../Apps/Bow.app"), bundleURL: bow))
         #expect(!DefaultBrowser.isDefault(handler: URL(fileURLWithPath: "/tmp/Apps/Bow.app.old"), bundleURL: bow))
         #expect(!DefaultBrowser.isDefault(handler: URL(string: "https://example.com/tmp/Apps/Bow.app"), bundleURL: bow))
+    }
+
+    @Test func defaultNeedsEverySchemeAndIgnoresCase() {
+        let other = URL(fileURLWithPath: "/tmp/Apps/Other.app")
+        #expect(DefaultBrowser.isDefault(handlers: [bow, bow], bundleURL: bow))
+        #expect(!DefaultBrowser.isDefault(handlers: [bow, other], bundleURL: bow))
+        #expect(!DefaultBrowser.isDefault(handlers: [bow, nil], bundleURL: bow))
+        #expect(!DefaultBrowser.isDefault(handlers: [bow], bundleURL: bow))
+        #expect(DefaultBrowser.isDefault(handler: URL(fileURLWithPath: "/tmp/apps/bow.app"), bundleURL: bow))
     }
 
     @Test func aLinkToTheAppIsTheApp() throws {

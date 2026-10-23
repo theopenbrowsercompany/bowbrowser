@@ -27,7 +27,7 @@ protocol DefaultBrowserRegistrar {
         }
     }
 #else
-    /// NSWorkspace's own answer and setter. Only Debug and Release builds without the harness contain this type.
+    /// NSWorkspace's own answer and setter. Only builds without BOW_E2E (Release) contain this type.
     struct SystemDefaultBrowserRegistrar: DefaultBrowserRegistrar {
         func defaultHandler(forScheme scheme: String) -> URL? {
             URL(string: "\(scheme)://example.com").flatMap { NSWorkspace.shared.urlForApplication(toOpen: $0) }
@@ -61,7 +61,7 @@ final class DefaultBrowserCommand: NSObject, NSMenuItemValidation {
 
     private var isDefault: Bool {
         DefaultBrowser.isDefault(
-            handler: registrar.defaultHandler(forScheme: DefaultBrowser.probeScheme), bundleURL: bundleURL)
+            handlers: DefaultBrowser.schemes.map { registrar.defaultHandler(forScheme: $0) }, bundleURL: bundleURL)
     }
 
     @objc func setAsDefaultBrowser(_ sender: Any?) {
