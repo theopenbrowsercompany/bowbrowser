@@ -184,9 +184,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             url = Self.homeURL
         }
         let engine = engine
+        let downloads = appFeatures.require(DownloadsCenter.self)
         let controller = BrowserWindowController(
             store: store,
-            profiles: { engine.profile(id: SidebarStores.engineProfileID(of: $0)) },
+            // Every engine profile a window's tabs open in comes through here, before the tab exists, so its
+            // downloads are handled from the first one (observing a profile again does nothing).
+            profiles: {
+                let profile = engine.profile(id: SidebarStores.engineProfileID(of: $0))
+                if let profile { downloads.observe(profile) }
+                return profile
+            },
             url: url,
             newTabURL: url ?? Self.homeURL,
             appFeatures: appFeatures,

@@ -1,8 +1,9 @@
 import AppKit
 import BowCore
 
-/// Downloads in a browser window: hands the window's profile to the app's `DownloadsCenter`, so the profile's
-/// downloads are saved and listed, and opens the downloads window from Window > Downloads (Option+Cmd+L).
+/// Downloads in a browser window: opens the downloads window from Window > Downloads (Option+Cmd+L). The window
+/// hands each engine profile its tabs open in to the app's `DownloadsCenter` as it resolves it (see
+/// `AppDelegate.openWindow`), so every profile's downloads are saved and listed.
 @MainActor
 final class DownloadsFeature: NSResponder, BrowserWindowFeature {
     private let center: DownloadsCenter
@@ -10,8 +11,6 @@ final class DownloadsFeature: NSResponder, BrowserWindowFeature {
     init(window: BrowserWindowController) {
         center = window.appFeatures.require(DownloadsCenter.self)
         super.init()
-        // Before the window's first tab opens, so every download its tabs start has a destination chooser.
-        center.observe(window.profile)
     }
 
     @available(*, unavailable)
