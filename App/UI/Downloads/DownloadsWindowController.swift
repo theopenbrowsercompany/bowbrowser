@@ -36,6 +36,12 @@ final class DownloadsWindowController: NSWindowController, NSTableViewDataSource
         fatalError("init(coder:) is not supported")
     }
 
+    /// The view of row `row`, laid out now if it is not yet.
+    func rowView(at row: Int) -> DownloadRowView? {
+        guard row < tableView.numberOfRows else { return nil }
+        return tableView.view(atColumn: 0, row: row, makeIfNecessary: true) as? DownloadRowView
+    }
+
     /// Redraws the rows from `center`. The owner calls it on every change.
     func reload() {
         tableView.reloadData()
