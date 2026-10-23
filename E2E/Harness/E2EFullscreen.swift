@@ -18,6 +18,8 @@ struct E2EFullscreenState: Equatable, CustomStringConvertible {
     /// How many times the window's full screen was toggled since the recorder was installed, and its state now.
     var toggles: Int
     var windowFullScreen: Bool
+    /// The recorder's transition in progress: "entering", "exiting", or "none".
+    var windowTransition: String
 
     var restoredSidebarLayout: Bool {
         !pageFills && !sidebarHidden && !topBarShown && pageInsets == [8, 0, 8, 8] && pageRadius == 10 && hasShadow
@@ -30,7 +32,8 @@ struct E2EFullscreenState: Equatable, CustomStringConvertible {
     var description: String {
         "sidebar=\(sidebarHidden ? "hidden" : "shown") top-bar=\(topBarShown ? "shown" : "hidden") "
             + "insets=\(pageInsets.map { Int($0) }) radius=\(Int(pageRadius)) shadow=\(hasShadow) "
-            + "page-fills=\(pageFills) toggles=\(toggles) window-full-screen=\(windowFullScreen)"
+            + "page-fills=\(pageFills) toggles=\(toggles) window-full-screen=\(windowFullScreen) "
+            + "transition=\(windowTransition)"
     }
 }
 
@@ -44,4 +47,12 @@ protocol E2EFullscreenApp: E2EApp {
     /// The window leaves macOS full screen the way the system reports it (the green button): the recorder goes out
     /// of full screen and the window posts its did exit full screen notification.
     func leaveWindowFullScreen(of page: any E2EPage) throws
+    /// From now on each toggle of `page`'s recorded full screen starts a transition and holds it, as macOS animates:
+    /// the recorder posts the window's will enter or will exit full screen notification at once, ignores (but counts)
+    /// toggles until the transition ends, and ends it only when the test calls `finishWindowFullScreenTransition`.
+    func holdWindowFullScreenTransitions(of page: any E2EPage) throws
+    /// Ends the held transition: the recorder takes the new state and the window posts its did enter or did exit
+    /// full screen notification, which the window's feature handles as it does for a real window. Throws when no
+    /// transition is in progress.
+    func finishWindowFullScreenTransition(of page: any E2EPage) throws
 }
