@@ -492,7 +492,7 @@ final class E2ETabPage: E2EPage {
     var finishedLoads: Int { loads.count }
 
     var permissionPrompt: E2EPermissionPrompt? {
-        guard isShown, let prompt = controller.e2ePermissionPrompts?.visiblePrompt else { return nil }
+        guard isShown, let prompt = controller.e2ePermissionPrompts?.visiblePrompt(for: tab) else { return nil }
         return E2EPermissionPrompt(
             kinds: Set(prompt.request.kinds.map(\.rawValue)),
             message: prompt.message,

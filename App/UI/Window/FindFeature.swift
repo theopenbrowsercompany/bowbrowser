@@ -1,8 +1,10 @@
 import AppKit
 import BowCore
 
-/// Find in page: the find bar floating over the page's top right corner (Edit > Find, Cmd+F), Find Next and Find
-/// Previous. The bar searches the tab it was opened over and closes when another tab is shown or that tab closes.
+/// Find in page: the find bar floating over the top right corner of the page it searches (Edit > Find, Cmd+F), Find
+/// Next and Find Previous. With a split view showing, the bar sits over the focused pane it was opened in, not the
+/// whole page area. The bar searches the tab it was opened over and closes when another tab becomes active (another
+/// pane taking focus included) or that tab closes.
 @MainActor
 final class FindFeature: NSResponder, BrowserWindowFeature {
     private unowned let window: BrowserWindowController
@@ -10,18 +12,16 @@ final class FindFeature: NSResponder, BrowserWindowFeature {
     let findBar = FindBar()
     /// The tab the find bar searches in while it is shown.
     private var findTab: (any EngineTab)?
+    /// The constraints holding the bar at its pane's top trailing corner.
+    private var anchor: [NSLayoutConstraint] = []
 
     init(window: BrowserWindowController) {
         self.window = window
         super.init()
-        let pageArea = window.pageArea
         findBar.isHidden = true
         findBar.translatesAutoresizingMaskIntoConstraints = false
-        pageArea.addSubview(findBar)
-        NSLayoutConstraint.activate([
-            findBar.topAnchor.constraint(equalTo: pageArea.topAnchor, constant: 12),
-            findBar.trailingAnchor.constraint(equalTo: pageArea.trailingAnchor, constant: -16),
-        ])
+        window.pageArea.addSubview(findBar)
+        anchorBar()
         findBar.onTextChange = { [weak self] _ in self?.runFind(forward: true) }
         findBar.onStep = { [weak self] forward in self?.runFind(forward: forward) }
         findBar.onClose = { [weak self] in self?.closeFindBar() }
@@ -46,7 +46,25 @@ final class FindFeature: NSResponder, BrowserWindowFeature {
         // The bar closes once the tab list's active tab is another one. This runs after the window shows that tab, so
         // the keyboard the bar gives back goes to the page now shown.
         guard let findTab, let active = window.tabList.activeID.flatMap(window.engineTab(for:)) else { return }
-        if findTab !== active { closeFindBar() }
+        if findTab !== active {
+            closeFindBar()
+        } else {
+            // The panes may have changed around it (a split showing or collapsing): the bar follows its pane.
+            anchorBar()
+        }
+    }
+
+    /// Holds the bar at the top trailing corner of the pane showing the tab it searches, or of the page area while
+    /// it searches none. Made again whenever the panes change, since a pane leaving the page area takes its
+    /// constraints with it.
+    private func anchorBar() {
+        let pane = findTab.flatMap(window.paneView(showing:)) ?? window.pageArea
+        NSLayoutConstraint.deactivate(anchor)
+        anchor = [
+            findBar.topAnchor.constraint(equalTo: pane.topAnchor, constant: 12),
+            findBar.trailingAnchor.constraint(equalTo: pane.trailingAnchor, constant: -16),
+        ]
+        NSLayoutConstraint.activate(anchor)
     }
 
     func tab(_ tab: any EngineTab, didReceive event: TabEvent) {
@@ -63,6 +81,7 @@ final class FindFeature: NSResponder, BrowserWindowFeature {
         guard let tab = window.selectedTab else { return }
         let wasShown = !findBar.isHidden
         findTab = tab
+        anchorBar()
         findBar.isHidden = false
         findBar.focus()
         if !wasShown { runFind(forward: true) }

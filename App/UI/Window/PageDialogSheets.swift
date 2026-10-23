@@ -74,6 +74,16 @@ final class PageDialogSheets {
         apply(policy.show(tab))
     }
 
+    /// The window now shows `tabs`, one per pane: a dialog from any of them comes up, focused pane or not.
+    func show(_ tabs: [TabID]) {
+        apply(policy.show(tabs))
+    }
+
+    /// The tab whose dialog the sheet on the window shows, nil while none is up.
+    var sheetTab: TabID? {
+        sheet.flatMap { policy.tab(of: $0.id) }
+    }
+
     /// `tab` started a navigation or lost its render process: its dialog belonged to the page it is leaving.
     func navigated(_ tab: TabID) {
         apply(policy.navigated(tab))

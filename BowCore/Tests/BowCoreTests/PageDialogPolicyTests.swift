@@ -113,6 +113,75 @@ import Testing
         _ = waiting
     }
 
+    // MARK: Panes
+
+    @Test func aDialogFromAnUnfocusedPaneComesUpAtOnce() {
+        var policy = Policy()
+        _ = policy.show(["a", "b"])
+        let (id, actions) = policy.request(dialog(.confirm), from: "b")
+        #expect(actions == [.present(id)])
+        #expect(policy.tab(of: id) == "b")
+        #expect(policy.answered(id, .ok) == [.answer(id, .ok)])
+    }
+
+    @Test func aSecondPaneWaitsForTheSheetUnansweredAndComesUpNext() {
+        var policy = Policy()
+        _ = policy.show(["a", "b"])
+        let (first, _) = policy.request(dialog(.alert), from: "a")
+        let (second, actions) = policy.request(dialog(.prompt), from: "b")
+        #expect(actions == [])
+        #expect(policy.presented == first)
+        #expect(policy.hasDialog(for: "b"))
+        #expect(policy.answered(first, .ok) == [.answer(first, .ok), .present(second)])
+        #expect(policy.presented == second)
+    }
+
+    @Test func aPaneLeavingTheScreenTakesItsWaitingDialogs() {
+        var policy = Policy()
+        _ = policy.show(["a", "b", "c"])
+        let (up, _) = policy.request(dialog(.alert), from: "a")
+        let (confirm, _) = policy.request(dialog(.confirm), from: "b")
+        let (alert, _) = policy.request(dialog(.alert), from: "c")
+        // b and c leave: b's waiting confirm is cancelled, c's waiting alert is answered and waits for c.
+        #expect(policy.show(["a"]) == [.answer(confirm, .cancelled), .answer(alert, .ok)])
+        #expect(policy.presented == up)
+        #expect(!policy.hasDialog(for: "b"))
+        #expect(policy.hasDialog(for: "c"))
+        // a's sheet ends; c's alert comes up once c shows again.
+        #expect(policy.answered(up, .ok) == [.answer(up, .ok)])
+        #expect(policy.show(["a", "c"]) == [.present(alert)])
+        #expect(policy.answered(alert, .ok) == [])
+    }
+
+    @Test func thePresentedPaneLeavingBringsUpTheNextPanesDialog() {
+        var policy = Policy()
+        _ = policy.show(["a", "b"])
+        let (up, _) = policy.request(dialog(.prompt), from: "a")
+        let (next, _) = policy.request(dialog(.confirm), from: "b")
+        #expect(
+            policy.show(["b"]) == [.dismiss(up), .answer(up, .cancelled), .present(next)])
+        #expect(policy.presented == next)
+    }
+
+    @Test func aPaneClosingOrNavigatingWithItsSheetUpBringsUpTheNext() {
+        var policy = Policy()
+        _ = policy.show(["a", "b", "c"])
+        let (up, _) = policy.request(dialog(.alert), from: "a")
+        let (second, _) = policy.request(dialog(.alert), from: "b")
+        let (third, _) = policy.request(dialog(.confirm), from: "c")
+        #expect(policy.closed("a") == [.dismiss(up), .answer(up, .cancelled), .present(second)])
+        #expect(policy.navigated("b") == [.dismiss(second), .answer(second, .cancelled), .present(third)])
+        #expect(policy.closeAll() == [.dismiss(third), .answer(third, .cancelled)])
+    }
+
+    @Test func reorderedPanesChangeNothing() {
+        var policy = Policy()
+        _ = policy.show(["a", "b"])
+        let (up, _) = policy.request(dialog(.confirm), from: "b")
+        #expect(policy.show(["b", "a"]) == [])
+        #expect(policy.presented == up)
+    }
+
     @Test func titleNamesTheOrigin() {
         func title(_ origin: String?) -> String {
             PageDialog(kind: .alert, origin: origin.flatMap(URL.init(string:)), message: "").title

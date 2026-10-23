@@ -42,7 +42,10 @@ extension E2ETestApp: E2ESplitApp {
             closeButtons: controller.feature(SplitViewFeature.self)?.paneCloseButtons.filter {
                 $0.button.superview != nil && !$0.button.isHidden
             }.count ?? 0,
-            keyboardInFocused: responder.map { $0 !== focused && $0.isDescendant(of: focused) } ?? false)
+            keyboardInFocused: responder.map { $0 !== focused && $0.isDescendant(of: focused) } ?? false,
+            splitOrientations: splits.map { graph.split($0)?.orientation.rawValue ?? "?" },
+            pinned: graph.activeSpace.map { graph.children(of: $0.pinnedContainerID).map(\.id).map(title) } ?? [],
+            loadedTabs: controller.tabs.count)
     }
 
     func setNewTabURL(_ url: URL, of page: any E2EPage) throws {
@@ -70,28 +73,102 @@ extension E2ETestApp: E2ESplitApp {
     }
 
     func dragPaneDivider(_ index: Int, to fraction: Double, besides page: any E2EPage) throws {
-        try adapter.requireActive(token, "drag a pane divider")
-        let controller = try E2EAppAdapter.tabPage(page).controller
-        let views = controller.paneViews
-        guard let container = views.first?.superview as? PaneContainer, views.count > index + 1 else {
+        try pressPaneDivider(besides: page)
+        try movePaneDivider(index, to: fraction, besides: page)
+        try releasePaneDivider(besides: page)
+    }
+
+    func pressPaneDivider(besides page: any E2EPage) throws {
+        try adapter.requireActive(token, "press a pane divider")
+        // What PaneContainer.mouseDown does before AppKit's tracking loop.
+        try Self.paneContainer(of: page).dividerDragBegan()
+    }
+
+    func releasePaneDivider(besides page: any E2EPage) throws {
+        try adapter.requireActive(token, "let go of a pane divider")
+        // What PaneContainer.mouseDown does once AppKit's tracking loop returns.
+        try Self.paneContainer(of: page).dividerDragEnded()
+    }
+
+    func movePaneDivider(_ index: Int, to fraction: Double, besides page: any E2EPage) throws {
+        try adapter.requireActive(token, "move a pane divider")
+        let container = try Self.paneContainer(of: page)
+        let views = container.subviews
+        guard views.count > index + 1 else {
             throw E2EError("the window shows no divider \(index) (panes=\(views.count))")
         }
         // Where AppKit's drag leaves the two panes beside the divider, then the notification it sends naming it.
-        let left = views[index]
-        let right = views[index + 1]
-        let start = left.frame.minX
-        let end = right.frame.maxX
-        let position = (container.bounds.width * CGFloat(fraction)).rounded()
-        guard position > start, position + container.dividerThickness < end else {
-            throw E2EError("the divider cannot move to \(fraction) of the width")
+        let sideBySide = container.isVertical
+        let before = views[index]
+        let after = views[index + 1]
+        let start = sideBySide ? before.frame.minX : before.frame.minY
+        let end = sideBySide ? after.frame.maxX : after.frame.maxY
+        let length = sideBySide ? container.bounds.width : container.bounds.height
+        let position = (length * CGFloat(fraction)).rounded()
+        let thickness = container.dividerThickness
+        guard position > start, position + thickness < end else {
+            throw E2EError("the divider cannot move to \(fraction) of the length")
         }
-        left.frame = NSRect(x: left.frame.minX, y: 0, width: position - start, height: left.frame.height)
-        let rightStart = position + container.dividerThickness
-        right.frame = NSRect(x: rightStart, y: 0, width: end - rightStart, height: right.frame.height)
+        if sideBySide {
+            before.frame = NSRect(x: start, y: 0, width: position - start, height: before.frame.height)
+            after.frame = NSRect(
+                x: position + thickness, y: 0, width: end - position - thickness, height: after.frame.height)
+        } else {
+            before.frame = NSRect(x: 0, y: start, width: before.frame.width, height: position - start)
+            after.frame = NSRect(
+                x: 0, y: position + thickness, width: after.frame.width, height: end - position - thickness)
+        }
         container.splitViewDidResizeSubviews(
             Notification(
                 name: NSSplitView.didResizeSubviewsNotification, object: container,
                 userInfo: ["NSSplitViewDividerIndex": index]))
+    }
+
+    func chooseStackedSplit(top: Bool, in page: any E2EPage) throws {
+        try adapter.requireActive(token, "choose a stacked split")
+        try adapter.chooseMenuItem(path: ["View", top ? "Add Top Split" : "Add Bottom Split"], in: page)
+    }
+
+    func splitMenuItemsEnabled(in page: any E2EPage) throws -> [String: Bool] {
+        try adapter.requireActive(token, "read the split menu items")
+        let controller = try E2EAppAdapter.tabPage(page).controller
+        guard let feature = controller.feature(SplitViewFeature.self),
+            let view = NSApp.mainMenu?.items.first(where: { $0.title == "View" })?.submenu
+        else { throw E2EError("the app has no View menu or split view feature") }
+        var result: [String: Bool] = [:]
+        for title in ["Add Split View", "Add Top Split", "Add Bottom Split"] {
+            guard let item = view.items.first(where: { $0.title == title }) else {
+                throw E2EError("View has no \(title)")
+            }
+            result[title] = feature.validateMenuItem(item)
+        }
+        return result
+    }
+
+    func paneOverlays(besides page: any E2EPage) throws -> E2EPaneOverlays {
+        try adapter.requireActive(token, "read the pane overlays")
+        let controller = try E2EAppAdapter.tabPage(page).controller
+        guard let window = controller.window else { throw E2EError("the page has no window") }
+        controller.pageArea.layoutSubtreeIfNeeded()
+        let findBar = controller.e2eFindBar
+        let sheet = controller.feature(PageDialogsFeature.self)?.sheet?.alert.window
+        let attached = sheet.flatMap { $0.sheetParent === window ? $0 : nil }
+        let prompts = window.childWindows?.compactMap { $0 as? PermissionPromptPanel } ?? []
+        return E2EPaneOverlays(
+            panes: controller.paneViews.map { $0.convert($0.bounds, to: nil) },
+            findBar: findBar.isHidden ? nil : findBar.convert(findBar.bounds, to: nil),
+            sheet: attached.map { window.convertFromScreen($0.frame) },
+            prompts: prompts.filter(\.isVisible).map { window.convertFromScreen($0.frame) },
+            windowOffScreen: !NSScreen.screens.contains { $0.frame.intersects(window.frame) })
+    }
+
+    /// The split view holding the panes of `page`'s window.
+    private static func paneContainer(of page: any E2EPage) throws -> PaneContainer {
+        let views = try E2EAppAdapter.tabPage(page).controller.paneViews
+        guard let container = views.first?.superview as? PaneContainer, views.count > 1 else {
+            throw E2EError("the window shows no split (panes=\(views.count))")
+        }
+        return container
     }
 
     func relaunchWithBrokenSplits(of page: any E2EPage, lone: String) async throws -> any E2EPage {

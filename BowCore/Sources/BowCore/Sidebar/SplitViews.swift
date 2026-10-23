@@ -92,7 +92,8 @@ extension SidebarGraph {
         let panes = splitPaneIDs(splitID)
         guard panes.count >= SidebarSplit.minimumPanes, panes.contains(active) else { return nil }
         return SplitPanes(
-            splitID: splitID, panes: panes, focused: active, fractions: splitWidthFractions(splitID))
+            splitID: splitID, panes: panes, focused: active, fractions: splitWidthFractions(splitID),
+            orientation: split(splitID)?.orientation ?? .horizontal)
     }
 
     /// What opening `tab` in a split view beside the active tab `active` does (a tab row's "Open in Split View"):
@@ -111,18 +112,29 @@ extension SidebarGraph {
         return .create([active, tab])
     }
 
-    /// Where a new tab goes to open as a pane beside the active tab `active` (Add Split View): into `active`'s split
-    /// when it is a pane, otherwise into a new split with `active`. New tabs open in the today section, so this is
-    /// nil unless `active` (or its split) sits in its Space's today section, and nil when the split is full.
-    public func newPanePlacement(besides active: SidebarItemID?) -> NewPanePlacement? {
-        guard let active, items[active]?.data.isTab == true, let spaceID = spaceID(containing: active),
-            let today = space(spaceID)?.unpinnedContainerID, sectionID(of: active) == today
+    /// Where a new tab goes to open as a pane on `edge` of the active tab `active` (Add Split View, Add Top Split, Add
+    /// Bottom Split): into `active`'s split when it is a pane, otherwise into a new split with `active` in its place,
+    /// in whatever section holds it (today, pinned, a folder), as Arc allows a split from a pinned tab.
+    ///
+    /// Add Split View adds the last pane of any split; Add Top Split and Add Bottom Split make or extend a stacked
+    /// split, with the new pane first or last. Nil when there is no active tab, it is a Favorite (which never joins a
+    /// split), the split is full, or a top or bottom pane would join a split whose panes sit side by side (a split
+    /// has one layout).
+    public func newPanePlacement(besides active: SidebarItemID?, edge: NewPaneEdge = .trailing) -> NewPanePlacement? {
+        guard let active, items[active]?.data.isTab == true, spaceID(containing: active) != nil,
+            !isInFavorites(active)
         else { return nil }
         if let splitID = splitID(containing: active) {
-            guard splitPaneIDs(splitID).count < SidebarSplit.maximumPanes else { return nil }
-            return .addPane(to: splitID)
+            let count = splitPaneIDs(splitID).count
+            guard count < SidebarSplit.maximumPanes else { return nil }
+            switch edge {
+            case .trailing: return .addPane(to: splitID, at: count)
+            case .top, .bottom:
+                guard split(splitID)?.orientation == .vertical else { return nil }
+                return .addPane(to: splitID, at: edge == .top ? 0 : count)
+            }
         }
-        return .createWith(active)
+        return .createWith(active, orientation: edge.orientation, newPaneFirst: edge == .top)
     }
 
     /// The saved focus when it is still a pane, otherwise nil (so a stale focus never blocks a layout change).
@@ -344,6 +356,48 @@ extension SidebarStore {
         try transaction {
             try mutate(.move(tab, parent: splitID, index: position))
             try mutate(.setSplitLayout(splitID, widthFactors: factors, focusedItemID: focused))
+        }
+    }
+
+    /// Opens `tab` (a new tab, wherever it was put) as a pane on `edge` of the active tab `active`, as
+    /// `SidebarGraph.newPanePlacement(besides:edge:)` places it: a new split of the two takes `active`'s place in its
+    /// section (today, pinned or a folder), laid out for `edge`, with equal panes; or `tab` joins `active`'s split,
+    /// taking an equal share. `tab` moves into `active`'s section first, so it is pinned beside a pinned tab. Focus
+    /// goes to `tab`. Returns the split. Refused, changing nothing, where no placement is allowed, or when `tab` is
+    /// `active`, is not a tab, is already in a split or is a Favorite.
+    @discardableResult
+    public func openNewPane(
+        _ tab: SidebarItemID, besides active: SidebarItemID, edge: NewPaneEdge = .trailing,
+        splitID newID: SidebarItemID = .make()
+    ) throws -> SidebarItemID {
+        let graph = self.graph
+        guard tab != active, let placement = graph.newPanePlacement(besides: active, edge: edge) else {
+            throw SidebarStoreError.invalidHierarchy("no pane can open beside \(active) there")
+        }
+        try requireSplittable(tab, in: graph)
+        switch placement {
+        case .createWith(let active, let orientation, let newPaneFirst):
+            guard let parentID = graph[active]?.parentID,
+                let position = graph[parentID]?.childrenIDs.firstIndex(of: active)
+            else { throw SidebarStoreError.invalidHierarchy("\(active) has no place for a split") }
+            let tabs = newPaneFirst ? [tab, active] : [active, tab]
+            try transaction {
+                try mutate(.insert(.split(id: newID, orientation: orientation), parent: parentID, index: position))
+                for pane in tabs { try mutate(.move(pane, parent: newID)) }
+                try mutate(.setSplitLayout(newID, widthFactors: [1, 1], focusedItemID: tab))
+            }
+            return newID
+        case .addPane(let splitID, let index):
+            let count = graph.splitPaneIDs(splitID).count
+            let share = 1 / Double(count + 1)
+            var factors = graph.splitWidthFractions(splitID).map { $0 * (1 - share) }
+            factors.insert(share, at: index)
+            factors = SidebarSplit.keepingMinimum(factors)
+            try transaction {
+                try mutate(.move(tab, parent: splitID, index: index))
+                try mutate(.setSplitLayout(splitID, widthFactors: factors, focusedItemID: tab))
+            }
+            return splitID
         }
     }
 
