@@ -245,9 +245,21 @@ public enum TabEvent: Equatable, Sendable {
     /// The page was unloaded by `EngineTab.unload()`: its browser is gone and the tab is closed, but the app keeps
     /// its model to load it again later. Sent once, as the tab's last event, instead of `closed`.
     case unloaded
-    /// The page has been destroyed, whoever closed it: the app, quitting, or the page itself. Sent
-    /// once, as the tab's last event (a tab that was unloaded sends `unloaded` instead).
+    /// The page has been destroyed, whoever closed it: the app, quitting, or the page itself
+    /// (`EngineTab.closeReason` says which). Sent once, as the tab's last event (a tab that was unloaded sends
+    /// `unloaded` instead).
     case closed
+}
+
+/// Why a tab closed, read from `EngineTab.closeReason` once it has.
+public enum TabCloseReason: Equatable, Sendable {
+    /// The app closed it with `EngineTab.close()`.
+    case app
+    /// The engine closed it without the app asking: the page called `window.close()`, or the engine could not
+    /// create the page at all. A window removes such a tab from its list.
+    case page
+    /// Quitting the engine closed it.
+    case quit
 }
 
 /// Errors the engine reports to the app.

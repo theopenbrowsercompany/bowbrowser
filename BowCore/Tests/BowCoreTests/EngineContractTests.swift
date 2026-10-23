@@ -167,6 +167,7 @@ import Testing
         #expect(mock.calls == [.close, .close, .close])
         #expect(engine.openTabs.isEmpty)
         #expect(delegate.events == [.closed])
+        #expect(tab.closeReason == .app)
     }
 
     @Test func pageClosingItselfSendsClosed() {
@@ -181,6 +182,7 @@ import Testing
 
         #expect(tab.isClosed)
         #expect(delegate.events == [.closed])
+        #expect(tab.closeReason == .page)
     }
 
     @Test func quitClosesEveryTab() async throws {
@@ -199,6 +201,7 @@ import Testing
         #expect(engine.openTabs.isEmpty)
         #expect(first.isClosed && second.isClosed)
         #expect(delegate.events == [.closed, .closed])
+        #expect(first.closeReason == .quit && second.closeReason == .quit)
         #expect(engine.calls.last == .quit)
     }
 
