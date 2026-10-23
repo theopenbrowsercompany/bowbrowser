@@ -153,9 +153,12 @@ struct DesignScreensTest: E2ETest {
                 "Home",
                 pinned: [
                     .tab("Docs", url: DesignTests.url("Docs")),
-                    .folder("Projects", [
-                        .tab("Plan", url: DesignTests.url("Plan")), .tab("Roadmap", url: DesignTests.url("Roadmap")),
-                    ]),
+                    .folder(
+                        "Projects",
+                        [
+                            .tab("Plan", url: DesignTests.url("Plan")),
+                            .tab("Roadmap", url: DesignTests.url("Roadmap")),
+                        ]),
                 ],
                 today: [.tab("Reading", url: DesignTests.url("Reading"))])
         ])
