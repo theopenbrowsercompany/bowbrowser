@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Reparent</title>
+  <style>
+    body { margin: 0; font: 16px -apple-system, sans-serif; background: #fff; color: #111; }
+    form { padding: 16px; display: grid; gap: 8px; width: 360px; }
+    input, textarea, select { font: inherit; }
+    video { display: block; margin: 16px; width: 320px; height: 180px; background: #000; }
+  </style>
+  <script>
+    // Spike S1: a page whose state would be lost by a reload. sessionStorage counts loads in this tab and
+    // bowLoadID changes with every new document, so a hidden reload during a move shows up.
+    const loads = Number(sessionStorage.getItem("loads") || 0) + 1;
+    sessionStorage.setItem("loads", String(loads));
+    window.bowLoadID = String(Math.random()).slice(2) + "-" + Date.now();
+    window.bowEvents = { contextmenu: [], composition: [], focus: 0, blur: 0, resize: 0 };
+    addEventListener("contextmenu", (event) => {
+      // Recorded and cancelled, so no native menu ever shows during the e2e run.
+      bowEvents.contextmenu.push({ x: event.clientX, y: event.clientY, target: event.target.id || event.target.tagName });
+      event.preventDefault();
+    });
+    addEventListener("compositionstart", (e) => bowEvents.composition.push("start:" + e.data));
+    addEventListener("compositionupdate", (e) => bowEvents.composition.push("update:" + e.data));
+    addEventListener("compositionend", (e) => bowEvents.composition.push("end:" + e.data));
+    addEventListener("focus", () => bowEvents.focus++);
+    addEventListener("blur", () => bowEvents.blur++);
+    addEventListener("resize", () => bowEvents.resize++);
+  </script>
+</head>
+<body>
+  <form onsubmit="return false">
+    <input id="name" placeholder="Name">
+    <input id="ime" placeholder="IME target">
+    <textarea id="notes" placeholder="Notes"></textarea>
+    <select id="plan"><option value="free">Free</option><option value="pro">Pro</option><option value="team">Team</option></select>
+    <label><input id="agree" type="checkbox"> Agree</label>
+    <input id="file" type="file">
+  </form>
+  <video id="video" src="clip.webm" muted autoplay loop playsinline></video>
+  <script>
+    // A media pipeline that restarts (a new element load) shows up as loadstart or emptied after the first.
+    window.bowMedia = { loadstart: 0, emptied: 0, pause: 0, waiting: 0 };
+    for (const type of Object.keys(bowMedia)) video.addEventListener(type, () => bowMedia[type]++);
+  </script>
+</body>
+</html>

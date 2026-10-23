@@ -242,3 +242,61 @@ private final class TabPage: E2EPage {
 private struct MainThreadResult: @unchecked Sendable {
     let value: [String: Any]
 }
+
+// MARK: Spike S1 (throwaway): moving a live tab between host views and windows.
+
+/// A floating panel for the spike, off every screen and never key, like `OffscreenBrowserWindow`.
+final class SpikeOffscreenPanel: NSPanel {
+    override var canBecomeKey: Bool { false }
+    override var canBecomeMain: Bool { false }
+    override var isRestorable: Bool {
+        get { false }
+        set {}
+    }
+    override func constrainFrameRect(_ frameRect: NSRect, to screen: NSScreen?) -> NSRect { frameRect }
+}
+
+@MainActor
+enum SpikeStorage {
+    static var panels: [NSPanel] = []
+}
+
+extension E2EAppAdapter {
+    /// Opens an off-screen floating panel holding an empty host view of its own size, and returns the host.
+    func spikeOpenPanel() async throws -> BowWebView {
+        let frame = NSRect(x: -20_000, y: -21_000, width: 900, height: 700)
+        let panel = SpikeOffscreenPanel(
+            contentRect: frame,
+            styleMask: [.titled, .closable, .resizable, .utilityWindow, .nonactivatingPanel],
+            backing: .buffered,
+            defer: false
+        )
+        panel.isFloatingPanel = true
+        panel.hidesOnDeactivate = false
+        panel.isReleasedWhenClosed = false
+        let host = BowWebView(frame: NSRect(origin: .zero, size: frame.size))
+        panel.contentView = host
+        panel.setFrame(panel.frameRect(forContentRect: frame), display: false)
+        try await Self.checkInvisible(panel)
+        panel.orderFrontRegardless()
+        try await Self.checkInvisible(panel)
+        SpikeStorage.panels.append(panel)
+        return host
+    }
+
+    /// The host view of the window `page` was opened in.
+    func spikeWindowHost(of page: any E2EPage) throws -> BowWebView {
+        try Self.tabPage(page).controller.webView
+    }
+
+    func spikeTabID(of page: any E2EPage) throws -> UInt64 {
+        try Self.tabPage(page).tab.tabID.rawValue
+    }
+
+    /// Moves the live tab of `page` into `host`, wherever it is shown now, and checks the host shows it.
+    func spikeMove(_ page: any E2EPage, to host: BowWebView) throws {
+        let tab = try Self.tabPage(page).tab
+        host.show(tab)
+        guard host.isShowing(tab) else { throw E2EError("the host does not show the tab after the move") }
+    }
+}
