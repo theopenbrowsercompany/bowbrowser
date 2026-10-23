@@ -68,10 +68,18 @@ import Foundation
         self.isPersistent = isPersistent
     }
 
+    /// Every permission answer stored in this profile's engine settings, in order.
+    public private(set) var storedPermissions: [(setting: SitePermissionSetting, kind: PermissionKind, site: PermissionSite)] =
+        []
+
     public func createTab(url: URL) -> any EngineTab {
         let tab = MockTab(id: engine.nextTabID(), profileID: profileID, initialURL: url)
         tabs.append(tab)
         return tab
+    }
+
+    public func setPermission(_ setting: SitePermissionSetting, for kind: PermissionKind, on site: PermissionSite) {
+        storedPermissions.append((setting, kind, site))
     }
 }
 
@@ -150,6 +158,12 @@ import Foundation
         var newState = state
         change(&newState)
         emit(.stateChanged(newState))
+    }
+
+    /// Asks the delegate to answer a permission request as the engine would; `.dismiss` without a delegate.
+    public func requestPermission(_ request: PermissionRequest) async -> PermissionDecision {
+        guard let delegate else { return .dismiss }
+        return await delegate.tab(self, decidePermission: request)
     }
 
     /// Asks the delegate for a navigation policy as the engine would; `.allow` without a delegate.
