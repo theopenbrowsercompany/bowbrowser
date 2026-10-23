@@ -11,7 +11,7 @@ E2E ?= all
 # scripts/e2e.sh alone, quoted for the shell.
 unexport E2E
 
-.PHONY: bootstrap hooks project build test test-lock test-e2e-wrapper test-prune test-affected test-scripts run smoke e2e e2e-run format lint guards release verify check done test-done clean
+.PHONY: bootstrap hooks project build test test-lock test-e2e-wrapper test-prune test-affected test-scripts run smoke e2e e2e-run format lint guards release verify check done test-done test-refcount clean
 
 bootstrap: hooks
 	./scripts/bootstrap-cef.sh
@@ -52,7 +52,7 @@ test-affected:
 	./scripts/test-e2e-affected.sh
 
 # The script self tests verify runs when scripts/ or the Makefile differ from origin/main.
-test-scripts: test-e2e-wrapper test-prune test-affected test-done
+test-scripts: test-e2e-wrapper test-prune test-affected test-done test-refcount
 
 run: build
 	open $(APP)
@@ -82,6 +82,7 @@ guards:
 	./scripts/check-e2e-seams.sh
 	./scripts/check-swift-headers.sh
 	./scripts/check-lists.sh
+	./scripts/check-cef-refcount.sh
 
 # Release builds must leave out the e2e harness and its fixtures.
 release: project
@@ -107,6 +108,10 @@ done:
 # Tests scripts/done.sh, the refusal and the report block, with a fake make (about a second).
 test-done:
 	./scripts/test-done.sh
+
+# Tests scripts/check-cef-refcount.sh, the guard against Release, AddRef and HasOneRef declarations (under a second).
+test-refcount:
+	./scripts/test-check-cef-refcount.sh
 
 clean:
 	rm -rf $(BUILD_DIR) Bow.xcodeproj Generated
