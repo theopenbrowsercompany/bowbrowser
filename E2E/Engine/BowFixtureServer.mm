@@ -1,4 +1,5 @@
-#include "BowFixtureServer.h"
+#import "BowFixtureServer.h"
+#include "BowFixtureServer+Internal.h"
 
 #include <sys/stat.h>
 

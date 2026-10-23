@@ -14,6 +14,8 @@ final class E2ERunner {
     static let engineStartTimeout: TimeInterval = 60
     /// Quitting is checked against its own limit; this only stops a quit that hangs.
     static let quitHangTimeout: TimeInterval = 15
+    /// The file that marks a folder as an e2e run folder, which a later run may reuse.
+    static let runMarkerName = ".bow-e2e-run"
 
     let engineConfiguration: BowEngineConfiguration
 
@@ -35,8 +37,19 @@ final class E2ERunner {
 
         let fileManager = FileManager.default
         var runDirectory = URL(fileURLWithPath: outputPath, isDirectory: true).standardizedFileURL
+        // The run deletes <out>/profile, so it only reuses a folder an earlier run made (and marked).
+        let marker = runDirectory.appendingPathComponent(Self.runMarkerName)
+        if fileManager.fileExists(atPath: runDirectory.path) && !fileManager.fileExists(atPath: marker.path) {
+            throw E2EError(
+                "--e2e-out=\(outputPath) already exists and was not made by an e2e run; "
+                    + "give a new folder (make e2e uses build/e2e/<run>)"
+            )
+        }
         do {
             try fileManager.createDirectory(at: runDirectory, withIntermediateDirectories: true)
+            guard fileManager.createFile(atPath: marker.path, contents: Data("Made by a Bow e2e run.\n".utf8)) else {
+                throw E2EError("cannot write \(marker.path)")
+            }
             // Chromium needs the real path: with a symlink in it (/tmp, a linked checkout) it silently keeps the
             // profile in memory. Resolve it once the folder exists.
             // (resolvingSymlinksInPath would turn /private/tmp back into /tmp, so use realpath.)
@@ -77,6 +90,7 @@ final class E2ERunner {
             "disable-component-update": "",
             "disable-background-networking": "",
             "no-first-run": "",
+            "no-proxy-server": "",
             "host-resolver-rules": "MAP * ~NOTFOUND",
             // The same colors and language on every machine.
             "force-color-profile": "srgb",
@@ -102,6 +116,7 @@ final class E2ERunner {
         Task {
             for test in tests {
                 let run = E2ERun(runner: self, test: test.name, app: app)
+                run.armTestLimit()
                 do {
                     try await test.run(run)
                 } catch {
@@ -120,7 +135,9 @@ final class E2ERunner {
         if let quitCheck {
             let seconds = BowEngine.quitDuration
             let limit = Self.format(quitCheck.limit)
-            if seconds < quitCheck.limit {
+            if seconds <= 0 {
+                record(quitCheck.name, passed: false, detail: "the quit clock never started, so quitting was not timed")
+            } else if seconds < quitCheck.limit {
                 record(quitCheck.name, passed: true, detail: "seconds<\(limit)")
             } else {
                 record(quitCheck.name, passed: false, detail: "seconds=\(Self.format(seconds)), limit \(limit)")
@@ -186,11 +203,12 @@ final class E2ERunner {
 @MainActor
 final class E2ERun {
     let app: any E2EApp
-    /// The step running now, for FAIL lines.
-    private(set) var currentStep = "start"
+    /// The step running now (or `after <step>` between steps), for FAIL and TIMEOUT lines.
+    private(set) var currentStep = "before the first step"
 
     private unowned let runner: E2ERunner
     private let test: String
+    private let deadline = Date(timeIntervalSinceNow: E2ERun.testTimeout)
 
     fileprivate init(runner: E2ERunner, test: String, app: any E2EApp) {
         self.runner = runner
@@ -198,11 +216,28 @@ final class E2ERun {
         self.app = app
     }
 
-    /// Runs one step. If it has not finished after `timeout` seconds, the run ends with `E2E: TIMEOUT`.
+    /// Runs one step. If it has not finished after `timeout` seconds (or the test's own limit runs out first),
+    /// the run ends with `E2E: TIMEOUT <test>: <step>`. Afterwards the watchdog falls back to the test's limit.
     func step<T>(_ name: String, timeout: TimeInterval, _ body: () async throws -> T) async throws -> T {
         currentStep = name
-        runner.arm("\(test): \(name)", timeout: timeout)
+        let limitedByTest = remainingTime < timeout
+        runner.arm(
+            "\(test): \(name)\(limitedByTest ? " (the test's \(Int(Self.testTimeout)) s limit)" : "")",
+            timeout: min(timeout, remainingTime))
+        defer {
+            currentStep = "after \(name)"
+            armTestLimit()
+        }
         return try await body()
+    }
+
+    /// The whole test, steps and code between them, must finish within this many seconds.
+    static let testTimeout: TimeInterval = 120
+    private var remainingTime: TimeInterval { max(deadline.timeIntervalSinceNow, 0.001) }
+
+    /// Times code outside steps against the test's limit, named after the last step that finished.
+    fileprivate func armTestLimit() {
+        runner.arm("\(test): \(currentStep)", timeout: remainingTime)
     }
 
     /// Records a check, printing `PASS name: detail` or `FAIL name: detail`.

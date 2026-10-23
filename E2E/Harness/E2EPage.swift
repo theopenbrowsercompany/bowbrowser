@@ -16,9 +16,13 @@ protocol E2EApp: AnyObject {
 /// One web page in a browser window.
 @MainActor
 protocol E2EPage: AnyObject {
-    /// Waits until the main frame finishes loading and returns its HTTP status, or throws if loading failed.
-    /// Returns at once when a load finished since the last call.
-    func waitForLoad() async throws -> Int
+    /// How many main frame loads have finished (or failed) in this page so far, starting at 0 when the window
+    /// opens. Read it before starting a navigation and pass it to `waitForLoad(after:)`.
+    var finishedLoads: Int { get }
+    /// Waits for load number `finishedLoads + 1` to finish and returns its HTTP status, or throws if it failed.
+    /// Returns at once when that load already finished; loads that finished before it never count.
+    /// The window's first page is `waitForLoad(after: 0)`.
+    func waitForLoad(after finishedLoads: Int) async throws -> Int
     /// Calls a Chrome DevTools protocol method and returns its result object.
     func devTools(_ method: String, _ params: [String: Any]) async throws -> [String: Any]
 }

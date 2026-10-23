@@ -8,7 +8,7 @@ SWIFT_SOURCES := App/UI E2E BowCore
 # The e2e test `make e2e` runs: all, or one name such as app.quit.
 E2E ?= all
 
-.PHONY: bootstrap hooks project build test run smoke e2e format lint seams verify clean
+.PHONY: bootstrap hooks project build test run smoke e2e format lint guards release verify clean
 
 bootstrap: hooks
 	./scripts/bootstrap-cef.sh
@@ -46,10 +46,14 @@ lint:
 	swift format lint --strict --recursive $(SWIFT_SOURCES)
 
 # App code may reach the e2e harness only through its marked seams.
-seams:
+guards:
 	./scripts/check-e2e-seams.sh
 
-verify: lint seams test build
+# Release builds must leave out the e2e harness and its fixtures.
+release: project
+	./scripts/check-release.sh
+
+verify: lint guards test build release
 
 clean:
 	rm -rf $(BUILD_DIR) Bow.xcodeproj Generated
