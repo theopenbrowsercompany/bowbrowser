@@ -32,7 +32,7 @@ Start every session in `~/code/GitHub/bowbrowser`: the maintainer's `.claude/set
 - `App/Engine/BowE2EHooks.h`: the single engine seam header, declaring what the harness needs from the engine and nothing the app uses, behind `BOW_E2E`.
   Harness code never holds app logic, and app code never depends on the harness: `App/` and `BowCore/` reach `E2E/` only through `BowE2EHooks.h` and lines marked `E2E seam` inside an `#if BOW_E2E` block, which `make guards` checks; `make release` checks that Release builds leave the harness out.
 - `App/Helper/`: the CEF helper process. It starts Chromium's macOS sandbox before loading CEF, and the build packages it as the ad hoc signed helper apps Chromium needs (GPU, renderer, plugin, alerts).
-- `BowCore/`: a Swift package for browser logic that needs no UI or engine (today: address and search input). Its tests run in seconds.
+- `BowCore/`: a Swift package for browser decisions, which take and return plain values and need no UI or engine (address and search input, and more as decisions move in). Its tests run in seconds.
 - `cef.lock`: the pinned CEF version and checksum. `Vendor/cef` links to one shared copy outside the repository and is gitignored.
 - `.gitattributes` merges the one-entry-per-line lists (`WindowFeatures.swift`, `AppFeatures.swift`, `E2EAreas.swift`, the sidebar's `SidebarSectionList.swift`, `SidebarMenuList.swift`, `SidebarDropRuleList.swift` and `SidebarAccessoryList.swift`, the bridging header) by union, so two branches that each add a line do not conflict; `make guards` fails on a duplicate entry, a duplicate test name or a line that breaks the format.
 - `project.yml`: XcodeGen spec. `Bow.xcodeproj` is generated from it and not committed, so edit `project.yml`, never the project file.
@@ -87,7 +87,7 @@ Start every session in `~/code/GitHub/bowbrowser`: the maintainer's `.claude/set
 
 - Bow behaves and acts the way Arc does, and extensions come later.
   Where a work item leaves product behavior open (shortcuts, menus, where tabs go, drag behavior, defaults), match Arc's behavior as the private research or Arc's published help pages describe it, and never guess.
-- Browser decisions (rules, ordering, what happens when, which item is chosen, defaults) live in `BowCore` with unit tests that cover their cases, including edge cases; the app and engine layers stay thin wiring around them.
+- Browser decisions (rules, ordering, what happens when, which item is chosen, defaults) live in `BowCore` with unit tests that cover their cases, including edge cases; the app and engine layers stay thin wiring around them, and wiring with no decision in it needs no unit test.
 - Verify each change end to end in the running app with the command its last "Done when" item names (usually `make e2e`).
   End to end covers each "Done when" item's wiring once in the running app, not every case of the logic.
 - When behavior changes, extend the spec in `spec/` that covers the area in the same change, and start a new one only when none does.
