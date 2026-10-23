@@ -103,25 +103,135 @@ import Testing
 
     // MARK: Add Split View (a new tab as a pane)
 
-    @Test func aNewPaneGoesIntoANewSplitOrTheActiveTabsSplitInToday() throws {
+    @Test func aNewPaneGoesIntoANewSplitOrTheActiveTabsSplit() throws {
         try withTemporaryFolder { folder in
             let store = try makeStore(in: folder)
-            #expect(store.graph.newPanePlacement(besides: "a") == .createWith("a"))
-            #expect(store.graph.newPanePlacement(besides: "in-folder") == .createWith("in-folder"))
+            let side = NewPanePlacement.createWith("a", orientation: .horizontal, newPaneFirst: false)
+            #expect(store.graph.newPanePlacement(besides: "a") == side)
+            #expect(
+                store.graph.newPanePlacement(besides: "in-folder")
+                    == .createWith("in-folder", orientation: .horizontal, newPaneFirst: false))
             try store.createSplit(from: ["b", "c", "d"], id: "s")
-            #expect(store.graph.newPanePlacement(besides: "c") == .addPane(to: "s"))
+            #expect(store.graph.newPanePlacement(besides: "c") == .addPane(to: "s", at: 3))
             try store.addPane("e", to: "s")
             #expect(store.graph.newPanePlacement(besides: "c") == nil)
         }
     }
 
-    @Test func aNewPaneIsRefusedBesideAPinnedTabAFavoriteOrNothing() throws {
+    @Test func aNewPaneOpensBesideAPinnedTabAsArcAllows() throws {
         try withTemporaryFolder { folder in
             let store = try makeStore(in: folder)
-            #expect(store.graph.newPanePlacement(besides: "p") == nil)
+            #expect(
+                store.graph.newPanePlacement(besides: "p")
+                    == .createWith("p", orientation: .horizontal, newPaneFirst: false))
+            try store.createSplit(from: ["p", "q"], id: "s")
+            #expect(store.graph.newPanePlacement(besides: "q") == .addPane(to: "s", at: 2))
+        }
+    }
+
+    @Test func topAndBottomSplitsAreStacked() throws {
+        try withTemporaryFolder { folder in
+            let store = try makeStore(in: folder)
+            #expect(
+                store.graph.newPanePlacement(besides: "a", edge: .top)
+                    == .createWith("a", orientation: .vertical, newPaneFirst: true))
+            #expect(
+                store.graph.newPanePlacement(besides: "a", edge: .bottom)
+                    == .createWith("a", orientation: .vertical, newPaneFirst: false))
+            try store.createSplit(from: ["b", "c"], orientation: .vertical, id: "v")
+            #expect(store.graph.newPanePlacement(besides: "c", edge: .top) == .addPane(to: "v", at: 0))
+            #expect(store.graph.newPanePlacement(besides: "c", edge: .bottom) == .addPane(to: "v", at: 2))
+            // Add Split View extends a stacked split at its end too.
+            #expect(store.graph.newPanePlacement(besides: "c", edge: .trailing) == .addPane(to: "v", at: 2))
+            // A side by side split has one layout: no top or bottom pane joins it.
+            try store.createSplit(from: ["d", "e"], id: "h")
+            #expect(store.graph.newPanePlacement(besides: "d", edge: .top) == nil)
+            #expect(store.graph.newPanePlacement(besides: "d", edge: .bottom) == nil)
+            #expect(store.graph.newPanePlacement(besides: "d", edge: .trailing) == .addPane(to: "h", at: 2))
+        }
+    }
+
+    @Test func aNewPaneIsRefusedBesideAFavoriteOrNothing() throws {
+        try withTemporaryFolder { folder in
+            let store = try makeStore(in: folder)
             #expect(store.graph.newPanePlacement(besides: "fav") == nil)
+            #expect(store.graph.newPanePlacement(besides: "fav", edge: .top) == nil)
             #expect(store.graph.newPanePlacement(besides: nil) == nil)
             #expect(store.graph.newPanePlacement(besides: "folder") == nil)
+            #expect(store.graph.newPanePlacement(besides: "missing") == nil)
+        }
+    }
+
+    // MARK: Opening a new tab as a pane
+
+    @Test func aNewPaneBesideAPinnedTabMakesAPinnedSplitInItsPlace() throws {
+        try withTemporaryFolder { folder in
+            let store = try makeStore(in: folder)
+            let space = store.graph.spaces[0]
+            let split = try store.openNewPane("f", besides: "q", splitID: "s")
+            #expect(split == "s")
+            #expect(store.graph.children(of: space.pinnedContainerID).map(\.id) == ["p", "s"])
+            #expect(store.graph.splitPaneIDs("s") == ["q", "f"])
+            #expect(store.graph.isPinned("f"))
+            #expect(store.graph.split("s")?.orientation == .horizontal)
+            #expect(store.graph.focusedSplitPaneID("s") == "f")
+            #expect(!store.graph.children(of: space.unpinnedContainerID).map(\.id).contains("f"))
+        }
+    }
+
+    @Test func aNewPaneBesideAFolderTabMakesTheSplitInTheFolder() throws {
+        try withTemporaryFolder { folder in
+            let store = try makeStore(in: folder)
+            try store.openNewPane("f", besides: "in-folder", edge: .top, splitID: "s")
+            #expect(store.graph.children(of: "folder").map(\.id) == ["s"])
+            #expect(store.graph.splitPaneIDs("s") == ["f", "in-folder"])
+            #expect(store.graph.split("s")?.orientation == .vertical)
+        }
+    }
+
+    @Test func aNewPaneJoinsTheActiveSplitAtItsEdgeWithAnEqualShare() throws {
+        try withTemporaryFolder { folder in
+            let store = try makeStore(in: folder)
+            try store.createSplit(from: ["b", "c"], orientation: .vertical, id: "s")
+            try store.openNewPane("f", besides: "c", edge: .top)
+            #expect(store.graph.splitPaneIDs("s") == ["f", "b", "c"])
+            let fractions = store.graph.splitWidthFractions("s")
+            #expect(fractions.allSatisfy { abs($0 - 1.0 / 3) < 1e-9 })
+            #expect(store.graph.focusedSplitPaneID("s") == "f")
+        }
+    }
+
+    @Test func openingANewPaneIsRefusedWhereNoneFits() throws {
+        try withTemporaryFolder { folder in
+            let store = try makeStore(in: folder)
+            try store.createSplit(from: ["b", "c"], id: "s")
+            let before = store.graph
+            #expect(throws: SidebarStoreError.self) { try store.openNewPane("f", besides: "c", edge: .top) }
+            #expect(throws: SidebarStoreError.self) { try store.openNewPane("f", besides: "fav") }
+            #expect(throws: SidebarStoreError.self) { try store.openNewPane("a", besides: "a") }
+            #expect(throws: SidebarStoreError.self) { try store.openNewPane("b", besides: "a") }
+            #expect(throws: SidebarStoreError.self) { try store.openNewPane("fav", besides: "a") }
+            #expect(store.graph == before)
+        }
+    }
+
+    @Test func aStackedSplitShowsStacked() throws {
+        try withTemporaryFolder { folder in
+            let store = try makeStore(in: folder)
+            try store.createSplit(from: ["b", "c"], orientation: .vertical, id: "s")
+            #expect(store.graph.splitPanes(showing: "b")?.orientation == .vertical)
+            try store.selectTab("b")
+            var display = SplitViewDisplay()
+            let plan = SplitPanes(
+                splitID: "s", panes: ["b", "c"], focused: "b", fractions: [0.5, 0.5], orientation: .vertical)
+            #expect(display.update(graph: store.graph, shownNow: ["b"]) == .show(plan))
+            display.record(shown: ["b", "c"])
+            #expect(display.update(graph: store.graph, shownNow: ["b", "c"]) == .none)
+            // Turning the split shows it again in its new layout.
+            try store.setSplitOrientation("s", .horizontal)
+            var turned = plan
+            turned.orientation = .horizontal
+            #expect(display.update(graph: store.graph, shownNow: ["b", "c"]) == .show(turned))
         }
     }
 

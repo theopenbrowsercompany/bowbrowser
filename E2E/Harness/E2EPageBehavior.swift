@@ -12,9 +12,12 @@ struct E2ECrashedPage: Equatable, CustomStringConvertible {
     var buttonTitle: String
     /// True when the button is on screen in the window (not hidden, with a window) and nothing covers its center.
     var buttonReachable: Bool
+    /// The overlay's frame in window coordinates, zero while it covers no pane.
+    var frame: CGRect = .zero
 
     var description: String {
         "shown=\(isShown) message=\"\(message)\" button=\"\(buttonTitle)\" reachable=\(buttonReachable)"
+            + " frame=\(Int(frame.minX)),\(Int(frame.minY)) \(Int(frame.width))x\(Int(frame.height))"
     }
 }
 

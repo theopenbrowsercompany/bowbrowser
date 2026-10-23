@@ -66,12 +66,14 @@ extension EngineTabDelegate {
 /// One window's page dialogs, following Chromium's tab-modal dialog rules
 /// (components/javascript_dialogs/tab_modal_dialog_manager.cc, https://developer.chrome.com/blog/dialogs-policy):
 ///
-/// - A dialog from the tab the window shows comes up at once, as a sheet on that window, and the page waits for it.
+/// - A dialog from a tab the window shows (in any of its panes, focused or not) comes up at once, as a sheet on that
+///   window over the tab's pane, and the page waits for it. A window has one sheet at a time: a dialog from another
+///   shown pane while one is up waits, unanswered, and comes up once that one ends, oldest first.
 /// - An alert from a tab the window does not show is answered at once, so its page goes on, and waits: it comes up
 ///   when its tab is shown.
 /// - A confirm or prompt from a tab the window does not show is cancelled at once (`false`, `null`) and never shows.
-/// - Switching away from a tab whose dialog is up takes the sheet down: an alert is answered and waits for the tab to
-///   be shown again; a confirm or prompt is cancelled.
+/// - A tab that leaves the screen takes its dialog down: an alert (up, or waiting for the sheet) is answered and
+///   waits for the tab to be shown again; a confirm or prompt is cancelled.
 /// - A new dialog from a tab replaces the tab's earlier one, which is cancelled.
 /// - A tab that starts a new navigation or closes, a closing window and quitting cancel the tab's (or every) dialog.
 ///
@@ -85,7 +87,7 @@ public struct PageDialogPolicy<Tab: Hashable> {
 
     /// What the window does, in the order given.
     public enum Action: Equatable {
-        /// Show the dialog as a sheet on the window.
+        /// Show the dialog as a sheet on the window, over its tab's pane.
         case present(DialogID)
         /// Take the dialog's sheet down without answering anything.
         case dismiss(DialogID)
@@ -103,21 +105,30 @@ public struct PageDialogPolicy<Tab: Hashable> {
         var presented = false
     }
 
-    /// Held dialogs, oldest first: the one that is up, and alerts waiting for their tab. At most one per tab.
+    /// Held dialogs, oldest first: the one that is up, dialogs of shown tabs waiting for the sheet, and alerts
+    /// waiting for their tab. At most one per tab.
     private var entries: [Entry] = []
     private var nextID: UInt64 = 1
-    /// The tab the window shows.
-    public private(set) var shownTab: Tab?
+    /// The tabs the window shows, one per pane.
+    public private(set) var shownTabs: [Tab] = []
     /// Set once the window closes or the app quits: every later dialog is cancelled at once.
     public private(set) var isClosed = false
 
+    /// The tab the window shows, the first pane's while several show; nil while none does.
+    public var shownTab: Tab? { shownTabs.first }
+
     public init(shownTab: Tab? = nil) {
-        self.shownTab = shownTab
+        shownTabs = shownTab.map { [$0] } ?? []
     }
 
     /// The dialog `id` names, while the policy holds it.
     public func dialog(_ id: DialogID) -> PageDialog? {
         entries.first { $0.id == id }?.dialog
+    }
+
+    /// The tab whose page asked for dialog `id`, while the policy holds it.
+    public func tab(of id: DialogID) -> Tab? {
+        entries.first { $0.id == id }?.tab
     }
 
     /// The dialog whose sheet is up, if any.
@@ -137,10 +148,9 @@ public struct PageDialogPolicy<Tab: Hashable> {
         guard !isClosed else { return (id, [.answer(id, .cancelled)]) }
         var actions = close(where: { $0.tab == tab })
         var entry = Entry(id: id, tab: tab, dialog: dialog)
-        if tab == shownTab {
-            entry.presented = true
+        if shownTabs.contains(tab) {
             entries.append(entry)
-            actions.append(.present(id))
+            actions += presentNext()
         } else if dialog.kind == .alert {
             entry.answered = true
             entries.append(entry)
@@ -151,30 +161,38 @@ public struct PageDialogPolicy<Tab: Hashable> {
         return (id, actions)
     }
 
-    /// The window now shows `tab` (nil for none).
+    /// The window now shows `tab` alone (nil for none).
     public mutating func show(_ tab: Tab?) -> [Action] {
-        guard tab != shownTab, !isClosed else { return [] }
+        show(tab.map { [$0] } ?? [])
+    }
+
+    /// The window now shows `tabs`, one per pane.
+    public mutating func show(_ tabs: [Tab]) -> [Action] {
+        guard tabs != shownTabs, !isClosed else { return [] }
+        let staying = Set(tabs)
         var actions: [Action] = []
-        if let index = entries.firstIndex(where: { $0.presented }) {
-            let entry = entries[index]
-            actions.append(.dismiss(entry.id))
+        var kept: [Entry] = []
+        for var entry in entries {
+            // A dialog whose tab stays on screen, and an alert already answered and waiting, keep their place.
+            guard !staying.contains(entry.tab), entry.presented || !entry.answered else {
+                kept.append(entry)
+                continue
+            }
+            if entry.presented { actions.append(.dismiss(entry.id)) }
             if entry.dialog.kind == .alert {
-                entries[index].presented = false
+                entry.presented = false
                 if !entry.answered {
-                    entries[index].answered = true
+                    entry.answered = true
                     actions.append(.answer(entry.id, .ok))
                 }
+                kept.append(entry)
             } else {
-                entries.remove(at: index)
                 actions.append(.answer(entry.id, .cancelled))
             }
         }
-        shownTab = tab
-        if let tab, let index = entries.firstIndex(where: { $0.tab == tab }) {
-            entries[index].presented = true
-            actions.append(.present(entries[index].id))
-        }
-        return actions
+        entries = kept
+        shownTabs = tabs
+        return actions + presentNext()
     }
 
     /// The person answered dialog `id` through its sheet, which is already down. Ignored for a dialog the policy no
@@ -182,25 +200,34 @@ public struct PageDialogPolicy<Tab: Hashable> {
     public mutating func answered(_ id: DialogID, _ answer: PageDialogAnswer) -> [Action] {
         guard let index = entries.firstIndex(where: { $0.id == id && $0.presented }) else { return [] }
         let entry = entries.remove(at: index)
-        return entry.answered ? [] : [.answer(id, answer)]
+        return (entry.answered ? [] : [.answer(id, answer)]) + presentNext()
     }
 
     /// `tab` started a new navigation: its dialog belonged to the page it is leaving.
     public mutating func navigated(_ tab: Tab) -> [Action] {
-        close(where: { $0.tab == tab })
+        close(where: { $0.tab == tab }) + presentNext()
     }
 
     /// `tab` closed (or unloaded).
     public mutating func closed(_ tab: Tab) -> [Action] {
-        if tab == shownTab { shownTab = nil }
-        return close(where: { $0.tab == tab })
+        shownTabs.removeAll { $0 == tab }
+        return close(where: { $0.tab == tab }) + presentNext()
     }
 
     /// The window is closing, or the app is quitting: every dialog is cancelled, and later ones are cancelled at once.
     public mutating func closeAll() -> [Action] {
         isClosed = true
-        shownTab = nil
+        shownTabs = []
         return close(where: { _ in true })
+    }
+
+    /// Puts up the oldest dialog of a shown tab while no sheet is up.
+    private mutating func presentNext() -> [Action] {
+        guard !isClosed, !entries.contains(where: \.presented),
+            let index = entries.firstIndex(where: { shownTabs.contains($0.tab) })
+        else { return [] }
+        entries[index].presented = true
+        return [.present(entries[index].id)]
     }
 
     private mutating func close(where matches: (Entry) -> Bool) -> [Action] {

@@ -12,17 +12,28 @@ extension E2ETestApp: E2EPageBehaviorApp {
 
     func crashedPage(of page: any E2EPage) throws -> E2ECrashedPage {
         try adapter.requireActive(token, "read the crashed tab page")
-        let view = try Self.crashedFeature(of: page).crashedView
+        let tabPage = try E2EAppAdapter.tabPage(page)
+        let feature = try Self.crashedFeature(of: page)
+        guard let view = feature.crashedView(covering: tabPage.tab) else {
+            let unused = feature.crashedViews[0]
+            return E2ECrashedPage(
+                isShown: false, message: unused.messageLabel.stringValue, buttonTitle: unused.reloadButton.title,
+                buttonReachable: false)
+        }
         view.superview?.layoutSubtreeIfNeeded()
         return E2ECrashedPage(
             isShown: !view.isHiddenOrHasHiddenAncestor && view.window != nil,
             message: view.messageLabel.stringValue, buttonTitle: view.reloadButton.title,
-            buttonReachable: Self.hitTarget(of: view.reloadButton) === view.reloadButton)
+            buttonReachable: Self.hitTarget(of: view.reloadButton) === view.reloadButton,
+            frame: view.convert(view.bounds, to: nil))
     }
 
     func clickCrashedReload(of page: any E2EPage) throws {
         try adapter.requireActive(token, "click Reload on the crashed tab page")
-        let view = try Self.crashedFeature(of: page).crashedView
+        let tabPage = try E2EAppAdapter.tabPage(page)
+        guard let view = try Self.crashedFeature(of: page).crashedView(covering: tabPage.tab) else {
+            throw E2EError("the crashed tab page is not shown")
+        }
         let button = view.reloadButton
         guard !view.isHiddenOrHasHiddenAncestor, button.window != nil else {
             throw E2EError("the crashed tab page is not shown")

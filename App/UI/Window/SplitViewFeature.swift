@@ -2,11 +2,11 @@ import AppKit
 import BowCore
 
 /// Split view as a sidebar item, as Arc has it: two to four tabs saved as one split in the sidebar, shown side by side
-/// in the page area.
+/// or stacked in the page area (View > Add Top Split and Add Bottom Split make a stacked one).
 ///
 /// Selecting a tab of a split (or the split's row, which selects its focused tab) shows all of its tabs as panes with
 /// that tab focused; selecting any other tab shows that tab alone, and selecting the split again brings its panes back
-/// with the focus it had. Dragging a divider saves the panes' widths in the split. Each pane has a close button at its
+/// with the focus it had. Letting go of a dragged divider saves the panes' shares in the split, once per drag. Each pane has a close button at its
 /// top trailing corner that takes it out of the split, leaving its tab as a plain tab right after the split (a split
 /// left with one tab turns back into that tab). View > Add Split View (Cmd+Shift+plus, Arc's shortcut) opens a new
 /// tab as a pane beside the shown one; the sidebar's "Open in Split View" and "Separate All Tabs" are in
@@ -38,33 +38,56 @@ final class SplitViewFeature: NSResponder, BrowserWindowFeature, NSMenuItemValid
         let item = menus.view.addItem(
             withTitle: "Add Split View", action: #selector(addSplitView(_:)), keyEquivalent: "+")
         item.keyEquivalentModifierMask = [.command, .shift]
+        // Arc's names for a stacked split; Arc gives them no shortcut.
+        menus.view.addItem(withTitle: "Add Top Split", action: #selector(addTopSplit(_:)), keyEquivalent: "")
+        menus.view.addItem(withTitle: "Add Bottom Split", action: #selector(addBottomSplit(_:)), keyEquivalent: "")
     }
 
     // MARK: Commands
 
-    /// View > Add Split View: opens a new tab as a pane beside the shown tab, focused, in a new split or in the shown
-    /// tab's split.
+    /// View > Add Split View: opens a new tab as a pane beside the shown tab, focused, in a new split or at the end of
+    /// the shown tab's split.
     @objc func addSplitView(_ sender: Any?) {
+        addPane(on: .trailing)
+    }
+
+    /// View > Add Top Split: opens a new tab as a pane above the shown tab, stacked, focused.
+    @objc func addTopSplit(_ sender: Any?) {
+        addPane(on: .top)
+    }
+
+    /// View > Add Bottom Split: opens a new tab as a pane below the shown tab, stacked, focused.
+    @objc func addBottomSplit(_ sender: Any?) {
+        addPane(on: .bottom)
+    }
+
+    /// Opens a new tab as a pane on `edge` of the shown tab, where `SidebarGraph.newPanePlacement(besides:edge:)`
+    /// puts it (beside a pinned or folder tab too, in its section), and selects it. A new tab the sidebar refuses to
+    /// place closes again, so no stray tab is left.
+    private func addPane(on edge: NewPaneEdge) {
         let graph = window.store.graph
-        guard !window.isClosing, let placement = graph.newPanePlacement(besides: graph.activeTabID),
+        guard !window.isClosing, let active = graph.activeTabID,
+            graph.newPanePlacement(besides: active, edge: edge) != nil,
             let tab = window.openTab(url: window.newTabURL, select: false), let id = window.modelID(of: tab),
             let item = window.sidebarItemID(for: id)
         else { return }
-        window.changeSidebar { store in
-            switch placement {
-            case .createWith(let active): try store.createSplit(from: [active, item], focusing: item)
-            case .addPane(let split): try store.addPane(item, to: split)
-            }
+        let placed = window.changeSidebar { store in
+            try store.openNewPane(item, besides: active, edge: edge)
             try store.selectTab(item)
         }
+        if !placed { Task { _ = await window.closeTab(tab) } }
     }
 
     func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
+        let edge: NewPaneEdge
         switch menuItem.action {
-        case #selector(addSplitView(_:)):
-            !window.isClosing && window.store.graph.newPanePlacement(besides: window.store.graph.activeTabID) != nil
-        default: true
+        case #selector(addSplitView(_:)): edge = .trailing
+        case #selector(addTopSplit(_:)): edge = .top
+        case #selector(addBottomSplit(_:)): edge = .bottom
+        default: return true
         }
+        let graph = window.store.graph
+        return !window.isClosing && graph.newPanePlacement(besides: graph.activeTabID, edge: edge) != nil
     }
 
     func handleKeyBeforePage(_ event: EngineKeyEvent, in tab: any EngineTab) -> Bool {
@@ -110,7 +133,7 @@ final class SplitViewFeature: NSResponder, BrowserWindowFeature, NSMenuItemValid
         case .show(let plan):
             let ids = runtimeIDs(plan.panes)
             if let ids, let focused = runtimeIDs([plan.focused])?.first {
-                window.showPanes(ids, focused: focused, fractions: plan.fractions)
+                window.showPanes(ids, focused: focused, fractions: plan.fractions, orientation: plan.orientation)
             }
         case .single(let item):
             if let id = runtimeIDs([item])?.first { window.showPanes([id], focused: id) }

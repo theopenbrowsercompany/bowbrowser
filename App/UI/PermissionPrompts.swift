@@ -6,8 +6,9 @@ import BowCore
 /// answer per site in that profile's store and in the engine's content settings. Each tab uses its own profile, so a
 /// window whose Spaces use different profiles keeps their answers apart.
 ///
-/// Requests wait in order. The prompt shows the first request of the tab the window shows; switching tabs hides it
-/// and shows that tab's own, and a request whose tab closes or leaves the page is dismissed.
+/// Requests wait in order. Each tab the window shows (one per pane of a split view) shows its own first request in a
+/// prompt anchored to its own pane, focused or not; a tab that leaves the screen hides its prompt until it shows
+/// again, and a request whose tab closes or leaves the page is dismissed.
 @MainActor
 final class PermissionPrompts {
     private struct Pending {
@@ -24,31 +25,31 @@ final class PermissionPrompts {
         let profile: any EngineProfile
     }
 
+    /// A tab the window shows and the view of its pane, which its prompt is anchored to.
+    private struct Shown {
+        weak var tab: (any EngineTab)?
+        weak var view: NSView?
+    }
+
     /// The profile and store of a tab, nil when its profile is unknown (its requests are dismissed).
     private let permissions: (any EngineTab) -> ProfilePermissions?
-    /// The view the prompt is anchored to: the page's view.
-    private unowned let hostView: NSView
     private var pending: [Pending] = []
     private var lastPendingID = 0
-    /// The prompt on screen, showing `pending`'s first request of `shownTab`.
-    private(set) var visiblePrompt: PermissionPromptPanel?
-    private weak var shownTab: (any EngineTab)?
-    private var frameObserver: NSObjectProtocol?
+    /// The prompts on screen by the waiting request they answer: one per shown pane whose tab has a request, showing
+    /// that tab's first one.
+    private var visiblePrompts: [Int: PermissionPromptPanel] = [:]
+    /// The tabs the window shows, one per pane, with their panes' views.
+    private var shown: [Shown] = []
+    /// Follows the frames of the shown panes' views, which move when the window resizes or a divider moves.
+    private var frameObservers: [NSObjectProtocol] = []
     private var storeObserver: NSObjectProtocol?
 
     /// Posted with a store as its object after an answer is recorded in it, so every window on the profile settles
     /// the requests the answer covers.
     private static let storeChanged = Notification.Name("BowSitePermissionStoreChanged")
 
-    init(hostView: NSView, permissions: @escaping (any EngineTab) -> ProfilePermissions?) {
+    init(permissions: @escaping (any EngineTab) -> ProfilePermissions?) {
         self.permissions = permissions
-        self.hostView = hostView
-        hostView.postsFrameChangedNotifications = true
-        frameObserver = NotificationCenter.default.addObserver(
-            forName: NSView.frameDidChangeNotification, object: hostView, queue: .main
-        ) { [weak self] _ in
-            MainActor.assumeIsolated { self?.placePrompt() }
-        }
         storeObserver = NotificationCenter.default.addObserver(
             forName: Self.storeChanged, object: nil, queue: .main
         ) { [weak self] notification in
@@ -60,9 +61,14 @@ final class PermissionPrompts {
     }
 
     isolated deinit {
-        if let frameObserver { NotificationCenter.default.removeObserver(frameObserver) }
+        for observer in frameObservers { NotificationCenter.default.removeObserver(observer) }
         if let storeObserver { NotificationCenter.default.removeObserver(storeObserver) }
-        visiblePrompt?.close()
+        for prompt in visiblePrompts.values { prompt.close() }
+    }
+
+    /// The prompt on screen for `tab`'s first waiting request, nil when it shows none.
+    func visiblePrompt(for tab: any EngineTab) -> PermissionPromptPanel? {
+        visiblePrompts.values.first { prompt in pending.contains { $0.id == prompt.entryID && $0.tab === tab } }
     }
 
     /// The answer to `request` from `tab`: remembered, or the person's once they answer the prompt.
@@ -76,9 +82,19 @@ final class PermissionPrompts {
         }
     }
 
-    /// Shows the prompt for `tab`, the tab the window now shows (nil when none).
-    func show(_ tab: (any EngineTab)?) {
-        shownTab = tab
+    /// Shows the prompts of `panes`, the tabs the window now shows with their panes' views (empty when none): each
+    /// tab's first waiting request, anchored to its own pane. Tabs no longer shown keep their requests waiting.
+    func show(_ panes: [(tab: any EngineTab, view: NSView)]) {
+        shown = panes.map { Shown(tab: $0.tab, view: $0.view) }
+        for observer in frameObservers { NotificationCenter.default.removeObserver(observer) }
+        frameObservers = panes.map { pane in
+            pane.view.postsFrameChangedNotifications = true
+            return NotificationCenter.default.addObserver(
+                forName: NSView.frameDidChangeNotification, object: pane.view, queue: .main
+            ) { [weak self] _ in
+                MainActor.assumeIsolated { self?.placePrompts() }
+            }
+        }
         update()
     }
 
@@ -131,32 +147,47 @@ final class PermissionPrompts {
         }
     }
 
-    private func update() {
-        let entry = pending.first { $0.tab === shownTab }
-        if let prompt = visiblePrompt, prompt.entryID != entry?.id {
-            prompt.parent?.removeChildWindow(prompt)
-            prompt.close()
-            visiblePrompt = nil
+    /// The pane view each waiting request shown now is anchored to, by request: the first request of each shown tab.
+    private var wanted: [Int: NSView] {
+        var result: [Int: NSView] = [:]
+        for pane in shown {
+            guard let tab = pane.tab, let view = pane.view, view.window != nil,
+                let entry = pending.first(where: { $0.tab === tab })
+            else { continue }
+            result[entry.id] = view
         }
-        guard let entry, visiblePrompt == nil, let window = hostView.window else { return }
-        let entryID = entry.id
-        let prompt = PermissionPromptPanel(request: entry.request, entryID: entryID) { [weak self] decision in
-            self?.answer(decision, entryID: entryID)
-        }
-        visiblePrompt = prompt
-        placePrompt()
-        window.addChildWindow(prompt, ordered: .above)
+        return result
     }
 
-    /// Puts the prompt at the top leading corner of the page, inset a little, as macOS browsers place theirs.
-    private func placePrompt() {
-        guard let prompt = visiblePrompt, let window = hostView.window else { return }
-        let inset: CGFloat = 12
-        let topLeft = window.convertPoint(
-            toScreen: hostView.convert(NSPoint(x: hostView.bounds.minX, y: hostView.bounds.maxY), to: nil))
-        let size = prompt.frame.size
-        let origin = NSPoint(x: topLeft.x + inset, y: topLeft.y - inset - size.height)
-        prompt.setFrame(NSRect(origin: origin, size: size), display: false)
+    private func update() {
+        let wanted = self.wanted
+        for (entryID, prompt) in visiblePrompts where wanted[entryID] == nil {
+            prompt.parent?.removeChildWindow(prompt)
+            prompt.close()
+            visiblePrompts[entryID] = nil
+        }
+        for (entryID, view) in wanted where visiblePrompts[entryID] == nil {
+            guard let entry = pending.first(where: { $0.id == entryID }), let window = view.window else { continue }
+            let prompt = PermissionPromptPanel(request: entry.request, entryID: entryID) { [weak self] decision in
+                self?.answer(decision, entryID: entryID)
+            }
+            visiblePrompts[entryID] = prompt
+            window.addChildWindow(prompt, ordered: .above)
+        }
+        placePrompts()
+    }
+
+    /// Puts each prompt at the top leading corner of its tab's pane, inset a little, as macOS browsers place theirs.
+    private func placePrompts() {
+        for (entryID, view) in wanted {
+            guard let prompt = visiblePrompts[entryID], let window = view.window else { continue }
+            let inset: CGFloat = 12
+            let top = view.isFlipped ? view.bounds.minY : view.bounds.maxY
+            let topLeft = window.convertPoint(toScreen: view.convert(NSPoint(x: view.bounds.minX, y: top), to: nil))
+            let size = prompt.frame.size
+            let origin = NSPoint(x: topLeft.x + inset, y: topLeft.y - inset - size.height)
+            prompt.setFrame(NSRect(origin: origin, size: size), display: false)
+        }
     }
 }
 
