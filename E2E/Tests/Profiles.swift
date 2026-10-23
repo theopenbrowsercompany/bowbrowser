@@ -131,7 +131,11 @@ struct ProfilesSpacesTest: E2ETest {
                     guard let page, !page.isClosed else { return false }
                     return (try? app.tabProfileID(of: page)) == id
                 })
-            guard let page else { throw E2EError("the window shows no page in profile \(id)") }
+            // The settle gives up after a few seconds with what it saw last, so a slow profile fails here by name.
+            guard let page, !page.isClosed, (try? app.tabProfileID(of: page)) == id else {
+                let seen = page.flatMap { try? app.tabProfileID(of: $0) } ?? "no page"
+                throw E2EError("the window shows no page in profile \(id) (it shows \(seen))")
+            }
             // The new tab's first document is a blank one, whose script context goes when the fixture commits, so
             // ask again until the fixture itself has loaded; the step's limit ends a page that never does.
             while true {

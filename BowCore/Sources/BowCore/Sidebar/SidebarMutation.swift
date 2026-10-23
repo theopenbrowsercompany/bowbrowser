@@ -183,11 +183,7 @@ extension SidebarGraph {
             let unpinned = SidebarItem(data: .container(SidebarContainer(kind: .unpinned)))
             items[pinned.id] = pinned
             items[unpinned.id] = unpinned
-            if favoritesContainerIDs[profileID] == nil {
-                let favorites = SidebarItem(data: .container(SidebarContainer(kind: .favorites)))
-                items[favorites.id] = favorites
-                favoritesContainerIDs[profileID] = favorites.id
-            }
+            ensureFavoritesContainer(for: profileID)
             spaces.insert(
                 SidebarSpace(
                     id: id, title: title, pinnedContainerID: pinned.id, unpinnedContainerID: unpinned.id,
@@ -221,11 +217,7 @@ extension SidebarGraph {
 
         case .setSpaceProfile(let id, let profileID):
             guard let position = spaces.firstIndex(where: { $0.id == id }) else { throw .spaceNotFound(id) }
-            if favoritesContainerIDs[profileID] == nil {
-                let favorites = SidebarItem(data: .container(SidebarContainer(kind: .favorites)))
-                items[favorites.id] = favorites
-                favoritesContainerIDs[profileID] = favorites.id
-            }
+            ensureFavoritesContainer(for: profileID)
             spaces[position].profileID = profileID
             // The Favorites on screen are now the new profile's: a selected Favorite of the old one is left.
             reconcileSelectedTab()
@@ -241,6 +233,14 @@ extension SidebarGraph {
             if let id, try !existing(id).data.isTab { throw .invalidHierarchy("\(id) is not a tab") }
             activeTabID = id
         }
+    }
+
+    /// Gives `profile` an empty Favorites section when it has none yet.
+    private mutating func ensureFavoritesContainer(for profile: SidebarProfileID) {
+        guard favoritesContainerIDs[profile] == nil else { return }
+        let favorites = SidebarItem(data: .container(SidebarContainer(kind: .favorites)))
+        items[favorites.id] = favorites
+        favoritesContainerIDs[profile] = favorites.id
     }
 
     private func existing(_ id: SidebarItemID) throws(SidebarStoreError) -> SidebarItem {

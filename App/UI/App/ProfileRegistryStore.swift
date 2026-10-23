@@ -14,7 +14,7 @@ final class ProfileRegistryStore: AppFeature {
     private var opened: ProfileRegistry?
     /// Why the registry could not be opened, once it was tried; it is not tried again this run.
     private(set) var openFailure: String?
-    /// Profiles whose storage could not be set up, so each is reported once a run.
+    /// Profiles whose storage could not be set up, so each failure is reported once a run.
     private var failedSetups: Set<String> = []
 
     init(dataDirectory: URL) {
@@ -48,9 +48,9 @@ final class ProfileRegistryStore: AppFeature {
     func engineProfile(for id: SidebarProfileID, engine: any BrowserEngine) -> (any EngineProfile)? {
         let engineID = SidebarStores.engineProfileID(of: id)
         if let existing = engine.profile(id: engineID) { return existing }
-        guard let record = registry?.profile(for: id), !failedSetups.contains(record.id.rawValue.lowercased()) else {
-            return nil
-        }
+        guard let record = registry?.profile(for: id) else { return nil }
+        // The Space may spell the ID in another letter case; the engine knows the profile by the registry's.
+        if let existing = engine.profile(id: record.engineID) { return existing }
         let folder = record.cachePath(inRoot: dataDirectory)
         var isFolder: ObjCBool = false
         let exists = folder.map { FileManager.default.fileExists(atPath: $0.path, isDirectory: &isFolder) } ?? false
@@ -76,7 +76,8 @@ final class ProfileRegistryStore: AppFeature {
     }
 
     private func setupFailed(_ record: ProfileRecord, _ reason: String) {
-        failedSetups.insert(record.id.rawValue.lowercased())
+        // Checked again on every request, so a folder made writable works without a relaunch; told once.
+        guard failedSetups.insert(record.id.rawValue.lowercased()).inserted else { return }
         Self.report("the profile \(record.id.rawValue) cannot be set up: \(reason)")
     }
 
