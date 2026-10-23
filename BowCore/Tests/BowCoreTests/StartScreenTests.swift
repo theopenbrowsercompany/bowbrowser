@@ -26,34 +26,25 @@ import Testing
         #expect(StartScreen.Greeting(hour: StartScreen.hour(at: date, calendar: calendar)) == .morning)
     }
 
-    @Test func theHintCountsTabsWithPluralsAndCutsALongName() {
-        #expect(StartScreen.hint(spaceName: "Work Space", tabCount: 4) == "Work Space · 4 tabs · press ⌘T to search")
-        #expect(StartScreen.hint(spaceName: "Work", tabCount: 1) == "Work · 1 tab · press ⌘T to search")
-        #expect(StartScreen.hint(spaceName: "Work", tabCount: 0) == "Work · 0 tabs · press ⌘T to search")
-        #expect(StartScreen.hint(spaceName: "  Home \n", tabCount: -2) == "Home · 0 tabs · press ⌘T to search")
-        #expect(StartScreen.hint(spaceName: " ", tabCount: 2) == "Space · 2 tabs · press ⌘T to search")
+    @Test func theHintNamesTheSpaceWithoutACountAndCutsALongName() {
+        #expect(StartScreen.hint(spaceName: "Work Space") == "Work Space · press ⌘T to search")
+        #expect(StartScreen.hint(spaceName: "  Home \n") == "Home · press ⌘T to search")
+        #expect(StartScreen.hint(spaceName: " ") == "Space · press ⌘T to search")
         let long = String(repeating: "a", count: 41)
         let cut = String(repeating: "a", count: 39) + "…"
-        #expect(StartScreen.hint(spaceName: long, tabCount: 3) == "\(cut) · 3 tabs · press ⌘T to search")
+        #expect(StartScreen.hint(spaceName: long) == "\(cut) · press ⌘T to search")
         let exact = String(repeating: "b", count: 40)
-        #expect(StartScreen.hint(spaceName: exact, tabCount: 3) == "\(exact) · 3 tabs · press ⌘T to search")
+        #expect(StartScreen.hint(spaceName: exact) == "\(exact) · press ⌘T to search")
     }
 
-    @Test func theHintNamesTheSpaceAndCountsItsPinnedAndTodayTabsButNotFavorites() throws {
+    @Test func theHintForASpaceReadsItsNameAndFollowsARename() throws {
         try withTemporaryFolder { folder in
             let store = try SidebarStore(fileURL: folder.appendingPathComponent("Sidebar.json"))
             let space = try #require(store.graph.activeSpace)
             try store.renameSpace(space.id, to: "Work Space")
-            #expect(StartScreen.hint(for: space.id, in: store.graph) == "Work Space · 0 tabs · press ⌘T to search")
-            try store.addFavorite(url: "https://fav.example")
-            let folderItem = SidebarItem.folder(title: "F")
-            try store.apply([
-                .insert(.tab(url: "https://a.example"), parent: space.pinnedContainerID, index: nil),
-                .insert(folderItem, parent: space.pinnedContainerID, index: nil),
-                .insert(.tab(url: "https://b.example"), parent: folderItem.id, index: nil),
-                .insert(.tab(url: "https://c.example"), parent: space.unpinnedContainerID, index: nil),
-            ])
-            #expect(StartScreen.hint(for: space.id, in: store.graph) == "Work Space · 3 tabs · press ⌘T to search")
+            #expect(StartScreen.hint(for: space.id, in: store.graph) == "Work Space · press ⌘T to search")
+            try store.renameSpace(space.id, to: "Side")
+            #expect(StartScreen.hint(for: space.id, in: store.graph) == "Side · press ⌘T to search")
         }
     }
 

@@ -23,6 +23,11 @@ extension E2ETestApp: E2EDesignApp {
         try E2EAppAdapter.tabPage(page).controller.window?.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
     }
 
+    func forgetWindowLayout() throws {
+        try adapter.requireActive(token, "forget the saved window layout")
+        AppSettings.defaults.removeObject(forKey: AppSettings.windowLayoutKey)
+    }
+
     func writeScreenshot(of page: any E2EPage, to url: URL) async throws {
         try adapter.requireActive(token, "take a screenshot")
         let png: Data
@@ -119,6 +124,36 @@ extension E2EAppAdapter {
         let dot = views(in: sidebar.footer, NSButton.self).first {
             $0.identifier?.rawValue == "space-icon" && $0.accessibilityValue() as? String == "on screen"
         }
+        sidebar.footer.layoutSubtreeIfNeeded()
+        let footerButtons = views(in: sidebar.footer, NSButton.self)
+        let dots = footerButtons.filter { $0.identifier?.rawValue == "space-icon" }
+        func footerButton(_ id: String) -> NSButton? { footerButtons.first { $0.identifier?.rawValue == id } }
+        func inFooter(_ view: NSView) -> CGRect { sidebar.footer.convert(view.bounds, from: view) }
+        var footerOffset = 0.0
+        var footerOrder = false
+        if let downloads = footerButton("downloads"), let archive = footerButton("archive"),
+            let plus = footerButton("new-space"), let first = dots.first, let last = dots.last
+        {
+            let gapMid = (inFooter(archive).maxX + inFooter(plus).minX) / 2
+            footerOffset = Double((inFooter(first).minX + inFooter(last).maxX) / 2 - gapMid)
+            footerOrder =
+                inFooter(downloads).maxX <= inFooter(archive).minX && inFooter(archive).maxX <= inFooter(first).minX
+                && inFooter(last).maxX <= inFooter(plus).minX
+        }
+        let dotColors = dots.map { dot in hex(dot.contentTintColor, in: appearance) }
+        var dotMenu: [String] = []
+        if let dot, let window = dot.window,
+            let event = NSEvent.mouseEvent(
+                with: .rightMouseDown, location: dot.convert(NSPoint(x: 4, y: 4), to: nil), modifierFlags: [],
+                timestamp: 0, windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1,
+                pressure: 1),
+            let menu = dot.menu(for: event)
+        {
+            dotMenu = menu.items.flatMap { item -> [String] in
+                guard !item.isSeparatorItem else { return ["-"] }
+                return [item.title] + (item.submenu?.items.map { "\(item.title)/\($0.title)" } ?? [])
+            }
+        }
         let dotSize = Double(dot?.image?.size.width ?? 0)
         let ringWidth = Double(dot?.layer?.borderWidth ?? 0)
         let panel = controller.feature(CommandBarFeature.self)?.panel
@@ -166,6 +201,10 @@ extension E2EAppAdapter {
             spaceRingColor: dot?.layer?.borderColor.flatMap { NSColor(cgColor: $0) }.flatMap {
                 hex($0, in: appearance)
             },
+            footerDotsOffset: footerOffset,
+            footerOrder: footerOrder,
+            footerDotColors: dotColors,
+            footerDotMenu: dotMenu,
             commandBarRadius: Double(panelContent?.cornerRadius ?? 0),
             commandBarClips: panelContent?.masksToBounds ?? false,
             commandBarShadowHasPath: panel.map { panel in

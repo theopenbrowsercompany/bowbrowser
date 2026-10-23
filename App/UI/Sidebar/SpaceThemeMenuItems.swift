@@ -10,6 +10,11 @@ enum SpaceThemeMenuItems: SidebarMenuItems {
 
     static func menuItems(for item: SidebarItemID, context: any SidebarActionContext) -> [NSMenuItem] {
         guard let space = context.graph.spaces.first(where: { $0.pinnedContainerID == item }) else { return [] }
+        return menuItems(for: space, context: context)
+    }
+
+    /// The same items for `space`, for the footer dot's menu as well as the name header's.
+    static func menuItems(for space: SidebarSpace, context: any SidebarActionContext) -> [NSMenuItem] {
         let id = space.id
         let themes = NSMenu(title: "Theme")
         themes.autoenablesItems = false

@@ -12,6 +12,9 @@ protocol E2EDesignApp: E2EApp {
     func resizeWindow(of page: any E2EPage, width: Double, height: Double) throws
     /// Gives `page`'s window the dark appearance, or the light one when `dark` is false.
     func setDarkAppearance(_ dark: Bool, of page: any E2EPage) throws
+    /// Removes the saved window layout (View > Use Top Tabs), so a test that switched it and back leaves the app's
+    /// settings as it found them (no layout saved, which is the sidebar).
+    func forgetWindowLayout() throws
     /// Writes a PNG of `page`'s window to `url` (title bar, sidebar, page card and web content), also when the
     /// window shows no page (the empty state), in which case the web content is left out.
     func writeScreenshot(of page: any E2EPage, to url: URL) async throws
@@ -77,6 +80,15 @@ struct E2EDesignLook {
     var spaceRingWidth: Double
     var spaceRingGap: Double
     var spaceRingColor: String?
+    /// The footer: how far the Space dots' middle is from the middle of the gap between the archive button's trailing
+    /// edge and the "+" button's leading edge (0 when centred), and whether the downloads and archive buttons sit
+    /// left of the dots and the "+" right of them.
+    var footerDotsOffset: Double
+    var footerOrder: Bool
+    /// Each Space dot's color in order, `#RRGGBB` (nil for a Space showing an emoji or symbol), and the titles of the
+    /// active dot's context menu ("<submenu>/<item>" after a submenu, "-" for a separator).
+    var footerDotColors: [String?]
+    var footerDotMenu: [String]
     /// The command bar's panel: the corner radius its content is clipped to, whether it is clipped, and whether the
     /// panel's shadow has a path the size of the panel (read while the bar shows).
     var commandBarRadius: Double

@@ -8,7 +8,7 @@ import Foundation
 @MainActor
 enum DesignTests {
     static let all: [any E2ETest] = [
-        DesignLookTest(), DesignScreensTest(), DesignFontsTest(), DesignStartScreenTest(),
+        DesignLookTest(), DesignScreensTest(), DesignFontsTest(), DesignStartScreenTest(), DesignFooterTest(),
     ]
 
     /// The brand tokens (light, then dark).
@@ -19,6 +19,7 @@ enum DesignTests {
     static let activeLight = "#FFFFFF"
     static let activeDark = "#3D2519"
     static let apricot = "#FFC08A"
+    static let jam = "#E8743B"
 
     static func design(_ run: E2ERun) throws -> any E2EDesignApp {
         guard let app = run.app as? any E2EDesignApp else { throw E2EError("the app has no design hooks") }
@@ -216,12 +217,18 @@ struct DesignScreensTest: E2ETest {
         }
 
         let notes = try await DesignTests.openBrowsing(run)
-        try await run.step("browsing", timeout: E2ETimeouts.step) { try await shoot(notes, "1-browsing") }
+        // The styling guide's mockups, as evidence for the maintainer to look at: 2 browsing in light, 3 browsing in
+        // dark, 4 the top tabs layout, 1 the start screen in light (written last, with the empty Space).
+        try await run.step("browsing", timeout: E2ETimeouts.step) {
+            try await shoot(notes, "1-browsing")
+            try await shoot(notes, "mockup-2")
+        }
 
         let dark = try await run.step("dark", timeout: E2ETimeouts.step) {
             try design.setDarkAppearance(true, of: notes)
             _ = try await E2EWaits.until { try design.look(of: notes).frameColor == DesignTests.frameDark }
             try await shoot(notes, "2-dark")
+            try await shoot(notes, "mockup-3")
             let look = try design.look(of: notes)
             try design.setDarkAppearance(false, of: notes)
             return look
@@ -232,6 +239,17 @@ struct DesignScreensTest: E2ETest {
                 && dark.selectedRowText == DesignTests.textDark && dark.navigationDark,
             "frame=\(dark.frameColor ?? "none") row=\(dark.selectedRowBackground ?? "none")"
                 + " text=\(dark.selectedRowText ?? "none") navigation_dark=\(dark.navigationDark)")
+
+        if let top = run.app as? any E2ETopTabsApp {
+            try await run.step("top tabs", timeout: E2ETimeouts.step) {
+                try top.chooseUseTopTabs(in: notes)
+                _ = try await E2EWaits.until { try top.topTabs(of: notes).barShown }
+                try await shoot(notes, "mockup-4")
+                try top.chooseUseTopTabs(in: notes)
+                _ = try await E2EWaits.until { try !top.topTabs(of: notes).barShown }
+                try design.forgetWindowLayout()
+            }
+        }
 
         try await run.step("command bar", timeout: E2ETimeouts.step) {
             let bar = try await DesignTests.openCommandBar(run, over: notes)
@@ -254,9 +272,11 @@ struct DesignScreensTest: E2ETest {
             _ = try edges.createSpace(besides: notes, profileID: edges.profileID(of: notes))
             _ = try await E2EWaits.until { try design.look(of: notes).showsEmptyState }
             try await shoot(notes, "5-empty-space")
+            try await shoot(notes, "mockup-1")
         }
+        let mockups = ["mockup-1.png", "mockup-2.png", "mockup-3.png", "mockup-4.png"]
         run.check(
-            "design.screens", passed: written.count == 5,
+            "design.screens", passed: written.count == 9 && mockups.allSatisfy(written.contains),
             "wrote \(written.joined(separator: ", ")) in \(folder.path)")
     }
 }
@@ -292,11 +312,16 @@ struct DesignFontsTest: E2ETest {
             "design.fonts_sidebar",
             passed: browsing.activeRow?.family == nunito && browsing.activeRow?.size == 13.5
                 && browsing.activeRow?.name.contains("Bold") == true && browsing.spaceName?.family == nunito
-                && browsing.spaceName?.size == 11 && browsing.spaceName?.name.contains("Bold") == true,
-            "active_row=\(String(describing: browsing.activeRow)) space_name=\(String(describing: browsing.spaceName))")
+                && browsing.spaceName?.size == 11 && browsing.spaceName?.name.contains("Bold") == true
+                && browsing.folderRow?.family == nunito && browsing.folderRow?.size == 13.5
+                && browsing.folderRow?.name.contains("SemiBold") == true,
+            "active_row=\(String(describing: browsing.activeRow)) space_name=\(String(describing: browsing.spaceName))"
+                + " folder_row=\(String(describing: browsing.folderRow))")
 
         let bar = try await run.step("read the command bar font", timeout: E2ETimeouts.step) {
             let bar = try await DesignTests.openCommandBar(run, over: page)
+            try bar.type("Plan")
+            _ = try await bar.waitForResults()
             let look = try fonts.fonts(of: page)
             try bar.press(.escape)
             _ = try await E2EWaits.until { !bar.isShown }
@@ -304,8 +329,11 @@ struct DesignFontsTest: E2ETest {
         }
         run.check(
             "design.fonts_command_bar",
-            passed: bar.commandBarField?.family == nunito && bar.commandBarField?.size == 20,
-            "field=\(String(describing: bar.commandBarField))")
+            passed: bar.commandBarField?.family == nunito && bar.commandBarField?.size == 20
+                && bar.commandBarRowTitle?.family == nunito && bar.commandBarRowTitle?.size == 14
+                && bar.commandBarRowDetail?.family == nunito && bar.commandBarRowDetail?.size == 12,
+            "field=\(String(describing: bar.commandBarField)) row_title=\(String(describing: bar.commandBarRowTitle))"
+                + " row_detail=\(String(describing: bar.commandBarRowDetail))")
 
         let empty = try await run.step("read the empty state font", timeout: E2ETimeouts.step) {
             _ = try edges.createSpace(besides: page, profileID: edges.profileID(of: page))
@@ -316,6 +344,57 @@ struct DesignFontsTest: E2ETest {
         run.check(
             "design.fonts_empty", passed: empty.emptyStateLine?.family == nunito && empty.emptyStateLine?.size == 13,
             "line=\(String(describing: empty.emptyStateLine))")
+    }
+}
+
+/// The sidebar footer: the downloads and archive buttons on the left, the Space dots centred between them and the
+/// "+", each dot in its Space's theme color (the default theme keeps Jam on screen and Soft otherwise), and the
+/// dot's menu offering the Space's theme and icon besides Rename and Delete.
+struct DesignFooterTest: E2ETest {
+    let name = "design.footer"
+    let checks = ["design.footer_centred", "design.footer_dot_colors", "design.footer_dot_menu"]
+
+    func run(_ run: E2ERun) async throws {
+        let design = try DesignTests.design(run)
+        guard let app = run.app as? any E2ESpaceThemeApp & E2EStoreSeedApp else {
+            throw E2EError("the app cannot drive Space themes")
+        }
+        let page = try await run.step("open three Spaces", timeout: E2ETimeouts.firstLoad) {
+            let seed = E2ESeed(spaces: [
+                E2ESeedSpace("Home", today: [.tab("Reading", url: DesignTests.url("Reading"))]),
+                E2ESeedSpace("Work"), E2ESeedSpace("Play"),
+            ])
+            let window = try await app.openWindow(seeded: seed)
+            _ = try await window.page.waitForLoad(after: 0)
+            return window.page
+        }
+        let soft = "#7A5A48"
+        let blue = "#3B5BDB"
+        let plain = try await run.step("read the footer", timeout: E2ETimeouts.step) {
+            _ = try await E2EWaits.until { try design.look(of: page).footerDotColors.count == 3 }
+            return try design.look(of: page)
+        }
+        run.check(
+            "design.footer_centred",
+            passed: abs(plain.footerDotsOffset) < 1 && plain.footerOrder,
+            "offset=\(plain.footerDotsOffset) order=\(plain.footerOrder)")
+        let themed = try await run.step("theme the Space Blue", timeout: E2ETimeouts.step) {
+            try app.chooseSpaceMenuItem(["Theme", "Blue"], in: page)
+            _ = try await E2EWaits.until { try design.look(of: page).footerDotColors.first == blue }
+            return try design.look(of: page)
+        }
+        run.check(
+            "design.footer_dot_colors",
+            passed: plain.footerDotColors == [DesignTests.jam, soft, soft]
+                && themed.footerDotColors == [blue, soft, soft] && themed.spaceRingColor == DesignTests.apricot,
+            "default=\(plain.footerDotColors) themed=\(themed.footerDotColors) ring=\(themed.spaceRingColor ?? "none")")
+        let expected = [
+            "Rename Space…", "Delete Space…", "-", "Theme", "Theme/Default", "Theme/Blue", "Theme/Jam",
+            "Theme/Apricot", "Theme/Cocoa", "Theme/Green", "Theme/Brick", "Change Icon…", "Remove Icon",
+        ]
+        run.check(
+            "design.footer_dot_menu", passed: themed.footerDotMenu == expected,
+            "menu=\(themed.footerDotMenu)")
     }
 }
 
@@ -341,8 +420,8 @@ struct DesignStartScreenTest: E2ETest {
         }
     }
 
-    static func hint(_ space: String, tabs: Int) -> String {
-        "\(space) \u{00B7} \(tabs) \(tabs == 1 ? "tab" : "tabs") \u{00B7} press \u{2318}T to search"
+    static func hint(_ space: String) -> String {
+        "\(space) \u{00B7} press \u{2318}T to search"
     }
 
     func run(_ run: E2ERun) async throws {
@@ -390,7 +469,7 @@ struct DesignStartScreenTest: E2ETest {
         let second = try await run.step("switch to a second empty Space with a long name", timeout: E2ETimeouts.step) {
             _ = try edges.createSpace(besides: page, profileID: edges.profileID(of: page))
             try start.renameActiveSpace("Side", in: page)
-            _ = try await E2EWaits.until { try start.startScreen(of: page).hint == Self.hint("Side", tabs: 0) }
+            _ = try await E2EWaits.until { try start.startScreen(of: page).hint == Self.hint("Side") }
             let side = try start.startScreen(of: page)
             try start.renameActiveSpace(String(repeating: "Long ", count: 20), in: page)
             _ = try await E2EWaits.until { try start.startScreen(of: page).hint.contains("\u{2026}") }
@@ -399,8 +478,8 @@ struct DesignStartScreenTest: E2ETest {
         let long = second.1
         run.check(
             "design.start_hint",
-            passed: first.hint == Self.hint("Work Space", tabs: 0) && second.0.hint == Self.hint("Side", tabs: 0)
-                && long.hint.hasSuffix("\u{2026} \u{00B7} 0 tabs \u{00B7} press \u{2318}T to search")
+            passed: first.hint == Self.hint("Work Space") && second.0.hint == Self.hint("Side")
+                && long.hint.hasSuffix("\u{2026} \u{00B7} press \u{2318}T to search")
                 && long.contentFrame.minX >= long.bounds.minX && long.contentFrame.maxX <= long.bounds.maxX
                 && first.hintFont?.family == "Nunito Sans" && first.hintFont?.size == 13
                 && first.hintColor == "#7A5A48",

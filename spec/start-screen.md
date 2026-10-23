@@ -13,9 +13,8 @@ Arc has no start page of its own (it opens the command bar), so the look follows
   - a greeting in Fredoka 600 at 40 points in Text: "Good morning" from 5:00 until noon, "Good afternoon" from noon until 18:00, and "Good evening" from 18:00 until 5:00, by the Mac's local time;
   - a search pill 560 by 52 points, fully rounded, in the Search fill with a 1 point Line border, holding an 18 point magnifying glass and "Search or type a URL" at 16 points in Soft, 20 points in from its leading edge with 12 points between them;
   - the quick links, when the profile has Favorites: the first six Favorites in their sidebar order, in a row 18 points apart, each 76 points wide with a 56 point tile (16 point corners, Search fill, Line border) holding the site's icon, or the first letter of its name, at 24 points, and its name under it at 12.5 points in Soft on one line, cut with an ellipsis when too long;
-  - a hint at 13 points in Soft: "<Space name> · <N> tabs · press ⌘T to search", with "1 tab" for one.
-- N is the number of tabs the Space lists in the sidebar (pinned and today, folders included); Favorites belong to the profile and are not counted.
-  The screen only shows for a Space with no tabs, so today it reads "0 tabs".
+  - a hint at 13 points in Soft: "<Space name> · press ⌘T to search".
+  It carries no tab count: the screen only shows in an empty Space.
 - Clicking the search pill, or pressing Return or Space while it has keyboard focus, opens the command bar empty, exactly as File > New Tab (Cmd+T) does.
   The pill is a button, not a text field: nothing is typed into it.
 - Clicking a quick link shows that Favorite in place as the active tab, loading its saved address, as clicking its tile in the sidebar does; the start screen then gives way to the page.
@@ -34,7 +33,7 @@ Arc has no start page of its own (it opens the command bar), so the look follows
 
 ## Acceptance checks
 
-1. Switch to a new empty Space named "Work Space" with no Favorites: the start screen shows the 64 point mark, the greeting for the current hour, the 560 by 52 pill and "Work Space · 0 tabs · press ⌘T to search", and no quick links.
+1. Switch to a new empty Space named "Work Space" with no Favorites: the start screen shows the 64 point mark, the greeting for the current hour, the 560 by 52 pill and "Work Space · press ⌘T to search", and no quick links.
 2. Click the pill: the command bar opens empty, as Cmd+T opens it.
 3. Add seven Favorites: six quick links show, in sidebar order, each a 56 point tile with 16 point corners.
 4. Remove the first Favorite while the screen shows: the row now starts with the second and ends with the seventh.
