@@ -177,6 +177,12 @@ final class E2EAppAdapter {
     /// leave), then waits until the engine has no more browsers open than `baseline` (the count before the test),
     /// popups included, or `timeout` runs out. Returns nil when nothing is left, or what is left.
     func closeTestWindows(timeout: TimeInterval, baseline: Int) async -> String? {
+        // A download the test left running would keep its closed tab's page alive into later tests.
+        if let downloads = testProfile?.downloads {
+            for item in downloads.items where item.state == .inProgress || item.state == .paused {
+                downloads.cancel(item.id)
+            }
+        }
         let controllers = testControllers
         testControllers.removeAll()
         testPages.removeAll()

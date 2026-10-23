@@ -5,8 +5,21 @@
 #import "BowDownloads+Internal.h"
 #import "BowEngine.h"
 
+#if BOW_E2E
+#include "BowE2EHooks.h"  // E2E seam
+#endif
+
 CefRefPtr<CefDownloadHandler> BowTabClient::GetDownloadHandler() {
   return downloadHandler_;
+}
+
+bool BowTabClient::RefusesUIRequest(CefRefPtr<CefBrowser> browser, const char* kind) const {
+  BowTab* tab = tab_;
+  if (!IsOwn(browser) || (tab && !tab.closed)) return false;
+#if BOW_E2E  // E2E seam: counts what a closed tab's page was refused.
+  BowEngineNoteParkedRequestRefused(kind);
+#endif
+  return true;
 }
 
 @implementation BowTab (Downloads)
@@ -17,8 +30,10 @@ CefRefPtr<CefDownloadHandler> BowTabClient::GetDownloadHandler() {
   BowDownloads* downloads = [BowEngine.shared profileWithID:self.profileID].downloads;
   const int browserID = browser->GetIdentifier();
   if (![downloads hasActiveDownloadsForBrowser:browserID]) return NO;
-  // Out of every window at once, so the tab leaves its window as any closing tab does, and silent: the page has run
-  // its unload handlers already, and nothing of it may be heard once its tab has gone. Only its downloads keep it.
+  // Out of every window at once, so the tab leaves its window as any closing tab does, and muted. The page has run
+  // its unload handlers, but it is not inert: its timers and network go on (throttled, as in any hidden page). So
+  // nothing it asks for may reach the screen (RefusesUIRequest) or keep it alive (no new download starts from it);
+  // only the downloads it had running keep it.
   NSView* browserView = (__bridge NSView*)browser->GetHost()->GetWindowHandle();
   browserView.autoresizingMask = NSViewNotSizable;
   [BowEngineParkingView() addSubview:browserView];
