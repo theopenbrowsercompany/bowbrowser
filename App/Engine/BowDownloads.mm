@@ -244,7 +244,7 @@ class BowDownloadHandler : public CefDownloadHandler {
 
   bool CanDownload(CefRefPtr<CefBrowser> browser, const CefString& url, const CefString& requestMethod) override {
     // A closed tab's page kept for its downloads starts none, so it cannot keep itself alive.
-    if (browser && BowDownloadsKeepsBrowserAlive(browser->GetIdentifier())) {
+    if (browser && BowDownloadsRefusesDownloadsFrom(browser->GetIdentifier())) {
 #if BOW_E2E  // E2E seam: counts what a closed tab's page was refused.
       BowEngineNoteParkedRequestRefused("download");
 #endif
@@ -292,6 +292,9 @@ class BowDownloadHandler : public CefDownloadHandler {
   std::map<int, dispatch_block_t> _keptBrowsers;
   // Kept browsers with no active download left, waiting out the release grace.
   std::set<int> _releaseChecks;
+  // Kept browsers released and being torn down, until they close: their pages still run meanwhile, and start no
+  // download either.
+  std::set<int> _releasedBrowsers;
   // Destination questions not answered yet, abandoned when the engine stops.
   NSHashTable<BowDestinationAnswer*>* _answers;
 }
@@ -307,6 +310,7 @@ class BowDownloadHandler : public CefDownloadHandler {
   _watchTimer = nil;
   _keptBrowsers.clear();
   _releaseChecks.clear();
+  _releasedBrowsers.clear();
   _watches.clear();
   _controls.clear();
   for (BowDestinationAnswer* answer in _answers) [answer abandon];
@@ -558,13 +562,20 @@ class BowDownloadHandler : public CefDownloadHandler {
   return _keptBrowsers.count(browserID) > 0;
 }
 
+- (BOOL)refusesDownloadsFrom:(int)browserID {
+  return _keptBrowsers.count(browserID) > 0 || _releasedBrowsers.count(browserID) > 0;
+}
+
 - (BOOL)keepsAnyBrowser {
   return !_keptBrowsers.empty();
 }
 
 // Runs the block of every kept browser on a later main thread task, at once.
 - (void)releaseAllBrowsers {
-  for (auto& [browserID, block] : _keptBrowsers) dispatch_async(dispatch_get_main_queue(), block);
+  for (auto& [browserID, block] : _keptBrowsers) {
+    _releasedBrowsers.insert(browserID);
+    dispatch_async(dispatch_get_main_queue(), block);
+  }
   _keptBrowsers.clear();
   _releaseChecks.clear();
 }
@@ -590,6 +601,7 @@ class BowDownloadHandler : public CefDownloadHandler {
   if (kept == _keptBrowsers.end() || [self hasActiveDownloadsForBrowser:browserID]) return;
   dispatch_block_t block = kept->second;
   _keptBrowsers.erase(kept);
+  _releasedBrowsers.insert(browserID);
   block();
   RunReleaseWaitersIfNoneKept();
 }
@@ -617,6 +629,7 @@ class BowDownloadHandler : public CefDownloadHandler {
 // The browser `browserID` closed: Chromium says nothing more about its downloads, which are read from disk now.
 - (void)browserClosed:(int)browserID {
   _keptBrowsers.erase(browserID);
+  _releasedBrowsers.erase(browserID);
   _releaseChecks.erase(browserID);
   RunReleaseWaitersIfNoneKept();
   std::vector<uint32_t> orphans;
@@ -791,6 +804,13 @@ class BowDownloadHandler : public CefDownloadHandler {
 }
 
 @end
+
+bool BowDownloadsRefusesDownloadsFrom(int browserID) {
+  for (BowDownloads* downloads in BowDownloads.allDownloads) {
+    if ([downloads refusesDownloadsFrom:browserID]) return true;
+  }
+  return false;
+}
 
 bool BowDownloadsKeepsBrowserAlive(int browserID) {
   for (BowDownloads* downloads in BowDownloads.allDownloads) {
