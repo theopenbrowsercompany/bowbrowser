@@ -79,6 +79,8 @@ shardrun() {
       exit 2
     fi
     [ "$first" = 0 ] || [ "$t" != "${FAKE_CRASH:-}" ] || kill -SEGV $$
+    # FAKE_SKIP: a test the app leaves out without a word.
+    [ "$first" = 0 ] || [ "$t" != "${FAKE_SKIP:-}" ] || continue
     case $t in a.one) secs=0.5 ;; a.two) secs=0.2 ;; *) secs=0.3 ;; esac
     if [ "$t" = a.three ]; then
       line "RESULT a.three pass seconds=$secs checks=0/0 quit=pending"; quit=1
@@ -731,6 +733,9 @@ check "plan: that test runs once" is "$(grep -c '^RESULT a.one ' "$(latest repor
 FAKE_GREEDY=1 E2E_SHARDS=2 run shard
 check "a shard that runs tests outside its plan stops the run" \
   is "$code/$last" "64/E2E: ERROR shard 1/2: it ran tests outside its plan: a.two, a.three"
+FAKE_SKIP=a.two E2E_SHARDS=2 run shard
+check "a shard that leaves a test of its plan unrun stops the run" \
+  is "$code/$last" "64/E2E: ERROR shard 2/2: it did not run tests of its plan: a.two"
 E2E_SHARDS=3 run shard a.one
 check "plan: one test runs in one app" is "$(shard_dirs)/$last/$(cat "$(latest args)")" "0/E2E: PASS 3/3/e2e=a.one"
 E2E_SHARDS=2 run usage nope.test
@@ -873,16 +878,17 @@ for quiet in 0 1; do
   rm -rf "$iroot"
 done
 # A signal while shards run stops every shard, its app and its helper, in both output modes.
-for quiet in 0 1; do
-  E2E_QUIET=$quiet E2E_SHARDS=2 FAKE_HANG=1 interrupt TERM shard 150 latest/shard-2/hanging
-  check "TERM during shards (quiet=$quiet): the wrapper stops at once" is "$stopped" yes
-  check "TERM during shards (quiet=$quiet): exit 130 and the summary" is "$code/$last" "130/E2E: ERROR interrupted"
-  check "TERM during shards (quiet=$quiet): results.json says interrupted" is "$(field "$res" status)" interrupted
-  check "TERM during shards (quiet=$quiet): each shard's results.json says interrupted" \
+for case in TERM:0 TERM:1 INT:0; do
+  sig=${case%:*} quiet=${case#*:}
+  E2E_QUIET=$quiet E2E_SHARDS=2 FAKE_HANG=1 interrupt "$sig" shard 150 latest/shard-2/hanging
+  check "$sig during shards (quiet=$quiet): the wrapper stops at once" is "$stopped" yes
+  check "$sig during shards (quiet=$quiet): exit 130 and the summary" is "$code/$last" "130/E2E: ERROR interrupted"
+  check "$sig during shards (quiet=$quiet): results.json says interrupted" is "$(field "$res" status)" interrupted
+  check "$sig during shards (quiet=$quiet): each shard's results.json says interrupted" \
     is "$(field "$iroot/latest/shard-1/results.json" status)/$(field "$iroot/latest/shard-2/results.json" status)" interrupted/interrupted
-  check "TERM during shards (quiet=$quiet): every app and helper is ended" is "$(ps -axo command= | grep -F -- "$iroot/" | grep -vc grep)" 0
-  check "TERM during shards (quiet=$quiet): every build lock slot is given back" is "$(ls "$BOW_LOCK_DIR/e2e/slots" | wc -l | tr -d ' ')" 0
-  check "TERM during shards (quiet=$quiet): no file of its own left" is "$(find "$iroot" -name '.shard-*' -o -name .output | wc -l | tr -d ' ')" 0
+  check "$sig during shards (quiet=$quiet): every app and helper is ended" is "$(ps -axo command= | grep -F -- "$iroot/" | grep -vc grep)" 0
+  check "$sig during shards (quiet=$quiet): every build lock slot is given back" is "$(ls "$BOW_LOCK_DIR/e2e/slots" | wc -l | tr -d ' ')" 0
+  check "$sig during shards (quiet=$quiet): no file of its own left" is "$(find "$iroot" -name '.shard-*' -o -name .output | wc -l | tr -d ' ')" 0
   rm -rf "$iroot"
 done
 # An app that ignores TERM is swept after 5 seconds, so the build lock still ends and gives back its slot.
