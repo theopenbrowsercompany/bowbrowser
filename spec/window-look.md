@@ -45,6 +45,11 @@ It uses Bow's brand colors as light and dark tokens, soft radii and one soft sha
 - Fredoka 600 at 40 points (`BowBrand.display()`) is the start screen greeting's font, its only use; the start screen's hint is 13 points and its placeholder 16 points in Nunito Sans. JetBrains Mono is not bundled.
 - Other windows (downloads, permission prompts, find bar, About panel) keep the system font.
 - The tokens, radii, shadow and sidebar spacing come from one file of named values.
+- Page fullscreen: when a page asks to fill the screen (a video's fullscreen button, `element.requestFullscreen()`), the page gets the whole window, as in Chrome and Arc.
+  The sidebar (or, in the top tabs layout, the tab strip and toolbar row) hides, the card loses its inset, corners and shadow, and the window enters macOS full screen.
+  Escape (which the page then never sees), the page's own `document.exitFullscreen()`, leaving macOS full screen, switching tabs, closing the tab or the page navigating to another document leave page fullscreen and bring back the layout as it was, and take the window out of macOS full screen.
+  A window that was already in macOS full screen before the page asked stays there; only the chrome and the card come back.
+- Plain macOS full screen (with no page fullscreen) keeps the sidebar and the card's inset, corners and shadow, as Arc does; Arc drops the border only when its sidebar is hidden too, which Bow does not offer yet.
 
 ## Edge cases
 
@@ -52,6 +57,8 @@ It uses Bow's brand colors as light and dark tokens, soft radii and one soft sha
 - A page with its own dark background shows inside the card's rounded corners, which clip it.
 - A Favorite that is the active tab shows as a lifted tile in the grid; no tab row is lifted then.
 - The navigation buttons follow the window's light or dark appearance.
+- A second fullscreen request from the page already filling the window changes nothing; a page in a tab that is not shown is asked to leave at once.
+- Closing the window or quitting while a page is fullscreen closes it without toggling macOS full screen first.
 
 ## Acceptance checks
 
@@ -69,6 +76,7 @@ It uses Bow's brand colors as light and dark tokens, soft radii and one soft sha
 12. `design.fonts` prints PASS for `design.fonts_registered`, `design.fonts_sidebar`, `design.fonts_command_bar` and `design.fonts_empty`.
 13. `make e2e E2E=design` runs these checks and writes screenshots to `build/e2e/<run>/design/`, among them `mockup-1.png` (start screen, light), `mockup-2.png` (browsing, light), `mockup-3.png` (browsing, dark) and `mockup-4.png` (top tabs), as evidence for the maintainer to look at, never compared by pixels.
 14. `design.footer` prints PASS for `design.footer_centred` (the dots' middle is within 1 point of the middle between the archive button and the "+"), `design.footer_dot_colors` and `design.footer_dot_menu`; `design.fonts` also reads the folder rows (semibold) and the command bar's result rows.
+15. Click a page's fullscreen button: `make e2e E2E=fullscreen` prints `PASS fullscreen: sidebar=hidden` with insets 0, radius 0, no shadow and one full screen toggle, and PASS for `fullscreen.escape`, `fullscreen.exit`, `fullscreen.tab_switch`, `fullscreen.already`, `fullscreen.navigate`, `fullscreen.window_exit` and `fullscreen.top_tabs`; a recorder stands in for macOS full screen, so the run never takes over the display.
 
 ## Out of scope
 
@@ -87,4 +95,6 @@ It uses Bow's brand colors as light and dark tokens, soft radii and one soft sha
 - Apple, Core Animation layer style properties (a corner radius clips content only with masksToBounds, which also clips the shadow, so the shadow sits on a separate view): https://developer.apple.com/library/archive/documentation/Cocoa/Conceptual/CoreAnimation_guide/LayerStyleProperties/LayerStyleProperties.html
 - Arc's View > Show Toolbar and its Command-Shift-D shortcut: https://resources.arc.net/hc/en-us/articles/25625458052247-How-Do-You-View-the-Full-URL-at-the-Top-of-the-Page-in-Arc-for-Desktop and https://resources.arc.net/hc/en-us/articles/20498377604887-Arc-for-macOS-2023-Release-Notes
 - Arc's sidebar URL bar shows the site rather than the full address, which is why Arc documents a way to see the full URL (same help article).
+- Arc in full screen keeps its border around the page until the sidebar is hidden as well: https://www.alexandergoller.com/journal/14870/arc-browser
+- CEF's `CefBrowserHost::ExitFullscreen` (with Alloy style the app calls it on Escape and when leaving window full screen) and `CefDisplayHandler::OnFullscreenModeChange`.
 - An Arc style window reference (tinted frame, the page inset about 8 px on three sides with rounded corners): https://deviceshots.com/browsers/arc/
