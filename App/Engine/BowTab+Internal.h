@@ -49,7 +49,8 @@ class BowTabClient;
                  canGoForward:(BOOL)canGoForward
                       audible:(BOOL)audible
                capturingVideo:(BOOL)capturingVideo
-               capturingAudio:(BOOL)capturingAudio NS_DESIGNATED_INITIALIZER;
+               capturingAudio:(BOOL)capturingAudio
+                hasEditedForm:(BOOL)hasEditedForm NS_DESIGNATED_INITIALIZER;
 @end
 
 @interface BowFindResult ()

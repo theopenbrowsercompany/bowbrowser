@@ -60,12 +60,15 @@ public struct EngineTabState: Equatable, Sendable {
     public var isLoading: Bool
     public var canGoBack: Bool
     public var canGoForward: Bool
-    /// True while the page plays sound. Engines that cannot tell (CEF 156 reports no audible state) leave it false.
+    /// True while the page plays sound, as the page's media elements and Web Audio report it.
     public var isAudible: Bool
     /// True while the page uses a camera (or captures the screen's video).
     public var isCapturingVideo: Bool
     /// True while the page uses a microphone (or captures the screen's audio).
     public var isCapturingAudio: Bool
+    /// True once the person edited a form field in one of the page's frames, by any means (typing, pasting,
+    /// dropping, dictating, autofill, choosing a file), until the main frame commits a new document.
+    public var hasEditedForm: Bool
 
     public init(
         tabID: TabID,
@@ -77,8 +80,10 @@ public struct EngineTabState: Equatable, Sendable {
         canGoForward: Bool = false,
         isAudible: Bool = false,
         isCapturingVideo: Bool = false,
-        isCapturingAudio: Bool = false
+        isCapturingAudio: Bool = false,
+        hasEditedForm: Bool = false
     ) {
+        self.hasEditedForm = hasEditedForm
         self.tabID = tabID
         self.url = url
         self.title = title

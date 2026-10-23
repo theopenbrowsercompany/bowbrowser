@@ -20,12 +20,17 @@ NS_SWIFT_SENDABLE
 @property(nonatomic, readonly, getter=isLoading) BOOL loading;
 @property(nonatomic, readonly) BOOL canGoBack;
 @property(nonatomic, readonly) BOOL canGoForward;
-/// YES while the page plays sound. Always NO for now outside e2e runs: CEF 156 reports no audible state.
+/// YES while one of the page's frames plays sound, as the page's own media elements and Web Audio report it from the
+/// render process (CEF 156 has no audible event).
 @property(nonatomic, readonly, getter=isAudible) BOOL audible;
 /// YES while the page uses a camera (or captures the screen's video).
 @property(nonatomic, readonly, getter=isCapturingVideo) BOOL capturingVideo;
 /// YES while the page uses a microphone (or captures the screen's audio).
 @property(nonatomic, readonly, getter=isCapturingAudio) BOOL capturingAudio;
+/// YES once the person edited a form field (a text field, text area, list, file input or editable text) in one of
+/// the page's frames, by any means: typing, pasting, dropping, dictating, autofill or choosing a file. NO again once
+/// the main frame commits a new document.
+@property(nonatomic, readonly) BOOL hasEditedForm;
 
 @end
 

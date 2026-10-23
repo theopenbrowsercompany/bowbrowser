@@ -134,7 +134,8 @@ void BowTearDownBrowserView(CefRefPtr<CefBrowser> browser) {
                  canGoForward:(BOOL)canGoForward
                       audible:(BOOL)audible
                capturingVideo:(BOOL)capturingVideo
-               capturingAudio:(BOOL)capturingAudio {
+               capturingAudio:(BOOL)capturingAudio
+                hasEditedForm:(BOOL)hasEditedForm {
   self = [super init];
   if (self) {
     _tabID = tabID;
@@ -147,6 +148,7 @@ void BowTearDownBrowserView(CefRefPtr<CefBrowser> browser) {
     _audible = audible;
     _capturingVideo = capturingVideo;
     _capturingAudio = capturingAudio;
+    _hasEditedForm = hasEditedForm;
   }
   return self;
 }
@@ -235,7 +237,8 @@ void BowTearDownBrowserView(CefRefPtr<CefBrowser> browser) {
                                    canGoForward:NO
                                         audible:NO
                                  capturingVideo:NO
-                                 capturingAudio:NO];
+                                 capturingAudio:NO
+                                  hasEditedForm:NO];
     _client = new BowTabClient(self, downloadHandler);
     BowEngineBrowserCreationStarted(self);
   }
@@ -374,7 +377,8 @@ void BowTearDownBrowserView(CefRefPtr<CefBrowser> browser) {
                                      canGoForward:canGoForward
                                           audible:old.audible
                                    capturingVideo:old.capturingVideo
-                                   capturingAudio:old.capturingAudio];
+                                   capturingAudio:old.capturingAudio
+                                    hasEditedForm:old.hasEditedForm];
   id<BowTabUIDelegate> delegate = self.uiDelegate;
   if ([delegate respondsToSelector:@selector(tab:didChangeState:)]) [delegate tab:self didChangeState:self.state];
 }
@@ -484,7 +488,8 @@ void BowTearDownBrowserView(CefRefPtr<CefBrowser> browser) {
                                      canGoForward:old.canGoForward
                                           audible:old.audible
                                    capturingVideo:video
-                                   capturingAudio:audio];
+                                   capturingAudio:audio
+                                    hasEditedForm:old.hasEditedForm];
   id<BowTabUIDelegate> delegate = self.uiDelegate;
   if ([delegate respondsToSelector:@selector(tab:didChangeState:)]) [delegate tab:self didChangeState:self.state];
 }
@@ -501,7 +506,8 @@ void BowTearDownBrowserView(CefRefPtr<CefBrowser> browser) {
                                      canGoForward:old.canGoForward
                                           audible:audible
                                    capturingVideo:old.capturingVideo
-                                   capturingAudio:old.capturingAudio];
+                                   capturingAudio:old.capturingAudio
+                                    hasEditedForm:old.hasEditedForm];
   id<BowTabUIDelegate> delegate = self.uiDelegate;
   if ([delegate respondsToSelector:@selector(tab:didChangeState:)]) [delegate tab:self didChangeState:self.state];
 }
