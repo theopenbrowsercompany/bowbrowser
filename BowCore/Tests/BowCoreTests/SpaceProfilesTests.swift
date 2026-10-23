@@ -92,3 +92,32 @@ import Testing
         }
     }
 }
+
+@Suite struct ProfileSetupCheckTests {
+    private let root = URL(fileURLWithPath: "/tmp/bow-root", isDirectory: true)
+
+    @Test func aPersistentProfileIsReadyWhenItsFolderIsMissingOrWritable() {
+        let work = ProfileRecord(id: "work", name: "Work", isPersistent: true)
+        #expect(ProfileSetupCheck.check(work, root: root, folderExists: false, folderWritable: false) == .ready)
+        #expect(ProfileSetupCheck.check(work, root: root, folderExists: true, folderWritable: true) == .ready)
+    }
+
+    @Test func aFolderThatCannotBeChangedIsRefused() {
+        let work = ProfileRecord(id: "work", name: "Work", isPersistent: true)
+        #expect(
+            ProfileSetupCheck.check(work, root: root, folderExists: true, folderWritable: false)
+                == .folderNotWritable("/tmp/bow-root/Profile-work"))
+    }
+
+    @Test func anIDThatWouldLeaveTheRootIsRefused() {
+        let nested = ProfileRecord(id: "a/b", name: "Nested", isPersistent: true)
+        #expect(ProfileSetupCheck.check(nested, root: root, folderExists: false, folderWritable: true) != .ready)
+        let dots = ProfileRecord(id: "..", name: "Up", isPersistent: true)
+        #expect(ProfileSetupCheck.check(dots, root: root, folderExists: false, folderWritable: true) != .ready)
+    }
+
+    @Test func anEphemeralProfileNeedsNoFolder() {
+        let memory = ProfileRecord(id: "a/b", name: "Memory", isPersistent: false)
+        #expect(ProfileSetupCheck.check(memory, root: root, folderExists: false, folderWritable: false) == .ready)
+    }
+}

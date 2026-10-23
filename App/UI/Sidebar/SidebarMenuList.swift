@@ -11,6 +11,7 @@ enum SidebarMenus {
         PinMenuItems.self,
         FolderMenuItems.self,
         FavoritesMenuItems.self,
+        SpaceProfileMenuItems.self,
         SpaceThemeMenuItems.self,
     ]
 }
