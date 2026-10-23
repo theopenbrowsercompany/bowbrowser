@@ -130,5 +130,13 @@ struct FavoritesGridTest: E2ETest {
                 && removed.outline == ["favorites", "pinned", "A", "divider", "today", "B", "C", "B"],
             "menu=\(removed.menu) items=\(titles(removed.tiles)) height=\(removed.height) "
                 + "outline=\(removed.outline.joined(separator: " | "))")
+
+        // Evidence only: the window ends showing C with A and B back in the grid, for the run's screenshot.
+        try await run.step("leave Favorites for the screenshot", timeout: E2ETimeouts.step) {
+            try app.dragToFavorites(a, at: 0)
+            try app.dragToFavorites(b, at: 1)
+            try app.clickSidebarRow(of: c)
+            _ = try await tiles(of: c) { $0.count == 2 }
+        }
     }
 }
