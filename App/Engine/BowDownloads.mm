@@ -1,8 +1,11 @@
 #import "BowDownloads.h"
 
+#include <sys/stat.h>
+
 #include <map>
 #include <set>
 #include <string>
+#include <vector>
 
 #include "BowEngine+Internal.h"
 #include "include/cef_download_handler.h"
@@ -24,6 +27,35 @@ BowDownloadState ToState(CefRefPtr<CefDownloadItem> item) {
 bool IsFinal(BowDownloadState state) {
   return state == BowDownloadStateComplete || state == BowDownloadStateCancelled;
 }
+
+// How often downloads whose tab closed are read from disk, and how long their file may stay unchanged before their
+// status is unknown.
+constexpr NSTimeInterval kWatchInterval = 0.25;
+constexpr CFAbsoluteTime kStallSeconds = 15;
+
+// The size of the file at `path`, or -1 when there is none.
+int64_t FileSize(const std::string& path) {
+  struct stat info;
+  if (stat(path.c_str(), &info) != 0 || !S_ISREG(info.st_mode)) return -1;
+  return info.st_size;
+}
+
+// What is known about a running download apart from its snapshot: the browser Chromium reports it through, and,
+// once that browser has closed, what its file on disk last looked like.
+struct Watch {
+  CefRefPtr<CefBrowser> browser;
+  // The browser closed, so the download is read from disk.
+  bool orphaned = false;
+  // Paused through `pauseDownload:` since it was orphaned; Chromium's pause is asynchronous.
+  bool paused = false;
+  // Chromium's partial file (`<path>.crdownload`) was seen, so the chosen file appearing alone means it completed.
+  bool sawPartial = false;
+  // The download's file was on disk, so its disappearing means Chromium cancelled it.
+  bool sawFile = false;
+  int64_t lastSize = 0;
+  CFAbsoluteTime lastChange = 0;
+  CFAbsoluteTime lastRead = 0;
+};
 
 }  // namespace
 
@@ -117,9 +149,35 @@ bool IsFinal(BowDownloadState state) {
 @interface BowDownloads ()
 - (BOOL)allowsDownloadFromURL:(NSString*)url;
 - (BOOL)downloadWillBegin:(CefRefPtr<CefDownloadItem>)item
+                  browser:(CefRefPtr<CefBrowser>)browser
             suggestedName:(NSString*)suggestedName
                  callback:(CefRefPtr<CefBeforeDownloadCallback>)callback;
-- (void)downloadUpdated:(CefRefPtr<CefDownloadItem>)item callback:(CefRefPtr<CefDownloadItemCallback>)callback;
+- (void)downloadUpdated:(CefRefPtr<CefDownloadItem>)item
+                browser:(CefRefPtr<CefBrowser>)browser
+               callback:(CefRefPtr<CefDownloadItemCallback>)callback;
+@end
+
+@interface BowDownloadItem (Copy)
+- (BowDownloadItem*)copyWithState:(BowDownloadState)state
+                    receivedBytes:(int64_t)receivedBytes
+                     currentSpeed:(int64_t)currentSpeed
+                         fullPath:(nullable NSString*)fullPath;
+@end
+
+@implementation BowDownloadItem (Copy)
+- (BowDownloadItem*)copyWithState:(BowDownloadState)state
+                    receivedBytes:(int64_t)receivedBytes
+                     currentSpeed:(int64_t)currentSpeed
+                         fullPath:(NSString*)fullPath {
+  return [[BowDownloadItem alloc] initWithDownloadID:self.downloadID
+                                                 url:self.url
+                                   suggestedFileName:self.suggestedFileName
+                                            fullPath:fullPath
+                                               state:state
+                                       receivedBytes:receivedBytes
+                                          totalBytes:self.totalBytes
+                                        currentSpeed:currentSpeed];
+}
 @end
 
 // Chromium's download callbacks for every browser of one profile, forwarded to its BowDownloads. They run on the
@@ -136,13 +194,13 @@ class BowDownloadHandler : public CefDownloadHandler {
                         CefRefPtr<CefDownloadItem> item,
                         const CefString& suggestedName,
                         CefRefPtr<CefBeforeDownloadCallback> callback) override {
-    return [downloads_ downloadWillBegin:item suggestedName:ToNSString(suggestedName) callback:callback];
+    return [downloads_ downloadWillBegin:item browser:browser suggestedName:ToNSString(suggestedName) callback:callback];
   }
 
   void OnDownloadUpdated(CefRefPtr<CefBrowser> browser,
                          CefRefPtr<CefDownloadItem> item,
                          CefRefPtr<CefDownloadItemCallback> callback) override {
-    [downloads_ downloadUpdated:item callback:callback];
+    [downloads_ downloadUpdated:item browser:browser callback:callback];
   }
 
  private:
@@ -162,6 +220,10 @@ class BowDownloadHandler : public CefDownloadHandler {
   std::set<uint32_t> _cancelled;
   // Downloads taken out of the list; their late updates (a removed interrupted download's cancel) are ignored.
   std::set<uint32_t> _removed;
+  // Every download that is not final or removed.
+  std::map<uint32_t, Watch> _watches;
+  // Reads orphaned downloads from disk while any download is watched.
+  NSTimer* _watchTimer;
 }
 
 - (instancetype)initWithProfileID:(NSString*)profileID {
@@ -172,6 +234,10 @@ class BowDownloadHandler : public CefDownloadHandler {
     _handler = new BowDownloadHandler(self);
   }
   return self;
+}
+
+- (void)dealloc {
+  [_watchTimer invalidate];
 }
 
 - (CefRefPtr<CefDownloadHandler>)handler {
@@ -194,12 +260,14 @@ class BowDownloadHandler : public CefDownloadHandler {
 }
 
 - (BOOL)downloadWillBegin:(CefRefPtr<CefDownloadItem>)cefItem
+                  browser:(CefRefPtr<CefBrowser>)browser
             suggestedName:(NSString*)suggestedName
                  callback:(CefRefPtr<CefBeforeDownloadCallback>)callback {
   id<BowDownloadsDelegate> delegate = self.delegate;
   // Returning false cancels the download in Alloy style.
   if (!delegate) return NO;
   const uint32_t downloadID = cefItem->GetId();
+  [self watch:downloadID browser:browser];
   // Chromium may report an update first, which already announced the download.
   BOOL isNew = [self indexOf:downloadID] == NSNotFound;
   BowDownloadItem* item = [self store:[self snapshot:cefItem]];
@@ -238,16 +306,20 @@ class BowDownloadHandler : public CefDownloadHandler {
   if (control != _controls.end()) control->second->Cancel();
 }
 
-- (void)downloadUpdated:(CefRefPtr<CefDownloadItem>)cefItem callback:(CefRefPtr<CefDownloadItemCallback>)callback {
+- (void)downloadUpdated:(CefRefPtr<CefDownloadItem>)cefItem
+                browser:(CefRefPtr<CefBrowser>)browser
+               callback:(CefRefPtr<CefDownloadItemCallback>)callback {
   const uint32_t downloadID = cefItem->GetId();
   if (_removed.count(downloadID)) return;
   BowDownloadItem* item = [self snapshot:cefItem];
   if (IsFinal(item.state)) {
     _controls.erase(downloadID);
     _cancelled.erase(downloadID);
+    _watches.erase(downloadID);
   } else {
     _controls[downloadID] = callback;
     if (_cancelled.count(downloadID)) callback->Cancel();
+    [self watch:downloadID browser:browser];
   }
   BOOL isNew = [self indexOf:downloadID] == NSNotFound;
   [self store:item];
@@ -300,17 +372,42 @@ class BowDownloadHandler : public CefDownloadHandler {
 
 - (void)pauseDownload:(uint32_t)downloadID {
   auto control = _controls.find(downloadID);
-  if (control != _controls.end()) control->second->Pause();
+  if (control == _controls.end()) return;
+  control->second->Pause();
+  Watch* watch = [self orphanedWatch:downloadID];
+  if (!watch) return;
+  // Chromium no longer reports the pause, so it shows here.
+  BowDownloadItem* item = _items[[self indexOf:downloadID]];
+  if (item.state != BowDownloadStateInProgress && item.state != BowDownloadStateUnknown) return;
+  watch->paused = true;
+  [self update:[item copyWithState:BowDownloadStatePaused
+                     receivedBytes:item.receivedBytes
+                      currentSpeed:0
+                          fullPath:item.fullPath]];
 }
 
 - (void)resumeDownload:(uint32_t)downloadID {
   auto control = _controls.find(downloadID);
-  if (control != _controls.end()) control->second->Resume();
+  if (control == _controls.end()) return;
+  control->second->Resume();
+  Watch* watch = [self orphanedWatch:downloadID];
+  if (!watch) return;
+  BowDownloadItem* item = _items[[self indexOf:downloadID]];
+  if (item.state != BowDownloadStatePaused && item.state != BowDownloadStateInterrupted) return;
+  watch->paused = false;
+  watch->lastChange = CFAbsoluteTimeGetCurrent();
+  [self update:[item copyWithState:BowDownloadStateInProgress
+                     receivedBytes:item.receivedBytes
+                      currentSpeed:0
+                          fullPath:item.fullPath]];
 }
 
 - (void)cancelDownload:(uint32_t)downloadID {
   auto control = _controls.find(downloadID);
-  if (control != _controls.end()) control->second->Cancel();
+  if (control == _controls.end()) return;
+  control->second->Cancel();
+  // Chromium no longer reports the cancel (which deletes the partial file), so it shows here.
+  if ([self orphanedWatch:downloadID]) [self finishOrphan:downloadID state:BowDownloadStateCancelled fullPath:nil];
 }
 
 - (void)removeDownload:(uint32_t)downloadID {
@@ -318,13 +415,155 @@ class BowDownloadHandler : public CefDownloadHandler {
   if (index == NSNotFound) return;
   BowDownloadItem* item = _items[index];
   if (item.state == BowDownloadStateInProgress || item.state == BowDownloadStatePaused) return;
-  // An interrupted download could still resume; removing it ends it for good.
-  if (item.state == BowDownloadStateInterrupted) [self cancelDownload:downloadID];
+  // An interrupted download could still resume, and one whose status is unknown may still be running; removing
+  // either ends it for good.
+  if (item.state == BowDownloadStateInterrupted || item.state == BowDownloadStateUnknown) {
+    auto control = _controls.find(downloadID);
+    if (control != _controls.end()) control->second->Cancel();
+  }
   [_items removeObjectAtIndex:index];
   _removed.insert(downloadID);
   _controls.erase(downloadID);
   _destinations.erase(downloadID);
+  _cancelled.erase(downloadID);
+  _watches.erase(downloadID);
   [self.delegate downloads:self didRemoveItem:item];
+}
+
+#pragma mark Downloads whose tab closed
+
+// Notes the browser reporting a running download, and makes sure the watch timer runs.
+- (void)watch:(uint32_t)downloadID browser:(CefRefPtr<CefBrowser>)browser {
+  Watch& watch = _watches[downloadID];
+  // A report from a live browser is the truth again.
+  if (browser) {
+    watch.browser = browser;
+    watch.orphaned = false;
+    watch.paused = false;
+  }
+  if (!_watchTimer) {
+    __weak BowDownloads* weakSelf = self;
+    _watchTimer = [NSTimer timerWithTimeInterval:kWatchInterval
+                                         repeats:YES
+                                           block:^(NSTimer*) {
+                                             [weakSelf readOrphans];
+                                           }];
+    [NSRunLoop.mainRunLoop addTimer:_watchTimer forMode:NSRunLoopCommonModes];
+  }
+}
+
+// The watch of `downloadID` when its browser has closed and it is in the list, else NULL.
+- (Watch*)orphanedWatch:(uint32_t)downloadID {
+  auto watch = _watches.find(downloadID);
+  if (watch == _watches.end() || !watch->second.orphaned || [self indexOf:downloadID] == NSNotFound) return nullptr;
+  return &watch->second;
+}
+
+- (void)readOrphans {
+  const CFAbsoluteTime now = CFAbsoluteTimeGetCurrent();
+  std::vector<uint32_t> orphans;
+  for (auto& [downloadID, watch] : _watches) {
+    if (!watch.browser || !watch.browser->IsValid()) orphans.push_back(downloadID);
+  }
+  for (uint32_t downloadID : orphans) [self readOrphan:downloadID now:now];
+  if (_watches.empty()) {
+    [_watchTimer invalidate];
+    _watchTimer = nil;
+  }
+}
+
+// Reads one download whose browser closed from its file on disk. CEF has Chromium write straight into the chosen
+// path (a `<path>.crdownload` partial file is read too, should Chromium use one, and renamed to the path once every
+// byte is saved). Chromium deletes the file when the download is cancelled, which happens when CEF aborts every
+// request of a browser it destroys, and keeps it when the download is interrupted.
+- (void)readOrphan:(uint32_t)downloadID now:(CFAbsoluteTime)now {
+  auto found = _watches.find(downloadID);
+  if (found == _watches.end()) return;
+  NSUInteger index = [self indexOf:downloadID];
+  if (index == NSNotFound) {
+    _watches.erase(found);
+    return;
+  }
+  Watch& watch = found->second;
+  BowDownloadItem* item = _items[index];
+  if (!watch.orphaned) {
+    watch.orphaned = true;
+    watch.browser = nullptr;
+    watch.lastSize = item.receivedBytes;
+    watch.lastChange = now;
+    watch.lastRead = now;
+    // Chromium had written bytes, so its file was on disk.
+    watch.sawFile = item.receivedBytes > 0;
+  }
+  // Refused a destination: cancelled, whether or not Chromium got to say so.
+  if (_cancelled.count(downloadID)) {
+    [self finishOrphan:downloadID state:BowDownloadStateCancelled fullPath:nil];
+    return;
+  }
+
+  int64_t received = item.receivedBytes;
+  auto destination = _destinations.find(downloadID);
+  if (destination != _destinations.end()) {
+    const std::string& path = destination->second;
+    const int64_t partialSize = FileSize(path + ".crdownload");
+    const int64_t size = FileSize(path);
+    if (partialSize >= 0) {
+      watch.sawPartial = true;
+      watch.sawFile = true;
+      received = partialSize;
+    } else if (size >= 0 && (watch.sawPartial || (item.totalBytes > 0 && size >= item.totalBytes))) {
+      [self finishOrphan:downloadID
+                   state:BowDownloadStateComplete
+                fullPath:[NSString stringWithUTF8String:path.c_str()]];
+      return;
+    } else if (size >= 0) {
+      watch.sawFile = true;
+      received = size;
+    } else if (watch.sawFile) {
+      // The file Chromium was writing is gone: it cancelled the download.
+      [self finishOrphan:downloadID state:BowDownloadStateCancelled fullPath:nil];
+      return;
+    }
+  }
+
+  BowDownloadState state = item.state;
+  const CFAbsoluteTime elapsed = now - watch.lastRead;
+  int64_t speed = 0;
+  if (received != watch.lastSize) {
+    if (received > watch.lastSize && elapsed > 0) speed = (int64_t)((received - watch.lastSize) / elapsed);
+    watch.lastChange = now;
+    // Growing means running, unless a pause asked of Chromium has not taken hold yet.
+    if (!watch.paused) state = BowDownloadStateInProgress;
+  } else if ((state == BowDownloadStateInProgress || state == BowDownloadStateUnknown) &&
+             now - watch.lastChange >= kStallSeconds) {
+    // Stalled, failed, or finished under another name: nothing on disk tells which.
+    state = BowDownloadStateUnknown;
+  }
+  watch.lastSize = received;
+  watch.lastRead = now;
+  if (state == item.state && received == item.receivedBytes && speed == item.currentSpeed) return;
+  [self update:[item copyWithState:state receivedBytes:received currentSpeed:speed fullPath:item.fullPath]];
+}
+
+// Ends an orphaned download in a final state.
+- (void)finishOrphan:(uint32_t)downloadID state:(BowDownloadState)state fullPath:(nullable NSString*)fullPath {
+  _watches.erase(downloadID);
+  _controls.erase(downloadID);
+  _cancelled.erase(downloadID);
+  NSUInteger index = [self indexOf:downloadID];
+  if (index == NSNotFound) return;
+  BowDownloadItem* item = _items[index];
+  int64_t received = item.receivedBytes;
+  if (state == BowDownloadStateComplete) {
+    const int64_t size = FileSize(fullPath.UTF8String ?: "");
+    if (size >= 0) received = size;
+  }
+  [self update:[item copyWithState:state receivedBytes:received currentSpeed:0 fullPath:fullPath ?: item.fullPath]];
+}
+
+- (void)update:(BowDownloadItem*)item {
+  [self store:item];
+  [self.delegate downloads:self didUpdateItem:item];
 }
 
 @end

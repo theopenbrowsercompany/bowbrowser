@@ -4,7 +4,98 @@ import Foundation
 /// and clearing from the downloads window. Fixtures in E2E/Fixtures/downloads/.
 @MainActor
 enum DownloadsTests {
-    static let all: [any E2ETest] = [DownloadsTest()]
+    static let all: [any E2ETest] = [DownloadsTest(), DownloadsTabClosedTest()]
+}
+
+/// Opens a slow download of known size in a second tab and closes that tab mid download. Chromium stops reporting a
+/// download once its tab closes (and CEF cancels it), so the row must update from disk to Cancelled, clear, and free
+/// its name.
+struct DownloadsTabClosedTest: E2ETest {
+    let name = "downloads.tab-closed"
+    let checks = ["downloads.tab-closed"]
+    /// About three seconds at the fixture's pace (1 KB every 20 ms).
+    static let size: Int64 = 160_000
+
+    func run(_ run: E2ERun) async throws {
+        let page = try await run.step("open window", timeout: E2ETimeouts.step) {
+            try await run.app.openWindow(at: E2EFixture.url("downloads/index.html"))
+        }
+        try await run.step("load the fixture", timeout: E2ETimeouts.firstLoad) {
+            let status = try await page.waitForLoad(after: 0)
+            guard status == 200 else { throw E2EError("the fixture loaded with status \(status)") }
+        }
+
+        let earlier = Set(try await run.app.downloads().map(\.id))
+        let atClose = try await run.step("start the download in a second tab and close it", timeout: E2ETimeouts.step) {
+            let tab = try run.app.openTab(
+                at: E2EFixture.url("_slow/\(Self.size)/tab-closed.bin"), besides: page, select: false)
+            let row = try await waitFor(run) {
+                $0.first {
+                    !earlier.contains($0.id) && $0.fileName == "tab-closed.bin" && $0.state == "inProgress"
+                        && $0.receivedBytes > 0
+                }
+            }
+            guard row.receivedBytes < Self.size / 2 else {
+                throw E2EError("the download got \(row.receivedBytes) bytes before the tab could close")
+            }
+            guard try await run.app.closeTab(tab) else { throw E2EError("the download's tab did not close") }
+            return row
+        }
+
+        do {
+            try await run.step("follow the download and clear it", timeout: E2ETimeouts.step * 2) {
+                // CEF aborts every request of a browser it destroys, which cancels the download; the row must say so.
+                let done = try await waitFor(run) { rows -> E2EDownload? in
+                    rows.first { $0.id == atClose.id && $0.state != "inProgress" }
+                }
+                let fileLeft = done.path.map { FileManager.default.fileExists(atPath: $0.path) } ?? false
+                let updated = done.state != atClose.state || done.receivedBytes != atClose.receivedBytes
+
+                // The cancelled row clears, and its name is free for the next download of the file.
+                try await run.app.press(.cancelOrClear, of: done)
+                _ = try await waitFor(run) { rows in rows.contains { $0.id == done.id } ? nil : rows }
+                let again = try run.app.openTab(
+                    at: E2EFixture.url("_slow/\(Self.size)/tab-closed.bin"), besides: page, select: false)
+                let next = try await waitFor(run) {
+                    $0.first {
+                        !earlier.contains($0.id) && $0.id != done.id && $0.state == "inProgress" && $0.path != nil
+                    }
+                }
+                try await run.app.press(.cancelOrClear, of: next)
+                _ = try await waitFor(run) { [id = next.id] in $0.first { $0.id == id && $0.state == "cancelled" } }
+                _ = try await run.app.closeTab(again)
+
+                let passed =
+                    done.state == "cancelled" && done.status == "Cancelled" && updated && !fileLeft
+                    && next.fileName == "tab-closed.bin"
+                run.check(
+                    name,
+                    passed: passed,
+                    "state=\(done.state) row=\(updated ? "updated" : "frozen")"
+                        + (passed ? "" : " status=\"\(done.status)\" fileLeft=\(fileLeft) next=\(next.fileName)")
+                )
+            }
+        } catch {
+            await cancelRunning(run, except: earlier)
+            throw error
+        }
+    }
+
+    /// Cancels any download this test started that is still running.
+    private func cancelRunning(_ run: E2ERun, except earlier: Set<String>) async {
+        guard let rows = try? await run.app.downloads() else { return }
+        for row in rows where !earlier.contains(row.id) && (row.state == "inProgress" || row.state == "paused") {
+            try? await run.app.press(.cancelOrClear, of: row)
+        }
+    }
+
+    /// Reads the downloads window until `match` returns a value, checking every 20 ms; the step's timeout bounds it.
+    private func waitFor<T>(_ run: E2ERun, _ match: ([E2EDownload]) -> T?) async throws -> T {
+        while true {
+            if let value = match(try await run.app.downloads()) { return value }
+            try await Task.sleep(nanoseconds: 20_000_000)
+        }
+    }
 }
 
 /// Clicks a download link twice and a link to a download that never finishes, then drives the downloads window.
