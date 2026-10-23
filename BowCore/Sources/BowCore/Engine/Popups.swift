@@ -12,6 +12,10 @@ public enum PopupDecision: Equatable, Sendable {
     /// page as it does for `.foregroundTab` and hands it over the same way, so it keeps `window.opener`; the app
     /// shows it in the panel (`PopupPanelLayout` sizes it).
     case popupPanel
+    /// A Peek: a card over the opener's window, owned by the opener's sidebar item, not a sidebar tab. The engine
+    /// creates the page as it does for `.foregroundTab` and hands it over the same way; the app shows it in the card
+    /// and may later promote it to a tab without reloading it.
+    case peek
     /// A separate window the engine opens itself. Today's behavior and the default.
     case window
     /// Nothing opens.

@@ -187,7 +187,7 @@ extension EngineTab {
     /// and links saved to disk are not asked about.
     func tab(_ tab: any EngineTab, decidePopup request: PopupRequest) -> PopupDecision
 
-    /// A popup decided as `.foregroundTab`, `.backgroundTab` or `.popupPanel` arrived as a new tab in the same profile, still
+    /// A popup decided as `.foregroundTab`, `.backgroundTab`, `.popupPanel` or `.peek` arrived as a new tab in the same profile, still
     /// connected to its opener (`window.opener`). The app owns it from now on. Asked at once, right after
     /// `decidePopup` and before the new tab's first navigation, so the app's navigation policy covers that too: take
     /// the tab, but show no modal UI and do not close the opener here. Defaults to closing it.
