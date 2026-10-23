@@ -42,8 +42,6 @@ struct SidebarNotice: Error, Equatable, CustomStringConvertible {
 final class SidebarStores: AppFeature {
     private let dataDirectory: URL
     private var mainStore: SidebarStore?
-    /// A notice the next window on the app's sidebar shows: the file was set aside when it was opened.
-    private var pendingNotice: SidebarNotice?
     /// Where window sidebars are kept: a folder of this process in `windowFolderParent`.
     private let windowStoreFolder: URL
     /// Shows notices instead of an alert when set (the e2e harness records them, so no alert waits for a click).
@@ -59,14 +57,18 @@ final class SidebarStores: AppFeature {
         self.dataDirectory = dataDirectory
         windowStoreFolder = WindowSidebarFolders.folder(
             in: windowFolderParent, processID: ProcessInfo.processInfo.processIdentifier)
-        WindowSidebarFolders.removeStale(in: windowFolderParent)
+        // Off the main thread: the temporary folder can be large. This process's own folder is never stale.
+        DispatchQueue.global(qos: .utility).async {
+            WindowSidebarFolders.removeStale(in: windowFolderParent)
+        }
     }
 
-    /// The app's sidebar, opened from the data directory on first use. Throws, every time it is asked, when the data
+    /// The app's sidebar, opened from the data directory on first use, with a notice for the person when opening it
+    /// had to set the file aside (only on the call that opened it). Throws, every time it is asked, when the data
     /// folder cannot be created or the file can be neither read nor set aside (or was written by a newer Bow): the
     /// store refuses to start rather than overwrite the file, and no window runs on a temporary sidebar instead.
-    func main() throws(SidebarNotice) -> SidebarStore {
-        if let mainStore { return mainStore }
+    func main() throws(SidebarNotice) -> (store: SidebarStore, notice: SidebarNotice?) {
+        if let mainStore { return (mainStore, nil) }
         let url = SidebarStore.fileURL(inApplicationSupportFolder: dataDirectory)
         do {
             try FileManager.default.createDirectory(at: dataDirectory, withIntermediateDirectories: true)
@@ -75,8 +77,8 @@ final class SidebarStores: AppFeature {
                 kind: .cannotOpen,
                 message: "Bow cannot create its data folder",
                 detail: """
-                    Bow keeps your sidebar in \(dataDirectory.path), which could not be created: \
-                    \(error.localizedDescription) Make sure the folder can be created, then open Bow again.
+                    Bow keeps your sidebar in \(dataDirectory.path), which could not be created \
+                    (\(error.localizedDescription)). Make sure the folder can be created, then open Bow again.
                     """)
         }
         let store: SidebarStore
@@ -95,12 +97,14 @@ final class SidebarStores: AppFeature {
                 kind: .cannotOpen,
                 message: "Bow cannot open your sidebar",
                 detail: """
-                    \(url.path) could not be read: \(error) Bow has left it untouched rather than start over it. \
-                    Check that the file and its folder can be read and changed, then open Bow again.
+                    Bow could not open \(url.path) (\(error)). It has left the file untouched rather than start \
+                    over it. Check that the file and its folder can be read and changed and that the disk has room, \
+                    then open Bow again.
                     """)
         }
+        var notice: SidebarNotice?
         if case .freshAfterSettingAside(let setAside, let reason) = store.openReport.origin {
-            pendingNotice = SidebarNotice(
+            notice = SidebarNotice(
                 kind: .setAside,
                 message: "Bow could not read your sidebar and started a new one",
                 detail: """
@@ -109,13 +113,7 @@ final class SidebarStores: AppFeature {
                     """)
         }
         mainStore = store
-        return store
-    }
-
-    /// The notice the app's sidebar left when it was opened (a file set aside), once.
-    func takePendingNotice() -> SidebarNotice? {
-        defer { pendingNotice = nil }
-        return pendingNotice
+        return (store, notice)
     }
 
     /// A new, empty sidebar for one window, whose only Space shows `profile`.
@@ -128,7 +126,7 @@ final class SidebarStores: AppFeature {
             throw SidebarNotice(
                 kind: .windowSidebar,
                 message: "Bow cannot open the window",
-                detail: "Its sidebar could not be created in \(windowStoreFolder.path): \(error)")
+                detail: "Its sidebar could not be created in \(windowStoreFolder.path) (\(error)).")
         }
     }
 

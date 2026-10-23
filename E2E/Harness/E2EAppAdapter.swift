@@ -937,13 +937,10 @@ extension E2EAppAdapter {
             log.notices.append(E2ESidebarNotice(notice))
         }
         let profile = ownSidebar ? delegate.engine.profile(id: .default) : nil
-        let controller: BrowserWindowController
-        do {
-            controller = try delegate.openWindow(
+        guard
+            let controller = delegate.openWindowOrExplain(
                 url: url, profile: profile, window: Self.makeWindow(), sidebarStores: stores)
-        } catch {
-            // As the app does when a window cannot open: the notice shows instead.
-            stores.present(error, in: nil)
+        else {
             return E2ESidebarOpening(page: nil, opened: false, notices: log.notices)
         }
         guard controller.selectedTab != nil else {
