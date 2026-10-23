@@ -308,7 +308,10 @@ struct NavigationEventsTest: E2ETest {
             let loads = page.finishedLoads
             try page.load(target)
             let status = try await page.waitForLoad(after: loads)
-            guard status == 200 else { throw E2EError("the page after the cancel loaded with status \(status)") }
+            guard status == 200 else {
+                let events = page.navigationEvents[failEvents...]
+                throw E2EError("the page after the cancel loaded with status \(status), events=\(Array(events))")
+            }
         }
         // Anything the error page reported would sit between the failure and the next load's start.
         Self.check(
