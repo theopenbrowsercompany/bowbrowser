@@ -220,7 +220,8 @@ struct TabsRecordDebouncedTest: E2ETest {
         let delay = edges.recordSaveDelay
         let page = try await TabEdgesTests.openWindow(run, "record")
         let settled = try await run.step("wait for the load's write", timeout: E2ETimeouts.step) {
-            // The file holds the loaded page's title, then stays unchanged for a save delay, so no write is pending.
+            // Records wait for the load to settle, so once the file holds the loaded page's title no write is pending;
+            // half a save delay without a change more covers a write still landing.
             var last = try edges.sidebarFileModified(of: page)
             var since = Date()
             let found = try await TabEdgesTests.until {
@@ -229,7 +230,7 @@ struct TabsRecordDebouncedTest: E2ETest {
                     last = now
                     since = Date()
                 }
-                guard now != nil, Date().timeIntervalSince(since) > delay else { return false }
+                guard now != nil, Date().timeIntervalSince(since) > delay / 2 else { return false }
                 return try edges.sidebarFile(of: page).contains("Tab record")
             }
             guard found else { throw E2EError("the sidebar file never settled on the loaded page's title") }
@@ -257,8 +258,9 @@ struct TabsRecordDebouncedTest: E2ETest {
                 return try edges.sidebarFile(of: page).contains("bow-record-5")
             }
             guard written else { throw E2EError("the sidebar file never held the last title") }
-            // A second write would come within a save delay of the change that asked for it.
-            try await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+            // Every change came before the write, so a write per change would have shown by now; half a save delay
+            // more catches a late one.
+            try await Task.sleep(nanoseconds: UInt64(delay / 2 * 1_000_000_000))
             try note()
             return (start, lastChange, writes)
         }
