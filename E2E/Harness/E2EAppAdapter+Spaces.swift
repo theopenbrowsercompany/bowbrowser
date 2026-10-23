@@ -166,7 +166,7 @@ extension E2EAppAdapter {
         }
         return try spaceMenu(in: page).items.flatMap { item -> [String] in
             guard !item.isSeparatorItem else { return ["-"] }
-            let children = item.submenu?.items.map { "\(item.title)/\(title($0))" } ?? []
+            let children = item.submenu?.items.map { "\(item.title)/\($0.isSeparatorItem ? "-" : title($0))" } ?? []
             return [title(item)] + children
         }
     }

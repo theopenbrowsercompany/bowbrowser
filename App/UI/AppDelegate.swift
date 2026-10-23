@@ -295,13 +295,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let engine = engine
         let downloads = appFeatures.require(DownloadsCenter.self)
         let missingProfiles = MissingProfileNotices(stores: stores, store: store)
+        let registry = appFeatures.require(ProfileRegistryStore.self)
         let controller = BrowserWindowController(
             store: store,
             // Every engine profile a window's tabs open in comes through here, before the tab exists, so its
-            // downloads are handled from the first one (observing a profile again does nothing). A profile the engine
-            // does not have is told to the person once per window, rather than leaving a window that opens nothing.
+            // downloads are handled from the first one (observing a profile again does nothing). A registry profile
+            // the engine does not have yet is created here, the first time one of its Spaces shows a tab. A profile
+            // neither knows is told to the person once per window, rather than leaving a window that opens nothing.
             profiles: {
-                let profile = engine.profile(id: SidebarStores.engineProfileID(of: $0))
+                let profile = registry.engineProfile(for: $0, engine: engine)
                 if let profile { downloads.observe(profile) } else { missingProfiles.report($0) }
                 return profile
             },

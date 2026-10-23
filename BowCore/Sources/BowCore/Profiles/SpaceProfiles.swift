@@ -56,3 +56,28 @@ extension SidebarStore {
         return tabs
     }
 }
+
+/// Whether a profile's storage can be set up in the engine, checked before the engine creates it, because the engine
+/// quietly keeps a profile in memory when its folder cannot be used while still reporting the folder as its path.
+public enum ProfileSetupCheck: Equatable, Sendable {
+    case ready
+    /// The folder would not sit directly inside the root data folder.
+    case notDirectlyInRoot(String)
+    /// The folder is there but cannot be changed (permissions, a read-only volume).
+    case folderNotWritable(String)
+
+    /// The check for `record` under `root`: an ephemeral profile is always ready; a persistent one needs its folder
+    /// directly inside `root`, and, when `folderExists`, a folder that `folderWritable` says can be changed. A missing
+    /// folder is ready, since the engine creates it.
+    public static func check(
+        _ record: ProfileRecord, root: URL, folderExists: Bool, folderWritable: Bool
+    ) -> ProfileSetupCheck {
+        guard let path = record.cachePath(inRoot: root) else { return .ready }
+        let parent = path.deletingLastPathComponent().standardizedFileURL.path
+        guard parent == root.standardizedFileURL.path, ProfileRegistry.isValidID(record.id.rawValue) else {
+            return .notDirectlyInRoot(path.path)
+        }
+        if folderExists && !folderWritable { return .folderNotWritable(path.path) }
+        return .ready
+    }
+}

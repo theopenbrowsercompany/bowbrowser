@@ -14,5 +14,6 @@ enum AppFeatures {
         HistoryStores.self,
         TabUnloader.self,
         ArchiveCenter.self,
+        ProfileRegistryStore.self,
     ]
 }
