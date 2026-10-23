@@ -11,7 +11,7 @@ E2E ?= all
 # scripts/e2e.sh alone, quoted for the shell.
 unexport E2E
 
-.PHONY: bootstrap hooks project build test test-lock test-e2e-wrapper test-prune test-affected test-scripts run smoke e2e e2e-run format lint guards release verify check clean
+.PHONY: bootstrap hooks project build test test-lock test-e2e-wrapper test-prune test-affected test-scripts run smoke e2e e2e-run format lint guards release verify check done test-done clean
 
 bootstrap: hooks
 	./scripts/bootstrap-cef.sh
@@ -52,7 +52,7 @@ test-affected:
 	./scripts/test-e2e-affected.sh
 
 # The script self tests verify runs when scripts/ or the Makefile differ from origin/main.
-test-scripts: test-e2e-wrapper test-prune test-affected
+test-scripts: test-e2e-wrapper test-prune test-affected test-done
 
 run: build
 	open $(APP)
@@ -97,6 +97,16 @@ verify:
 # replaces verify and the full e2e at the end. scripts/check.sh says how.
 check:
 	@./scripts/check.sh
+
+# The final check of a branch: refuses unless it contains origin/main, then make verify and the full make e2e, then
+# one block for the report (result lines, e2e summary and run folder, final.png, diff stat, tree hash).
+# Run it after the last commit and a rebase onto origin/main. scripts/done.sh says how.
+done:
+	@./scripts/done.sh
+
+# Tests scripts/done.sh, the refusal and the report block, with a fake make (about a second).
+test-done:
+	./scripts/test-done.sh
 
 clean:
 	rm -rf $(BUILD_DIR) Bow.xcodeproj Generated
