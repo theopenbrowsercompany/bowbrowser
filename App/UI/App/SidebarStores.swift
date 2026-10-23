@@ -11,6 +11,8 @@ import Foundation
 final class SidebarStores: AppFeature {
     private let dataDirectory: URL
     private var mainStore: SidebarStore?
+    /// True once opening the app's sidebar failed, so it is not tried (and reported) again for every window.
+    private var mainStoreFailed = false
     /// Where window sidebars are kept: a folder of this process in the temporary directory.
     private lazy var windowStoreFolder = FileManager.default.temporaryDirectory
         .appendingPathComponent("bow-sidebars-\(ProcessInfo.processInfo.processIdentifier)", isDirectory: true)
@@ -23,11 +25,14 @@ final class SidebarStores: AppFeature {
     /// aside, in which case the store refuses to start rather than overwrite it.
     func main() -> SidebarStore? {
         if let mainStore { return mainStore }
+        guard !mainStoreFailed else { return nil }
+        mainStoreFailed = true
         let url = SidebarStore.fileURL(inApplicationSupportFolder: dataDirectory)
         do {
             try FileManager.default.createDirectory(at: dataDirectory, withIntermediateDirectories: true)
             let store = try SidebarStore(fileURL: url)
             mainStore = store
+            mainStoreFailed = false
             return store
         } catch {
             FileHandle.standardError.write(Data("bow: cannot open the sidebar at \(url.path): \(error)\n".utf8))
@@ -54,13 +59,15 @@ final class SidebarStores: AppFeature {
         return store
     }
 
-    /// Writes the app's sidebar if a save failed earlier. The app calls it when it stops.
+    /// Writes the app's sidebar if a save failed earlier, and removes the window sidebars, which last only as long as
+    /// the app runs. The app calls it when it stops.
     func saveAll() {
         do {
             try mainStore?.save()
         } catch {
             FileHandle.standardError.write(Data("bow: saving the sidebar failed: \(error)\n".utf8))
         }
+        try? FileManager.default.removeItem(at: windowStoreFolder)
     }
 
     /// The sidebar profile ID of an engine profile: the engine's default profile is the sidebar's default profile,

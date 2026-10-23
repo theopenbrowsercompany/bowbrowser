@@ -43,6 +43,8 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
     /// their page has closed. A tab that closes any other way (its window closing, quitting, its page closing
     /// itself) keeps its place in the sidebar with its saved page.
     private var closingByRequest: Set<BrowserTabID> = []
+    /// True while the window is closing its tabs to close itself; a page that stays open clears it.
+    private var isClosingWindow = false
     /// The Space the features were last told is on screen.
     private var shownSpaceID: SidebarSpaceID?
     /// What the New Tab button and New Tab menu item open.
@@ -250,17 +252,26 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
     }
 
     /// Moves tab `id` to `index` in the window's tab list: to the place of the tab that is at `index` once `id` has
-    /// left its own (in that tab's section or folder), or to the end of the today section past the last tab.
+    /// left its own (in that tab's section or folder), or to the end of its own section past the last tab. A drag
+    /// never pins or unpins: a today tab dropped among pinned tabs goes to the top of today, and a pinned tab dropped
+    /// among today tabs to the end of the pinned section.
     func reorderTab(_ id: BrowserTabID, to index: Int) {
         guard let item = itemIDs[id], let space = activeSpace else { return }
         let graph = store.graph
         let others = activeSpaceTabIDs.filter { $0 != item }
         let target = others.indices.contains(max(index, 0)) ? others[max(index, 0)] : nil
-        var mutation = SidebarMutation.move(item, parent: space.unpinnedContainerID, index: nil)
-        if let target, let parent = graph[target]?.parentID,
+        let pinned = graph.isPinned(item)
+        var mutation =
+            pinned
+            ? SidebarMutation.move(item, parent: space.pinnedContainerID, index: nil)
+            : SidebarMutation.move(item, parent: space.unpinnedContainerID, index: nil)
+        if let target, graph.isPinned(target) == pinned, let parent = graph[target]?.parentID,
             let position = graph[parent]?.childrenIDs.filter({ $0 != item }).firstIndex(of: target)
         {
             mutation = .move(item, parent: parent, index: position)
+        } else if let target, graph.isPinned(target), !pinned {
+            // A drag never pins or unpins: a today tab dropped among pinned tabs goes to the top of today.
+            mutation = .move(item, parent: space.unpinnedContainerID, index: 0)
         }
         change { try $0.apply([mutation]) }
         storeDidChange()
@@ -278,6 +289,17 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
         let closed = await tab.close()
         if !closed { closingByRequest.remove(id) }
         return closed
+    }
+
+    /// Closes tab `id` the way the person does: a loaded tab as `closeTab(_:)` does, a saved tab that has not loaded
+    /// at once (it has no page to ask). Returns whether it closed.
+    @discardableResult
+    func closeTab(id: BrowserTabID) async -> Bool {
+        if let tab = engineTabs[id] { return await closeTab(tab) }
+        guard let item = itemIDs[id] else { return false }
+        removeFromSidebar(item)
+        closeWindowIfEmptyOrUpdate()
+        return true
     }
 
     /// The runtime ID of `tab`, one of this window's tabs.
@@ -352,6 +374,10 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
             runtimeTabs[item] = nil
             itemIDs[tab.id] = nil
         }
+        // A Space with tabs always has one active (a saved sidebar may name none, or a tab that is gone).
+        if loadActive, activeItemID == nil, let first = ids.first {
+            change { try $0.apply([.setActiveTab(first)]) }
+        }
         if loadActive, let item = activeItemID, let runtime = runtimeTabs[item], engineTabs[runtime.id] == nil {
             loadSaved(item)
         }
@@ -402,14 +428,13 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
 
     /// File > Close Tab (Cmd+W): closes the active tab, running its page's beforeunload handler.
     @objc func closeActiveTab(_ sender: Any?) {
-        guard let id = tabList.activeID, let tab = engineTabs[id] else { return }
-        Task { await closeTab(tab) }
+        guard let id = tabList.activeID else { return }
+        Task { await closeTab(id: id) }
     }
 
     /// Validates the window's own commands; each feature validates its own.
     func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
-        guard menuItem.action == #selector(closeActiveTab(_:)) else { return true }
-        return tabList.activeID.flatMap { engineTabs[$0] } != nil
+        menuItem.action == #selector(closeActiveTab(_:)) ? tabList.activeID != nil : true
     }
 
     // MARK: Engine events
@@ -427,10 +452,11 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
     }
 
     /// Records the page a today tab shows as its saved page, so a relaunch brings it back on that page. Pinned tabs
-    /// and Favorites keep the address they were saved with.
+    /// and Favorites keep the address they were saved with. It records once a load has settled, not each step of it.
     private func recordPage(of item: SidebarItemID, state: EngineTabState) {
         let graph = store.graph
-        guard let url = state.url, let saved = graph[item]?.tab, !graph.isPinned(item), !graph.isInFavorites(item),
+        guard !state.isLoading, let url = state.url, let saved = graph[item]?.tab, !graph.isPinned(item),
+            !graph.isInFavorites(item),
             saved.savedURL != url.absoluteString || saved.savedTitle != state.title
         else { return }
         change { try $0.apply([.setSavedPage(item, url: url.absoluteString, title: state.title)]) }
@@ -454,9 +480,10 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
         engineTabs[id] = nil
         modelIDs[tab.tabID] = nil
         guard closingByRequest.remove(id) != nil, let item = itemIDs[id] else {
-            // Closed with its window, by quitting or by its page: the tab keeps its place in the sidebar, unloaded,
-            // and the window follows its last open tab.
-            if engineTabs.isEmpty {
+            // Closed with its window, by quitting or by its page: the tab keeps its place in the sidebar, unloaded.
+            // A closing window follows its last open tab. Otherwise nothing else loads, since quitting must leave
+            // the sidebar's active tab as it was; selecting a row loads it.
+            if isClosingWindow && engineTabs.isEmpty {
                 for feature in features { feature.selectedTabChanged(nil) }
                 window?.close()
             } else {
@@ -465,6 +492,11 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
             return
         }
         removeFromSidebar(item)
+        closeWindowIfEmptyOrUpdate()
+    }
+
+    /// Closes the window once the Space on screen has no tabs left, and otherwise brings it up to date.
+    private func closeWindowIfEmptyOrUpdate() {
         if activeSpaceTabIDs.isEmpty {
             for feature in features { feature.selectedTabChanged(nil) }
             window?.close()
@@ -500,8 +532,11 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
         // Close every open tab, each running its page's unload handlers; the window closes once the last one has, and
         // the tabs keep their place in the sidebar. A page the person chooses to stay on keeps its tab and the window
         // open. Each close request asks the pages again, as quitting again does.
+        isClosingWindow = true
         for tab in engineTabs.values {
-            Task { _ = await tab.close() }
+            Task {
+                if !(await tab.close()) { self.isClosingWindow = false }
+            }
         }
         return false
     }
