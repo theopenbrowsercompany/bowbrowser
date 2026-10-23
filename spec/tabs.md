@@ -25,9 +25,14 @@ The list comes from the saved sidebar (see `sidebar-store.md`): a window's tabs 
     Closing again asks again.
   - Chromium shows the prompt only for a page the person has interacted with (clicked, typed or pressed a key in); a page nobody touched closes without asking.
 - When the shown tab closes, the window shows a neighboring tab (the one that took its place, or the last one).
-- Closing the last tab of a window closes the window.
+- Closing the last tab of the Space on screen keeps the window and the Space open: the page area shows a short "No tabs in this Space" line with a New Tab button.
+  Switching to a Space that has no tabs shows the same empty state, never the page of the Space left behind.
+  Closing the window itself (its close button, Close Window) still closes it.
+- Closing a pinned tab with Close Tab unloads its page and keeps its row; the next tab becomes active.
+  When it was the Space's only tab, it stays active with no page loaded, and loads again only once its row is chosen.
 - Closing a window closes all of its tabs, each running its page's beforeunload handler.
-  A page whose person chooses to stay keeps its tab and the window open, while the other tabs close.
+  A page whose person chooses to stay keeps its tab and the window open, while the other tabs close; one page staying never stops the window from following the others the next time it is closed.
+  A window that is closing loads no other tab, even when a tab the person closed just before was followed by a saved one, and opens no new tab, so links go to another window.
   Quitting works the same way (see `quit.md`).
 
 ### Tab list
@@ -44,11 +49,13 @@ The list comes from the saved sidebar (see `sidebar-store.md`): a window's tabs 
   Rules that send links to a chosen Space come later.
 - Opening, selecting, moving and closing tabs are saved to the sidebar as they happen.
   A tab in the tabs section remembers the page it shows, so a relaunch brings it back on that page; a pinned tab keeps the address it was pinned on.
+  The page a tab shows is written to the sidebar file about a second after it last changed, so a page changing its title or address many times writes the file once; closing the window or quitting writes what is left.
 - Relaunching shows the same tabs in the same order with the same active tab.
   Only the active tab loads its page right away; every other tab shows its saved title and loads when it is selected.
 - A newly opened tab becomes the active tab, unless it is opened in the background, in which case the active tab stays as it was.
   The first tab opened in an empty window is always active.
 - Selecting a tab makes it the active tab.
+  A tab whose page cannot load (its Space names a profile Bow does not have) is not selected: the active tab stays as it was, and the sidebar's highlight and the page area always agree.
 - Moving a tab puts it at the requested position in the resulting order.
   A position past either end puts it first or last.
   Moving never changes which tab is active.
@@ -59,6 +66,8 @@ The list comes from the saved sidebar (see `sidebar-store.md`): a window's tabs 
   Opening a tab afterwards works as in any empty window.
 - Closing a tab (its close button, Close Tab) removes it from the sidebar; closing a pinned tab only unloads its page and keeps it.
   Tabs that close because their window closes or the app quits keep their place in the sidebar and come back on the next launch.
+  A tab whose page closes itself (`window.close()`) leaves the sidebar the same way, and a pinned one unloads and stays.
+- A loaded tab whose row leaves the sidebar any other way (its Space deleted, archived, a Favorite removed) has its page closed, so no page keeps running without a row.
 - Asking for a tab that does not exist (select, close, move or update with an unknown identity) changes nothing.
 - Opening a tab whose identity is already in the list is refused and changes nothing.
 
@@ -98,7 +107,7 @@ The list comes from the saved sidebar (see `sidebar-store.md`): a window's tabs 
 - Saved tab lists are plain data.
   A saved list that is inconsistent (repeated identities, an active tab that is not in the list, an active tab in an empty list, or no active tab in a non-empty list) is rejected as a whole instead of being repaired silently.
 - Tab identities are separate from the engine's page identities, which do not survive a restart.
-- Known limit: a page that closes itself (`window.close()`) keeps its tab in the sidebar, unloaded, because Bow cannot yet tell that close from one made by quitting; its row stays selected with an empty page area until a row is chosen, and selecting it loads its saved page again.
+- A page that closes itself is told apart from quitting by the reason the engine gives for the close; while the engine gives none, the tab keeps its place in the sidebar, unloaded, as it does for quitting.
 - A saved tab that has not loaded yet closes at once from its close button or Close Tab, since it has no page to ask.
 - Moving a tab to a position in the window's tab order puts it in the place of the tab it lands on, in that tab's section or folder (pinning or unpinning it when that is the other zone); past the last tab it goes to the end of today.
   How dragging across the divider pins and unpins is in `sidebar.md`.
@@ -111,7 +120,7 @@ The list comes from the saved sidebar (see `sidebar-store.md`): a window's tabs 
 2. Run `make e2e`: `PASS tabs.beforeunload: stay=kept leave=closed` shows a tab with a typed draft and a beforeunload handler asked once on close, kept with the same document and draft after Cancel, and closed after a second close and Leave.
 3. Run `make e2e`: `PASS tabs.close: neighbor=shown closed=true prompts=0` shows the neighbor tab shown after the draft tab closed, and a page without a handler closed at once without a prompt.
 4. Run `make e2e`: `PASS tabs.close-window` shows a window with three tabs, one shown and two hidden, closing all three and then itself while the app keeps running.
-5. By hand: open a page with a form in a window, type into it, press Command-W; the prompt appears as a sheet; choose Cancel and the tab and text are still there; press Command-W again and choose Leave and the tab is gone (with the window, when it was the last tab).
+5. By hand: open a page with a form in a window, type into it, press Command-W; the prompt appears as a sheet; choose Cancel and the tab and text are still there; press Command-W again and choose Leave and the tab is gone (leaving the empty state, when it was the last tab).
 6. Tab list, starting with tabs A, B, C and A active: open a tab X after the active tab. Expected order A, X, B, C with X active.
 7. Tab list, starting with tabs A, B, C and B active: close B. Expected order A, C with C active.
 8. Tab list, starting with tabs A, B, C and C active: close C. Expected order A, B with B active.
@@ -123,6 +132,12 @@ The list comes from the saved sidebar (see `sidebar-store.md`): a window's tabs 
 14. Run `make e2e`: `PASS sidebar.tabs: tabs=[A,B] active=B` shows a window with tab A and tab B (opened with the New Tab button) listed with their icons and titles and B highlighted, B's row showing a spinner while it loaded and then its title, a title change reaching the row, and clicking each row showing its page without reloading it.
 15. Run `make e2e`: `PASS sidebar.close: button=closed cmd-w=closed` shows one tab closed with its row's close button and another with Command-W, each leaving A and B with B active.
 16. By hand: drag a row to another position in the sidebar; the tab moves there and the highlighted tab stays the same.
+17. Run `make e2e`: `PASS tabs.last_closed: windows=1 empty_state=shown page=none` shows closing a window's only tab keeping the window on the empty state, and `PASS tabs.empty_space` shows switching to an empty Space hiding the previous Space's page.
+18. Run `make e2e`: `PASS tabs.pinned_close: rows=1 loaded=0 window=open active=pinned` shows Command-W on a lone pinned tab unloading it without loading it again.
+19. Run `make e2e`: `PASS tabs.close_while_closing: window=closed loaded_next=0` shows a window closed right after one of its tabs closing without loading the saved tab that followed.
+20. Run `make e2e`: `PASS tabs.select_failed: active=unchanged page=none` shows selecting a tab that cannot load leaving the selection and the page area as they were.
+21. Run `make e2e`: `PASS tabs.orphan_closed: orphan=closed kept=running` shows deleting a Space closing the page loaded in it.
+22. Run `make e2e`: `PASS tabs.record_debounced: written_at_once=no written_later=yes` shows title changes written to the sidebar file once they settle.
 17. Run `make e2e`: `PASS store.roundtrip: items=12 after_relaunch=12` shows twelve tabs saved, their window closed and the sidebar read back from its file into a new window, which lists all twelve with the same active tab and loads only that one.
 18. Run `make e2e`: `PASS link.profile: opened_in=work cookie=1` shows a link from another app opening in the most recent window, created in its Space's profile (work), and seeing the cookie that profile set.
 19. By hand: open a few tabs, select one, quit and relaunch; the same tabs come back in order with the selected one loaded and the others loading only when clicked.

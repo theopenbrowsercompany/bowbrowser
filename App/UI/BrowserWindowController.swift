@@ -527,8 +527,15 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
         modelIDs[tab.tabID] = nil
         let closedWithWindow = closingWithWindow.removeValue(forKey: id) != nil
         closingOrphans.remove(id)
-        guard closingByRequest.remove(id) != nil, let item = itemIDs[id], store.graph[item] != nil else {
-            // Closed with its window, by quitting or by its page: the tab keeps its place in the sidebar, unloaded.
+        let requested = closingByRequest.remove(id) != nil
+        // A today tab whose page closed itself leaves as a close would; a pinned one unloads and stays, below.
+        let closedByPage =
+            !closedWithWindow && !isClosing
+            && itemIDs[id].map { store.graph.closeOutcome(for: $0, reason: tab.closeReason) == .removeFromSidebar }
+                == true
+        guard requested || closedByPage, let item = itemIDs[id], store.graph[item] != nil else {
+            // Closed with its window, by quitting, for no known reason, or a pinned page that closed itself: the tab
+            // keeps its place in the sidebar, unloaded.
             // A closing window follows its last open tab. Otherwise nothing else loads, since quitting must leave
             // the sidebar's active tab as it was; selecting a row loads it.
             if (closedWithWindow || isClosing) && engineTabs.isEmpty {
