@@ -106,22 +106,25 @@ final class StartScreenView: NSView {
         }
         for (link, value) in zip(next, quickLinks) { link.show(title: value.title, icon: value.icon) }
         links = next
-        linksRow.isHidden = next.isEmpty
         fitLinks()
     }
 
-    override func layout() {
-        super.layout()
+    /// Fits the links when the card's width changes, before layout runs, so layout never changes the view tree.
+    override func setFrameSize(_ newSize: NSSize) {
+        super.setFrameSize(newSize)
         fitLinks()
     }
 
-    /// Shows as many quick links as fit between the margins, leaving out the last ones in a narrow card.
+    /// Shows as many quick links as fit between the margins, leaving out the last ones in a narrow card, and hides
+    /// the row when none shows.
     private func fitLinks() {
         let room = bounds.width - 2 * Self.margin + Self.linkGap
         let fitting = max(Int(room / (Self.linkWidth + Self.linkGap)), 0)
         for (index, link) in links.enumerated() where link.isHidden != (index >= fitting) {
             link.isHidden = index >= fitting
         }
+        let hideRow = min(fitting, links.count) == 0
+        if linksRow.isHidden != hideRow { linksRow.isHidden = hideRow }
     }
 
     private func makeLink(for item: SidebarItemID) -> StartQuickLinkButton {
@@ -188,7 +191,13 @@ final class StartSearchPill: NSButton {
     }
 
     override func keyDown(with event: NSEvent) {
-        if [36, 76].contains(event.keyCode) { performClick(nil) } else { super.keyDown(with: event) }
+        // A plain Return or Enter; with modifiers the key goes on to the menus.
+        let modifiers = event.modifierFlags.intersection([.command, .option, .control, .shift])
+        if [36, 76].contains(event.keyCode), modifiers.isEmpty {
+            performClick(nil)
+        } else {
+            super.keyDown(with: event)
+        }
     }
 
     override func viewDidChangeEffectiveAppearance() {

@@ -383,13 +383,16 @@ struct DesignStartScreenTest: E2ETest {
             return try await shown()
         }
         let expectedGreeting = Self.greeting(for: first.greetingHour)
+        // The app read the local hour (or the one before it, when the hour turned since).
+        let hourNow = Calendar.current.component(.hour, from: Date())
+        let localHour = first.greetingHour == hourNow || first.greetingHour == (hourNow + 23) % 24
         run.check(
             "design.start_greeting",
-            passed: first.greeting == expectedGreeting && (0...23).contains(first.greetingHour)
+            passed: first.greeting == expectedGreeting && localHour
                 && first.greetingFont?.family == "Fredoka" && first.greetingFont?.name.contains("SemiBold") == true
                 && first.greetingFont?.size == 40 && first.greetingColor == DesignTests.textLight
                 && first.markSize == CGSize(width: 64, height: 64),
-            "greeting=\"\(first.greeting)\" hour=\(first.greetingHour) expected=\"\(expectedGreeting)\""
+            "greeting=\"\(first.greeting)\" hour=\(first.greetingHour) now=\(hourNow) expected=\"\(expectedGreeting)\""
                 + " font=\(String(describing: first.greetingFont)) color=\(first.greetingColor ?? "none")"
                 + " mark=\(first.markSize)")
 

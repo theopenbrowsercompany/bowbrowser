@@ -19,10 +19,11 @@ public enum StartScreen {
             }
         }
 
-        /// The greeting for `date` in `calendar`'s time zone.
-        public init(date: Date, calendar: Calendar = .current) {
-            self.init(hour: calendar.component(.hour, from: date))
-        }
+    }
+
+    /// The local hour the greeting is chosen for: `date`'s hour in `calendar`'s time zone.
+    public static func hour(at date: Date, calendar: Calendar = .current) -> Int {
+        calendar.component(.hour, from: date)
     }
 
     /// The most quick links the screen shows.
@@ -35,9 +36,10 @@ public enum StartScreen {
         Array(favorites.prefix(quickLinkLimit))
     }
 
-    /// The quick links for the Space on screen: the first six Favorites of its profile, in sidebar order.
+    /// The quick links for the Space on screen: the first six Favorites of its profile that are tabs, in sidebar
+    /// order.
     public static func quickLinks(in graph: SidebarGraph) -> [SidebarItemID] {
-        quickLinks(from: graph.activeFavoriteIDs)
+        quickLinks(from: graph.activeFavoriteIDs.filter { graph[$0]?.tab != nil })
     }
 
     /// The hint under the screen: "<Space> · <N> tabs · press ⌘T to search", with "1 tab" singular. The name is

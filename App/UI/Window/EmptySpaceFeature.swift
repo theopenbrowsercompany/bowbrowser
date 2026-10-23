@@ -58,7 +58,7 @@ final class EmptySpaceFeature: NSResponder, BrowserWindowFeature {
                 item: id, title: FavoritesGridView.title(of: item, saved: saved), icon: sidebar?.favicon(for: id))
         }
         emptyView.startScreen.show(
-            hour: Calendar.current.component(.hour, from: Date()), hint: StartScreen.hint(for: space, in: graph),
+            hour: StartScreen.hour(at: Date()), hint: StartScreen.hint(for: space, in: graph),
             quickLinks: links)
     }
 
