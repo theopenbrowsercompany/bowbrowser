@@ -52,6 +52,8 @@ targets:
     sources:
       - App/Engine
       - App/UI
+      # The app icon (AppIcon) and the Bow mark (BowMark), compiled into Assets.car and AppIcon.icns.
+      - App/Assets.xcassets
       - path: E2E
         excludes: [Fixtures]
       # Fixture pages for `make e2e`, copied as one folder into the app's Resources.
@@ -83,6 +85,8 @@ targets:
         PRODUCT_NAME: Bow
         PRODUCT_BUNDLE_IDENTIFIER: dev.bowbrowser.Bow
         SWIFT_OBJC_BRIDGING_HEADER: App/Engine/Bow-Bridging-Header.h
+        # The asset catalog's app icon; the asset compiler names it in the bundle (CFBundleIconName, CFBundleIconFile).
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
       configs:
         # Debug builds carry the e2e harness: BOW_E2E compiles the seams marked "E2E seam" that hand
         # `--e2e` runs to E2E/. Release builds leave out the harness, its fixtures and the seams.

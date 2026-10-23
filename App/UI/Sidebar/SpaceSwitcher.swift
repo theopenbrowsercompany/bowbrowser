@@ -166,16 +166,16 @@ final class SpaceNameHeader: SidebarAccessory {
         let container = SpaceHeaderView()
         view = container
         label.font = .systemFont(ofSize: 13, weight: .semibold)
-        label.textColor = .secondaryLabelColor
+        label.textColor = BowBrand.text
         label.lineBreakMode = .byTruncatingTail
         label.identifier = NSUserInterfaceItemIdentifier("space-name")
         label.translatesAutoresizingMaskIntoConstraints = false
         container.addSubview(label)
         NSLayoutConstraint.activate([
-            label.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 18),
-            label.trailingAnchor.constraint(lessThanOrEqualTo: container.trailingAnchor, constant: -10),
-            label.topAnchor.constraint(equalTo: container.topAnchor, constant: 2),
-            label.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -4),
+            label.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: BowBrand.space16),
+            label.trailingAnchor.constraint(lessThanOrEqualTo: container.trailingAnchor, constant: -BowBrand.space8),
+            label.topAnchor.constraint(equalTo: container.topAnchor, constant: BowBrand.space4),
+            label.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -BowBrand.space4),
         ])
         container.onDoubleClick = { [weak self] in self?.renameShownSpace() }
         container.makeMenu = { [weak self] in self?.menuItems() ?? [] }
@@ -246,7 +246,7 @@ final class SpaceSwitcher: SidebarAccessory {
         let stack = NSStackView()
         stack.orientation = .horizontal
         stack.spacing = 2
-        stack.edgeInsets = NSEdgeInsets(top: 6, left: 0, bottom: 8, right: 0)
+        stack.edgeInsets = NSEdgeInsets(top: BowBrand.space8, left: 0, bottom: BowBrand.space8, right: 0)
         view = stack
         icons.orientation = .horizontal
         icons.spacing = 2
@@ -257,7 +257,7 @@ final class SpaceSwitcher: SidebarAccessory {
             image: NSImage(systemSymbolName: "plus", accessibilityDescription: "New Space") ?? NSImage(),
             target: nil, action: nil)
         newSpaceButton.isBordered = false
-        newSpaceButton.contentTintColor = .secondaryLabelColor
+        newSpaceButton.contentTintColor = BowBrand.secondaryText
         newSpaceButton.toolTip = "New Space"
         newSpaceButton.setAccessibilityLabel("New Space")
         newSpaceButton.identifier = NSUserInterfaceItemIdentifier("new-space")
@@ -298,7 +298,7 @@ final class SpaceSwitcher: SidebarAccessory {
         button.setAccessibilityLabel(space.title)
         button.setAccessibilityValue(space.isActive ? "on screen" : nil)
         button.setButtonType(.momentaryChange)
-        button.contentTintColor = space.isActive ? .labelColor : .tertiaryLabelColor
+        button.contentTintColor = space.isActive ? BowBrand.text : BowBrand.secondaryText
         switch space.icon?.kind {
         case .emoji?:
             button.title = space.icon?.value ?? ""

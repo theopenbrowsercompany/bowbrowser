@@ -55,10 +55,13 @@ final class EmptySpaceFeature: NSResponder, BrowserWindowFeature {
     }
 }
 
-/// A plain view: "No tabs in this Space" and a New Tab button, or, for an active tab with no page loaded, "This tab
-/// is not loaded" and a Load Tab button.
+/// A plain Card colored view: the Bow mark, then "No tabs in this Space" and a New Tab button, or, for an active tab
+/// with no page loaded, "This tab is not loaded" and a Load Tab button.
 @MainActor
 final class EmptySpaceView: NSView {
+    /// The Bow mark, from the brand kit (its dark version in dark mode), at 64 points.
+    let markView = NSImageView()
+    static let markSize: CGFloat = 64
     let messageLabel = NSTextField(labelWithString: "No tabs in this Space")
     let newTabButton = NSButton(title: "New Tab", target: nil, action: nil)
     let loadTabButton = NSButton(title: "Load Tab", target: nil, action: nil)
@@ -76,17 +79,23 @@ final class EmptySpaceView: NSView {
         super.init(frame: .zero)
         loadTabButton.isHidden = true
         wantsLayer = true
-        layer?.backgroundColor = NSColor.windowBackgroundColor.cgColor
+        layer?.backgroundColor = BowBrand.card.cgColor
+        markView.image = NSImage(named: "BowMark")
+        markView.imageScaling = .scaleProportionallyUpOrDown
+        markView.setAccessibilityLabel("Bow")
         messageLabel.font = .systemFont(ofSize: 15)
-        messageLabel.textColor = .secondaryLabelColor
-        let stack = NSStackView(views: [messageLabel, newTabButton, loadTabButton])
+        messageLabel.textColor = BowBrand.secondaryText
+        let stack = NSStackView(views: [markView, messageLabel, newTabButton, loadTabButton])
         stack.orientation = .vertical
-        stack.spacing = 12
+        stack.spacing = BowBrand.space12
+        stack.setCustomSpacing(BowBrand.space16, after: markView)
         stack.translatesAutoresizingMaskIntoConstraints = false
         addSubview(stack)
         NSLayoutConstraint.activate([
             stack.centerXAnchor.constraint(equalTo: centerXAnchor),
             stack.centerYAnchor.constraint(equalTo: centerYAnchor),
+            markView.widthAnchor.constraint(equalToConstant: Self.markSize),
+            markView.heightAnchor.constraint(equalToConstant: Self.markSize),
         ])
     }
 
@@ -99,6 +108,6 @@ final class EmptySpaceView: NSView {
 
     /// Follows light and dark mode.
     override func updateLayer() {
-        layer?.backgroundColor = NSColor.windowBackgroundColor.cgColor
+        layer?.backgroundColor = BowBrand.card.cgColor
     }
 }

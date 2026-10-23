@@ -29,5 +29,6 @@ enum E2EAreas {
         PopupsTests.all,
         CommandBarTests.all,
         UnloadTests.all,
+        DesignTests.all,
     ]
 }
