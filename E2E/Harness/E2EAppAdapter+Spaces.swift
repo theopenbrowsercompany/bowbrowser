@@ -16,7 +16,14 @@ extension E2EAppAdapter {
         // The outline's rows from the pinned section down, without the section headers: the Space's own tabs.
         let rows = try sidebarOutline(of: page)
         let tabs = rows.drop { $0 != "pinned" }.filter { !["pinned", "divider", "today"].contains($0) }
-        let windows = NSApp.windows.filter { $0 is BrowserWindow && $0.isVisible }.count
+        // Windows showing this window's sidebar: a switch that opened another window for a Space would show here.
+        // Windows other tests or the app keep open on other sidebars are not this test's.
+        let windows = NSApp.windows.filter { window in
+            guard window.isVisible, let other = window.windowController as? BrowserWindowController else {
+                return false
+            }
+            return other.store === controller.store
+        }.count
         return E2ESpacesState(
             windows: windows,
             spaces: graph.spaces.map(\.title),
