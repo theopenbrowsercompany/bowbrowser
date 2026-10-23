@@ -69,7 +69,7 @@ public struct CommandsProvider: CommandBarProvider {
         commands.map {
             // The address is a placeholder: commands match by title only and never share a page with a tab.
             CommandBarCandidate(
-                kind: .command($0.id), title: $0.title, url: URL(string: "bow-command://\($0.id)")!)
+                kind: .command($0.id), title: $0.title, url: URL(string: "bow-command://command")!)
         }
     }
 }
