@@ -52,6 +52,8 @@ final class E2ERunner {
     static let isolationCheck = "e2e.isolation"
     /// The run-level check that Chromium logged no unexpected errors.
     static let chromiumErrorsCheck = "chromium.errors"
+    /// The step a FAIL line and the RESULT line's error name for a renderer that ended while no step failed.
+    static let rendererStep = "renderer"
 
     let engineConfiguration: BowEngineConfiguration
 
@@ -65,6 +67,7 @@ final class E2ERunner {
     private let output: E2EOutput
     private let watchdog: E2EWatchdog
     private let chromiumLog: E2EChromiumLog
+    private let crashWatch = E2ERendererCrashWatch()
     private var checks: [(name: String, passed: Bool)] = []
     private var quitCheck: (name: String, closeLimit: TimeInterval)?
     /// The error of a quit test that failed after expecting quit, which fails the quit check.
@@ -180,6 +183,7 @@ final class E2ERunner {
         watchdog.disarm()
         BowFixtureServer.serveDirectory(fixtureDirectory.path)
         BowPopupParking.start()
+        crashWatch.start { [chromiumLog] termination in chromiumLog.mark(termination.description) }
         let app = E2EAppAdapter(
             delegate: delegate, seedFolder: profileDirectory.appendingPathComponent("seeds", isDirectory: true))
         Task {
@@ -224,8 +228,15 @@ final class E2ERunner {
         ) {
             try await test.run(run)
         }
-        let failure: (step: String, error: Error)?
+        var failure: (step: String, error: Error)?
         if case .failure(let error) = result { failure = (run.currentStep, error) } else { failure = nil }
+        // A renderer that ended while a test that does not expect it ran fails the test the way an error it threw
+        // would (also when it threw: the crash is often why), naming the termination status.
+        let crashes = crashWatch.take()
+        if !test.expectsRendererCrash, !crashes.isEmpty {
+            let crash = E2ERendererCrashWatch.error(crashes, in: test.name, when: "while running")
+            failure = failure.map { ($0.step, E2EError("\($0.error); \(crash)")) } ?? (Self.rendererStep, crash)
+        }
         let checksBefore = run.firstCheck
         run.finish()
         // Work the test left running (a timed-out step) can no longer drive the app.
@@ -261,9 +272,9 @@ final class E2ERunner {
             }
         }
 
-        let testChecks = checks[checksBefore...]
-        let passed = testChecks.filter(\.passed).count
-        let failed = passed < testChecks.count
+        var testChecks = checks[checksBefore...]
+        var passed = testChecks.filter(\.passed).count
+        var failed = passed < testChecks.count
         // One screenshot at most: a failing last test's fail.png is a copy of its final.png.
         let folder = runDirectory.appendingPathComponent(test.name, isDirectory: true)
         let finalURL = runDirectory.appendingPathComponent("final.png")
@@ -287,6 +298,21 @@ final class E2ERunner {
             test.quitsApp ? nil : await app.closeTestWindows(timeout: Self.cleanupTimeout, baseline: baseline)
         let left = [browsersLeft, windowWatch.finish()].compactMap { $0 }
         let leftover = left.isEmpty ? nil : left.joined(separator: "; ")
+        // A renderer that ended while the test's windows closed fails the test whose teardown it was, on its last
+        // check, as an error after every check was recorded does.
+        let teardownCrashes = crashWatch.take()
+        if !test.expectsRendererCrash, !teardownCrashes.isEmpty {
+            let crash = E2ERendererCrashWatch.error(
+                teardownCrashes, in: test.name, when: "while closing the windows of")
+            failure = failure.map { ($0.step, E2EError("\($0.error); \(crash)")) } ?? (Self.rendererStep, crash)
+            let recorded = checks[checksBefore...].map(\.name)
+            if let last = test.checks.last(where: recorded.contains) {
+                fail(last, after: checksBefore, detail: "\(Self.rendererStep): \(crash)")
+            }
+            testChecks = checks[checksBefore...]
+            passed = testChecks.filter(\.passed).count
+            failed = true
+        }
         let seconds = Date().timeIntervalSince(started)
         if failed || leftover != nil {
             try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)

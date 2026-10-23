@@ -110,6 +110,7 @@ struct PageCrashTest: E2ETest {
     let name = "page.crash"
     let tags = ["smoke"]
     let checks = ["page.crash.overlay", "page.crash.reload"]
+    var expectsRendererCrash: Bool { true }
 
     func run(_ run: E2ERun) async throws {
         let app = try PageTests.app(run)

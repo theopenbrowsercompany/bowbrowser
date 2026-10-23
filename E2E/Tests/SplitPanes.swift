@@ -229,6 +229,7 @@ struct SplitPermissionPaneTest: E2ETest {
 struct SplitCrashPaneTest: E2ETest {
     let name = "split.crash_pane"
     let checks = ["split.crash_pane", "split.crash_pane.reload"]
+    var expectsRendererCrash: Bool { true }
 
     func run(_ run: E2ERun) async throws {
         let app = try SplitTests.app(run)
