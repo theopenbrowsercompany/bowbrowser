@@ -5,13 +5,21 @@
 #   scripts/build-lock.sh [--pool build|e2e] <command> [args...]
 #
 # Two separate pools of slots: "build" (default, for xcodebuild) and "e2e" (for launching the built app).
-# BOW_BUILD_SLOTS   builds that may run at once (default 3)
+# BOW_BUILD_SLOTS   builds that may run at once (default 5)
 # BOW_E2E_SLOTS     e2e runs that may run at once (default 3)
 # BOW_LOCK_DIR      lock state folder (default ~/Library/Caches/bowbrowser/build-lock); one subfolder per pool
 #
+# Priority: the lead may keep a plain text file, <lock dir>/priority, shared by both pools. It lists git branch
+# names, highest priority first, one per line; blank lines and lines starting with # are ignored. A waiting
+# build whose branch is listed is served before every build whose branch is further down or not listed. A
+# missing or empty file means plain first come, first served. A running build is never interrupted.
+#
 # How it works, with only bash, mkdir, perl (for a microsecond clock) and kill -0:
-# - A build first takes a ticket, a file named <microsecond time>.<pid> in queue/. Tickets are served in name
-#   order, so first come, first served. Only the oldest live ticket may claim a slot.
+# - A build first takes a ticket, a file named <microsecond time>.<pid> in queue/ holding the git branch of the
+#   directory it runs from (empty for a detached HEAD or outside a checkout). The branch is looked up once, so
+#   ranking only reads files. Tickets are served by priority rank, then in name order (first come, first
+#   served). The priority file is read again on every pass, so reordering it reorders the waiting builds.
+#   Only the first live ticket in that order may claim a slot.
 # - A slot is a directory slots/N. mkdir is atomic, so two builds never share one. The slot records the pid of
 #   this script and of the command. It counts as held while either process lives, so a build whose script was
 #   killed with kill -9 keeps its slot until the orphaned xcodebuild ends, then it is reclaimed.
@@ -24,12 +32,14 @@ if [ "${1:-}" = "--pool" ]; then
   shift 2 2>/dev/null || shift $#
 fi
 case $pool in
-  build) slots_var=BOW_BUILD_SLOTS ;;
-  e2e) slots_var=BOW_E2E_SLOTS ;;
+  build) slots_var=BOW_BUILD_SLOTS default_slots=5 ;;
+  e2e) slots_var=BOW_E2E_SLOTS default_slots=3 ;;
   *) echo "build-lock: unknown pool '$pool' (use build or e2e)" >&2; exit 64 ;;
 esac
-slots=${!slots_var:-3}
-dir=${BOW_LOCK_DIR:-$HOME/Library/Caches/bowbrowser/build-lock}/$pool
+slots=${!slots_var:-$default_slots}
+root=${BOW_LOCK_DIR:-$HOME/Library/Caches/bowbrowser/build-lock}
+dir=$root/$pool
+priority_file=$root/priority
 
 case $slots in '' | *[!0-9]* | 0 | 0[0-9]*)
   echo "build-lock: $slots_var must be a positive number, got '$slots'" >&2
@@ -49,6 +59,7 @@ alive() { [ -n "$1" ] && kill -0 "$1" 2>/dev/null; }
 release() {
   [ -z "$ticket" ] || rm -f "$ticket"
   [ -z "$slot" ] || rm -rf "$slot"
+  rm -f "$dir/queue/.new.$$"
   ticket="" slot=""
 }
 
@@ -74,13 +85,44 @@ running_count() {
   echo "$n"
 }
 
-# Drop tickets whose build is gone, then print the live ones oldest first.
+# Print the branches in the priority file, highest first, one per line, trimmed, without blanks or comments.
+priority_list() {
+  local line
+  [ -r "$priority_file" ] || return 0
+  while IFS= read -r line || [ -n "$line" ]; do
+    line=${line#"${line%%[![:space:]]*}"}
+    line=${line%"${line##*[![:space:]]}"}
+    case $line in '' | '#'*) continue ;; esac
+    echo "$line"
+  done < "$priority_file"
+}
+
+# Drop tickets whose build is gone, then print the live ones in serving order as "<rank> <ticket>": listed
+# branches by their place in the priority file (rank 1 first), then unlisted ones (rank 0), each group in
+# arrival order.
 live_tickets() {
-  local t
+  local t b r n p list
+  list=$(priority_list)
   for t in "$dir"/queue/*; do
     [ -e "$t" ] || continue
-    if alive "${t##*.}"; then echo "$t"; else rm -f "$t"; fi
-  done | sort
+    if ! alive "${t##*.}"; then
+      rm -f "$t"
+      continue
+    fi
+    b=""
+    read -r b < "$t" 2>/dev/null
+    r=0
+    if [ -n "$b" ] && [ -n "$list" ]; then
+      n=0
+      while IFS= read -r p; do
+        n=$((n + 1))
+        if [ "$p" = "$b" ]; then r=$n; break; fi
+      done <<< "$list"
+    fi
+    # Sort unlisted tickets after every listed one, then print their rank as 0.
+    [ "$r" != 0 ] || r=999999
+    echo "$r $t"
+  done | sort -k1,1n -k2 | sed 's/^999999 /0 /'
 }
 
 try_claim() {
@@ -114,25 +156,39 @@ trap 'on_signal 143' TERM
 trap 'on_signal 129' HUP
 trap release EXIT
 
+# The ticket holds the branch of the directory the command runs from. It is written under a dot name (which
+# queue/* does not match) and moved into place whole, so no reader sees a ticket without its branch.
+branch=$(git symbolic-ref --short -q HEAD 2>/dev/null)
 now=$(perl -MTime::HiRes=time -e 'printf "%.0f", time*1000000')
+printf '%s\n' "$branch" > "$dir/queue/.new.$$"
 ticket="$dir/queue/$now.$$"
-: > "$ticket"
+mv "$dir/queue/.new.$$" "$ticket"
 
-told=no
+told=""
 start=$SECONDS
 while :; do
-  oldest=$(live_tickets | head -n 1)
-  if [ "$oldest" = "$ticket" ] && try_claim; then break; fi
-  if [ "$told" = no ]; then
-    ahead=$(live_tickets | grep -n -F "$ticket" | cut -d: -f1)
-    echo "build-lock: waiting for a $pool slot ($(running_count) of $slots running, $((${ahead:-1} - 1)) waiting ahead of this one)" >&2
-    told=yes
+  order=$(live_tickets)
+  first=$(echo "$order" | head -n 1)
+  if [ "${first#* }" = "$ticket" ] && try_claim; then break; fi
+  # Say so once, and again whenever an edit to the priority file gives this build another rank.
+  mine=$(echo "$order" | grep -n -F " $ticket" | head -n 1)
+  ahead=${mine%%:*}
+  rank=${mine#*:}
+  rank=${rank%% *}
+  if [ "${rank:-0}" = 0 ]; then
+    where=unlisted
+  else
+    where="priority $rank of $(priority_list | grep -c .)"
+  fi
+  if [ "$told" != "$where" ]; then
+    echo "build-lock: waiting for a $pool slot ($(running_count) of $slots running, $((${ahead:-1} - 1)) waiting ahead of this one, $where)" >&2
+    told=$where
   fi
   sleep 1
 done
 rm -f "$ticket"
 ticket=""
-[ "$told" = no ] || echo "build-lock: got a $pool slot after $((SECONDS - start))s" >&2
+[ -z "$told" ] || echo "build-lock: got a $pool slot after $((SECONDS - start))s" >&2
 
 # Keep the command's stdin (a background job would get /dev/null).
 "$@" <&0 &
