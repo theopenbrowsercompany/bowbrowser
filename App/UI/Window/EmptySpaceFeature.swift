@@ -3,13 +3,17 @@ import BowCore
 
 /// The empty state of a Space with no tabs: closing the Space's last tab, or switching to a Space that has none,
 /// keeps the window open and fills the page area with a short line and a New Tab button, never another Space's page.
+/// An active tab with no page loaded (a lone pinned tab the person closed) shows a line and a Load Tab button instead
+/// of a blank page area.
 @MainActor
 final class EmptySpaceFeature: NSResponder, BrowserWindowFeature {
-    /// The empty state, over the page area; hidden while the Space on screen has tabs.
+    /// The empty state, over the page area; hidden while the page area shows a page.
     let emptyView: EmptySpaceView
+    private weak var window: BrowserWindowController?
 
     init(window: BrowserWindowController) {
-        emptyView = EmptySpaceView(target: window, action: #selector(BrowserWindowController.newTab(_:)))
+        self.window = window
+        emptyView = EmptySpaceView()
         emptyView.isHidden = true
         emptyView.translatesAutoresizingMaskIntoConstraints = false
         window.pageArea.addSubview(emptyView, positioned: .above, relativeTo: nil)
@@ -20,6 +24,10 @@ final class EmptySpaceFeature: NSResponder, BrowserWindowFeature {
             emptyView.bottomAnchor.constraint(equalTo: window.pageArea.bottomAnchor),
         ])
         super.init()
+        emptyView.newTabButton.target = window
+        emptyView.newTabButton.action = #selector(BrowserWindowController.newTab(_:))
+        emptyView.loadTabButton.target = self
+        emptyView.loadTabButton.action = #selector(loadActiveTab(_:))
     }
 
     @available(*, unavailable)
@@ -28,24 +36,59 @@ final class EmptySpaceFeature: NSResponder, BrowserWindowFeature {
     }
 
     func storeChanged(_ graph: SidebarGraph) {
-        emptyView.isHidden = graph.activeSpaceID.map { !graph.tabIDs(in: $0).isEmpty } ?? true
+        update()
+    }
+
+    func selectedTabChanged(_ tab: (any EngineTab)?) {
+        update()
+    }
+
+    /// Shown while the page area shows no page: the empty Space state when the Space on screen has no tabs, else the
+    /// unloaded tab state.
+    private func update() {
+        guard let window else { return }
+        let graph = window.store.graph
+        guard let space = graph.activeSpaceID else {
+            emptyView.isHidden = true
+            return
+        }
+        let hasTabs = !graph.tabIDs(in: space).isEmpty
+        emptyView.isHidden = hasTabs && window.selectedTab != nil
+        emptyView.showsUnloadedTab = hasTabs
+    }
+
+    /// Loads the active tab the unloaded state stands for, as choosing its row does.
+    @objc private func loadActiveTab(_ sender: Any?) {
+        guard let window, let id = window.tabList.activeID else { return }
+        window.select(id)
     }
 }
 
-/// A plain view: "No tabs in this Space" and a New Tab button.
+/// A plain view: "No tabs in this Space" and a New Tab button, or, for an active tab with no page loaded, "This tab
+/// is not loaded" and a Load Tab button.
 @MainActor
 final class EmptySpaceView: NSView {
     let messageLabel = NSTextField(labelWithString: "No tabs in this Space")
-    let newTabButton: NSButton
+    let newTabButton = NSButton(title: "New Tab", target: nil, action: nil)
+    let loadTabButton = NSButton(title: "Load Tab", target: nil, action: nil)
 
-    init(target: AnyObject, action: Selector) {
-        newTabButton = NSButton(title: "New Tab", target: target, action: action)
+    /// Whether the view stands for an unloaded tab rather than an empty Space.
+    var showsUnloadedTab = false {
+        didSet {
+            messageLabel.stringValue = showsUnloadedTab ? "This tab is not loaded" : "No tabs in this Space"
+            newTabButton.isHidden = showsUnloadedTab
+            loadTabButton.isHidden = !showsUnloadedTab
+        }
+    }
+
+    init() {
         super.init(frame: .zero)
+        loadTabButton.isHidden = true
         wantsLayer = true
         layer?.backgroundColor = NSColor.windowBackgroundColor.cgColor
         messageLabel.font = .systemFont(ofSize: 15)
         messageLabel.textColor = .secondaryLabelColor
-        let stack = NSStackView(views: [messageLabel, newTabButton])
+        let stack = NSStackView(views: [messageLabel, newTabButton, loadTabButton])
         stack.orientation = .vertical
         stack.spacing = 12
         stack.translatesAutoresizingMaskIntoConstraints = false

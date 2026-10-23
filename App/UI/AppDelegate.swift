@@ -164,11 +164,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// screen window for it).
     @discardableResult
     func openLink(_ url: URL) -> BrowserWindowController? {
-        // The main window, else the last one on screen or in the Dock (a window that is closing may still be listed),
-        // else, while Bow is hidden and so no window is on screen, the last one.
-        if let controller = windowControllers.first(where: { $0.window?.isMainWindow == true })
-            ?? windowControllers.last(where: { $0.window.map { $0.isVisible || $0.isMiniaturized } == true })
-            ?? (NSApp.isHidden ? windowControllers.last : nil)
+        // The main window, else the last one on screen or in the Dock, else, while Bow is hidden and so no window is on
+        // screen, the last one. A window that is closing opens no tab, so it is skipped and the link goes to another
+        // window, or to a new one.
+        let open = windowControllers.filter { !$0.isClosing }
+        if let controller = open.first(where: { $0.window?.isMainWindow == true })
+            ?? open.last(where: { $0.window.map { $0.isVisible || $0.isMiniaturized } == true })
+            ?? (NSApp.isHidden ? open.last : nil)
         {
             guard controller.openTab(url: url) != nil else { return nil }
             // Brought forward (out of the Dock too), so the link is seen; e2e windows stay off screen and never key.
