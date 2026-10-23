@@ -35,7 +35,8 @@
                       disposition:(BowPopupDisposition)disposition
                     isUserGesture:(BOOL)isUserGesture
                     requestedSize:(BowPopupSize*)requestedSize
-                   windowFeatures:(BowPopupWindowFeatures*)windowFeatures {
+                   windowFeatures:(BowPopupWindowFeatures*)windowFeatures
+                   clickModifiers:(BowPopupClickModifiers)clickModifiers {
   self = [super init];
   if (self) {
     _targetURL = [targetURL copy];
@@ -43,6 +44,7 @@
     _isUserGesture = isUserGesture;
     _requestedSize = requestedSize;
     _windowFeatures = windowFeatures;
+    _clickModifiers = clickModifiers;
   }
   return self;
 }

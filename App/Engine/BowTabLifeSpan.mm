@@ -22,6 +22,28 @@ BowPopupDisposition ToPopupDisposition(cef_window_open_disposition_t disposition
   }
 }
 
+// The modifiers held at the click that opened a new page. CEF passes no input event to OnBeforePopup, and Chromium
+// folds the modifiers into the disposition: Cmd-click (and middle click) arrives as a background tab and Shift-click
+// as a new window, but a plain target="_blank" click and Cmd-Shift-click both arrive as a foreground tab. For that
+// one case the keys still held as the request arrives (a few milliseconds after the click) tell them apart.
+BowPopupClickModifiers ClickModifiers(cef_window_open_disposition_t disposition, bool userGesture) {
+  if (!userGesture) return 0;
+  switch (disposition) {
+    case CEF_WOD_NEW_BACKGROUND_TAB:
+      return BowPopupClickModifierCommand;
+    case CEF_WOD_NEW_WINDOW:
+      return BowPopupClickModifierShift;
+    case CEF_WOD_NEW_FOREGROUND_TAB: {
+      const NSEventModifierFlags held = NSEvent.modifierFlags;
+      const bool command = held & NSEventModifierFlagCommand;
+      const bool shift = held & NSEventModifierFlagShift;
+      return command && shift ? (BowPopupClickModifierCommand | BowPopupClickModifierShift) : 0;
+    }
+    default:
+      return 0;
+  }
+}
+
 }  // namespace
 
 bool BowTabClient::OnBeforePopup(CefRefPtr<CefBrowser> browser,
@@ -68,7 +90,8 @@ bool BowTabClient::OnBeforePopup(CefRefPtr<CefBrowser> browser,
                                                             disposition:ToPopupDisposition(targetDisposition)
                                                           isUserGesture:userGesture
                                                           requestedSize:size
-                                                         windowFeatures:features];
+                                                         windowFeatures:features
+                                                         clickModifiers:ClickModifiers(targetDisposition, userGesture)];
   const BowPopupDecision decision = decides ? [tab decidePopup:request] : BowPopupDecisionWindow;
   switch (decision) {
     case BowPopupDecisionBlock:

@@ -65,6 +65,12 @@ __attribute__((objc_subclassing_restricted))
 
 @end
 
+/// The modifier keys held at the click that opened a new page. Mirrors BowCore's `PopupClickModifiers`.
+typedef NS_OPTIONS(NSUInteger, BowPopupClickModifiers) {
+  BowPopupClickModifierCommand = 1 << 0,
+  BowPopupClickModifierShift = 1 << 1,
+} NS_SWIFT_NAME(BowPopupRequest.ClickModifiers);
+
 /// A page asked to open a new tab or window. Immutable. Mirrors BowCore's `PopupRequest`.
 NS_SWIFT_SENDABLE
 __attribute__((objc_subclassing_restricted))
@@ -74,7 +80,8 @@ __attribute__((objc_subclassing_restricted))
                       disposition:(BowPopupDisposition)disposition
                     isUserGesture:(BOOL)isUserGesture
                     requestedSize:(nullable BowPopupSize *)requestedSize
-                   windowFeatures:(BowPopupWindowFeatures *)windowFeatures NS_DESIGNATED_INITIALIZER;
+                   windowFeatures:(BowPopupWindowFeatures *)windowFeatures
+                   clickModifiers:(BowPopupClickModifiers)clickModifiers NS_DESIGNATED_INITIALIZER;
 - (instancetype)init NS_UNAVAILABLE;
 + (instancetype)new NS_UNAVAILABLE;
 
@@ -85,6 +92,8 @@ __attribute__((objc_subclassing_restricted))
 /// The size the page asked for, when it asked for one.
 @property(nonatomic, readonly, nullable) BowPopupSize *requestedSize;
 @property(nonatomic, readonly) BowPopupWindowFeatures *windowFeatures;
+/// The modifiers held at the click, as far as the engine can tell (see BowTabLifeSpan.mm); empty without a click.
+@property(nonatomic, readonly) BowPopupClickModifiers clickModifiers;
 
 @end
 
