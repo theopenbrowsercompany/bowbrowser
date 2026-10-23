@@ -12,6 +12,12 @@ protocol E2EPageDialogsApp: E2EApp {
     /// Presses OK on the dialog up on `page`'s window, typing `text` into a prompt's field first when given, or
     /// Cancel when `accept` is false. Throws when no dialog is up.
     func answerPageDialog(besides page: any E2EPage, accept: Bool, text: String?) throws
+    /// The dialog up as a sheet on the newest popup panel over `page`'s window, or nil when none is (or no panel is).
+    func panelDialog(besides page: any E2EPage) throws -> E2EPageDialog?
+    /// Whether the panel's frame and its sheet's frame are both off every screen. Throws when no panel dialog is up.
+    func panelDialogIsOffScreen(besides page: any E2EPage) throws -> Bool
+    /// Presses OK or Cancel on the panel's sheet, as `answerPageDialog` does for the window's.
+    func answerPanelDialog(besides page: any E2EPage, accept: Bool, text: String?) throws
     /// Whether the app runs a modal panel (an app modal dialog), which no page dialog may ever be.
     var appModalPanelShown: Bool { get }
 }

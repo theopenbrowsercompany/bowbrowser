@@ -23,7 +23,8 @@
   <h1>Dialogs fixture</h1>
   <button id="popup" onclick="window.bowPopup = window.open('relay.html?open=popup.html', '', 'width=320,height=240')">Open a popup window</button>
   <button id="popup-sheet" onclick="window.bowPopup = window.open('relay.html?open=popup-sheet.html', '', 'width=320,height=240')">Open a popup window that asks four times</button>
-  <button id="popup-wait" onclick="window.bowPopup = window.open('relay.html?open=popup-sheet.html%3Fwait', '', 'width=320,height=240')">Open a popup window that waits on an alert</button>
+  <button id="panel" onclick="window.bowPanel = window.open('panel-sheet.html', '', 'width=420,height=300')">Open a popup panel that asks</button>
+  <button id="popup-wait"onclick="window.bowPopup = window.open('relay.html?open=popup-sheet.html%3Fwait', '', 'width=320,height=240')">Open a popup window that waits on an alert</button>
   <script>
     window.bowMessages = [];
     window.addEventListener("message", (event) => window.bowMessages.push(String(event.data)));

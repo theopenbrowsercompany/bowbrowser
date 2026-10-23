@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Dialogs panel sheet</title>
+</head>
+<body>
+  <h1>Panel sheet</h1>
+  <script>
+    // Opened in a popup panel (a sized window.open from a click). Tells its opener it is ready, then acts on what the
+    // opener posts, so nothing the test still does in the opener waits behind a dialog:
+    //   "go": asks an alert, two confirms and a prompt in turn, telling the opener each answer it got back;
+    //   "twice": asks two alerts in a row and tells the opener when both are answered;
+    //   "wait": asks one confirm and waits on it (the panel is closed under it).
+    const post = (message) => window.opener.postMessage(message, "*");
+    window.addEventListener("message", (event) => {
+      if (event.source !== window.opener) return;
+      if (event.data === "wait") {
+        post("panel-wait:" + String(confirm("waiting in the panel")));
+      } else if (event.data === "twice") {
+        alert("panel alert one");
+        alert("panel alert two");
+        post("panel-twice:done");
+      } else if (event.data === "go") {
+        post("panel-alert:" + String(alert("panel alert")));
+        post("panel-confirm-ok:" + String(confirm("panel confirm one")));
+        post("panel-confirm-cancel:" + String(confirm("panel confirm two")));
+        post("panel-prompt:" + String(prompt("panel prompt", "default text")));
+      }
+    });
+    post("panel-ready");
+  </script>
+</body>
+</html>
