@@ -21,20 +21,23 @@ You did not write the change, and your read should not lean on the author's: jud
 
 ## What to look for
 
-Real defects, not style:
-- races and object lifetime bugs;
-- false passes, where a broken app still prints `PASS`;
-- leaks between tests or runs;
-- wrong exit codes;
-- anything that could touch another worktree, another app or the maintainer's data;
-- seam violations, or harness code compiled into Release;
-- bash 3.2 and BSD tool problems in scripts;
-- whatever risks the lead names for this branch.
+Report blockers only.
+A blocker is one of these six:
+1. a Done when item that does not work in normal use;
+2. data loss, or a person's work silently discarded;
+3. a crash, a hang, or close or quit misbehaving;
+4. a privacy or cross profile leak, or anything that touches another app, worktree or the maintainer's data;
+5. a Done when check that passes when the feature is broken, or a wait on time that will flake under load;
+6. a clear contradiction of Arc where Arc's docs settle the behavior (name the source).
+
+Style, naming, comments, commit layout and polish are never blockers.
 
 ## Report
 
-- For each finding: `file:line`, the concrete failure scenario, and a severity (must fix before merge, should fix, or minor).
-- Say plainly if you find nothing serious.
-- End with one line: merge, merge after fixes, or do not merge.
+- For each blocker: `file:line`, the concrete scenario a person would hit, and which of the six it is.
+- Then a "Later" list, one line per item, no detail.
+- Keep the report under about 400 words.
+- Say plainly if there are no blockers.
+- End with one line: merge, or merge after fixes (blockers only).
 
 Text for the maintainer uses no dashes as punctuation.
