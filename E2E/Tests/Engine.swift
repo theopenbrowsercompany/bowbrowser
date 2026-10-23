@@ -8,8 +8,36 @@ import Foundation
 enum EngineTests {
     static let all: [any E2ETest] = [
         EngineHooksTest(), EngineChallengesTest(), EngineWatchdogTest(loop: .tracking),
-        EngineWatchdogTest(loop: .defaultMode),
+        EngineWatchdogTest(loop: .defaultMode), EngineUndeclaredCrashTest(),
     ]
+}
+
+/// The renderer crash rule's self test: it crashes its page's renderer without declaring `expectsRendererCrash`, and
+/// its one check passes, so the run must report it as `FAIL engine.undeclared-renderer-crash: renderer: a renderer
+/// ended while running ...` with the termination status, and a RESULT line whose error says the same. A pass here
+/// is a failure of the rule, so it runs only when named exactly (`selectedByNameOnly`):
+/// `make e2e E2E=engine.undeclared-renderer-crash`. The name is computed rather than a stored name set to a string
+/// literal, the form `make done` reads to repeat changed tests, so its repeat step never reruns a test whose pass is
+/// a FAIL.
+struct EngineUndeclaredCrashTest: E2ETest {
+    var name: String { "engine." + "undeclared-renderer-crash" }
+    var selectedByNameOnly: Bool { true }
+
+    func run(_ run: E2ERun) async throws {
+        guard let app = run.app as? any E2EPageBehaviorApp else { throw E2EError("the app has no crashed page") }
+        let page = try await run.step("open the page", timeout: E2ETimeouts.firstLoad) {
+            let page = try await app.openWindow(at: E2EFixture.url("page/page.html"))
+            _ = try await page.waitForLoad(after: 0)
+            return page
+        }
+        let shown = try await run.step("crash the page", timeout: E2ETimeouts.firstLoad) {
+            // The call never answers once the page is gone, so it is not waited for.
+            let call = Task { _ = try? await page.devTools("Page.crash", [:]) }
+            defer { call.cancel() }
+            return try await E2EWaits.until { try app.crashedPage(of: page).isShown }
+        }
+        run.check(name, passed: shown, "crashed-page-shown=\(shown)")
+    }
 }
 
 /// The watchdog's self tests: a step gets the main thread stuck in a nested run loop that never ends

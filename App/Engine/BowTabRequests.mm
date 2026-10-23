@@ -1,6 +1,10 @@
 // The tab's CefRequestHandler: the navigation policy, HTTP sign in, certificate errors and render process exits.
 #import "BowTab+Internal.h"
 
+#if BOW_E2E
+#include "BowE2EHooks.h"  // E2E seam
+#endif
+
 namespace {
 
 BowProcessGoneReason ToProcessGoneReason(cef_termination_status_t status) {
@@ -41,6 +45,9 @@ void BowTabClient::OnRenderProcessTerminated(CefRefPtr<CefBrowser> browser,
                                              TerminationStatus status,
                                              int errorCode,
                                              const CefString& errorString) {
+#if BOW_E2E  // E2E seam: every renderer that ends is reported, popups sharing this client too (as tab 0).
+  BowEngineNoteRenderProcessTerminated(IsOwn(browser) && tab_ ? tab_.tabID : 0, status, errorCode);
+#endif
   if (!IsOwn(browser)) return;
   [tab_ renderProcessTerminated:ToProcessGoneReason(status)];
 }

@@ -53,6 +53,7 @@ std::vector<std::function<void(CefRefPtr<CefRequestContext>)>> gProfileContextOb
 bool gParkPopups = false;
 NSView* (^gPopupHost)(void) = nil;
 std::map<std::string, size_t> gParkedRequestsRefused;
+std::vector<std::function<void(uint64_t, const char*, int)>> gRenderTerminationObservers;
 #endif
 
 void QuitMessageLoopIfDone() {
@@ -375,6 +376,27 @@ void BowEngineNoteParkedRequestRefused(const char* kind) {
 size_t BowEngineParkedRequestsRefused(const char* kind) {
   auto found = gParkedRequestsRefused.find(kind);
   return found == gParkedRequestsRefused.end() ? 0 : found->second;
+}
+
+void BowEngineObserveRenderProcessTerminations(
+    std::function<void(uint64_t tabID, const char* status, int errorCode)> observer) {
+  gRenderTerminationObservers.push_back(std::move(observer));
+}
+
+void BowEngineNoteRenderProcessTerminated(uint64_t tabID, cef_termination_status_t status, int errorCode) {
+  const char* name = "unknown";
+  switch (status) {
+    case TS_ABNORMAL_TERMINATION: name = "abnormal"; break;
+    case TS_PROCESS_WAS_KILLED: name = "killed"; break;
+    case TS_PROCESS_CRASHED: name = "crashed"; break;
+    case TS_PROCESS_OOM: name = "oom"; break;
+    case TS_LAUNCH_FAILED: name = "launch-failed"; break;
+    case TS_INTEGRITY_FAILURE: name = "integrity-failure"; break;
+    default: break;
+  }
+  // Copied, so an observer that adds another cannot change what is being iterated.
+  const auto observers = gRenderTerminationObservers;
+  for (const auto& observer : observers) observer(tabID, name, errorCode);
 }
 
 bool BowEngineSetTabAudible(uint64_t tabID, bool audible) {
