@@ -64,7 +64,7 @@ Start every session in `~/code/GitHub/bowbrowser`: the maintainer's `.claude/set
   A failed run keeps its profile in the run folder.
   After each run the wrapper ends any process left running with the run folder in its arguments (Chromium's helpers carry it), and says how many it ended.
   `make test-e2e-wrapper` tests the wrapper with a fake app.
-  Everything the app and Chromium write to stderr goes to `build/e2e/<run>/chromium.log`, also after a timeout.
+  Everything the app and Chromium write to stderr goes to `build/e2e/<run>/chromium.log`, also after a timeout; it carries `E2E MARK` lines at each test's start, teardown and result, and a failed `chromium.errors` check writes `chromium-errors.txt` in the run folder.
   After quitting (or timing out), the run echoes the lines that are not Chromium log lines and every Chromium ERROR or FATAL line; `chromium.errors` fails on any not listed as harmless in `E2E/Harness/E2EChromiumLog.swift`, whose header says what may be added.
   When a run ends any other way than PASS or FAIL (a timeout, a crash, a failed engine start), `make e2e` prints the end of `chromium.log`.
 - `make smoke`: opens a window on the maintainer's screen; never run it unless the maintainer asks.
