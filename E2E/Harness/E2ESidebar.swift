@@ -46,7 +46,9 @@ protocol E2EZonesApp: E2ESidebarApp {
     func sidebarOutline(of page: any E2EPage) throws -> [String]
     /// The zone ("favorites", "pinned" or "today") `page`'s tab is listed in, nil when it is in none.
     func sidebarZone(of page: any E2EPage) throws -> String?
-    /// Drops `page`'s tab into `zone` at `index` among the zone's items (counted before the tab leaves its place),
-    /// as dropping its dragged row there does. Throws when the sidebar refuses the drop.
-    func dragTab(_ page: any E2EPage, toZone zone: String, at index: Int) throws
+    /// Drags `page`'s tab onto the outline as a person does: onto row `row` of `sidebarOutline(of:)` (nil for
+    /// between sections) at child `childIndex` among that row's items (counted before the tab leaves its place; -1
+    /// drops on the row itself). The drop goes through the outline's own routing, so a drop on a tab lands above it
+    /// and a drop on the divider at the top of today. Throws when the sidebar refuses the drop.
+    func dragTab(_ page: any E2EPage, onRow row: Int?, childIndex: Int) throws
 }

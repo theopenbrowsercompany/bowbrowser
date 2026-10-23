@@ -74,10 +74,10 @@ final class SidebarFeature: NSResponder, BrowserWindowFeature, SidebarViewDelega
         if others.indices.contains(index), let parent = graph[others[index]]?.parentID,
             let position = graph[parent]?.childrenIDs.firstIndex(of: others[index])
         {
-            return sidebar.drop(item, into: parent, at: position)
+            return sidebar.dragItem(item, into: parent, at: position)
         }
         let today = space.unpinnedContainerID
-        return sidebar.drop(item, into: today, at: graph[today]?.childrenIDs.count ?? 0)
+        return sidebar.dragItem(item, into: today, at: graph[today]?.childrenIDs.count ?? 0)
     }
 
     // MARK: SidebarViewDelegate

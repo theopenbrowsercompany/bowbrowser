@@ -478,9 +478,9 @@ extension TestApp: E2EZonesApp {
         try adapter.sidebarZone(of: page)
     }
 
-    func dragTab(_ page: any E2EPage, toZone zone: String, at index: Int) throws {
+    func dragTab(_ page: any E2EPage, onRow row: Int?, childIndex: Int) throws {
         try adapter.requireActive(token, "drag a tab")
-        try adapter.dragTab(page, toZone: zone, at: index)
+        try adapter.dragTab(page, onRow: row, childIndex: childIndex)
     }
 }
 
@@ -833,20 +833,13 @@ extension E2EAppAdapter {
         return page.controller.sidebar.zone(of: try Self.sidebarItem(of: page))?.rawValue
     }
 
-    func dragTab(_ page: any E2EPage, toZone zone: String, at index: Int) throws {
+    func dragTab(_ page: any E2EPage, onRow row: Int?, childIndex: Int) throws {
         let page = try Self.tabPage(page)
-        let graph = page.controller.store.graph
-        guard let space = graph.activeSpace else { throw E2EError("the window has no Space on screen") }
-        let parent: SidebarItemID?
-        switch SidebarZone(rawValue: zone) {
-        case .pinned?: parent = space.pinnedContainerID
-        case .today?: parent = space.unpinnedContainerID
-        case .favorites?: parent = graph.favoritesContainerID(for: space.profileID)
-        case nil: parent = nil
-        }
-        guard let parent else { throw E2EError("the sidebar has no zone \(zone)") }
-        guard page.controller.sidebar.drop(try Self.sidebarItem(of: page), into: parent, at: index) else {
-            throw E2EError("the sidebar refused to drop the tab in \(zone) at \(index)")
+        let item = try Self.sidebarItem(of: page)
+        // The outline's own drop routing: the proposal (with its retargeted gap), then the accepted drop.
+        guard page.controller.sidebar.dragItem(item, onRow: row, childIndex: childIndex) else {
+            let place = row.map { "row \($0)" } ?? "between sections"
+            throw E2EError("the sidebar refused to drop the tab on \(place) at \(childIndex)")
         }
     }
 }
