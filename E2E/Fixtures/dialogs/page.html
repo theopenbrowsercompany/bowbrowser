@@ -22,6 +22,8 @@
 <body>
   <h1>Dialogs fixture</h1>
   <button id="popup" onclick="window.open('popup.html', '', 'width=320,height=240')">Open a popup window</button>
+  <button id="popup-sheet" onclick="window.bowPopup = window.open('popup-sheet.html', '', 'width=320,height=240')">Open a popup window that asks four times</button>
+  <button id="popup-wait" onclick="window.bowPopup = window.open('popup-sheet.html?wait', '', 'width=320,height=240')">Open a popup window that waits on an alert</button>
   <script>
     window.bowMessages = [];
     window.addEventListener("message", (event) => window.bowMessages.push(String(event.data)));

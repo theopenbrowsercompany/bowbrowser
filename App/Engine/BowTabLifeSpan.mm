@@ -222,6 +222,9 @@ void BowTabClient::OnAfterCreated(CefRefPtr<CefBrowser> browser) {
 bool BowTabClient::DoClose(CefRefPtr<CefBrowser> browser) {
   BowEngineBrowserWillClose(browser);
   if (!IsOwn(browser)) {
+    // A dialog sheet still up goes first, answered as cancelled: AppKit refuses performClose: on a window with a
+    // sheet attached, which would leave the popup open and hold up a quit (the engine asks for no reset first).
+    OnResetDialogState(browser);
     // Returning false makes CEF send performClose: to the browser's window, which suits a popup's own window.
     if (windowlessPopups_.erase(browser->GetIdentifier()) == 0) return false;
     // A popup in no window has no window to close: tear down its view as a tab does.
