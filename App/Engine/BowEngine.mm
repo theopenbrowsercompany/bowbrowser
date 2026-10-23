@@ -399,9 +399,8 @@ void BowEngineHostPopups(NSView* (^host)(void)) {
   gPopupHost = [host copy];
 }
 
-NSView* BowEnginePopupParentView() {
-  NSView* hosted = gPopupHost ? gPopupHost() : nil;
-  return hosted ?: BowEngineParkingView();
+NSView* BowEngineHostedPopupView() {
+  return gPopupHost ? gPopupHost() : nil;
 }
 
 bool BowEngineClosePopupInView(NSView* view) {
@@ -409,6 +408,8 @@ bool BowEngineClosePopupInView(NSView* view) {
     if (entry.tab) continue;
     NSView* browserView = (__bridge NSView*)entry.browser->GetHost()->GetWindowHandle();
     if (browserView && [browserView isDescendantOf:view]) {
+      // Already closing, or asked to before: nothing new would be sent.
+      if (entry.willClose || entry.closeRequested) return false;
       // The same request quitting makes of every browser.
       BowEngineCloseBrowser(entry.browser, false);
       return true;

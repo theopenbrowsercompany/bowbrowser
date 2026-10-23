@@ -88,6 +88,11 @@ bool BowTabClient::OnJSDialog(CefRefPtr<CefBrowser> browser,
   }
   // A popup in a window of the engine's own asks on that window, never app modal.
   if (!IsOwn(browser)) {
+    // A closing popup asks nothing more: a new sheet would make AppKit refuse its window's close.
+    if (closingPopups_.count(browser->GetIdentifier())) {
+      suppressMessage = true;
+      return false;
+    }
     RunPopupWindowDialog(browser, originURL, dialogType, messageText, defaultPromptText, callback);
     return true;
   }
