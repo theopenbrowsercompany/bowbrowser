@@ -47,5 +47,6 @@ enum E2EAreas {
         DefaultBrowserTests.all,
         SplitTests.all,
         AuthTests.all,
+        SpaceDropTests.all,
     ]
 }

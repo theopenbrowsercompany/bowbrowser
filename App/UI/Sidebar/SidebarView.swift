@@ -601,6 +601,12 @@ final class SidebarView: NSView, NSOutlineViewDataSource, NSOutlineViewDelegate,
         return drag(item, on: node, childIndex: index)
     }
 
+    /// What dragging `item`'s row puts on the pasteboard: the writer the outline asks its delegate for. Nil for an
+    /// item with no row (a Favorite is a tile of the Favorites grid, which makes its own).
+    func dragWriter(for item: SidebarItemID) -> (any NSPasteboardWriting)? {
+        outlineNode(for: item).flatMap { outlineView(outlineView, pasteboardWriterForItem: $0) }
+    }
+
     private func drag(_ item: SidebarItemID, on node: SidebarNode?, childIndex: Int) -> Bool {
         guard let proposal = proposeDrop(of: item, on: node, childIndex: childIndex) else { return false }
         return acceptDrop(of: item, on: proposal.node, childIndex: proposal.childIndex)

@@ -37,6 +37,10 @@ Every Space shows exactly one profile, and several Spaces may show the same one,
 - A tab row's menu has "Move to Space", a submenu of every other Space, as Arc's tab menu moves a tab between Spaces.
   The tab goes to the top of the same section (pinned or today) of that Space, and the Space on screen stays on screen; if the moved tab was selected, the Space selects its own tab instead.
   Favorites, folders and splits have no "Move to Space" (a Favorite leaves Favorites with "Remove from Favorites").
+- Dropping a tab row from the sidebar on another Space's icon in the footer switcher does the same as "Move to Space" for that Space, through the same code: same profile keeps the live page, another profile asks first.
+  While the drag is over an icon that would take it, the icon shows its ring (the ring the Space on screen has).
+  Dropping on the icon of the Space on screen, a folder, a split, a Favorite, or anything dragged from another window or app is refused: no ring, and nothing changes.
+  A drag that leaves the icon without a drop clears the ring and moves nothing.
 - Moving a tab to another Space of the same profile keeps its live page: it does not reload, and the page keeps its state and logins.
 - Moving a tab to a Space of a different profile asks first, in a sheet on the window, every time; there is no "don't ask again", because the page loads again under different logins.
   The sheet names the tab, the Space and both profiles, with Move and Cancel.

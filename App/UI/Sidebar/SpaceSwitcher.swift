@@ -270,6 +270,16 @@ final class SpaceSwitcher: SidebarAccessory {
             guard let current = context.graph.space(space.id) else { return actions }
             return actions + [NSMenuItem.separator()] + SpaceThemeMenuItems.menuItems(for: current, context: context)
         }
+        // Arc moves a tab to another Space when it is dropped on that Space's icon; the icon shows its ring meanwhile.
+        button.restingRing = space.icon == nil && space.isActive ? Self.ringWidth : 0
+        button.registerForDraggedTypes([SidebarView.dragType])
+        button.acceptsDrop = { [weak self] item in
+            self?.context?.graph.acceptsDrop(of: item, onSpace: space.id) ?? false
+        }
+        button.performDrop = { [weak self] item in
+            guard let context = self?.context else { return false }
+            return MoveToSpaceMenuItems.move(item, toSpace: space.id, context: context)
+        }
         // A dot keeps its round ring; an emoji or symbol may narrow when many Spaces share the footer.
         let isDot = space.icon == nil
         NSLayoutConstraint.activate([
@@ -349,6 +359,60 @@ private final class SpaceSwitcherStack: NSStackView {
 private final class SpaceIconButton: NSButton {
     var spaceID: SidebarSpaceID?
     var makeMenu: (() -> [NSMenuItem])?
+    /// Whether dropping sidebar item `id` here moves it to this Space.
+    var acceptsDrop: ((SidebarItemID) -> Bool)?
+    /// Moves sidebar item `id` to this Space, true when it was handed on.
+    var performDrop: ((SidebarItemID) -> Bool)?
+    /// The ring width the icon shows when no drag is over it (the on screen dot's ring).
+    var restingRing: CGFloat = 0
+
+    // MARK: Drops
+
+    /// The sidebar item a drag carries when it is a row of this window's sidebar, nil for a drag from another window
+    /// or app (they carry no sidebar item, or start in a view of another window).
+    private func draggedItem(_ info: any NSDraggingInfo) -> SidebarItemID? {
+        guard let source = info.draggingSource as? NSView, source.window != nil, source.window === window,
+            let raw = info.draggingPasteboard.string(forType: SidebarView.dragType)
+        else { return nil }
+        return SidebarItemID(raw)
+    }
+
+    private func wouldMove(_ info: any NSDraggingInfo) -> Bool {
+        draggedItem(info).map { acceptsDrop?($0) ?? false } ?? false
+    }
+
+    /// Shows or clears the hover ring: the dot's own ring, as the Space on screen has.
+    private func showDropRing(_ on: Bool) {
+        wantsLayer = true
+        layer?.cornerRadius = SpaceSwitcher.dotButtonSize / 2
+        layer?.borderColor = BowBrand.ring.cgColor
+        layer?.borderWidth = on ? SpaceSwitcher.ringWidth : restingRing
+    }
+
+    override func draggingEntered(_ sender: any NSDraggingInfo) -> NSDragOperation {
+        draggingUpdated(sender)
+    }
+
+    override func draggingUpdated(_ sender: any NSDraggingInfo) -> NSDragOperation {
+        guard wouldMove(sender) else {
+            showDropRing(false)
+            return []
+        }
+        showDropRing(true)
+        return .move
+    }
+
+    override func draggingExited(_ sender: (any NSDraggingInfo)?) { showDropRing(false) }
+
+    override func draggingEnded(_ sender: any NSDraggingInfo) { showDropRing(false) }
+
+    override func prepareForDragOperation(_ sender: any NSDraggingInfo) -> Bool { wouldMove(sender) }
+
+    override func performDragOperation(_ sender: any NSDraggingInfo) -> Bool {
+        showDropRing(false)
+        guard let item = draggedItem(sender), acceptsDrop?(item) == true else { return false }
+        return performDrop?(item) ?? false
+    }
 
     override func menu(for event: NSEvent) -> NSMenu? {
         SpaceActions.contextMenu(makeMenu?() ?? [])

@@ -316,6 +316,13 @@ final class FavoriteTileView: NSView, NSDraggingSource {
 
     // MARK: Mouse
 
+    /// What dragging this tile puts on the pasteboard: the Favorite's ID as a sidebar item.
+    var pasteboardWriter: NSPasteboardItem {
+        let writer = NSPasteboardItem()
+        writer.setString(item.rawValue, forType: SidebarView.dragType)
+        return writer
+    }
+
     override func mouseDown(with event: NSEvent) {
         mouseDownPoint = event.locationInWindow
         isDragging = false
@@ -326,9 +333,7 @@ final class FavoriteTileView: NSView, NSDraggingSource {
         let point = event.locationInWindow
         guard hypot(point.x - start.x, point.y - start.y) > 3 else { return }
         isDragging = true
-        let writer = NSPasteboardItem()
-        writer.setString(item.rawValue, forType: SidebarView.dragType)
-        let dragItem = NSDraggingItem(pasteboardWriter: writer)
+        let dragItem = NSDraggingItem(pasteboardWriter: pasteboardWriter)
         let image = bitmapImageRepForCachingDisplay(in: bounds).map { rep -> NSImage in
             cacheDisplay(in: bounds, to: rep)
             let image = NSImage(size: bounds.size)

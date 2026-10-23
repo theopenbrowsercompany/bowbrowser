@@ -33,6 +33,13 @@ extension SidebarGraph {
         else { return nil }
         return tabMoveKind(from: source, to: target)
     }
+
+    /// Whether dropping sidebar item `id` on the footer icon of Space `target` moves it there: exactly when "Move to
+    /// Space" offers that Space for it. A folder, a split, a Favorite, an unknown item or Space, and the Space already
+    /// holding the tab (the one on screen) are refused.
+    public func acceptsDrop(of id: SidebarItemID, onSpace target: SidebarSpaceID) -> Bool {
+        tabMoveKind(of: id, to: target) != nil
+    }
 }
 
 extension SidebarStore {
