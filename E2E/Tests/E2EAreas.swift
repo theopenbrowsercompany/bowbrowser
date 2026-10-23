@@ -18,6 +18,7 @@ enum E2EAreas {
         FoldersTests.all,
         FavoritesGridTests.all,
         ImportTests.all,
+        ImportHistoryTests.all,
         DownloadsTests.all,
         StoreTests.all,
         ActivityTests.all,

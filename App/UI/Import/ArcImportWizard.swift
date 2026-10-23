@@ -460,9 +460,13 @@ final class ArcImportWizard: NSObject {
         } else {
             text += " and \(plural(bookmarks.addedBookmarks, "bookmark")) into \(folders.joined(separator: ", "))."
         }
-        if knownVisits > 0 { text += " \(plural(knownVisits, "visit")) were already in your history." }
+        func were(_ n: Int) -> String { n == 1 ? "was" : "were" }
+        if knownVisits > 0 {
+            text += " \(plural(knownVisits, "visit")) \(were(knownVisits)) already in your history."
+        }
         if bookmarks.knownBookmarks > 0 {
-            text += " \(plural(bookmarks.knownBookmarks, "bookmark")) were already in the folder."
+            let known = bookmarks.knownBookmarks
+            text += " \(plural(known, "bookmark")) \(were(known)) already in the folder."
         }
         if let saveFailure { text += " Bow could not save your sidebar yet (\(saveFailure)); it keeps trying." }
         if !failures.isEmpty { text += " Not imported: " + failures.joined(separator: "; ") + "." }
