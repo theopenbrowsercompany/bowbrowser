@@ -16,6 +16,8 @@ Each profile keeps its own downloads, and the window shows every profile's downl
 - Pause stops receiving bytes and keeps what was received; Resume continues where it stopped.
 - Cancel stops the download for good and deletes its partial file.
 - Clear takes a finished download out of the list and leaves the file on disk.
+- A downloads button sits at the left of the sidebar footer (a Soft downloads symbol, 17 points, labelled "Downloads"): clicking it shows the downloads window, bringing it forward when it is already open rather than opening a second one.
+  While any download is running the symbol is the filled one; paused and finished downloads do not count.
 - The window's "Ask where to save each file" checkbox turns on a save panel for every new download, opened on the Downloads folder with the numbered name filled in; choosing Cancel in the panel cancels the download.
 
 ## Edge cases
@@ -56,10 +58,11 @@ Each profile keeps its own downloads, and the window shows every profile's downl
    `make e2e E2E=downloads.parked-page` prints `PASS downloads.parked-popup`, `PASS downloads.parked-dialog` and `PASS downloads.parked-download`.
 8. Close the window whose tab is downloading: the download keeps running and the engine reports the closed tab as kept until the download is cancelled.
    `make e2e E2E=downloads.window-closed` prints `PASS downloads.window-closed: kept before=false after-close=true download=inProgress released=true`.
+   With the downloads window hidden, `make e2e E2E=downloads.footer-button` clicks the footer button and prints `PASS downloads.footer-button` (one window after two clicks) and `PASS downloads.footer-activity` (the symbol is filled while a download runs).
 9. `make e2e E2E=downloads` prints `PASS downloads: file=a.pdf state=complete`, saving into the run's own folder rather than the real Downloads folder.
 
 ## Out of scope
 
 - Choosing a different default folder from a settings window (the setting exists but has no interface yet).
-- Opening a file or showing it in Finder from the list, and a downloads button or popover in the browser window.
+- Opening a file or showing it in Finder from the list, and a downloads popover in the browser window.
 - Keeping the list across restarts, and Safe Browsing or dangerous file warnings.

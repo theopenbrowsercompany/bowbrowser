@@ -13,6 +13,18 @@ import Testing
         #expect(list.entries.map(\.item.id) == [2, 1])
     }
 
+    @Test func activeCountCountsRunningDownloadsOnly() {
+        var list = DownloadList()
+        #expect(list.activeCount == 0)
+        list.apply(.created(DownloadItem(id: 1, state: .inProgress)), from: profile)
+        list.apply(.created(DownloadItem(id: 2, state: .paused)), from: profile)
+        list.apply(.created(DownloadItem(id: 3, state: .complete)), from: "Work")
+        list.apply(.created(DownloadItem(id: 3, state: .inProgress)), from: profile)
+        #expect(list.activeCount == 2)
+        list.apply(.updated(DownloadItem(id: 1, state: .complete)), from: profile)
+        #expect(list.activeCount == 1)
+    }
+
     @Test func updatesReplaceTheSnapshotInPlace() {
         var list = DownloadList()
         list.apply(.created(DownloadItem(id: 1)), from: profile)

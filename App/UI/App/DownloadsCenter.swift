@@ -30,6 +30,9 @@ enum DownloadSettings {
 /// browser window's `DownloadsFeature` hands it the window's profile.
 @MainActor
 final class DownloadsCenter: AppFeature, EngineDownloadsDelegate {
+    /// Posted (object: the center) after the list changed, for views such as the sidebar's downloads button.
+    static let listDidChange = Notification.Name("DownloadsCenter.listDidChange")
+
     private(set) var list = DownloadList()
     /// The downloads window, created on first use.
     private var windowController: DownloadsWindowController?
@@ -96,6 +99,7 @@ final class DownloadsCenter: AppFeature, EngineDownloadsDelegate {
             reserved[DownloadEntry.Key(profileID: profileID, downloadID: id)] = nil
         }
         windowController?.reload()
+        NotificationCenter.default.post(name: Self.listDidChange, object: self)
     }
 
     func downloads(

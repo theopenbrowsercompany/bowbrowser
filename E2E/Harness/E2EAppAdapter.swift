@@ -321,7 +321,7 @@ final class E2EAppAdapter {
     private var downloadsWindow: DownloadsWindowController?
 
     /// The downloads window, opened off screen the first time.
-    private func downloadsList() async throws -> DownloadsWindowController {
+    func downloadsList() async throws -> DownloadsWindowController {
         if let downloadsWindow { return downloadsWindow }
         // Every browser window shares the app's services; a test opens one before reading its downloads.
         guard let appFeatures = testControllers.first?.appFeatures else {
