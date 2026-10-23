@@ -26,7 +26,7 @@ struct WindowAdoptTest: E2ETest {
         let adopted = try await run.step("click a target blank link", timeout: E2ETimeouts.firstLoad) {
             try hooks.adoptPopups(of: opener)
             try await opener.click("#open")
-            guard try await Self.until({ try !hooks.adoptedPages(of: opener).isEmpty }) else {
+            guard try await TabEdgesTests.until({ try !hooks.adoptedPages(of: opener).isEmpty }) else {
                 throw E2EError("no popup was adopted (requests=\(try hooks.popupModifiers(of: opener).count))")
             }
             let page = try hooks.adoptedPages(of: opener)[0]
@@ -42,15 +42,5 @@ struct WindowAdoptTest: E2ETest {
             name, passed: rows == ["A", "B"] && adopted.keptOpener && shown && plain,
             "tabs=[\(rows.joined(separator: ","))] opener=\(adopted.keptOpener ? "kept" : "lost")"
                 + (shown ? "" : " shown=false") + (plain ? "" : " modifiers=\(modifiers)"))
-    }
-
-    /// Waits until `condition` holds, or the step's wait budget runs out.
-    static func until(_ condition: () throws -> Bool) async throws -> Bool {
-        let deadline = Date().addingTimeInterval(E2EWaits.budget())
-        while Date() < deadline {
-            if try condition() { return true }
-            try await Task.sleep(nanoseconds: 20_000_000)
-        }
-        return try condition()
     }
 }

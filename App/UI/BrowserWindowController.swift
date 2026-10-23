@@ -282,21 +282,27 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
     /// profile is missing or the store refuses the change.
     @discardableResult
     func openTab(url: URL, select: Bool = true) -> (any EngineTab)? {
-        guard let (item, profile) = insertTab(url: url, placement: .afterOpener, after: nil, select: select) else {
+        guard let space = store.graph.activeSpace else {
+            Self.report("the window has no Space on screen, so the tab was not opened")
             return nil
         }
+        guard
+            let (item, profile) = insertTab(url: url, in: space, placement: .afterOpener, after: nil, select: select)
+        else { return nil }
         let tab = load(item, url: url, in: profile)
         storeDidChange()
         return tab
     }
 
     /// Takes `tab`, an engine tab the engine already created (a popup the page opened as a tab, later a promoted
-    /// Peek), into the active Space's today section as a new sidebar tab, selecting it unless `select` is false. With
-    /// `.afterOpener` it goes right after `opener` when that is a today tab of the Space on screen (else where
-    /// `openTab` puts a tab); with `.topOfToday` at the top of today. The tab keeps its page (and `window.opener`);
-    /// its row shows `url` until the page reports its own. Returns false, taking nothing, when the window is closing,
-    /// the tab is closed or already the window's, its profile is not the active Space's, or the store refuses; the
-    /// caller then closes it.
+    /// Peek), as a new sidebar tab in the today section of the Space holding `opener` (the Space on screen when the
+    /// opener is in none, a Favorite for example), selecting it unless `select` is false or that Space is not on
+    /// screen. With `.afterOpener` it goes right after `opener` when that is a today tab (else after the Space's active
+    /// today tab, else at the end); with `.topOfToday` at the top of today. The tab keeps its page (and
+    /// `window.opener`). Pass `url` (a popup's `PopupRequest.targetURL`): the tab has reported no address yet, and the
+    /// row saves `url` until the page reports its own. Returns false, taking nothing, when the window is closing, the
+    /// tab is closed or already the window's, its profile is not that Space's, or the store refuses; the caller then
+    /// closes it.
     @discardableResult
     func adoptTab(
         _ tab: any EngineTab,
@@ -309,28 +315,34 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
             Self.report("the tab is closed or already in the window, so it was not adopted")
             return false
         }
-        guard let activeSpace, SidebarStores.sidebarProfileID(of: tab.profileID) == activeSpace.profileID else {
-            Self.report("the tab's profile is not the active Space's, so it was not adopted")
+        let graph = store.graph
+        let openerItem = opener.flatMap { modelID(of: $0) }.flatMap { itemIDs[$0] }
+        let openerSpace = openerItem.flatMap { graph.spaceID(containing: $0) }.flatMap { graph.space($0) }
+        guard let space = openerSpace ?? graph.activeSpace,
+            SidebarStores.sidebarProfileID(of: tab.profileID) == space.profileID
+        else {
+            Self.report("the tab's profile is not its Space's, so it was not adopted")
             return false
         }
-        let openerItem = opener.flatMap { modelID(of: $0) }.flatMap { itemIDs[$0] }
         let pageURL = url ?? tab.state.url
         guard
             let (item, _) = insertTab(
-                url: pageURL ?? URL(string: "about:blank")!, placement: placement, after: openerItem, select: select)
+                url: pageURL ?? URL(string: "about:blank")!, in: space, placement: placement, after: openerItem,
+                select: select)
         else { return false }
         attach(tab, to: item, url: pageURL)
         storeDidChange()
         return true
     }
 
-    /// Inserts a sidebar tab on `url` into the active Space's today section at `placement` (`.afterOpener` places it
-    /// after `anchor` when that is a today tab, else after the active today tab, else at the end), and makes it
-    /// active when `select` is true or the Space has no active tab. Returns the new item and the profile its page
-    /// belongs in, or nil, inserting nothing, when the window is closing, the Space's profile is missing or the store
-    /// refuses.
+    /// Inserts a sidebar tab on `url` into `space`'s today section at `placement` (`.afterOpener` places it after
+    /// `anchor` when that is a today tab, else after the active today tab, else at the end). When `space` is on screen
+    /// the tab becomes active if `select` is true or the Space has no active tab; a Space not on screen keeps its
+    /// selection. Returns the new item and the profile its page belongs in, or nil, inserting nothing, when the window
+    /// is closing, the Space's profile is missing or the store refuses.
     private func insertTab(
         url: URL,
+        in space: SidebarSpace,
         placement: PopupPlacement,
         after anchor: SidebarItemID?,
         select: Bool
@@ -340,10 +352,11 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
             Self.report("the window is closing, so the tab was not opened")
             return nil
         }
-        guard let space = graph.activeSpace, let profile = profiles(space.profileID) else {
-            Self.report("the active Space has no profile, so the tab was not opened")
+        guard let profile = profiles(space.profileID) else {
+            Self.report("the Space has no profile, so the tab was not opened")
             return nil
         }
+        let onScreen = space.id == graph.activeSpaceID
         let today = space.unpinnedContainerID
         let index: Int?
         switch placement {
@@ -354,13 +367,13 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
                 guard graph[id]?.parentID == today else { return nil }
                 return graph[today]?.childrenIDs.firstIndex(of: id).map { $0 + 1 }
             }
-            index = anchor.flatMap(todayIndex) ?? graph.activeTabID.flatMap(todayIndex)
+            index = anchor.flatMap(todayIndex) ?? (onScreen ? graph.activeTabID.flatMap(todayIndex) : nil)
         }
         let item = SidebarItem.tab(url: url.absoluteString)
         let inserted = change { store in
             try store.transaction {
                 try store.mutate(.insert(item, parent: today, index: index))
-                if select || graph.activeTabID == nil { try store.mutate(.setActiveTab(item.id)) }
+                if onScreen, select || graph.activeTabID == nil { try store.mutate(.setActiveTab(item.id)) }
             }
         }
         return inserted ? (item.id, profile) : nil
@@ -652,7 +665,8 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
     // and with none (or for a tab that is not the window's) the window keeps the engine contract's default.
 
     func tab(_ tab: any EngineTab, decidePopup request: PopupRequest) -> PopupDecision {
-        guard modelID(of: tab) != nil else { return .window }
+        // A closing window takes no new tab, so its pages' popups keep the engine's own window.
+        guard modelID(of: tab) != nil, !isClosing else { return .window }
         return features.lazy.compactMap { $0.decidePopup(request, from: tab) }.first ?? .window
     }
 
