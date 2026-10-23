@@ -25,7 +25,7 @@ enum DefaultBrowserTests {
 
     /// The registrations a complete run asks for: http, then https, for the running app.
     static var expectedCalls: [String] {
-        DefaultBrowser.schemes.map { "\($0) \(Bundle.main.bundleURL.path)" }
+        ["http", "https"].map { "\($0) \(Bundle.main.bundleURL.path)" }
     }
 }
 
