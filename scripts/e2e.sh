@@ -94,15 +94,16 @@ prune
 # not). Ends them: TERM, then KILL after 2 seconds.
 orphans_killed=0
 # nap <seconds>: sleeps in the background and waits, so a signal's trap runs at once instead of after the sleep.
-nap() { sleep "$1" & wait $!; }
+nap() { sleep "$1" 3>&- & wait $!; }
 sweep() {
   local pids pid i n=0
   # The folder followed by "/" (helpers) or by a space or the end of the line (the app's own --e2e-out=<folder>,
   # in case the app outlived its build lock), so a run never matches a sibling whose name starts with its own.
   # The build lock still running (child, during an interrupt) is left to end by itself and give back its slot.
   # ps runs in the background and is waited for, so a signal during a slow ps stops the run at once too.
+  rm -f "$snapshot" # left by a sweep an earlier signal interrupted (on_signal sweeps again)
   snapshot=$(mktemp "$run/.ps.XXXXXX" 2> /dev/null || mktemp -t bow-e2e-ps) || return 0
-  ps -axo pid=,command= > "$snapshot" 2> /dev/null &
+  ps -axo pid=,command= > "$snapshot" 2> /dev/null 3>&- &
   wait $!
   pids=$(D="$1" B="$bundle/Contents/" awk -v me=$$ -v child="${child:-0}" '
     { line = $0 " " }
