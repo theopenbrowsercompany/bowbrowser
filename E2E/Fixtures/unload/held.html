@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Unload held</title>
+  <link rel="icon" type="image/png" href="/sidebar/icon.png">
+  <script>
+    // Each load counts itself and holds its load event on an image from the held route with key unload-held-<n>, so
+    // the test decides when load <n> finishes (E2EFixture.releaseHeld).
+    const loads = Number(localStorage.getItem("unloadHeldLoads") || "0") + 1;
+    localStorage.setItem("unloadHeldLoads", String(loads));
+    window.heldKey = "unload-held-" + loads;
+    document.write('<img alt="" src="/_held/' + window.heldKey + '/64/held.png">');
+  </script>
+</head>
+<body>
+  <h1>Unload held fixture</h1>
+  <p>A page whose load finishes when the test releases its image.</p>
+</body>
+</html>

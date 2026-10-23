@@ -82,4 +82,9 @@ size_t BowEngineParkedRequestsRefused(const char* kind);
 /// `inspectedPoint` to the point the last one inspected (x and y -1 for none). Main thread only.
 size_t BowEngineDevToolsRequests(uint64_t tabID, CGPoint* inspectedPoint);
 
+/// Reports that the open tab with this ID started (true) or stopped (false) playing sound, through the same tab
+/// method an engine audio event would call, since CEF 156 has none. Returns false when no open tab has the ID.
+/// Main thread only.
+bool BowEngineSetTabAudible(uint64_t tabID, bool audible);
+
 #endif  // BOW_E2E

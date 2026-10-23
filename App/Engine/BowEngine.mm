@@ -10,6 +10,7 @@
 
 #include "BowDownloads+Internal.h"
 #include "BowEngine+Internal.h"
+#include "BowTab+Internal.h"
 #if BOW_E2E
 #include "BowE2EHooks.h"  // E2E seam
 #endif
@@ -373,6 +374,13 @@ void BowEngineNoteParkedRequestRefused(const char* kind) {
 size_t BowEngineParkedRequestsRefused(const char* kind) {
   auto found = gParkedRequestsRefused.find(kind);
   return found == gParkedRequestsRefused.end() ? 0 : found->second;
+}
+
+bool BowEngineSetTabAudible(uint64_t tabID, bool audible) {
+  BowTab* tab = BowEngineTabWithID(tabID);
+  if (!tab || tab.closed) return false;
+  [tab audibleChanged:audible];
+  return true;
 }
 
 bool BowEngineTabIsOpening(uint64_t tabID) {

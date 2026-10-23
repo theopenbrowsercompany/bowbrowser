@@ -21,4 +21,5 @@
 #import "BowQuitTiming.h"       // E2E seam
 #import "BowLoopbackFixtures.h"  // E2E seam
 #import "BowS3Probe.h"          // E2E seam
+#import "BowUnloadProbe.h"      // E2E seam
 #endif
