@@ -28,12 +28,21 @@ extension E2ETestApp: E2EFullscreenApp {
             pageRadius: Double(controller.pageCornerRadius),
             hasShadow: controller.pageShadow != nil && controller.pageShadowContainer?.superview != nil,
             toggles: recorder.toggles, windowFullScreen: recorder.isFullScreen,
-            windowTransition: recorder.transition.map { $0 ? "entering" : "exiting" } ?? "none")
+            windowTransition: recorder.transition.map { $0 ? .entering : .exiting } ?? .none)
     }
 
     func leaveWindowFullScreen(of page: any E2EPage) throws {
         try adapter.requireActive(token, "leave the window's full screen")
-        try Self.recorder(of: E2EAppAdapter.tabPage(page).controller).systemExit()
+        guard try Self.recorder(of: E2EAppAdapter.tabPage(page).controller).systemExit() else {
+            throw E2EError("the window's full screen is not in full screen, or is in a transition")
+        }
+    }
+
+    func failWindowFullScreenTransition(of page: any E2EPage) throws {
+        try adapter.requireActive(token, "fail the window's full screen transition")
+        guard try Self.recorder(of: E2EAppAdapter.tabPage(page).controller).failTransition() else {
+            throw E2EError("the window's full screen is not in a transition")
+        }
     }
 
     func holdWindowFullScreenTransitions(of page: any E2EPage) throws {
@@ -87,10 +96,12 @@ final class E2EWindowFullScreenRecorder: WindowFullScreen {
         start(toward: !isFullScreen)
     }
 
-    /// The system takes the window out of full screen (the green button), not through `toggle()`.
-    func systemExit() {
-        guard isFullScreen, transition == nil else { return }
+    /// The system takes the window out of full screen (the green button), not through `toggle()`; false when the
+    /// window is not in full screen or a transition is in progress.
+    func systemExit() -> Bool {
+        guard isFullScreen, transition == nil else { return false }
         start(toward: false)
+        return true
     }
 
     /// Ends the held transition; false when none is in progress.
@@ -98,6 +109,19 @@ final class E2EWindowFullScreenRecorder: WindowFullScreen {
         guard let target = transition else { return false }
         transition = nil
         end(at: target)
+        return true
+    }
+
+    /// Ends the held transition as failed, telling the window's delegate the way AppKit does (it posts no
+    /// notification for a failure); false when none is in progress.
+    func failTransition() -> Bool {
+        guard let target = transition, let window else { return false }
+        transition = nil
+        if target {
+            window.delegate?.windowDidFailToEnterFullScreen?(window)
+        } else {
+            window.delegate?.windowDidFailToExitFullScreen?(window)
+        }
         return true
     }
 
