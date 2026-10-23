@@ -554,12 +554,14 @@ final class SidebarView: NSView, NSOutlineViewDataSource, NSOutlineViewDelegate,
 
     /// Where a drop of `item` the outline proposes on `node` (nil between sections) at `childIndex` (-1 on the row
     /// itself) lands, nil when no rule allows it there: a container, folder or split and a position in it. A drop on a
-    /// tab goes above it, a drop on the divider to the top of the section after it, a drop on a folder or split to
+    /// tab goes above it, or below it when `lowerHalf` (the pointer is in its lower half), a drop on the divider to the top of the section after it, a drop on a folder or split to
     /// its end, and a drop between sections to the end of the section above or, when that is refused (Favorites),
     /// the top of the one below. Both the outline's drag and the e2e drag resolve drops here.
-    func proposeDrop(of item: SidebarItemID, on node: SidebarNode?, childIndex: Int) -> ProposedDrop? {
+    func proposeDrop(of item: SidebarItemID, on node: SidebarNode?, childIndex: Int, lowerHalf: Bool = false)
+        -> ProposedDrop?
+    {
         guard
-            let drop = dropCandidates(on: node, index: childIndex).lazy
+            let drop = dropCandidates(on: node, index: childIndex, lowerHalf: lowerHalf).lazy
                 .map({ SidebarDrop(item: item, parent: $0.parent, index: $0.index) })
                 .first(where: { SidebarDropValidators.allows($0, in: self.content.graph) }),
             let target = outlineNode(for: drop.parent)
@@ -602,7 +604,9 @@ final class SidebarView: NSView, NSOutlineViewDataSource, NSOutlineViewDelegate,
     }
 
     /// The places a proposed drop may land, in order of preference.
-    private func dropCandidates(on node: SidebarNode?, index: Int) -> [(parent: SidebarItemID, index: Int)] {
+    private func dropCandidates(on node: SidebarNode?, index: Int, lowerHalf: Bool = false)
+        -> [(parent: SidebarItemID, index: Int)]
+    {
         let graph = content.graph
         guard let node else {
             var candidates: [(parent: SidebarItemID, index: Int)] = []
@@ -635,7 +639,7 @@ final class SidebarView: NSView, NSOutlineViewDataSource, NSOutlineViewDelegate,
                 guard index < 0, let parent = item.parentID,
                     let position = graph[parent]?.childrenIDs.firstIndex(of: id)
                 else { return [] }
-                return [(parent, position)]
+                return [(parent, lowerHalf ? position + 1 : position)]
             }
             return [(id, index < 0 ? item.childrenIDs.count : index)]
         }
@@ -805,26 +809,64 @@ final class SidebarView: NSView, NSOutlineViewDataSource, NSOutlineViewDelegate,
         proposedChildIndex index: Int
     ) -> NSDragOperation {
         // Only drags that start in this sidebar: its outline, or a view inside it such as the Favorites grid.
+        let pointer = outlineView.convert(info.draggingLocation, from: nil)
         guard (info.draggingSource as? NSView)?.isDescendant(of: self) == true, let id = draggedItem(info),
             validatedDrop(
                 of: id, proposedItem: item, childIndex: index,
-                pointerX: outlineView.convert(info.draggingLocation, from: nil).x) != nil
+                pointerX: pointer.x, pointerY: pointer.y) != nil
         else { return [] }
         return .move
     }
 
     /// What `validateDrop` does with the outline's proposal: retarget its level to the pointer's x, resolve the drop
     /// and show the outline's gap there. The outline's drag and the e2e drag both go through here.
-    func validatedDrop(of id: SidebarItemID, proposedItem item: Any?, childIndex index: Int, pointerX: CGFloat)
-        -> ProposedDrop?
-    {
-        let target =
+    func validatedDrop(
+        of id: SidebarItemID, proposedItem item: Any?, childIndex index: Int, pointerX: CGFloat,
+        pointerY: CGFloat? = nil
+    ) -> ProposedDrop? {
+        var target =
             (outlineView as? SidebarOutlineView)?.retargetedDrop(
                 proposedItem: item, childIndex: index, pointerX: pointerX) ?? (item: item, childIndex: index)
-        guard let proposal = proposeDrop(of: id, on: target.item as? SidebarNode, childIndex: target.childIndex)
+        // A drop on a tab goes above its row when the pointer is in the row's upper half and below it in the lower
+        // half, whether the outline proposed the row itself or the gap right above or below it.
+        var lowerHalf = false
+        if let pointerY, let hovered = tabRow(at: NSPoint(x: pointerX, y: pointerY)) {
+            if target.childIndex == NSOutlineViewDropOnItemIndex, target.item as AnyObject? === hovered.node {
+                lowerHalf = hovered.isLower
+            } else if let parent = hovered.parent, target.item as AnyObject? === parent,
+                target.childIndex == hovered.position || target.childIndex == hovered.position + 1
+            {
+                target.childIndex = hovered.isLower ? hovered.position + 1 : hovered.position
+            }
+        }
+        guard
+            let proposal = proposeDrop(
+                of: id, on: target.item as? SidebarNode, childIndex: target.childIndex, lowerHalf: lowerHalf)
         else { return nil }
         outlineView.setDropItem(proposal.node, dropChildIndex: proposal.childIndex)
         return proposal
+    }
+
+    /// The tab row under `point` (outline coordinates), with its parent and place in it as the outline counts them,
+    /// and whether the point is in the row's lower half. Nil over anything but a tab row.
+    private func tabRow(at point: NSPoint) -> (node: SidebarNode, parent: SidebarNode?, position: Int, isLower: Bool)? {
+        // The rows stacked from the first row's top by their own heights: the outline opens its drop gap by moving
+        // rows apart while a drag hovers, and the pointer is judged against the rows as they sit without it.
+        guard outlineView.numberOfRows > 0 else { return nil }
+        var top = outlineView.rect(ofRow: 0).minY
+        for row in 0..<outlineView.numberOfRows {
+            let height = outlineView.rect(ofRow: row).height
+            defer { top += height }
+            guard point.y >= top, point.y < top + height else { continue }
+            guard let node = outlineView.item(atRow: row) as? SidebarNode, let id = node.itemID,
+                content.graph[id]?.data.isTab == true
+            else { return nil }
+            return (
+                node, outlineView.parent(forItem: node) as? SidebarNode, outlineView.childIndex(forItem: node),
+                SidebarDropHalf.isLower(offset: Double(point.y - top), height: Double(height))
+            )
+        }
+        return nil
     }
 
     func outlineView(
