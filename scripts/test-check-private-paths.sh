@@ -94,6 +94,30 @@ g update-ref refs/remotes/origin/main HEAD
 out=$(run)
 has "a path already on origin/main passes" "$out" "exit=0"
 
+# A path added in one commit and removed in the next passes the net diff but the hook refuses the first commit.
+printf 'let t = "%s"\n' "$home" > "$repo/E2E/Tests/T.swift"
+g add -A
+g commit -qm "spells a path"
+first=$(g rev-parse --short HEAD)
+printf 'let t = 1\n' > "$repo/E2E/Tests/T.swift"
+g commit -qam "replaces the path"
+out=$(run)
+has "a path added then removed fails" "$out" "exit=1"
+has "it names the first commit" "$out" "commit $first spells a path"
+has "it names the commit's file and line" "$out" "E2E/Tests/T.swift:1:"
+lacks "it does not name the fixing commit" "$out" "commit $(g rev-parse --short HEAD) "
+has "it tells how to fix it" "$out" "Never squash the whole branch"
+# A clean history of several commits passes.
+g reset -q --hard "$first"~1
+printf 'let t = 1\n' > "$repo/E2E/Tests/T.swift"
+g add -A
+g commit -qm "clean one"
+printf 'let t = 2\n' > "$repo/E2E/Tests/T.swift"
+g commit -qam "clean two"
+out=$(run)
+has "a clean history passes" "$out" "exit=0"
+g update-ref refs/remotes/origin/main HEAD
+
 # No origin/main: the working tree changes against HEAD only.
 g update-ref -d refs/remotes/origin/main
 out=$(run)

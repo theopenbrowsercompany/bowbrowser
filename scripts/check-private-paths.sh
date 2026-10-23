@@ -9,7 +9,8 @@
 # origin/main (the merge base): committed, staged, unstaged and untracked changes. With no origin/main ref (or no
 # merge base) it checks the working tree changes against HEAD only. PRIVATE_PATHS_BASE=<ref> compares with another
 # ref than origin/main (the self test, scripts/test-check-private-paths.sh, uses it).
-# Prints "<file>:<line>: <line text>" per offending line, then the hook's message; exits 1 on any, 2 when it cannot
+# It also checks each commit in <merge base>..HEAD on its own, as the hook does, and names the commit (short hash and
+# subject), the file and the line. Prints "<file>:<line>: <line text>" per offending line, then the hook's message; exits 1 on any, 2 when it cannot
 # read the hook.
 set -u
 cd "$(dirname "$0")/.." || exit 1
@@ -68,6 +69,32 @@ hits=$(echo "$hits" | grep -v '^$')
 if [ -n "$hits" ]; then
   echo "check-private-paths: the branch adds a home directory, Arc profile or private repository path:" >&2
   echo "$hits" | sed 's/^/    /' >&2
+  failed=1
+fi
+
+# The hook checks the added lines and files of every commit, so a line added in one commit and removed in a later one
+# passes the net checks above and is still refused at the push. Check each commit in <merge base>..HEAD the same way.
+commit_failed=0
+if [ "$from" != HEAD ]; then
+  while IFS= read -r commit; do
+    [ -n "$commit" ] || continue
+    label="$(git rev-parse --short "$commit") $(git log -1 --format=%s "$commit")"
+    cfiles=$(git diff-tree --root --no-commit-id --name-only -r --diff-filter=A "$commit" | grep -iE "$file_pattern")
+    if [ -n "$cfiles" ]; then
+      echo "check-private-paths: commit $label adds a disallowed file type:" >&2
+      echo "$cfiles" | sed 's/^/    /' >&2
+      commit_failed=1
+    fi
+    clines=$(git diff-tree --root --no-commit-id -r -p -U0 --no-color --no-ext-diff "$commit" -- . "${excludes[@]}" | scan)
+    if [ -n "$clines" ]; then
+      echo "check-private-paths: commit $label adds a home directory, Arc profile or private repository path:" >&2
+      echo "$clines" | sed 's/^/    /' >&2
+      commit_failed=1
+    fi
+  done < <(git rev-list --reverse "$from..HEAD")
+fi
+if [ "$commit_failed" -ne 0 ]; then
+  echo "check-private-paths: fix the commit named above, not the branch tip: amend it with a fixup commit (git commit --fixup <hash>, then git rebase -i --autosquash <hash>~1 with GIT_SEQUENCE_EDITOR=true) so the final tree stays the same. Never squash the whole branch." >&2
   failed=1
 fi
 
