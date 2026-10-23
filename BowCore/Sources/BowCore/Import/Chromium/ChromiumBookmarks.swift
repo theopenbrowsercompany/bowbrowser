@@ -12,12 +12,20 @@ public struct ChromiumBookmarkRoot: Equatable, Sendable {
     public let key: String
     public let title: String
     public let children: [ChromiumBookmarkNode]
+
+    public init(key: String, title: String, children: [ChromiumBookmarkNode]) {
+        self.key = key
+        self.title = title
+        self.children = children
+    }
 }
 
 public struct ChromiumBookmarks: Equatable, Sendable {
     public static let fileName = "Bookmarks"
     /// Roots in a stable order: bookmark bar, other, synced, then any other key by name.
     public let roots: [ChromiumBookmarkRoot]
+
+    public init(roots: [ChromiumBookmarkRoot]) { self.roots = roots }
 
     public var bookmarkCount: Int { roots.reduce(0) { $0 + Self.count($1.children).urls } }
     public var folderCount: Int { roots.reduce(0) { $0 + Self.count($1.children).folders } }
@@ -68,7 +76,10 @@ public struct ChromiumBookmarks: Equatable, Sendable {
 
     public static func load(profileFolder: URL) throws -> ChromiumBookmarks {
         let url = profileFolder.appendingPathComponent(fileName)
-        guard let data = try? Data(contentsOf: url) else { throw ChromiumImportError.missingFile(fileName) }
+        guard FileManager.default.fileExists(atPath: url.path) else { throw ChromiumImportError.missingFile(fileName) }
+        guard let data = try? Data(contentsOf: url) else {
+            throw ChromiumImportError.malformed(file: fileName, reason: "the file is not readable")
+        }
         return try parse(data: data)
     }
 

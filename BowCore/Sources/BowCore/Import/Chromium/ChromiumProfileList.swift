@@ -33,7 +33,10 @@ public enum ChromiumProfileList {
             throw ChromiumImportError.malformed(file: fileName, reason: "no profile.info_cache")
         }
         return cache.compactMap { directory, value -> ChromiumProfile? in
-            guard let info = value as? [String: Any] else { return nil }
+            // The key becomes a folder name, so a key that could point outside User Data is skipped.
+            guard let info = value as? [String: Any], !directory.isEmpty,
+                !directory.contains("/"), !directory.contains(":"), directory != ".", directory != ".."
+            else { return nil }
             let name = (info["name"] as? String).flatMap { $0.isEmpty ? nil : $0 }
             return ChromiumProfile(directory: directory, displayName: name ?? directory)
         }
@@ -43,7 +46,10 @@ public enum ChromiumProfileList {
     /// Reads `Local State` from a User Data folder.
     public static func load(userDataFolder: URL) throws -> [ChromiumProfile] {
         let url = userDataFolder.appendingPathComponent(fileName)
-        guard let data = try? Data(contentsOf: url) else { throw ChromiumImportError.missingFile(fileName) }
+        guard FileManager.default.fileExists(atPath: url.path) else { throw ChromiumImportError.missingFile(fileName) }
+        guard let data = try? Data(contentsOf: url) else {
+            throw ChromiumImportError.malformed(file: fileName, reason: "the file is not readable")
+        }
         return try parse(data: data)
     }
 
@@ -52,7 +58,7 @@ public enum ChromiumProfileList {
         func rank(_ p: ChromiumProfile) -> (Int, Int, String) {
             if p.directory == "Default" { return (0, 0, "") }
             if p.directory.hasPrefix("Profile "), let n = Int(p.directory.dropFirst("Profile ".count)) {
-                return (1, n, "")
+                return (1, n, p.directory)
             }
             return (2, 0, p.directory)
         }

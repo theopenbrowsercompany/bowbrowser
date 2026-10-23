@@ -11,6 +11,13 @@ public struct ChromiumVisit: Equatable, Sendable {
     public let transition: Int
     /// Whether the person typed the address.
     public var isTyped: Bool { transition == 1 }
+
+    public init(url: String, title: String, date: Date, transition: Int) {
+        self.url = url
+        self.title = title
+        self.date = date
+        self.transition = transition
+    }
 }
 
 /// Reads the `urls` and `visits` tables of a Chromium `History` database.
