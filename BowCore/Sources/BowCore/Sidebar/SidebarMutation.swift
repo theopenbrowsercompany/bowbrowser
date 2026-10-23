@@ -77,6 +77,10 @@ public enum SidebarMutation: Equatable, Sendable {
     case deleteSpace(SidebarSpaceID)
     case moveSpace(SidebarSpaceID, index: Int)
     case renameSpace(SidebarSpaceID, title: String)
+    /// Sets or clears a Space's icon.
+    case setSpaceIcon(SidebarSpaceID, SpaceIcon?)
+    /// Sets a Space's theme, or clears it to go back to the default theme.
+    case setSpaceTheme(SidebarSpaceID, SpaceTheme?)
     /// Brings a Space on screen, remembering the tab selected in the one it replaces and selecting its own.
     case setActiveSpace(SidebarSpaceID)
     /// Selects the active Space's own tab when the selected one no longer belongs on screen (after tabs moved).
@@ -189,6 +193,14 @@ extension SidebarGraph {
         case .renameSpace(let id, let title):
             guard let position = spaces.firstIndex(where: { $0.id == id }) else { throw .spaceNotFound(id) }
             spaces[position].title = try Self.validSpaceTitle(title)
+
+        case .setSpaceIcon(let id, let icon):
+            guard let position = spaces.firstIndex(where: { $0.id == id }) else { throw .spaceNotFound(id) }
+            spaces[position].icon = icon
+
+        case .setSpaceTheme(let id, let theme):
+            guard let position = spaces.firstIndex(where: { $0.id == id }) else { throw .spaceNotFound(id) }
+            spaces[position].theme = theme
 
         case .setActiveSpace(let id):
             guard space(id) != nil else { throw .spaceNotFound(id) }
