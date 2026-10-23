@@ -5,7 +5,8 @@
 set -u
 cd "$(dirname "$0")/.."
 
-tmp=$(mktemp -d)
+# The real path, as scripts/e2e.sh sees it, so the orphan check can match this run's folder exactly.
+tmp=$(cd "$(mktemp -d)" && pwd -P)
 trap 'rm -rf "$tmp"' EXIT
 export BOW_E2E_ROOT="$tmp/runs" BOW_LOCK_DIR="$tmp/lock"
 app="$tmp/Bow.app"
@@ -17,6 +18,13 @@ out="" sel=""
 for a in "$@"; do
   case $a in --e2e-out=*) out=${a#--e2e-out=} ;; --e2e=*) sel=${a#--e2e=} ;; esac
 done
+# The list selection prints one TEST line per test and starts nothing, like the real runner; FAKE_NOLIST=1 plays a
+# runner without it (exit 64).
+if [ "$sel" = list ]; then
+  [ "${FAKE_NOLIST:-0}" = 1 ] && exit 64
+  for t in a.one a.two a.three; do echo "TEST $t area=a tags=- checks=$t"; done
+  exit 0
+fi
 # Records the selection each attempt got.
 [ -z "$out" ] || echo "e2e=$sel" > "$out/args"
 r="$out/report.txt"
@@ -51,6 +59,28 @@ case $FAKE_MODE in
       */retry) { echo "RESULT a.two pass seconds=0.2 checks=1/1"; echo "RESULT a.three pass seconds=0.2 checks=1/1"; echo "E2E: PASS 2/2"; } > "$r"; exit 0 ;;
       *) { echo "RESULT a.one pass seconds=0.1 checks=1/1"; echo "E2E: TIMEOUT a.two: open window (main thread stuck)"
         echo "NOT RUN a.three"; echo "E2E: FAIL 1/3"; } > "$r"; exit 2 ;;
+    esac ;;
+  between)
+    # The main thread stuck between tests: a TIMEOUT line with no test name. The retry cannot start.
+    case $out in
+      */retry) echo "bow: --e2e=$sel is not a test" >&2; exit 64 ;;
+      *) { echo "RESULT a.one pass seconds=0.1 checks=1/1"; echo "E2E: TIMEOUT between tests (closing windows)"
+        echo "NOT RUN a.two"; } > "$r"; exit 2 ;;
+    esac ;;
+  mixed)
+    # A test fails and so does a check that is no test's; only a rerun of the whole selection passes it all.
+    case $out in
+      */retry)
+        if [ "$sel" = "a.two" ]; then
+          { echo "PASS a.two: ok"; echo "RESULT a.two pass seconds=0.1 checks=1/1"; echo "E2E: PASS 1/1"; } > "$r"
+        else
+          { echo "PASS a.one: ok"; echo "RESULT a.one pass seconds=0.1 checks=1/1"; echo "PASS a.two: ok"
+            echo "RESULT a.two pass seconds=0.1 checks=1/1"; echo "PASS chromium.errors: ok"; echo "E2E: PASS 3/3"; } > "$r"
+        fi
+        exit 0 ;;
+      *) { echo "PASS a.one: ok"; echo "RESULT a.one pass checks=1/1"; echo "FAIL a.two: broken"
+        echo "RESULT a.two fail seconds=0.2 checks=0/1"; echo "FAIL chromium.errors: 1 unexpected"; echo "E2E: FAIL 1/3"; } > "$r"
+        exit 1 ;;
     esac ;;
   results)
     if [ "$sel" = "a.two" ]; then
@@ -126,7 +156,8 @@ check "usage: summary" is "$last" "E2E: ERROR the app could not start the run (e
 
 run orphan
 check "orphan: exit 0" is "$code" 0
-check "orphan: helper ended" is "$(pgrep -f -- "Frameworks/Helper .*/helper" | grep -c .)" 0
+# Only this test's helpers, whose arguments name its own run folders, so parallel runs elsewhere do not count.
+check "orphan: helper ended" is "$(ps -axo command= | grep -F -- "Frameworks/Helper $BOW_E2E_ROOT/" | grep -vc grep)" 0
 check "orphan: counted" is "$(field "$res" orphansKilled)" 1
 tail_pid=$(cat "$BOW_E2E_ROOT/tail.pid")
 check "orphan: a process outside the app bundle is left alone" kill -0 "$tail_pid"
@@ -143,9 +174,30 @@ check "a failed check outside any test: FLAKY names it" is "$last" "E2E: FLAKY 2
 
 run stuck 'a.*'
 check "stuck: a pass on retry is flaky" is "$code" 3
-check "stuck: the stuck test is named" is "$last" "E2E: FLAKY 2/2 after retrying a.two"
+check "stuck: the stuck test is named, the count covers the whole selection" is "$last" "E2E: FLAKY 3/3 after retrying a.two"
 check "stuck: retries the stuck and not run tests" is "$(cat "$BOW_E2E_ROOT/latest/retry/args")" "e2e=a.two,a.three"
 check "stuck: NOT RUN in results.json" is "$(field "$res" attempts.0.tests.1.status)" "not run"
+
+FAKE_NOLIST=1 run stuck 'a.*'
+check "stuck: a TIMEOUT test no RESULT, NOT RUN or TEST line names: whole selection retried" \
+  is "$(cat "$BOW_E2E_ROOT/latest/retry/args")" "e2e=a.*"
+
+run between 'a.*'
+check "between tests: the TIMEOUT text is not taken as a test" is "$(cat "$BOW_E2E_ROOT/latest/retry/args")" "e2e=a.*"
+check "between tests: a retry that cannot start keeps the first attempt's timeout" is "$code" 2
+check "between tests: the first TIMEOUT line is the summary" is "$last" "E2E: TIMEOUT between tests (closing windows)"
+check "between tests: results.json status" is "$(field "$res" status)" timeout
+
+run mixed 'a.*'
+check "mixed: a failed check outside any test retries the whole selection" is "$(cat "$BOW_E2E_ROOT/latest/retry/args")" "e2e=a.*"
+check "mixed: FLAKY names the test and the run-wide check" is "$last" "E2E: FLAKY 3/3 after retrying a.two,chromium.errors"
+check "mixed: FLAKY line for the run-wide check" has "$BOW_E2E_ROOT/latest/report.txt" "^FLAKY chromium.errors: failed then passed (1 unexpected)"
+check "mixed: an empty field stays empty in results.json" is "$(field "$res" attempts.0.tests.0.checks)" 1/1
+check "mixed: results.json is valid JSON" valid_json "$res"
+
+BOW_E2E_SLOTS=none run pass
+check "a refusal of the build lock: exit 64" is "$code" 64
+check "a refusal of the build lock is not called a bad selection" is "$last" "E2E: ERROR the build lock refused to run the app (exit 64); see its message above"
 
 E2E_RETRY=0 run stuck 'a.*'
 check "stuck: exit 2 with RESULT and NOT RUN lines is a timeout" is "$code" 2
