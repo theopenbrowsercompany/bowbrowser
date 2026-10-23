@@ -26,6 +26,19 @@ struct FavoritesGridTest: E2ETest {
                 try await Task.sleep(nanoseconds: 10_000_000)
             }
         }
+        /// What `read` gives once `condition` holds for it, or what it gave last after `seconds`, so a check can say
+        /// what it saw.
+        func settle<T>(seconds: TimeInterval = 4, _ read: () throws -> T, until condition: (T) -> Bool) async throws
+            -> T
+        {
+            let deadline = Date().addingTimeInterval(seconds)
+            var value = try read()
+            while !condition(value), Date() < deadline {
+                try await Task.sleep(nanoseconds: 10_000_000)
+                value = try read()
+            }
+            return value
+        }
         func titles(_ tiles: [E2EFavoriteTile]) -> String { "[\(tiles.map(\.title).joined(separator: ","))]" }
 
         let a = try await run.step("open window", timeout: E2ETimeouts.firstLoad) {
@@ -71,14 +84,14 @@ struct FavoritesGridTest: E2ETest {
 
         let opened = try await run.step("click B twice", timeout: E2ETimeouts.firstLoad) {
             try app.clickFavorite(b)
-            let first = try await SidebarWaits.rows(app, of: c) {
+            let first = try await settle({ try app.sidebarRows(of: c) }) {
                 SidebarWaits.summary($0) == "tabs=[C,B] active=B"
             }
-            let lit = try await tiles(of: c) { $0.first?.isActive == true }
+            let lit = try await settle({ try app.favoriteTiles(of: c) }) { $0.first?.isActive == true }
             try app.clickSidebarRow(of: c)
-            _ = try await SidebarWaits.rows(app, of: c) { SidebarWaits.summary($0) == "tabs=[C,B] active=C" }
+            _ = try await settle({ try app.sidebarRows(of: c) }) { SidebarWaits.summary($0) == "tabs=[C,B] active=C" }
             try app.clickFavorite(b)
-            let second = try await SidebarWaits.rows(app, of: c) { $0.last?.isActive == true }
+            let second = try await settle({ try app.sidebarRows(of: c) }) { $0.last?.isActive == true }
             return (first: first, lit: lit.first?.isActive == true, second: second)
         }
         run.check(

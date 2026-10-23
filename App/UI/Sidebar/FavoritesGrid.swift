@@ -61,6 +61,8 @@ final class FavoritesGridView: NSView {
     /// The site icon a tab showed when it was dragged in, kept while the Favorite has no loaded page of its own.
     private var icons: [SidebarItemID: NSImage] = [:]
     private let dropIndicator = NSView()
+    /// The content last shown, to redraw the highlight when a click records the tab it opened.
+    private var shownContent: SidebarContent?
 
     override var isFlipped: Bool { true }
 
@@ -85,6 +87,7 @@ final class FavoritesGridView: NSView {
     /// Shows the Favorites `content` lists for the Space on screen, keeping each tile across updates.
     func update(content: SidebarContent, context: (any SidebarActionContext)?) {
         self.context = context
+        shownContent = content
         let graph = content.graph
         openedTabs = openedTabs.filter { graph[$0.key] != nil && graph[$0.value]?.data.isTab == true }
         let ids = graph.activeFavoriteIDs
@@ -147,7 +150,9 @@ final class FavoritesGridView: NSView {
             return true
         }
         guard context.open(favorite: item) else { return false }
-        openedTabs[item] = context.graph.activeSpace?.lastSelectedTabID
+        // The tab the window just opened and shows; the highlight follows it once it is recorded.
+        openedTabs[item] = context.graph.activeTabID
+        if let shownContent { update(content: shownContent, context: context) }
         return true
     }
 
