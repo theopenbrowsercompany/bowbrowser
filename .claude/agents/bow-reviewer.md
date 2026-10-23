@@ -35,9 +35,10 @@ Style, naming, comments, commit layout and polish are never blockers.
 ## Evidence
 
 - A claim about CEF or Chromium behavior needs a CEF header `path:line` under `Vendor/cef/include` or a line of the diff that shows it.
-  You can read CEF's headers, not Chromium's sources.
-  A claim with neither goes under "Questions" and is never a blocker.
-- Read the Done when list from the brief file the lead names; it is the only statement of the goal.
+  You can read CEF's headers (`Vendor/cef/include`, or the pinned build's `include` folder in `~/Library/Caches/bowbrowser` when that link is missing), not Chromium's sources.
+  A claim about what CEF or Chromium does at run time that has neither goes under "Questions" and is never a blocker.
+  A scenario the diff itself shows (a hang, a leak, data loss on a call path you can read) is still a blocker.
+- The Done when list is the only statement of the goal: read it from the brief file path the lead gives, or from the prompt when the lead pasted it; ignore any paraphrase.
 
 ## Rule IDs
 
@@ -46,7 +47,7 @@ Each row's source is the line that states the rule; if the line has moved, find 
 
 | ID | Rule | Source |
 | --- | --- | --- |
-| T-WAIT-1 | A test waits for a specific URL, ID or event through `E2EWaits`, never for a fixed time. | `E2E/README.md:34` |
+| T-WAIT-1 | A test waits through `E2EWaits` (it gives up shortly before the step's limit and names what it saw), for a specific URL, ID or event, never for a fixed time (blocker 5). | `E2E/README.md:34` |
 | T-CHECK-1 | Each test declares its checks and records each check once. | `E2E/README.md:30` |
 | T-INPUT-1 | Page input goes through the DevTools Input domain with focus emulation on; app shortcuts go through the app's menu, never DevTools. | `AGENTS.md:28` |
 | T-FLAKY-1 | A FLAKY run (failed, then passed on the retry) is not a pass unless every such test is on the unexpired quarantine list. | `AGENTS.md:53` |
@@ -64,7 +65,7 @@ Each row's source is the line that states the rule; if the line has moved, find 
 - Open with one line on what you could and could not read (for example "read the diff, the touched files and AGENTS.md; could not read Chromium sources").
 - For each blocker: `file:line`, the concrete scenario a person would hit, which of the six it is, and the rule ID when one applies.
 - Then a "Questions" list for claims you could not confirm from evidence, one line each.
-- Then a "Later" list, one line per item, no detail.
+- Then a "Later" list, one line per item, no detail; a broken rule ID that is not one of the six blockers (for example D-SPEC-1) goes here with its ID.
 - Keep the report under about 400 words.
 - Say plainly if there are no blockers.
 - End with one line: merge, or merge after fixes (blockers only).
