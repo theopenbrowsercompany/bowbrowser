@@ -784,9 +784,13 @@ final class SidebarView: NSView, NSOutlineViewDataSource, NSOutlineViewDelegate,
         proposedItem item: Any?,
         proposedChildIndex index: Int
     ) -> NSDragOperation {
+        let target =
+            (outlineView as? SidebarOutlineView)?.retargetedDrop(
+                proposedItem: item, childIndex: index, pointerX: outlineView.convert(info.draggingLocation, from: nil).x
+            ) ?? (item: item, childIndex: index)
         // Only drags that start in this sidebar: its outline, or a view inside it such as the Favorites grid.
         guard (info.draggingSource as? NSView)?.isDescendant(of: self) == true, let id = draggedItem(info),
-            let proposal = proposeDrop(of: id, on: item as? SidebarNode, childIndex: index)
+            let proposal = proposeDrop(of: id, on: target.item as? SidebarNode, childIndex: target.childIndex)
         else { return [] }
         outlineView.setDropItem(proposal.node, dropChildIndex: proposal.childIndex)
         return .move
