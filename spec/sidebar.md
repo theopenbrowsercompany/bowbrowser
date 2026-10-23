@@ -19,7 +19,7 @@ Pinned tabs are the sites a person keeps; today's tabs are the ones they opened 
   - a tab dropped on another tab lands just above it, one dropped on the divider lands at the top of today, and one dropped on a folder lands at its end;
   - a folder or split moves with everything inside it.
 - A drag never changes the active tab.
-- Some drags are refused, and the sidebar shows no drop gap for them: a row dropped into itself, a tab taken alone out of a split view or dropped into one, and anything dragged into or out of Favorites (the Favorites grid brings its own drags).
+- Some drags are refused, and the sidebar shows no drop gap for them: a row dropped into itself, a tab taken alone out of a split view or dropped into one, and anything dragged into or out of Favorites other than what `spec/favorites.md` allows.
 - Right-clicking a tab row shows its menu; for now that menu has Close Tab, which closes the tab as its close button does.
 - Folder actions (New Folder, Rename Folder, the delete items, renaming by double-clicking a folder's row) are in `folders.md`.
 - Closing the selected pinned tab unloads it and selects the next tab in sidebar order.
@@ -38,7 +38,7 @@ The sidebar is built so later features each add one file plus one line in a list
   Each provider's items appear in list order, separated from the next provider's.
 - Drop rules: a type conforming to `SidebarDropValidator`, listed in `SidebarDropValidators.all` (`SidebarDropRuleList.swift`).
   A drop goes through when no rule refuses it; the store's own rules (what may hold what, repairing split views) still apply when it is made.
-  The rule that keeps drags out of Favorites lives alone in `FavoritesDropRule.swift`, so the Favorites grid can replace it.
+  The rule for drags into and out of Favorites lives alone in `FavoritesDropRule.swift`.
 - Swipes: a `SidebarSwipeHandler` gets each sideways two-finger trackpad swipe on the list, with its phase, the distance moved so far and the action context; without one, every scroll goes to the list.
   An accessory offers it (the first accessory with one wins), or code holding the sidebar sets it once the window has opened; the sidebar keeps it.
   The list does not follow the fingers yet: it slides once the handler acts.
@@ -55,7 +55,7 @@ The sidebar is built so later features each add one file plus one line in a list
 ## Edge cases
 
 - A Space with no pinned tabs shows the divider right under the Favorites area; one with no today tabs shows it at the bottom of the list.
-- A Favorite shows as a plain row with its saved title until the Favorites grid exists; clicking it does nothing yet.
+- Favorites show as an icon grid in the Favorites area, not as rows (`spec/favorites.md`).
 - A drop the store refuses (for example a change that would break the sidebar's rules) changes nothing and is reported in the log.
 - A drop where the item already is changes nothing and saves nothing.
 - After a relaunch every tab is back in its zone and folder, in the same order, with folders open or closed as they were.
@@ -72,5 +72,5 @@ The sidebar is built so later features each add one file plus one line in a list
 
 ## Out of scope
 
-- The Favorites icon grid, the Space switcher, pinned tab actions (back to pinned URL, replace pinned URL), collapse all and the archive popover; each plugs into the extension points above.
+- The Space switcher, pinned tab actions (back to pinned URL, replace pinned URL), collapse all and the archive popover; each plugs into the extension points above.
 - Saving the sidebar and the store's rules, covered in `sidebar-store.md`; tab behavior in `tabs.md`.
