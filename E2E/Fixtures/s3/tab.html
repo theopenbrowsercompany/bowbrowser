@@ -1,0 +1,107 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>S3 tab</title>
+<style>
+  body { font: 14px -apple-system, sans-serif; margin: 16px; }
+  canvas { border: 1px solid #ccc; }
+</style>
+</head>
+<body>
+<h1 id="label">S3 tab</h1>
+<canvas id="canvas" width="120" height="60"></canvas>
+<script>
+// The load the hidden tab measurement puts on each tab (?load=busy, idle or audio), and the counters it reads at
+// pass boundaries with window.bowS3.take().
+//   busy (default): a chained 50 ms timer that spends 2 ms of busy JavaScript per tick, and an animation frame loop
+//     drawing to a small canvas.
+//   idle: one chained 1 second timer and nothing else.
+//   audio: busy plus a Web Audio oscillator at about -70 dBFS (RMS), above Chromium's silence threshold and far too
+//     quiet to hear. Needs the autoplay-policy=no-user-gesture-required switch.
+(() => {
+  const load = new URLSearchParams(location.search).get("load") || "busy";
+  document.getElementById("label").textContent = `S3 tab: ${location.host} ${load}`;
+  document.title = `S3 ${location.host} ${load}`;
+
+  const fresh = () => ({
+    since: performance.now(),
+    ticks: 0,
+    // Gaps between timer ticks: under 0.2 s, under 1.5 s, under 65 s, and longer.
+    gaps: [0, 0, 0, 0],
+    longestGapMs: 0,
+    frames: 0,
+    visibilityChanges: 0,
+    freezes: 0,
+    resumes: 0,
+  });
+  let counters = fresh();
+  let lastTick = null;
+  const interval = load === "idle" ? 1000 : 50;
+
+  // A chained timer (each tick sets the next), which Chromium's intensive throttling applies to.
+  const tick = () => {
+    const now = performance.now();
+    counters.ticks++;
+    if (lastTick !== null) {
+      const gap = now - lastTick;
+      counters.gaps[gap < 200 ? 0 : gap < 1500 ? 1 : gap < 65000 ? 2 : 3]++;
+      counters.longestGapMs = Math.max(counters.longestGapMs, gap);
+    }
+    lastTick = now;
+    if (load !== "idle") {
+      const end = performance.now() + 2;
+      while (performance.now() < end) {}
+    }
+    setTimeout(tick, interval);
+  };
+  setTimeout(tick, interval);
+
+  if (load !== "idle") {
+    const context = document.getElementById("canvas").getContext("2d");
+    const frame = (time) => {
+      counters.frames++;
+      context.fillStyle = `hsl(${Math.floor(time / 10) % 360}, 70%, 50%)`;
+      context.fillRect(0, 0, 120, 60);
+      requestAnimationFrame(frame);
+    };
+    requestAnimationFrame(frame);
+  }
+
+  let audio = null;
+  if (load === "audio") {
+    const AudioContext = window.AudioContext || window.webkitAudioContext;
+    audio = new AudioContext();
+    const oscillator = audio.createOscillator();
+    const gain = audio.createGain();
+    // A sine wave's RMS is its peak over the square root of 2: a peak of -67 dBFS is about -70 dBFS RMS.
+    gain.gain.value = Math.pow(10, -67 / 20);
+    oscillator.frequency.value = 440;
+    oscillator.connect(gain).connect(audio.destination);
+    oscillator.start();
+  }
+
+  document.addEventListener("visibilitychange", () => counters.visibilityChanges++);
+  document.addEventListener("freeze", () => counters.freezes++);
+  document.addEventListener("resume", () => counters.resumes++);
+
+  window.bowS3 = {
+    load,
+    // The counters since the last take (or the page's start), as JSON, and starts new ones.
+    take() {
+      const now = performance.now();
+      const taken = Object.assign({}, counters, {
+        elapsedMs: now - counters.since,
+        visibility: document.visibilityState,
+        audioState: audio ? audio.state : null,
+      });
+      delete taken.since;
+      counters = fresh();
+      counters.since = now;
+      return JSON.stringify(taken);
+    },
+  };
+})();
+</script>
+</body>
+</html>
