@@ -29,6 +29,9 @@ Pinned tabs are the sites a person keeps; today's tabs are the ones they opened 
 - Right-clicking a tab row shows its menu; for now that menu has Close Tab, which closes the tab as its close button does.
 - Folder actions (New Folder, Rename Folder, the delete items, renaming by double-clicking a folder's row) are in `folders.md`.
 - Closing the selected pinned tab unloads it and selects the next tab in sidebar order.
+- A tab row's menu also has Pin Tab (a today tab) or Unpin Tab (a pinned tab). Pinning saves the page the tab shows as the page it returns to; unpinning moves the tab to the top of today and keeps the page it shows.
+- A pinned tab whose page has left its saved address shows a small Soft arrow button before its close button, "Back to Pinned URL", which loads the saved address in that tab. It is hidden while the page is on its saved address or unloaded.
+- The same tab's menu then has Replace Pinned URL with Current, the only way the saved address changes after pinning; browsing never changes it.
 - The bottom of the sidebar is a footer slot for controls such as the archive button, empty for now; empty, it takes no room.
 
 ### Extension points
@@ -77,7 +80,9 @@ The sidebar is built so later features each add one file plus one line in a list
 7. Run `make e2e`: `PASS newtab`, `PASS newtab.look`, `PASS newtab.bar`, `PASS newtab.dismiss`, `PASS newtab.open`, `PASS newtab.not-a-tab` and `PASS newtab.places` show the New Tab row last in the list and styled as above, opening the command bar with no tab, closing on Escape with no tab, opening a tab after the active one when an address is chosen, never selected, refusing a drop on it, and ending the list in a Space with only pinned tabs and in an empty one.
 8. By hand: drag a today tab above the divider; it moves into the pinned tabs; close it and it stays in the sidebar, unloaded; select it and it loads the page it was pinned on.
 
+9. Run `make e2e`: `PASS pinned.menu`, `PASS pinned.reset: saved=A navigated=B reset=A`, `PASS pinned.replace`, `PASS pinned.unpin` and `PASS pinned.close-next` show the pin menu items, the back button resetting the page, the explicit replace, unpinning and the next tab becoming active when the selected pinned tab closes.
+
 ## Out of scope
 
-- The Space switcher, pinned tab actions (back to pinned URL, replace pinned URL), collapse all and the archive popover; each plugs into the extension points above.
+- The Space switcher, collapse all and the archive popover; each plugs into the extension points above.
 - Saving the sidebar and the store's rules, covered in `sidebar-store.md`; tab behavior in `tabs.md`.

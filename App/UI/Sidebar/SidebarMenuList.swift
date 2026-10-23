@@ -8,6 +8,7 @@
 enum SidebarMenus {
     static let all: [any SidebarMenuItems.Type] = [
         CloseTabMenuItems.self,
+        PinMenuItems.self,
         FolderMenuItems.self,
         FavoritesMenuItems.self,
         SpaceThemeMenuItems.self,

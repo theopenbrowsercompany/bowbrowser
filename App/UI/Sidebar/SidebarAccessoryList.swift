@@ -18,5 +18,6 @@ enum SidebarAccessories {
 @MainActor
 enum SidebarRowAccessories {
     static let all: [any SidebarRowAccessory.Type] = [
+        BackToPinnedAccessory.self,
     ]
 }
