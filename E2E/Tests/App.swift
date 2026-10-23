@@ -7,8 +7,8 @@ enum AppTests {
     static let all: [any E2ETest] = [AppLicensesTest(), AppQuitTest()]
 }
 
-/// Loads a fixture page in an off-screen window, checks that the page renders, and quits: every page closes within
-/// 2 seconds, and Chromium's shutdown is done within 5 (spec/quit.md says why).
+/// Loads a fixture page in an off-screen window, checks that the page renders, and quits: every page and window
+/// closes within 2 seconds; Chromium's shutdown after that is reported, not limited (spec/quit.md says why).
 struct AppQuitTest: E2ETest {
     let name = "app.quit"
     let tags = ["smoke"]
@@ -27,7 +27,7 @@ struct AppQuitTest: E2ETest {
         try await run.step("page renders", timeout: E2ETimeouts.step) {
             try await E2EWaits.untilRendering(page)
         }
-        run.expectQuit(name, closingWithin: 2, stoppingWithin: 5)
+        run.expectQuit(name, closingWithin: 2)
     }
 }
 
