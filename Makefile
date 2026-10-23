@@ -5,10 +5,10 @@ BUILD_DIR := build
 APP := $(BUILD_DIR)/Build/Products/Debug/Bow.app
 SMOKE_URL ?= https://example.com
 SWIFT_SOURCES := App/UI E2E BowCore
-# The e2e test `make e2e` runs: all, or one name such as app.quit.
+# The e2e tests `make e2e` runs: all, one name such as app.quit, or an area, glob or tag (see scripts/e2e.sh).
 E2E ?= all
 
-.PHONY: bootstrap hooks project build test test-lock run smoke e2e format lint guards release verify clean
+.PHONY: bootstrap hooks project build test test-lock test-e2e-wrapper run smoke e2e e2e-run format lint guards release verify clean
 
 bootstrap: hooks
 	./scripts/bootstrap-cef.sh
@@ -33,6 +33,10 @@ test:
 test-lock:
 	./scripts/test-build-lock.sh
 
+# Tests scripts/e2e.sh with a fake app (a few seconds; launches no real app).
+test-e2e-wrapper:
+	./scripts/test-e2e-wrapper.sh
+
 run: build
 	open $(APP)
 
@@ -40,15 +44,13 @@ smoke: build
 	$(APP)/Contents/MacOS/Bow --smoke-test=$(SMOKE_URL)
 
 # Runs the app off screen with a throwaway profile; each run writes to its own build/e2e/<time>-<pid> folder.
+# scripts/e2e.sh documents the selection, the retry, results.json and the exit codes.
 e2e: build
-	@run="$(BUILD_DIR)/e2e/$$(date +%Y%m%d-%H%M%S)-$$$$"; \
-	echo "e2e: $$run"; \
-	./scripts/build-lock.sh --pool e2e $(APP)/Contents/MacOS/Bow --e2e=$(E2E) --e2e-out="$$run"; code=$$?; \
-	if [ $$code -ne 0 ] && ! grep -q "^E2E: " "$$run/report.txt" 2>/dev/null && [ -f "$$run/chromium.log" ]; then \
-		echo "e2e: the app ended with code $$code; the end of $$run/chromium.log:" >&2; \
-		tail -n 40 "$$run/chromium.log" >&2; \
-	fi; \
-	exit $$code
+	@./scripts/e2e.sh $(APP) '$(E2E)'
+
+# The same without building: reruns the last build.
+e2e-run:
+	@./scripts/e2e.sh $(APP) '$(E2E)'
 
 format:
 	swift format --in-place --recursive $(SWIFT_SOURCES)
@@ -66,7 +68,7 @@ guards:
 release: project
 	./scripts/check-release.sh
 
-verify: lint guards test build
+verify: lint guards test test-e2e-wrapper build
 
 clean:
 	rm -rf $(BUILD_DIR) Bow.xcodeproj Generated
