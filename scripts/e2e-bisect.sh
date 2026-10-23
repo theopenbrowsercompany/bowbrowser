@@ -10,13 +10,17 @@
 #
 # What it does:
 # - makes a detached scratch worktree under <repo>/.claude/worktrees/bisect-<unique> (gitignored), runs
-#   `make bootstrap` there once, then `git bisect run` with one step per commit;
-# - a step runs `make e2e E2E=<test> E2E_RETRY=0 E2E_REPEAT=<N>` in the scratch worktree, so it builds there and
-#   takes its build and e2e slots from scripts/build-lock.sh like any other build (a waiting step prints its
-#   rank; let it wait), and maps the run's last `E2E:` line to git's exit codes:
+#   `make bootstrap` there, runs the step once on <bad> (it must be bad) and once on <good> (it must be good),
+#   since git assumes both ends, then `git bisect run` with one step per commit;
+# - a step runs `make bootstrap` (a commit may pin another CEF), then `make e2e E2E=<test> E2E_RETRY=0
+#   E2E_REPEAT=<N>` in the scratch worktree, so it builds there and takes its build and e2e slots from
+#   scripts/build-lock.sh like any other build (a waiting step prints its rank; let it wait), maps the run's last
+#   `E2E:` line to git's exit codes, and resets the worktree's tracked files afterwards:
 #     E2E: PASS ...                        0    good
-#     E2E: FAIL, TIMEOUT or CRASH ...      1    bad (a CRASH that repeats is a real failure; FLAKY counts as bad)
-#     E2E: ERROR ..., or no E2E line       125  skip: the commit did not build or the run could not start
+#     E2E: FAIL, TIMEOUT or FLAKY ...      1    bad
+#     E2E: ERROR interrupted               130  stops the whole bisect
+#     other E2E: ERROR, E2E: CRASH, or no E2E line   125  skip: the commit did not build, the run could not
+#                                               start, or the app crashed (use --repeat to tell a crash from a fluke)
 # - prints `culprit: <hash> <subject>` and exits 0 when the first bad commit is found; exits 1 when the bisect
 #   ends without one (every remaining commit skipped, or <good> is not older than <bad>) and 64 for bad usage;
 # - removes the scratch worktree however it ends (bisect reset first, also on Ctrl-C, TERM and HUP).
@@ -33,19 +37,27 @@ set -u
 self=$(cd "$(dirname "$0")" && pwd)/$(basename "$0")
 
 if [ "${1:-}" = "--step" ]; then
-  # One bisect step, in the scratch worktree git runs it from.
+  # One bisect step, in the scratch worktree git runs it from; never anywhere else, since it resets tracked files.
+  [ -n "${BOW_BISECT_SCRATCH:-}" ] && [ "$(pwd -P)" = "$(cd "$BOW_BISECT_SCRATCH" && pwd -P)" ] || {
+    echo "e2e-bisect: --step is internal and runs only in the scratch worktree" >&2
+    exit 128
+  }
+  out=$(mktemp "${TMPDIR:-/tmp}/e2e-bisect-step.XXXXXX") || exit 128
+  trap 'rm -f "$out"; git reset -q --hard' EXIT
   if [ -n "${BOW_BISECT_STEP:-}" ]; then
     bash -c "$BOW_BISECT_STEP"
     exit $?
   fi
-  out=$(mktemp "${TMPDIR:-/tmp}/e2e-bisect-step.XXXXXX") || exit 125
-  trap 'rm -f "$out"' EXIT
-  make e2e E2E="$BOW_BISECT_TEST" E2E_RETRY=0 E2E_REPEAT="$BOW_BISECT_REPEAT" 2>&1 | tee "$out"
+  # Each commit may pin another CEF or project spec, so bootstrap again before building.
+  make bootstrap > "$out" 2>&1 || { echo "bisect: skip (make bootstrap failed)"; exit 125; }
+  make e2e E2E="$BOW_BISECT_TEST" E2E_RETRY=0 E2E_REPEAT="$BOW_BISECT_REPEAT" E2E_QUIET= E2E_SHARDS= > "$out" 2>&1
+  cat "$out"
   line=$(grep '^E2E: ' "$out" | tail -n 1)
   case $line in
     "E2E: PASS "*) echo "bisect: good ($line)"; exit 0 ;;
-    "E2E: FAIL "* | "E2E: TIMEOUT "* | "E2E: CRASH "* | "E2E: FLAKY "*) echo "bisect: bad ($line)"; exit 1 ;;
-    *) echo "bisect: skip (${line:-no E2E summary line, the build failed?})"; exit 125 ;;
+    "E2E: FAIL "* | "E2E: TIMEOUT "* | "E2E: FLAKY "*) echo "bisect: bad ($line)"; exit 1 ;;
+    "E2E: ERROR interrupted"*) echo "bisect: interrupted, stopping the bisect"; exit 130 ;;
+    *) echo "bisect: skip (${line:-no E2E summary line, the build failed?}; an app crash lands here too)"; exit 125 ;;
   esac
 fi
 
@@ -106,10 +118,21 @@ else
   make bootstrap || { echo "e2e-bisect: make bootstrap failed" >&2; exit 1; }
 fi
 
+export BOW_BISECT_SCRATCH=$wt BOW_BISECT_TEST=$test_name BOW_BISECT_REPEAT=$repeat
+# The endpoints must behave as claimed: git assumes them, so a test that passes on <bad> would blame <bad> itself.
+"$self" --step > /dev/null 2>&1
+rc=$?
+[ "$rc" = 1 ] || { echo "e2e-bisect: the test does not fail on <bad> $bad (step status $rc); nothing to bisect" >&2; exit 1; }
+git checkout -q --detach "$good_rev" || exit 1
+"$self" --step > /dev/null 2>&1
+rc=$?
+[ "$rc" = 0 ] || { echo "e2e-bisect: the test does not pass on <good> $good (step status $rc)" >&2; exit 1; }
+git checkout -q --detach "$bad_rev" || exit 1
+
 git bisect start "$bad_rev" "$good_rev" > /dev/null || { echo "e2e-bisect: git bisect start failed" >&2; exit 1; }
 log=$(mktemp "${TMPDIR:-/tmp}/e2e-bisect-log.XXXXXX") || exit 1
 trap 'rm -f "$log"; cleanup' EXIT
-BOW_BISECT_TEST=$test_name BOW_BISECT_REPEAT=$repeat git bisect run "$self" --step 2>&1 | tee "$log"
+git bisect run "$self" --step 2>&1 | tee "$log"
 
 culprit=$(sed -n 's/^\([0-9a-f]\{40\}\) is the first bad commit$/\1/p' "$log" | head -n 1)
 if [ -z "$culprit" ]; then
