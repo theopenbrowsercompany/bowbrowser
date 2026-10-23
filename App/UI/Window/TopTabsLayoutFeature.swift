@@ -6,7 +6,7 @@ import BowCore
 ///
 /// In the top tabs layout the sidebar is out of the window (its view stays alive and keeps following the store, so
 /// switching back restores it exactly as it was), and above the page card sit a tab strip row (`WindowLayout.tabStripHeight`
-/// high, the window buttons at its leading edge; a later slice fills it with tabs) and the toolbar row
+/// high, the window buttons at its leading edge, and the tab pills, `TabStripView`) and the toolbar row
 /// (`WindowLayout.toolbarRowHeight` high): back, forward and reload, the URL field, and the Space dots. The row reuses
 /// the same views the sidebar layout has (`NavigationToolbar`, `URLFieldView`, `SpaceSwitcher`), so Cmd+L, the command
 /// bar, Copy Current URL and Space switching work the same in both. View > Hide Toolbar hides the row here too.
@@ -16,6 +16,8 @@ final class TopTabsLayoutFeature: NSResponder, BrowserWindowFeature, NSMenuItemV
 
     /// The tab strip row, reserved for the tab pills.
     let strip = NSView()
+    /// The tab pills and the + button, filling the strip.
+    let tabs = TabStripView()
     /// The toolbar row: navigation buttons, the URL field and the Space dots.
     let toolbarRow = NSStackView()
     /// Both rows, over the window's content from its top edge.
@@ -45,6 +47,7 @@ final class TopTabsLayoutFeature: NSResponder, BrowserWindowFeature, NSMenuItemV
             self, selector: #selector(placeWindowButtons(_:)), name: NSWindow.didExitFullScreenNotification,
             object: window.window)
         buildBar()
+        buildStrip()
     }
 
     @available(*, unavailable)
@@ -104,9 +107,52 @@ final class TopTabsLayoutFeature: NSResponder, BrowserWindowFeature, NSMenuItemV
         let list = window.tabList
         let url = list.activeID.flatMap { id in list.tabs.first { $0.id == id } }?.url
         urlField.show(AddressDisplay.text(for: url))
+        refreshStrip()
         let sidebar = window.feature(SidebarFeature.self)
         spaces.update(
             content: SidebarContent(graph: window.store.graph, tabs: [:], activeItem: nil), context: sidebar)
+    }
+
+    /// Shows the Space on screen's today tabs (the tabs of its unpinned section, folders included; no pinned tabs or
+    /// Favorites) as pills, the shown tab's lifted.
+    private func refreshStrip() {
+        guard let sidebar = window.feature(SidebarFeature.self) else { return }
+        let graph = window.store.graph
+        guard let space = graph.activeSpace else {
+            tabs.show([])
+            return
+        }
+        let today = graph.tabIDs(in: space.id).filter { graph.isDescendant($0, of: space.unpinnedContainerID) }
+        let active = graph.activeTabID
+        tabs.show(
+            today.compactMap { item in
+                guard let tab = sidebar.shownTab(for: item) else { return nil }
+                return TabPillContent(
+                    item: item, title: TabSidebarRow.displayTitle(of: tab), favicon: sidebar.favicon(for: item),
+                    isActive: item == active)
+            })
+    }
+
+    private func buildStrip() {
+        tabs.translatesAutoresizingMaskIntoConstraints = false
+        strip.addSubview(tabs)
+        NSLayoutConstraint.activate([
+            tabs.leadingAnchor.constraint(equalTo: strip.leadingAnchor),
+            tabs.trailingAnchor.constraint(equalTo: strip.trailingAnchor),
+            tabs.topAnchor.constraint(equalTo: strip.topAnchor),
+            tabs.bottomAnchor.constraint(equalTo: strip.bottomAnchor),
+        ])
+        tabs.leadingInset = { [weak self] in
+            guard let nswindow = self?.window.window, !nswindow.styleMask.contains(.fullScreen),
+                let zoom = nswindow.standardWindowButton(.zoomButton), let content = nswindow.contentView
+            else { return CGFloat(WindowLayout.rowPadding) }
+            let edge = zoom.convert(zoom.bounds, to: content).maxX
+            return CGFloat(TabStripLayout.leadingInset(buttonsTrailingEdge: Double(edge)))
+        }
+        // The sidebar's own select and close, so a pill and a row act the same.
+        tabs.onSelect = { [weak self] item in self?.window.feature(SidebarFeature.self)?.select(item) }
+        tabs.onClose = { [weak self] item in self?.window.feature(SidebarFeature.self)?.close(item) }
+        tabs.onNewTab = { [weak self] in self?.window.feature(SidebarFeature.self)?.openNewTab() }
     }
 
     // MARK: Layout
@@ -117,6 +163,9 @@ final class TopTabsLayoutFeature: NSResponder, BrowserWindowFeature, NSMenuItemV
             // The toolbar setting changes the card's top inset in this layout.
             if layout == .topTabs { applyChrome() }
             return
+        }
+        if !applied {
+            window.feature(SidebarFeature.self)?.faviconDidChange = { [weak self] in self?.refreshStrip() }
         }
         applied = true
         layout = wanted
@@ -230,6 +279,8 @@ final class TopTabsLayoutFeature: NSResponder, BrowserWindowFeature, NSMenuItemV
             }
             button.setFrameOrigin(origin)
         }
+        // The pills start after the buttons.
+        tabs.needsLayout = true
     }
 }
 

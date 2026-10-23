@@ -32,6 +32,8 @@ final class SidebarFeature: NSResponder, BrowserWindowFeature, SidebarViewDelega
     /// The runtime ID of each tab the window lists (the Favorites shown and the tabs of the Space on screen), as last
     /// shown.
     private var runtimeIDs: [SidebarItemID: BrowserTabID] = [:]
+    /// Called when a site icon finished loading, for the other views that show the tabs (the top tabs strip).
+    var faviconDidChange: (() -> Void)?
     /// The folders being deleted with their tabs, while their pages are asked to close.
     private var deletingFolders: Set<SidebarItemID> = []
 
@@ -334,6 +336,7 @@ final class SidebarFeature: NSResponder, BrowserWindowFeature, SidebarViewDelega
             guard let self, self.faviconReported[id] == url else { return }
             self.favicons[id] = image.map { (url, $0) }
             if let item = self.window.sidebarItemID(for: id) { self.sidebar.reloadItem(item) }
+            self.faviconDidChange?()
         }
     }
 }
