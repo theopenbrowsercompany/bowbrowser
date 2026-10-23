@@ -88,14 +88,17 @@ Bow keeps it in one file of its own, separate from the engine's session data.
 ## Edge cases
 
 - First launch, or the file is missing: Bow starts with one empty Space and empty Favorites, and writes the file once there is something to save.
-- The file cannot be read at all (cut short, or not Bow's format): Bow starts with one empty Space and moves the old file aside as `Sidebar.unreadable-<date>-<time>.json` in the same folder, untouched.
+- The file was read but is not a sidebar Bow can use (cut short, or not Bow's format): Bow starts with one empty Space and moves the old file aside as `Sidebar.unreadable-<date>-<time>.json` in the same folder, untouched.
   A later unreadable file gets its own name and never replaces an earlier one.
   Bow tells the person in an alert on the window: where the old file now is, and that renaming it back to `Sidebar.json` while Bow is quit tries it again.
 - The file was written by a newer Bow (Debug, Release and installed builds share the folder): this Bow does not move it or write over it.
-  It refuses to start, with an alert saying the sidebar was saved by a newer version and should be opened with it.
-- The file can be neither read nor moved aside, or Bow's data folder cannot be created: Bow does not write over the file and does not run on a sidebar that would be lost at quit.
+  It refuses to start, with an alert saying the sidebar was saved by a newer version and should be opened with it, and that without a newer Bow, moving the file elsewhere while Bow is quit starts a new sidebar.
+  When a newer Bow left a copy of the sidebar from before its upgrade (`Sidebar.version-<n>.json`), the alert names it as the way back.
+- The file cannot be read at all (no permission, a disk error, a file not downloaded yet): Bow does not move it, since it cannot tell whether a newer Bow wrote it, and refuses to start as below.
+- The file can be neither read nor moved aside, or Bow's data folder cannot be created or changed (read-only): Bow does not write over the file and does not run on a sidebar that would be lost at quit.
   It refuses to start, with an alert naming the file or folder and what to check.
-  A window asked for later (a link from another app with no window open) gets the same alert instead of opening, for as long as the problem lasts.
+  A window asked for later (a link from another app with no window open) gets the same alert instead of opening, for as long as the problem lasts; links that arrive while the launch alert is open are dropped.
+- A change that cannot be saved while Bow runs (the folder became read-only, the disk is full): the first one in a run shows an alert naming the file; Bow keeps the changes and tries again with each change and at quit, and a save that still fails at quit shows one more alert before Bow ends.
 - A Space whose profile is not available opens with an alert on its window naming the Space and the profile, instead of a window that opens nothing in silence.
 - A window that keeps a sidebar of its own (a smoke run's window) and cannot create it is not opened, and the reason is shown.
   Such sidebars live in a temporary folder of the running Bow and go when it quits; folders left by a Bow that crashed are cleared when Bow next starts, while those of a Bow still running stay.
@@ -178,7 +181,7 @@ Bow keeps it in one file of its own, separate from the engine's session data.
     Add a pane to a split of three panes sized a tenth, eight tenths and a tenth: every pane keeps at least a tenth.
 35. Quit, replace the sidebar file with one whose version is higher than this Bow writes, relaunch: Bow shows an alert about a newer version and quits, and the file is unchanged with nothing set aside.
 36. Quit, put random text in the sidebar file and make its folder read-only, relaunch: Bow shows an alert naming the file and quits, and the file is unchanged.
-37. Run `make e2e`: `store.refused`, `store.newer_file`, `store.set_aside`, `store.missing_profile`, `store.window_sidebar` and `link.ignored` pass.
+37. Run `make e2e`: `store.refused`, `store.newer_file`, `store.set_aside`, `store.missing_profile`, `store.window_sidebar`, `store.save_failed` and `link.ignored` pass.
 
 ## Out of scope
 

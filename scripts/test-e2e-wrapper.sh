@@ -7,7 +7,7 @@ cd "$(dirname "$0")/.."
 
 # The real path, as scripts/e2e.sh sees it, so the orphan check can match this run's folder exactly.
 tmp=$(cd "$(mktemp -d)" && pwd -P)
-trap 'chmod -R u+w "$tmp" 2>/dev/null; rm -rf "$tmp"' EXIT
+trap 'chmod -R u+rwX "$tmp" 2>/dev/null; rm -rf "$tmp"' EXIT
 export BOW_E2E_ROOT="$tmp/runs" BOW_LOCK_DIR="$tmp/lock"
 app="$tmp/Bow.app"
 mkdir -p "$app/Contents/MacOS"
@@ -356,7 +356,7 @@ check "package-cef: a changed Libraries file is copied again" not skips
 # A test killed while a folder of its run was locked: pruning unlocks it rather than keep the run forever.
 oldest=$(cd "$BOW_E2E_ROOT" && ls -1t | grep -v '^latest$' | tail -n 1)
 mkdir -p "$BOW_E2E_ROOT/$oldest/profile/locked" && touch "$BOW_E2E_ROOT/$oldest/profile/locked/file"
-chmod 555 "$BOW_E2E_ROOT/$oldest/profile/locked"
+chmod 000 "$BOW_E2E_ROOT/$oldest/profile/locked"
 touch -t 200001010000 "$BOW_E2E_ROOT/$oldest"  # still the oldest run, as making the folder changed its time
 E2E_KEEP=3 run pass
 check "prunes a run with a locked folder" not test -e "$BOW_E2E_ROOT/$oldest"
