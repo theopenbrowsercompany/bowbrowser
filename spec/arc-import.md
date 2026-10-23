@@ -28,7 +28,8 @@ The wizard that walks through it is described below.
   It also lists everything left out, each with a reason and a name the person can recognize.
 - The report can be shown as a few readable lines, and as one summary line such as `spaces=3 folders=5 depth=3 pinned=18`.
 - These are left out and listed in the report: Live Folders, Easels, Notes, shared items, kinds of items this version does not know, tabs with no saved address, split views with no tabs, and items that only appear in Arc's private windows, Little Arc or other windows' containers.
-- Cookies, saved passwords and history are never part of this import.
+- Cookies, saved passwords and extensions are never part of any import.
+  History and bookmarks come only through their own step (see History and bookmarks).
 
 ## Choices, preview and applying
 
@@ -72,18 +73,54 @@ The wizard that walks through it is described below.
 ## The wizard
 
 - File > Import from Arc… opens a sheet on the window, one at a time across all windows.
-- The first screen says what is read (the sidebar file the person picks: Spaces, folders, pinned tabs and Favorites), that nothing leaves the Mac, that cookies, passwords and history are not read and Arc's file is never changed, and that a preview comes first.
-  Nothing is read until Choose File… is pressed.
+- The first screen says what is read (the sidebar file the person picks: Spaces, folders, pinned tabs and Favorites; and, for history and bookmarks, only Local State, Bookmarks and a copy of History from Arc's User Data folder), that nothing leaves the Mac, that cookies, passwords and extensions are not read and Arc's files are never changed, and that a preview comes first.
+  Its buttons are Cancel, History and Bookmarks… and Choose File….
+  Nothing is read until Choose File… or History and Bookmarks… is pressed and the person picks.
   The file picker starts in the folder where Arc keeps its sidebar file as a suggestion only; the app never opens that folder itself.
 - A file that is not JSON, not an Arc sidebar file, or empty of Spaces and Favorites stops at a message and changes nothing.
 - The Spaces screen has the three modes (default: Arc Spaces as Spaces), one checkbox per Arc Space (off when Spaces are skipped), and Favorites and unpinned tabs checkboxes.
   Continue is off while the choices bring nothing.
 - The preview screen shows the counts, the tree of Spaces, folders and tabs with nesting, then the Favorites, and what the choices leave out.
 - Import adds everything in one step and registers the profiles the new Spaces use; if that fails the import is taken out again.
-  The last screen offers Undo, which gives back the sidebar as it was, and Done.
+  The last screen offers Undo, which gives back the sidebar as it was, History and Bookmarks… (see below), and Done.
   Undo is offered only on that screen: once it is closed, the import stays.
 - An Arc profile folder name becomes a Bow profile ID the engine accepts: `arc-`, a lowercase slug of the name, and a short stable hash of the exact name, such as `arc-profile-1-ef0ccd1ac1`.
   The engine allows only letters, digits, dot, underscore and hyphen in an ID and treats folder names without regard to case, so names that differ only in case or punctuation get different IDs, and the same name gets the same ID on every import.
+
+## History and bookmarks
+
+Arc keeps history and bookmarks in standard Chromium profile files inside its User Data folder, apart from the sidebar file.
+Bringing them makes the command bar's history results useful from the first day.
+
+- The step runs from the same wizard: History and Bookmarks… on the first screen runs it on its own, and the same button on the sidebar import's last screen runs it after that import.
+  It runs once per wizard.
+- The person picks Arc's User Data folder in a folder picker that starts where Arc keeps it, as a suggestion only.
+  Nothing is read before the pick.
+- Exactly these files are read, and no other:
+  - `Local State` at the top of the folder, for the list of profiles (`profile.info_cache`);
+  - `Bookmarks` in each listed profile's folder, read whole as JSON;
+  - `History` in each listed profile's folder, with its `History-wal` and `History-journal` files when they are there, copied byte for byte into a temporary folder of Bow's own.
+    SQLite opens only the copy: once to fold the copied side files into it, then read only to read the `urls` and `visits` tables.
+    The copy is deleted as soon as it is read, whether the read worked or not; one left by a quit or crash mid-read is deleted when Bow quits or next starts.
+  - `Cookies`, `Login Data`, `Web Data`, `Extensions` and every other file are never opened, and Arc's folder is never written to.
+- A folder with no `Local State`, or one that is not Chromium's, or one that lists no profile, stops at a message that says so, with Choose Another Folder….
+  A profile whose History or Bookmarks is missing, locked or damaged still brings what could be read, and the preview names the problem.
+- Each Chromium profile maps to a Bow profile: `Default` to Bow's default profile, and any other to the profile a sidebar import made for that Arc profile (the same ID, see the profile ID rule above).
+  When Bow has no such profile, the profile's history goes to the profile of the Space on screen, and the preview says so.
+- Visits keep their time (Chromium stores microseconds since 1601 UTC), the page title and whether the address was typed.
+  Pages that are not web pages (`chrome://`, `file:` and the like), loads inside frames, reloads, and visits without a usable time are left out, the same visits Bow itself would not record.
+  An imported title names a page only when it has no title yet.
+- The preview lists, per profile, the visits and bookmarks it brings and the Bow profile it goes to, then any problem.
+  A choice sets what happens to bookmarks: Bookmarks as a pinned folder (the default) or Skip bookmarks.
+  Cookies, passwords and extensions are not imported, and the preview says so.
+- Bookmarks as a pinned folder puts one folder named `Arc Bookmarks` (followed by the profile's name in parentheses when more than one profile brings bookmarks) in the pinned section of a Space: the Space on screen when it uses the profile's Bow profile, else the first Space that does, else the Space on screen.
+  Inside, each bookmark root that holds anything (Bookmarks bar, Other bookmarks, Mobile bookmarks) is a folder, with the bookmarks and folders in their order and nesting.
+- Nothing is imported twice: a visit to the same page at the same time is already there, and a folder of the same name at the same place is reused, with a bookmark whose address is already a tab directly in it left out.
+  Importing the same folder again adds nothing, and the last screen says how much was already there.
+- Undo on the last screen takes out everything the wizard added, in one go: the sidebar import and the bookmarks folder in one sidebar transaction (bookmarks first), then exactly the visits the import added, by their row and time.
+  A visit the person made since, even to an imported page, stays, and so does anything the person put in the bookmarks folder (with the folders around it) or moved out of it.
+  If the sidebar part is refused, nothing is undone, the visits included, so Undo can be tried again.
+- Closing the window mid-read stops the read before its next profile and changes nothing.
 
 ## Edge cases
 
@@ -139,9 +176,16 @@ The wizard that walks through it is described below.
     `import.apply` passes: the sidebar shows the preview's tree and Undo restores the sidebar exactly.
 18. Import the same file twice: the second preview lists the Favorites as already there and the sidebar keeps one copy.
 19. Choose a JSON file that is not an Arc sidebar file: the wizard says so and the sidebar is unchanged.
+20. Run History and Bookmarks… on a User Data folder with a Default profile and one with no Bow profile.
+    `import.history` passes: visits>0, the Default visits are in the default profile's history, the other profile's in the profile of the Space on screen as the preview said, and the command bar finds an imported page.
+21. With Bookmarks as a pinned folder, the pinned section of the Space on screen gains `Arc Bookmarks` with the bookmark tree's nesting (`import.history_bookmarks`).
+22. Only `Local State`, `Bookmarks` and copies of `History` are opened, never the decoy Cookies and Login Data beside them, and the copies are gone afterwards (`import.history_files`).
+23. Undo takes out the visits and the folder and leaves the sidebar and both histories as they were (`import.history_undo`).
+24. With Skip bookmarks the sidebar is unchanged; importing the same folder again adds no visit (`import.history_skip`, `import.history_twice`).
 
 ## Out of scope
 
 - Undoing an import after its wizard screen is closed.
-- Arc's archive, Little Arc, Easels, Notes, Boosts, cookies, passwords and history.
+- Arc's archive, Little Arc, Easels, Notes, Boosts, cookies, passwords and extensions.
+- Importing history or bookmarks from browsers other than Arc, and any Chromium file other than the three named above.
 - Mapping Arc's theme colors and Space profiles onto Bow's own.
