@@ -210,7 +210,8 @@ struct TabsOrphanClosedTest: E2ETest {
 
 /// Changes a page's title several times after it loaded: the sidebar file is not written for each change, and is
 /// written once, no sooner than the save delay after the first change, holding the last title. Waits first for the
-/// write of the load itself to land and settle, so a slow machine cannot mistake that write for an early one. E2e runs
+/// write of the load itself to land and settle, so a slow machine cannot mistake that write for an early one. The five
+/// changes run in one page script, so they reach the app well within the delay even under load. E2e runs
 /// shorten the save delay (E2EAppAdapter), so all of this takes a fraction of a second.
 struct TabsRecordDebouncedTest: E2ETest {
     let name = "tabs.record_debounced"
@@ -236,23 +237,36 @@ struct TabsRecordDebouncedTest: E2ETest {
             guard found else { throw E2EError("the sidebar file never settled on the loaded page's title") }
             return last
         }
-        let (start, lastChange, writes) = try await run.step("change the title", timeout: E2ETimeouts.step) {
+        let (start, burst, writes, firstHeldLast) = try await run.step("change the title", timeout: E2ETimeouts.step) {
             let start = Date()
             var writes: [Date] = []
+            // Whether the file already held the last title when the first write showed.
+            var firstHeldLast = false
             var last = settled
             @MainActor func note() throws {
                 let now = try edges.sidebarFileModified(of: page)
                 if let now, now != last {
+                    if writes.isEmpty { firstHeldLast = try edges.sidebarFile(of: page).contains("bow-record-5") }
                     writes.append(now)
                     last = now
                 }
             }
-            for index in 1...5 {
-                _ = try await page.evaluate("document.title = 'bow-record-\(index)'")
-                try note()
-                try await Task.sleep(nanoseconds: 10_000_000)
-            }
-            let lastChange = Date().timeIntervalSince(start)
+            // All five changes in one script, each in its own task, so they land within milliseconds of each other
+            // however loaded the machine is; the app's timer starts at the first and the others do not reset it.
+            let burst =
+                try await page.evaluate(
+                    """
+                    new Promise(done => {
+                      const started = performance.now();
+                      let index = 0;
+                      const next = () => {
+                        document.title = 'bow-record-' + (++index);
+                        if (index < 5) setTimeout(next, 0); else done((performance.now() - started) / 1000);
+                      };
+                      next();
+                    })
+                    """) as? Double ?? -1
+            try note()
             let written = try await TabEdgesTests.until {
                 try note()
                 return try edges.sidebarFile(of: page).contains("bow-record-5")
@@ -262,14 +276,23 @@ struct TabsRecordDebouncedTest: E2ETest {
             // more catches a late one.
             try await Task.sleep(nanoseconds: UInt64(delay / 2 * 1_000_000_000))
             try note()
-            return (start, lastChange, writes)
+            return (start, burst, writes, firstHeldLast)
         }
         let first = writes.first.map { $0.timeIntervalSince(start) } ?? -1
-        // A little slack for the file system's clock against this one.
-        run.check(
-            name, passed: writes.count == 1 && first >= delay - 0.05,
+        let detail =
             "writes=\(writes.count) first_write_after=\(String(format: "%.2f", first))s"
-                + " last_change_after=\(String(format: "%.2f", lastChange))s delay=\(delay)s")
+            + " burst=\(String(format: "%.3f", burst))s delay=\(delay)s"
+        // A little slack for the file system's clock against this one. A write sooner than the delay is the app's
+        // fault however the changes landed.
+        let soonEnough = first >= delay - 0.05
+        // A correct app writes again only for a change that reached it after its first write: then the burst outran
+        // the delay, which says nothing about the debounce, so the test stops as a setup failure instead of judging.
+        if soonEnough, writes.count > 1, !firstHeldLast {
+            throw E2EError(
+                "setup: the last title change reached the app after its first write, so the count proves nothing"
+                    + " (\(detail))")
+        }
+        run.check(name, passed: writes.count == 1 && soonEnough, detail)
     }
 }
 
