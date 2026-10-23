@@ -143,6 +143,15 @@ extension EngineDownloadsDelegate {
     var zoomLevel: Double { get }
     /// Sets the zoom level of the page's site (see `zoomLevel`). Defaults to doing nothing.
     func setZoomLevel(_ level: Double)
+
+    /// Opens DevTools for the page in a window of its own, inspecting the element at `point` when given (and only
+    /// focusing it when it is open already). DevTools closes with the tab, and quitting closes it. Does nothing once
+    /// the tab is closed. Defaults to doing nothing.
+    func showDevTools(inspectingAt point: PagePoint?)
+    /// Closes the page's DevTools, if open. Defaults to doing nothing.
+    func closeDevTools()
+    /// True while the page's DevTools is open. Defaults to false.
+    var hasDevTools: Bool { get }
 }
 
 extension EngineTab {
@@ -150,6 +159,9 @@ extension EngineTab {
     public func unload() async -> Bool { false }
     public var zoomLevel: Double { 0 }
     public func setZoomLevel(_ level: Double) {}
+    public func showDevTools(inspectingAt point: PagePoint?) {}
+    public func closeDevTools() {}
+    public var hasDevTools: Bool { false }
 }
 
 /// Receives a tab's events on the main actor, in the order the engine produced them.
@@ -186,6 +198,18 @@ extension EngineTab {
     /// The page's certificate failed to verify. Defaults to `.cancel`, which fails the navigation and shows the
     /// engine's error page.
     func tab(_ tab: any EngineTab, decideCertificateError error: CertificateError) async -> CertificateErrorDecision
+
+    /// The person asked for a context menu in the page: what to show (see `ContextMenus.swift`). Asked on a later
+    /// main thread task than the engine's callback, synchronously. Defaults to `.engineDefault`, the engine's own
+    /// menu.
+    func tab(_ tab: any EngineTab, decideContextMenu request: ContextMenuRequest) -> ContextMenuDecision
+
+    /// The person chose `command` from a menu the app showed for `request`: true when the app ran it itself, false
+    /// to leave it to the engine (`ContextMenuCommand` says what the engine does with each). Not asked when the page
+    /// moved to another address or closed while the menu was open; the choice then drops. Defaults to false.
+    func tab(
+        _ tab: any EngineTab, runContextMenuCommand command: ContextMenuCommand, request: ContextMenuRequest
+    ) -> Bool
 }
 
 extension EngineTabDelegate {
