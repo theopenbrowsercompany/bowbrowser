@@ -327,9 +327,11 @@ struct SpacesThemeTest: E2ETest {
             let after = try app.spaceMenuTitles(in: page)
             return (before, fading, asked, refusal, after, try app.spaceTheme(of: page), try app.spaces(of: page))
         }
-        let offered = ["Theme", "Theme/Default*"] + ["Blue", "Jam", "Apricot", "Cocoa", "Green", "Brick"].map {
-            "Theme/\($0)"
-        } + ["Change Icon…", "Remove Icon!"]
+        let offered =
+            ["Theme", "Theme/Default*"]
+            + ["Blue", "Jam", "Apricot", "Cocoa", "Green", "Brick"].map {
+                "Theme/\($0)"
+            } + ["Change Icon…", "Remove Icon!"]
         let menuOK =
             menu.0.suffix(offered.count) == offered[...] && (menu.1.animating || menu.1.reduceMotion)
             && menu.2.contains("Change Icon") && menu.3?.contains("is not a single emoji") == true
@@ -386,7 +388,8 @@ struct SpacesThemeTest: E2ETest {
             passed: dark.0.background == Self.blueDark && Self.near(dark.1, Self.blueDark)
                 && dark.2.background == Self.frameDark && dark.2.themes == ["default", "default"]
                 && dark.2.icons == ["💼", "-"],
-            "dark=\(dark.0.background) drawn=\(dark.1) default=\(dark.2.background) themes=[\(dark.2.themes.joined(separator: ","))]")
+            "dark=\(dark.0.background) drawn=\(dark.1) default=\(dark.2.background) themes=[\(dark.2.themes.joined(separator: ","))]"
+        )
     }
 
     /// The message of the sheet that refuses an icon, once the icon sheet has given way to it; nil when none comes.
