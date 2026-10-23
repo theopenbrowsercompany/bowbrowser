@@ -78,15 +78,22 @@ extension E2ETestApp: E2EUnloadApp {
 
     func cancelUnloadDialog(besides page: any E2EPage) throws -> Bool {
         try adapter.requireActive(token, "answer a dialog")
-        if NSApp.modalWindow != nil {
-            NSApp.stopModal(withCode: .cancel)
-            // The modal loop sees the stop once it handles an event, so wake it with one that does nothing.
-            if let wake = NSEvent.otherEvent(
-                with: .applicationDefined, location: .zero, modifierFlags: [], timestamp: 0, windowNumber: 0,
-                context: nil, subtype: 0, data1: 0, data2: 0)
-            {
-                NSApp.postEvent(wake, atStart: false)
+        if let panel = NSApp.modalWindow {
+            // The engine's alert panel answers the page only through its own buttons: stopping its modal session
+            // leaves it up until AppKit next serves that session (a posted event does not), and ending it as a sheet
+            // hides it without answering the page. So press its Cancel button (a confirm or prompt's second), or an
+            // alert's only button, as a person does.
+            func buttons(in view: NSView) -> [NSButton] {
+                ((view as? NSButton).map { [$0] } ?? []) + view.subviews.flatMap { buttons(in: $0) }
             }
+            let shown = panel.contentView.map { buttons(in: $0) } ?? []
+            func button(_ response: NSApplication.ModalResponse) -> NSButton? {
+                shown.first { $0.tag == response.rawValue }
+            }
+            guard let button = button(.alertSecondButtonReturn) ?? button(.alertFirstButtonReturn) else {
+                throw E2EError("the dialog panel has no button to press")
+            }
+            button.performClick(nil)
             return true
         }
         guard let window = try E2EAppAdapter.tabPage(page).controller.window, let sheet = window.attachedSheet
