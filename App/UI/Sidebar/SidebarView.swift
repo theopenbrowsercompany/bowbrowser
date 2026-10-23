@@ -69,6 +69,8 @@ final class SidebarView: NSView, NSOutlineViewDataSource, NSOutlineViewDelegate,
     private var shape: [String] = []
     /// True while the view opens and closes rows itself, so those are not taken for the person's.
     private var isSyncing = false
+    /// True while a row of this outline is being dragged, so folders the drag opens on hover are not saved open.
+    private var isDragging = false
 
     override init(frame: NSRect) {
         newTabButton = NSButton(
@@ -311,7 +313,8 @@ final class SidebarView: NSView, NSOutlineViewDataSource, NSOutlineViewDelegate,
         delegate?.select(id)
     }
 
-    /// A drop the outline resolved: what it makes, and the row and child index the outline shows its gap at.
+    /// A drop the outline resolved: what it makes, and the row and child index the outline shows its gap at (-1, on
+    /// the row itself, for a closed folder, whose children have no rows to put a gap between).
     struct ProposedDrop {
         let drop: SidebarDrop
         let node: SidebarNode
@@ -330,7 +333,8 @@ final class SidebarView: NSView, NSOutlineViewDataSource, NSOutlineViewDelegate,
                 .first(where: { SidebarDropValidators.allows($0, in: self.content.graph) }),
             let target = outlineNode(for: drop.parent)
         else { return nil }
-        return ProposedDrop(drop: drop, node: target, childIndex: drop.index)
+        let isClosed = target.itemID != nil && !outlineView.isItemExpanded(target)
+        return ProposedDrop(drop: drop, node: target, childIndex: isClosed ? NSOutlineViewDropOnItemIndex : drop.index)
     }
 
     /// Makes the drop of `item` the outline accepts on `node` at `childIndex`, resolved as `proposeDrop` does.
@@ -486,10 +490,29 @@ final class SidebarView: NSView, NSOutlineViewDataSource, NSOutlineViewDelegate,
 
     /// Saves a folder the person opened or closed with its triangle.
     private func folder(_ notification: Notification, expanded: Bool) {
-        guard !isSyncing, let node = notification.userInfo?["NSObject"] as? SidebarNode, let id = node.itemID,
+        guard !isSyncing, !isDragging, let node = notification.userInfo?["NSObject"] as? SidebarNode,
+            let id = node.itemID,
             case .folder(let folder)? = content.graph[id]?.data, folder.isExpanded != expanded
         else { return }
         delegate?.changeSidebar { try $0.apply([.setFolderExpanded(id, expanded)]) }
+    }
+
+    func outlineView(
+        _ outlineView: NSOutlineView, draggingSession session: NSDraggingSession, willBeginAt screenPoint: NSPoint,
+        forItems draggedItems: [Any]
+    ) {
+        isDragging = true
+    }
+
+    func outlineView(
+        _ outlineView: NSOutlineView, draggingSession session: NSDraggingSession, endedAt screenPoint: NSPoint,
+        operation: NSDragOperation
+    ) {
+        isDragging = false
+        // Closes again any folder the drag opened on hover and the drop did not save open.
+        isSyncing = true
+        defer { isSyncing = false }
+        syncExpansion(roots)
     }
 
     func outlineView(_ outlineView: NSOutlineView, pasteboardWriterForItem item: Any) -> (any NSPasteboardWriting)? {

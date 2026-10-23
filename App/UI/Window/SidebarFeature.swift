@@ -65,16 +65,23 @@ final class SidebarFeature: NSResponder, BrowserWindowFeature, SidebarViewDelega
 
     /// Moves tab `id` to `index` in the window's tab list, as dropping its row there does: to the place of the tab
     /// that is at `index` once `id` has left its own (in that tab's section or folder, so it pins or unpins when that
-    /// is the other zone), or to the end of today past the last tab. Returns whether it moved.
+    /// is the other zone; the split's place for a tab inside a split), or to the end of today past the last tab.
+    /// Returns whether it moved.
     @discardableResult
     func dropTab(_ id: BrowserTabID, atTabIndex index: Int) -> Bool {
         let graph = window.store.graph
         guard let item = window.sidebarItemID(for: id), let space = graph.activeSpace else { return false }
         let others = graph.tabIDs(in: space.id).filter { $0 != item }
-        if others.indices.contains(index), let parent = graph[others[index]]?.parentID,
-            let position = graph[parent]?.childrenIDs.firstIndex(of: others[index])
-        {
-            return sidebar.dragItem(item, into: parent, at: position)
+        if others.indices.contains(index) {
+            // A tab inside a split stands for its split: the drop goes to the split's place, as no tab joins a split.
+            var target = others[index]
+            if let parent = graph[target]?.parentID, case .split? = graph[parent]?.data, graph[item]?.parentID != parent
+            {
+                target = parent
+            }
+            if let parent = graph[target]?.parentID, let position = graph[parent]?.childrenIDs.firstIndex(of: target) {
+                return sidebar.dragItem(item, into: parent, at: position)
+            }
         }
         let today = space.unpinnedContainerID
         return sidebar.dragItem(item, into: today, at: graph[today]?.childrenIDs.count ?? 0)
