@@ -97,7 +97,8 @@ struct AppLicensesTest: E2ETest {
             }
             run.check(
                 "app.licenses.links", passed: problems.isEmpty,
-                problems.isEmpty ? "3 links read from the app's Resources" : problems.joined(separator: "; "))
+                problems.isEmpty
+                    ? "\(Licenses.files.count) links read from the app's Resources" : problems.joined(separator: "; "))
         }
     }
 }

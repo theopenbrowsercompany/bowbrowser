@@ -6,13 +6,13 @@ The app ships the licenses its parts require, and the person can read them from 
 
 ## Behavior
 
-- Bow.app/Contents/Resources holds CEF-LICENSE.txt (CEF's BSD license), Chromium-Credits.html (Chromium's third party credits) and Bow-LICENSE.txt (Bow's MIT license), in Debug and Release.
+- Bow.app/Contents/Resources holds CEF-LICENSE.txt (CEF's BSD license), Chromium-Credits.html (Chromium's third party credits), Bow-LICENSE.txt (Bow's MIT license), OFL-NunitoSans.txt and OFL-Fredoka.txt (the bundled fonts' SIL Open Font Licenses), in Debug and Release.
 - The Bow menu starts with About Bow, which opens the standard About panel with one link per file; each link opens in the system's default app for it.
 
 ## Edge cases
 
 - The build fails with a message naming the missing source file when CEF's files (through Vendor/cef) or the repository LICENSE are absent.
-- `make release` fails when any of the three files is missing or empty in the Release app.
+- `make release` fails when any of the five files, or either font in Resources/Fonts, is missing or empty in the Release app.
 
 ## Acceptance checks
 

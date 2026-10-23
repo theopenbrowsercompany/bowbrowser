@@ -44,7 +44,8 @@ final class SpaceNameView: NSView {
         label.attributedStringValue = NSAttributedString(
             string: title.localizedUppercase,
             attributes: [
-                .font: BowBrand.ui(BowBrand.labelSize, weight: .bold), .kern: BowBrand.labelKern, .foregroundColor: BowBrand.soft,
+                .font: BowBrand.ui(BowBrand.labelSize, weight: .bold), .kern: BowBrand.labelKern,
+                .foregroundColor: BowBrand.soft,
             ])
         label.toolTip = title
         label.setAccessibilityLabel(space.map { "Space \($0.title)" })

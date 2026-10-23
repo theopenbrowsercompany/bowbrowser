@@ -29,12 +29,24 @@ if [ -e "$app/Contents/Resources/Fixtures" ]; then
 fi
 
 # The license files scripts/bundle-licenses.sh copies in: CEF's and Bow's licenses and Chromium's credits.
-for license in CEF-LICENSE.txt Chromium-Credits.html Bow-LICENSE.txt; do
+for license in CEF-LICENSE.txt Chromium-Credits.html Bow-LICENSE.txt OFL-NunitoSans.txt OFL-Fredoka.txt; do
   if [ ! -s "$app/Contents/Resources/$license" ]; then
     echo "Release app lacks $license: $app/Contents/Resources/$license" >&2
     failed=yes
   fi
 done
+
+# The brand fonts (App/Fonts), registered by Info.plist's ATSApplicationFontsPath; JetBrains Mono is not bundled.
+for font in NunitoSans.ttf Fredoka.ttf; do
+  if [ ! -s "$app/Contents/Resources/Fonts/$font" ]; then
+    echo "Release app lacks the font $font: $app/Contents/Resources/Fonts/$font" >&2
+    failed=yes
+  fi
+done
+if [ "$(/usr/libexec/PlistBuddy -c 'Print :ATSApplicationFontsPath' "$app/Contents/Info.plist" 2>/dev/null)" != Fonts ]; then
+  echo "Release app's Info.plist lacks ATSApplicationFontsPath = Fonts" >&2
+  failed=yes
+fi
 
 # Match whole names only: Swift and C++ mangle a name as <length><name>, and Objective-C classes and C symbols
 # end in _<name>. So WebViewPage would not match WebViewPageController.
