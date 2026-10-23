@@ -37,6 +37,11 @@ protocol E2ERoutingApp: E2EApp {
     func routingEditor() throws -> E2ERoutingEditorState?
     /// Selects rule `row` in the editor and clicks its Move Down button.
     func moveRuleDownInEditor(row: Int) throws
+    /// Starts editing rule `row`'s text cell (0 match, 1 text, 2 app) in the field editor, as a click does, and types
+    /// `text` over what it holds. It does not press Return or leave the cell.
+    func typeInEditorCell(row: Int, column: Int, text: String) throws
+    /// Moves focus to rule `row`'s destination pop-up, as a click on it does, which ends any edit in a text cell.
+    func focusEditorDestination(row: Int) throws
     /// Clicks the editor's close button. Returns once it has closed.
     func closeRoutingEditor() throws
     /// How many browsers the engine has open or is creating, popups and Little Arc pages included.

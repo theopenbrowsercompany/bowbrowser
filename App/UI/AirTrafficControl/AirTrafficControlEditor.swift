@@ -102,6 +102,7 @@ final class AirTrafficControlEditor: NSWindowController, NSWindowDelegate, NSTab
     }
 
     func windowWillClose(_ notification: Notification) {
+        endEditing()
         let closed = onClosed
         onClosed = nil
         closed?(self)
@@ -260,6 +261,17 @@ final class AirTrafficControlEditor: NSWindowController, NSWindowDelegate, NSTab
         statusLabel.stringValue = lines.joined(separator: "\n")
     }
 
+    /// Ends the edit in a text cell, which saves what was typed (the cell sends its action when editing ends). Called
+    /// before anything that reloads the table or closes the window, so typed text is never lost.
+    private func endEditing() {
+        window?.makeFirstResponder(nil)
+    }
+
+    /// The view in `row`'s `column` (0 match, 1 text, 2 app, 3 destination).
+    func cellView(row: Int, column: Int) -> NSView? {
+        tableView.view(atColumn: column, row: row, makeIfNecessary: true)
+    }
+
     /// Saves `table` and refreshes what depends on it.
     private func commit(reloadTable: Bool = false, select row: Int? = nil) {
         let problem = control.update(table, from: self)
@@ -293,12 +305,14 @@ final class AirTrafficControlEditor: NSWindowController, NSWindowDelegate, NSTab
             field.isEnabled = rule.urlPattern != nil
             field.target = self
             field.action = #selector(patternChanged(_:))
+            field.cell?.sendsActionOnEndEditing = true
             return field
         case .source:
             let field = NSTextField(string: rule.sourceApp ?? "")
             field.placeholderString = "any app"
             field.target = self
             field.action = #selector(sourceAppChanged(_:))
+            field.cell?.sendsActionOnEndEditing = true
             return field
         case .destination:
             let popUp = NSPopUpButton()
@@ -317,12 +331,14 @@ final class AirTrafficControlEditor: NSWindowController, NSWindowDelegate, NSTab
     // MARK: Actions
 
     @objc func addRule(_ sender: Any?) {
+        endEditing()
         // A new rule matches on the address and opens in the most recent window until the person picks otherwise.
         table.rules.append(RoutingRule(urlPattern: URLPattern(.contains, ""), destination: .mostRecentWindow))
         commit(reloadTable: true, select: table.rules.count - 1)
     }
 
     @objc func removeRule(_ sender: Any?) {
+        endEditing()
         let row = tableView.selectedRow
         guard table.rules.indices.contains(row) else { return }
         table.rules.remove(at: row)
@@ -339,6 +355,7 @@ final class AirTrafficControlEditor: NSWindowController, NSWindowDelegate, NSTab
 
     /// Moves the selected rule by `offset` places, keeping it selected.
     func move(by offset: Int) {
+        endEditing()
         let row = tableView.selectedRow
         let target = row + offset
         guard table.rules.indices.contains(row), table.rules.indices.contains(target) else { return }
@@ -347,6 +364,7 @@ final class AirTrafficControlEditor: NSWindowController, NSWindowDelegate, NSTab
     }
 
     @objc private func matchChanged(_ sender: NSPopUpButton) {
+        endEditing()
         let row = tableView.row(for: sender)
         guard table.rules.indices.contains(row) else { return }
         let text = table.rules[row].urlPattern?.text ?? ""
@@ -374,6 +392,7 @@ final class AirTrafficControlEditor: NSWindowController, NSWindowDelegate, NSTab
     }
 
     @objc private func destinationChanged(_ sender: NSPopUpButton) {
+        endEditing()
         let row = tableView.row(for: sender)
         guard table.rules.indices.contains(row), let destination = Self.destination(of: sender) else { return }
         table.rules[row].destination = destination
@@ -381,12 +400,14 @@ final class AirTrafficControlEditor: NSWindowController, NSWindowDelegate, NSTab
     }
 
     @objc private func defaultChanged(_ sender: NSPopUpButton) {
+        endEditing()
         guard let destination = Self.destination(of: sender) else { return }
         table.defaultDestination = destination
         commit()
     }
 
     @objc private func noSourceChanged(_ sender: NSPopUpButton) {
+        endEditing()
         table.noSourceDestination = Self.destination(of: sender)
         commit()
     }
