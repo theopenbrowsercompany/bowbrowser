@@ -134,6 +134,8 @@ struct Watch {
 - (instancetype)initWithCallback:(CefRefPtr<CefBeforeDownloadCallback>)callback onCancel:(dispatch_block_t)onCancel;
 /// Main thread only. A nil or empty path cancels.
 - (void)answer:(nullable NSString*)path;
+/// Lets go of the callback without answering, once the engine has stopped. A later answer does nothing.
+- (void)abandon;
 @end
 
 @implementation BowDestinationAnswer {
@@ -160,6 +162,10 @@ struct Watch {
     // Releasing the callback without continuing cancels the download in CEF; onCancel makes sure of it.
     _onCancel();
   }
+}
+
+- (void)abandon {
+  _callback = nullptr;
 }
 
 - (void)dealloc {
@@ -248,6 +254,8 @@ class BowDownloadHandler : public CefDownloadHandler {
   std::map<uint32_t, Watch> _watches;
   // Reads orphaned downloads from disk while any watched download can change.
   NSTimer* _watchTimer;
+  // Destination questions not answered yet, abandoned when the engine stops.
+  NSHashTable<BowDestinationAnswer*>* _answers;
 }
 
 // Every BowDownloads, so the engine stopping reaches each.
@@ -261,6 +269,8 @@ class BowDownloadHandler : public CefDownloadHandler {
   _watchTimer = nil;
   _watches.clear();
   _controls.clear();
+  for (BowDestinationAnswer* answer in _answers) [answer abandon];
+  [_answers removeAllObjects];
 }
 
 - (instancetype)initWithProfileID:(NSString*)profileID {
@@ -269,6 +279,7 @@ class BowDownloadHandler : public CefDownloadHandler {
     _profileID = [profileID copy];
     _items = [NSMutableArray array];
     _handler = new BowDownloadHandler(self);
+    _answers = [NSHashTable weakObjectsHashTable];
     [BowDownloads.allDownloads addObject:self];
   }
   return self;
@@ -320,6 +331,7 @@ class BowDownloadHandler : public CefDownloadHandler {
                                                                        onCancel:^{
                                                                          [weakSelf destinationRefused:downloadID];
                                                                        }];
+  [_answers addObject:answer];
   [delegate downloads:self
       chooseDestinationForItem:item
                  suggestedName:suggestedName
@@ -432,15 +444,15 @@ class BowDownloadHandler : public CefDownloadHandler {
 }
 
 - (void)resumeDownload:(uint32_t)downloadID {
-  auto control = _controls.find(downloadID);
-  if (control == _controls.end()) return;
-  control->second->Resume();
   // An interrupted download is not read, so its browser may have closed unnoticed; Chromium would not report the
-  // resume then.
+  // resume then. Its file is read first, which may show it ended.
   auto found = _watches.find(downloadID);
   if (found != _watches.end() && found->second.browser && !found->second.browser->IsValid()) {
     [self readOrphan:downloadID now:CFAbsoluteTimeGetCurrent()];
   }
+  auto control = _controls.find(downloadID);
+  if (control == _controls.end()) return;
+  control->second->Resume();
   Watch* watch = [self orphanedWatch:downloadID];
   if (!watch) return;
   BowDownloadItem* item = _items[[self indexOf:downloadID]];
@@ -531,7 +543,10 @@ class BowDownloadHandler : public CefDownloadHandler {
   bool needed = false;
   for (auto& entry : _watches) {
     NSUInteger index = [self indexOf:entry.first];
-    if (index != NSNotFound && NeedsReading(_items[index].state)) needed = true;
+    if (index != NSNotFound && NeedsReading(_items[index].state)) {
+      needed = true;
+      break;
+    }
   }
   if (!needed) {
     [_watchTimer invalidate];
@@ -587,10 +602,10 @@ class BowDownloadHandler : public CefDownloadHandler {
     } else if (size >= 0) {
       watch.sawFile = true;
       received = size;
-      // A file this download did not write (one already there that the person chose to replace) says nothing about
-      // it. One it wrote is complete once its partial file was renamed to it or it reached the known size, and
-      // stayed so for two reads, since Chromium may still be finishing it.
-      const bool written = watch.sawPartial || watch.sawGrowth || (watch.chosenAt > 0 && modified >= watch.chosenAt);
+      // A file this download did not write (one already there that the person chose to replace, whose partial file
+      // Chromium deleted on cancel) says nothing about it. One it wrote is complete once its partial file was renamed
+      // to it or it reached the known size, and stayed so for two reads, since Chromium may still be finishing it.
+      const bool written = watch.sawGrowth || (watch.chosenAt > 0 && modified >= watch.chosenAt);
       const bool looksComplete = written && (watch.sawPartial || (item.totalBytes > 0 && size >= item.totalBytes));
       if (looksComplete && watch.completeSize == size) {
         [self finishOrphan:downloadID
@@ -605,11 +620,13 @@ class BowDownloadHandler : public CefDownloadHandler {
       return;
     }
   }
-  if (!watch.sawFile && watch.stateAtOrphan == BowDownloadStateInProgress &&
+  if (!watch.sawFile &&
+      (watch.stateAtOrphan == BowDownloadStateInProgress || watch.stateAtOrphan == BowDownloadStatePaused) &&
       now - watch.orphanedAt >= kNoFileSeconds) {
-    // Its browser closed before Chromium wrote anything (a save panel may still be open): CEF aborted its request,
-    // and an answer that comes later reaches a download that has ended. One interrupted or paused before its
-    // first byte has no request for CEF to abort and can still resume into its file, so it stays as it was.
+    // Its browser closed before Chromium wrote anything (a save panel may still be open): CEF aborted its request
+    // (a paused download keeps its request open), and an answer that comes later reaches a download that has
+    // ended. One interrupted before its first byte has no request for CEF to abort and can still resume into its
+    // file, so it stays as it was.
     [self finishOrphan:downloadID state:BowDownloadStateCancelled fullPath:nil];
     return;
   }
