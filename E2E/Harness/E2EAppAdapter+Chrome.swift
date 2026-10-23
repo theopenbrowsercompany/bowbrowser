@@ -26,7 +26,9 @@ extension E2ETestApp: E2EChromeApp {
 
     private static func copyFeature(of page: any E2EPage) throws -> CopyURLFeature {
         let controller = try E2EAppAdapter.tabPage(page).controller
-        guard let feature = controller.feature(CopyURLFeature.self) else { throw E2EError("the window has no copy feature") }
+        guard let feature = controller.feature(CopyURLFeature.self) else {
+            throw E2EError("the window has no copy feature")
+        }
         return feature
     }
 }

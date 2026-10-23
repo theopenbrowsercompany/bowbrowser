@@ -108,7 +108,8 @@ struct ChromeCopyEdgesTest: E2ETest {
         }
         run.check(
             "chrome.copy.page-key",
-            passed: keyed.0 && board.string == ChromeTests.url("keys").absoluteString && !keyed.1.contains { $0.contains("c") },
+            passed: keyed.0 && board.string == ChromeTests.url("keys").absoluteString
+                && !keyed.1.contains { $0.contains("c") },
             "changed=\(keyed.0) string=\(board.string ?? "nil") page-keys=\(keyed.1)")
 
         let blank = try await run.step("copy on a blank tab", timeout: E2ETimeouts.firstLoad) {
