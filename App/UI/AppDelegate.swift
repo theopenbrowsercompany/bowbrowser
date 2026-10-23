@@ -95,6 +95,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         #endif
     }
 
+    /// File > Close Tab (Cmd+W) when the key window has no tabs (a page's popup window, for example): closes that
+    /// window. A browser window takes the command first and closes its active tab.
+    @objc func closeActiveTab(_ sender: Any?) {
+        NSApp.keyWindow?.performClose(sender)
+    }
+
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
         // An e2e run quits when its tests are done, even if a test closes every window on the way.
         !options.isE2E

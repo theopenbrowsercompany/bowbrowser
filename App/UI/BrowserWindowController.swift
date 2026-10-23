@@ -28,8 +28,12 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
     private(set) var tabList = TabList()
     /// The engine tab behind each entry of `tabList`.
     private var engineTabs: [BrowserTabID: any EngineTab] = [:]
-    /// The site icon of each tab, keyed by the address it was loaded from; nil while it loads or failed.
-    private var favicons: [BrowserTabID: (url: URL, image: NSImage?)] = [:]
+    /// The tab list entry of each engine tab, the reverse of `engineTabs`.
+    private var modelIDs: [TabID: BrowserTabID] = [:]
+    /// The site icon each tab shows and the address it came from.
+    private var favicons: [BrowserTabID: (url: URL, image: NSImage)] = [:]
+    /// The icon address each tab's page reported last, nil while it reports none.
+    private var faviconReported: [BrowserTabID: URL] = [:]
     /// What the New Tab button and New Tab menu item open.
     var newTabURL: URL
     /// Called when the window has closed, so the owner can let go of this controller.
@@ -51,13 +55,12 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
     var selectedTab: (any EngineTab)? { tabs.first { webView.isShowing($0) } }
 
     /// Opens `url` in a new centered window on `profile`, or in `window` when given (e2e runs pass an off-screen
-    /// one), which is not cascaded: the caller places it. New tabs open `newTabURL`, `url` when not given.
+    /// one), which is not cascaded: the caller places it. New tabs open `url` too until `newTabURL` is changed.
     /// Permission requests are answered from, and recorded in, `permissions`, the profile's store.
     init(
         url: URL,
         profile: any EngineProfile,
         permissions: SitePermissionStore,
-        newTabURL: URL? = nil,
         window givenWindow: BrowserWindow? = nil
     ) {
         let window =
@@ -73,7 +76,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
         self.webView = webView
         sidebar = TabSidebarView(frame: .zero)
         self.profile = profile
-        self.newTabURL = newTabURL ?? url
+        self.newTabURL = url
         permissionPrompts = PermissionPrompts(store: permissions, profile: profile, hostView: webView)
         window.title = "Bow"
         window.isReleasedWhenClosed = false
@@ -142,6 +145,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
         model.apply(engineTab.state)
         if model.url == nil { model.url = url }
         engineTabs[model.id] = engineTab
+        modelIDs[engineTab.tabID] = model.id
         tabList.open(model, activate: select)
         showActiveTab()
         return engineTab
@@ -150,15 +154,19 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
     /// Shows `tab`, one of this window's tabs.
     func select(_ tab: any EngineTab) {
         guard let id = modelID(of: tab) else { return }
-        tabList.select(id)
-        showActiveTab()
+        select(id)
     }
 
-    /// Moves `tab`, one of this window's tabs, to `index` in the sidebar order (clamped to the list).
-    func move(_ tab: any EngineTab, to index: Int) {
-        guard let id = modelID(of: tab) else { return }
-        tabList.move(id, to: index)
-        sidebar.show(tabList)
+    /// Makes tab `id` active and shows it. A tab that is closing cannot be shown, and the active tab stays.
+    private func select(_ id: BrowserTabID) {
+        guard let tab = engineTabs[id] else { return }
+        let previous = tabList.activeID
+        tabList.select(id)
+        showActiveTab()
+        if !webView.isShowing(tab), let previous, previous != id {
+            tabList.select(previous)
+            showActiveTab()
+        }
     }
 
     /// Closes `tab`, one of this window's tabs, after its page's beforeunload handler runs. Returns true once it has
@@ -174,7 +182,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
 
     /// The tab list entry of `tab`, one of this window's tabs.
     func modelID(of tab: any EngineTab) -> BrowserTabID? {
-        engineTabs.first { $0.value === tab }?.key
+        modelIDs[tab.tabID].flatMap { engineTabs[$0] === tab ? $0 : nil }
     }
 
     /// Shows the tab list's active tab in the web view, and the list in the sidebar.
@@ -208,9 +216,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
     // MARK: Sidebar
 
     func sidebar(_ sidebar: TabSidebarView, select id: BrowserTabID) {
-        guard engineTabs[id] != nil else { return }
-        tabList.select(id)
-        showActiveTab()
+        select(id)
     }
 
     func sidebar(_ sidebar: TabSidebarView, close id: BrowserTabID) {
@@ -330,7 +336,9 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
         if tab === findTab { closeFindBar() }
         guard let id = modelID(of: tab) else { return }
         engineTabs[id] = nil
+        modelIDs[tab.tabID] = nil
         favicons[id] = nil
+        faviconReported[id] = nil
         // The tab list picks the neighbor that becomes active when the active tab closes.
         tabList.close(id)
         if tabList.isEmpty {
@@ -342,17 +350,16 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
         }
     }
 
-    /// Loads the site icon at `url` for tab `id` when the address changed, and drops it when the page has none.
+    /// Loads the site icon at `url` for tab `id` each time the page reports a new icon address. The icon shown stays
+    /// while a navigation has no address yet, so rows do not flicker; it goes once a new address fails to load.
+    /// An address that failed is tried again when the page reports it anew.
     private func updateFavicon(of id: BrowserTabID, tab: any EngineTab, url: URL?) {
-        guard let url else {
-            favicons[id] = nil
-            return
-        }
-        guard favicons[id]?.url != url else { return }
-        favicons[id] = (url, nil)
+        guard faviconReported[id] != url else { return }
+        faviconReported[id] = url
+        guard let url, favicons[id]?.url != url else { return }
         EngineFavicons.load(for: tab, from: url, maxPixelSize: Self.faviconPixelSize) { [weak self] image in
-            guard let self, self.favicons[id]?.url == url else { return }
-            self.favicons[id] = (url, image)
+            guard let self, self.faviconReported[id] == url else { return }
+            self.favicons[id] = image.map { (url, $0) }
             self.sidebar.reloadTab(id)
         }
     }
@@ -420,7 +427,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
     }
 }
 
-/// A window whose close requests (close button, Shift+Cmd+W, Window > Close) wait for the page to close first.
+/// A window whose close requests (close button, File > Close Window, Shift+Cmd+W) wait for the page to close first.
 /// AppKit's `performClose(_:)` plays the alert sound whenever `windowShouldClose(_:)` says no, which here only
 /// means "the page is closing, the window follows", so this asks the delegate without the sound.
 class BrowserWindow: NSWindow {

@@ -25,8 +25,6 @@ final class TabSidebarView: NSView, NSTableViewDataSource, NSTableViewDelegate {
     let newTabButton: NSButton
     let tableView = NSTableView()
     private(set) var tabList = TabList()
-    /// True while the sidebar itself changes the table's selection, so that change is not taken as a click.
-    private var isSyncingSelection = false
 
     override init(frame: NSRect) {
         newTabButton = NSButton(title: "New Tab", image: Self.symbol("plus"), target: nil, action: nil)
@@ -57,6 +55,8 @@ final class TabSidebarView: NSView, NSTableViewDataSource, NSTableViewDelegate {
         tableView.allowsMultipleSelection = false
         tableView.dataSource = self
         tableView.delegate = self
+        tableView.target = self
+        tableView.action = #selector(tableClicked(_:))
         tableView.registerForDraggedTypes([Self.dragType])
         tableView.draggingDestinationFeedbackStyle = .gap
         tableView.setAccessibilityLabel("Tabs")
@@ -122,9 +122,7 @@ final class TabSidebarView: NSView, NSTableViewDataSource, NSTableViewDelegate {
     private func syncSelection() {
         let wanted = tabList.activeIndex.map { IndexSet(integer: $0) } ?? IndexSet()
         guard tableView.selectedRowIndexes != wanted else { return }
-        isSyncingSelection = true
         tableView.selectRowIndexes(wanted, byExtendingSelection: false)
-        isSyncingSelection = false
     }
 
     @objc private func newTabClicked(_ sender: Any?) {
@@ -158,18 +156,24 @@ final class TabSidebarView: NSView, NSTableViewDataSource, NSTableViewDelegate {
         return view
     }
 
-    func tableViewSelectionDidChange(_ notification: Notification) {
-        guard !isSyncingSelection else { return }
-        let row = tableView.selectedRow
-        guard tabList.tabs.indices.contains(row) else {
-            // A click on empty space clears the selection; the active tab stays highlighted.
-            syncSelection()
-            return
-        }
+    /// The table never changes its highlight on its own: pressing on a row may start a drag, which must not make
+    /// that tab active. The highlight follows the tab list, and a click selects through `clickRow(_:)`.
+    func tableView(
+        _ tableView: NSTableView,
+        selectionIndexesForProposedSelection proposedSelectionIndexes: IndexSet
+    ) -> IndexSet {
+        tableView.selectedRowIndexes
+    }
+
+    @objc private func tableClicked(_ sender: Any?) {
+        clickRow(tableView.clickedRow)
+    }
+
+    /// What a click on row `row` does (the table's click action): asks the window to make that tab active. A click
+    /// outside the rows does nothing.
+    func clickRow(_ row: Int) {
+        guard tabList.tabs.indices.contains(row) else { return }
         delegate?.sidebar(self, select: tabList.tabs[row].id)
-        // The window may refuse; show what the tab list says either way.
-        syncSelection()
-        refreshActiveMarks()
     }
 
     /// Updates which row shows itself active (its close button), after the highlight moved.
@@ -327,14 +331,19 @@ final class TabSidebarRow: NSTableCellView {
 
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
-        for area in trackingAreas { removeTrackingArea(area) }
-        addTrackingArea(
-            NSTrackingArea(
-                rect: .zero,
-                options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect],
-                owner: self
-            ))
+        // Only the row's own area: AppKit adds others (for the tooltip) that must stay.
+        guard hoverArea == nil else { return }
+        let area = NSTrackingArea(
+            rect: .zero,
+            options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect],
+            owner: self
+        )
+        addTrackingArea(area)
+        hoverArea = area
     }
+
+    /// The tracking area for hovering, which follows the row's visible rect by itself.
+    private var hoverArea: NSTrackingArea?
 
     override func mouseEntered(with event: NSEvent) {
         isHovered = true

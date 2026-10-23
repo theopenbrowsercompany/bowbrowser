@@ -57,6 +57,7 @@ The list is the base for pinned tabs, folders, spaces and restoring tabs after a
 - Each row shows the tab's site icon and its title.
   A page without a title yet shows its address's host, and a tab with nothing loaded shows "New Tab".
   A page without a site icon, or whose icon cannot be loaded, shows a globe.
+  While a navigation has not reported its icon yet, the row keeps the icon it had, so it does not flicker.
   Long titles are cut short with an ellipsis, and the full title shows on hover.
 - While a tab's page loads, its row shows a small spinner in place of the icon.
 - A row changes as soon as its page reports a new title, icon or loading state.
@@ -64,8 +65,9 @@ The list is the base for pinned tabs, folders, spaces and restoring tabs after a
 - Clicking a row makes that tab active and shows its page, as it was left.
 - The active row, and any row under the pointer, shows a close button; clicking it closes that tab the same way as any other close (the page's beforeunload handler runs first).
 - A New Tab button above the list opens a new tab right after the active tab and shows it.
-- Dragging a row to another position moves that tab there; the active tab stays the same.
+- Dragging a row to another position moves that tab there; the active tab stays the same, even when the dragged row was not active.
 - File > New Tab (Command-T) opens a new tab, File > Close Tab (Command-W) closes the active tab, and File > Close Window (Shift-Command-W) closes the window with all its tabs.
+  In a window without tabs (a page's popup), Command-W closes that window.
 
 ## Edge cases
 
