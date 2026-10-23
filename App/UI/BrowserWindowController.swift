@@ -1,39 +1,33 @@
 import AppKit
 import BowCore
 
-/// A browser window: a sidebar listing its tabs on the left, and one host view that shows the active tab. The
-/// order of the tabs and which one is active live in a BowCore `TabList`; the window keeps one engine tab per
-/// entry. It reaches the engine only through the BowCore protocols, and is the delegate of each of its tabs.
+/// A browser window: its tabs and the host view that shows the active one. The order of the tabs and which one is
+/// active live in a BowCore `TabList`; the window keeps one engine tab per entry. It reaches the engine only through
+/// the BowCore protocols, and is the delegate of each of its tabs.
+///
+/// Everything else a window does (the toolbar, find, permission prompts, the sidebar) is a `BrowserWindowFeature`
+/// listed in `WindowFeatures.all`. The window creates them, puts them in its responder chain, and tells them when
+/// the shown tab changes, what its tabs report and when a tab closes. Add a feature there, never here.
 @MainActor
-final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMenuItemValidation, EngineTabDelegate,
-    TabSidebarDelegate
-{
+final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMenuItemValidation, EngineTabDelegate {
     static let styleMask: NSWindow.StyleMask = [.titled, .closable, .miniaturizable, .resizable]
-    /// The size, in pixels, site icons are loaded at for the sidebar (16 points on a Retina screen).
-    private static let faviconPixelSize = 32
 
     /// Shows the selected tab. Switching tabs shows another tab here; pages are never reloaded by a switch.
     let webView: BowWebView
-    /// The sidebar listing the window's tabs.
-    let sidebar: TabSidebarView
-    /// The find in page bar, floating over the page's top right corner while shown (Cmd+F).
-    let findBar = FindBar()
-    /// The tab the find bar searches in while it is shown; the bar closes when another tab is shown.
-    private var findTab: (any EngineTab)?
-    /// The back, forward and reload or stop buttons in the window's toolbar.
-    let navigationToolbar = NavigationToolbar()
-    /// What the navigation controls offer for the active tab; the toolbar and the menu items follow it.
-    private(set) var navigationControls = NavigationControls.disabled
+    /// The page area: the web view, with room for features to float views over it.
+    let pageArea: NSView
+    /// The window's content view, holding the page area and the view attached along its leading edge.
+    private let rootView: NSView
+    /// Pins the page area's leading edge: to the window's, or to the trailing edge of the attached leading view.
+    private var pageLeadingConstraint: NSLayoutConstraint
+    /// The window's features, in `WindowFeatures.all` order, which is also their order in the responder chain.
+    private(set) var features: [any BrowserWindowFeature] = []
     /// The window's tabs as BowCore models them: order, active tab, and what each page last reported.
     private(set) var tabList = TabList()
     /// The engine tab behind each entry of `tabList`.
     private var engineTabs: [BrowserTabID: any EngineTab] = [:]
     /// The tab list entry of each engine tab, the reverse of `engineTabs`.
     private var modelIDs: [TabID: BrowserTabID] = [:]
-    /// The site icon each tab shows and the address it came from.
-    private var favicons: [BrowserTabID: (url: URL, image: NSImage)] = [:]
-    /// The icon address each tab's page reported last, nil while it reports none.
-    private var faviconReported: [BrowserTabID: URL] = [:]
     /// What the New Tab button and New Tab menu item open.
     var newTabURL: URL
     /// Called when the window has closed, so the owner can let go of this controller.
@@ -43,11 +37,11 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
     /// Asked before every main frame navigation of the window's tabs; nil allows every navigation.
     var navigationPolicy: ((any EngineTab, EngineNavigation) -> NavigationPolicy)?
 
-    private let profile: any EngineProfile
-    /// The window's permission prompts, anchored to `webView`, the page area to the right of the sidebar.
-    let permissionPrompts: PermissionPrompts
+    let profile: any EngineProfile
+    /// The app's services (per-profile stores and the like), for features to look up.
+    let appFeatures: AppFeatureSet
 
-    /// The window's open tabs, in sidebar order.
+    /// The window's open tabs, in tab list order.
     var tabs: [any EngineTab] { tabList.tabs.compactMap { engineTabs[$0.id] } }
 
     /// The tab `webView` shows, read back from the view so it always matches the screen (the view refuses a tab
@@ -56,11 +50,11 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
 
     /// Opens `url` in a new centered window on `profile`, or in `window` when given (e2e runs pass an off-screen
     /// one), which is not cascaded: the caller places it. New tabs open `url` too until `newTabURL` is changed.
-    /// Permission requests are answered from, and recorded in, `permissions`, the profile's store.
+    /// Features find the app's services in `appFeatures`.
     init(
         url: URL,
         profile: any EngineProfile,
-        permissions: SitePermissionStore,
+        appFeatures: AppFeatureSet,
         window givenWindow: BrowserWindow? = nil
     ) {
         let window =
@@ -72,27 +66,26 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
                 defer: false
             )
         let contentSize = window.contentRect(forFrameRect: window.frame).size
-        let webView = BowWebView(frame: NSRect(origin: .zero, size: contentSize))
-        self.webView = webView
-        sidebar = TabSidebarView(frame: .zero)
+        webView = BowWebView(frame: NSRect(origin: .zero, size: contentSize))
+        rootView = NSView(frame: NSRect(origin: .zero, size: contentSize))
+        pageArea = NSView(frame: NSRect(origin: .zero, size: contentSize))
+        pageLeadingConstraint = pageArea.leadingAnchor.constraint(equalTo: rootView.leadingAnchor)
         self.profile = profile
+        self.appFeatures = appFeatures
         self.newTabURL = url
-        permissionPrompts = PermissionPrompts(store: permissions, profile: profile, hostView: webView)
         window.title = "Bow"
         window.isReleasedWhenClosed = false
-        window.contentView = Self.layout(sidebar: sidebar, webView: webView, findBar: findBar, size: contentSize)
-        if givenWindow == nil { window.center() }
         super.init(window: window)
-        if givenWindow != nil {
+        layOut()
+        window.contentView = rootView
+        if givenWindow == nil {
+            window.center()
+        } else {
             // A window controller cascades its window to a new spot; the caller places a given window itself.
             shouldCascadeWindows = false
         }
         window.delegate = self
-        navigationToolbar.install(in: window, target: self)
-        sidebar.delegate = self
-        findBar.onTextChange = { [weak self] _ in self?.runFind(forward: true) }
-        findBar.onStep = { [weak self] forward in self?.runFind(forward: forward) }
-        findBar.onClose = { [weak self] in self?.closeFindBar() }
+        installFeatures(in: window)
         openTab(url: url)
     }
 
@@ -101,36 +94,56 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
         fatalError("init(coder:) is not supported")
     }
 
-    /// The window's content: the sidebar at a fixed width on the left, and the page area filling the rest, the web
-    /// view with the hidden find bar over its top right corner.
-    private static func layout(sidebar: TabSidebarView, webView: BowWebView, findBar: FindBar, size: NSSize)
-        -> NSView
-    {
-        let root = NSView(frame: NSRect(origin: .zero, size: size))
-        let content = NSView(frame: NSRect(origin: .zero, size: size))
-        webView.frame = content.bounds
+    /// The window's content: the page area filling it, the web view filling the page area.
+    private func layOut() {
+        webView.frame = pageArea.bounds
         webView.autoresizingMask = [.width, .height]
-        content.addSubview(webView)
-        findBar.isHidden = true
-        findBar.translatesAutoresizingMaskIntoConstraints = false
-        content.addSubview(findBar)
-        for view in [sidebar, content] as [NSView] {
-            view.translatesAutoresizingMaskIntoConstraints = false
-            root.addSubview(view)
-        }
+        pageArea.addSubview(webView)
+        pageArea.translatesAutoresizingMaskIntoConstraints = false
+        rootView.addSubview(pageArea)
         NSLayoutConstraint.activate([
-            sidebar.leadingAnchor.constraint(equalTo: root.leadingAnchor),
-            sidebar.topAnchor.constraint(equalTo: root.topAnchor),
-            sidebar.bottomAnchor.constraint(equalTo: root.bottomAnchor),
-            sidebar.widthAnchor.constraint(equalToConstant: TabSidebarView.width),
-            content.leadingAnchor.constraint(equalTo: sidebar.trailingAnchor),
-            content.trailingAnchor.constraint(equalTo: root.trailingAnchor),
-            content.topAnchor.constraint(equalTo: root.topAnchor),
-            content.bottomAnchor.constraint(equalTo: root.bottomAnchor),
-            findBar.topAnchor.constraint(equalTo: content.topAnchor, constant: 12),
-            findBar.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -16),
+            pageLeadingConstraint,
+            pageArea.trailingAnchor.constraint(equalTo: rootView.trailingAnchor),
+            pageArea.topAnchor.constraint(equalTo: rootView.topAnchor),
+            pageArea.bottomAnchor.constraint(equalTo: rootView.bottomAnchor),
         ])
-        return root
+    }
+
+    /// Places `view` along the window's leading edge at a fixed `width`, full height, with the page area to its
+    /// right. A window has one leading view (the sidebar).
+    func attachLeadingView(_ view: NSView, width: CGFloat) {
+        view.translatesAutoresizingMaskIntoConstraints = false
+        rootView.addSubview(view)
+        pageLeadingConstraint.isActive = false
+        pageLeadingConstraint = pageArea.leadingAnchor.constraint(equalTo: view.trailingAnchor)
+        NSLayoutConstraint.activate([
+            view.leadingAnchor.constraint(equalTo: rootView.leadingAnchor),
+            view.topAnchor.constraint(equalTo: rootView.topAnchor),
+            view.bottomAnchor.constraint(equalTo: rootView.bottomAnchor),
+            view.widthAnchor.constraint(equalToConstant: width),
+            pageLeadingConstraint,
+        ])
+    }
+
+    // MARK: Features
+
+    /// Creates the window's features and puts them in the responder chain right after this controller: window,
+    /// controller, the features in list order, then whatever followed the controller.
+    private func installFeatures(in window: NSWindow) {
+        features = WindowFeatures.all.map { $0.init(window: self) }
+        if window.nextResponder !== self { window.nextResponder = self }
+        let next = nextResponder
+        var last: NSResponder = self
+        for feature in features {
+            last.nextResponder = feature
+            last = feature
+        }
+        last.nextResponder = next
+    }
+
+    /// The window's feature of type `type`.
+    func feature<Feature: BrowserWindowFeature>(_ type: Feature.Type) -> Feature? {
+        features.lazy.compactMap { $0 as? Feature }.first
     }
 
     // MARK: Tabs
@@ -158,7 +171,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
     }
 
     /// Makes tab `id` active and shows it. A tab that is closing cannot be shown, and the active tab stays.
-    private func select(_ id: BrowserTabID) {
+    func select(_ id: BrowserTabID) {
         guard let tab = engineTabs[id] else { return }
         let previous = tabList.activeID
         tabList.select(id)
@@ -167,6 +180,11 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
             tabList.select(previous)
             showActiveTab()
         }
+    }
+
+    /// Moves tab `id` to `index` in the tab list.
+    func reorderTab(_ id: BrowserTabID, to index: Int) {
+        tabList.move(id, to: index)
     }
 
     /// Closes `tab`, one of this window's tabs, after its page's beforeunload handler runs. Returns true once it has
@@ -185,19 +203,24 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
         modelIDs[tab.tabID].flatMap { engineTabs[$0] === tab ? $0 : nil }
     }
 
-    /// Shows the tab list's active tab in the web view, and the list in the sidebar.
+    /// The engine tab behind tab list entry `id`.
+    func engineTab(for id: BrowserTabID) -> (any EngineTab)? {
+        engineTabs[id]
+    }
+
+    /// Shows the tab list's active tab in the web view, then tells the features.
     private func showActiveTab() {
         if let id = tabList.activeID, let tab = engineTabs[id] {
-            let closesFind = findTab.map { $0 !== tab } ?? false
             webView.show(tab)
-            // After showing it, so the keyboard the find bar gives back goes to the page now shown.
-            if closesFind { closeFindBar() }
         }
-        // The prompt follows the tab on screen: another tab shows its own waiting request, or none.
-        permissionPrompts.show(selectedTab)
-        sidebar.show(tabList)
         updateTitle()
-        updateNavigationControls()
+        let shown = selectedTab
+        for feature in features { feature.selectedTabChanged(shown) }
+    }
+
+    private func updateTitle() {
+        let title = tabList.activeTab?.title ?? ""
+        window?.title = title.isEmpty ? "Bow" : title
     }
 
     // MARK: Menu commands
@@ -213,56 +236,21 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
         Task { await closeTab(tab) }
     }
 
-    // MARK: Sidebar
-
-    func sidebar(_ sidebar: TabSidebarView, select id: BrowserTabID) {
-        select(id)
-    }
-
-    func sidebar(_ sidebar: TabSidebarView, close id: BrowserTabID) {
-        guard let tab = engineTabs[id] else { return }
-        Task { await closeTab(tab) }
-    }
-
-    func sidebar(_ sidebar: TabSidebarView, move id: BrowserTabID, to index: Int) {
-        tabList.move(id, to: index)
-        sidebar.show(tabList)
-    }
-
-    func sidebarNewTab(_ sidebar: TabSidebarView) {
-        newTab(sidebar)
-    }
-
-    func sidebar(_ sidebar: TabSidebarView, faviconFor id: BrowserTabID) -> NSImage? {
-        favicons[id]?.image
+    /// Validates the window's own commands; each feature validates its own.
+    func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
+        menuItem.action == #selector(closeActiveTab(_:)) ? tabList.activeID != nil : true
     }
 
     // MARK: Engine events
 
     func tab(_ tab: any EngineTab, didReceive event: TabEvent) {
-        switch event {
-        case .stateChanged(let state):
-            if let id = modelID(of: tab) {
-                tabList.update(id, from: state)
-                updateFavicon(of: id, tab: tab, url: state.faviconURL)
-                sidebar.show(tabList)
-                if id == tabList.activeID {
-                    updateTitle()
-                    updateNavigationControls()
-                }
-            }
-        case .findResult(let result):
-            if tab === findTab { findBar.show(result) }
-        case .didCommit:
-            // A prompt belongs to the page that asked; a new page asks again if it needs to.
-            permissionPrompts.dismissRequests(of: tab)
-        case .closed:
-            // A tab closes from this window, from quitting or from its page; the window follows its last tab.
-            permissionPrompts.dismissRequests(of: tab)
-            tabClosed(tab)
-        default:
-            break
+        if case .stateChanged(let state) = event, let id = modelID(of: tab) {
+            tabList.update(id, from: state)
+            if id == tabList.activeID { updateTitle() }
         }
+        for feature in features { feature.tab(tab, didReceive: event) }
+        // A tab closes from this window, from quitting or from its page; the window follows its last tab.
+        if event == .closed { tabClosed(tab) }
         onTabEvent?(tab, event)
     }
 
@@ -270,143 +258,27 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
         navigationPolicy?(tab, navigation) ?? .allow
     }
 
-    // MARK: Find in page
-
-    /// Edit > Find (Cmd+F): shows the find bar over the shown tab with the keyboard in its field, searching again
-    /// for the text it kept from last time.
-    @objc func showFindBar(_ sender: Any?) {
-        guard let tab = selectedTab else { return }
-        let wasShown = !findBar.isHidden
-        findTab = tab
-        findBar.isHidden = false
-        findBar.focus()
-        if !wasShown { runFind(forward: true) }
-    }
-
-    /// Edit > Find Next (Cmd+G), also Enter in the find bar.
-    @objc func findNext(_ sender: Any?) {
-        stepFind(forward: true)
-    }
-
-    /// Edit > Find Previous (Shift+Cmd+G), also Shift+Enter in the find bar.
-    @objc func findPrevious(_ sender: Any?) {
-        stepFind(forward: false)
-    }
-
-    private func stepFind(forward: Bool) {
-        // A closed bar opens and searches again, which already makes a match active; stepping too would skip one.
-        if findBar.isHidden {
-            showFindBar(nil)
-        } else {
-            runFind(forward: forward)
-        }
-    }
-
-    /// Searches the find bar's tab for the bar's text: a new search when the text changed, otherwise a step to the
-    /// next or previous match. Empty text stops the search and clears the count.
-    private func runFind(forward: Bool) {
-        guard let findTab else { return }
-        let text = findBar.text
-        if text.isEmpty {
-            findTab.stopFind()
-            findBar.show(nil)
-        } else {
-            findTab.find(text, forward: forward, matchCase: false)
-        }
-    }
-
-    /// Hides the find bar and stops its search, clearing the page's highlights. The bar keeps its text for next
-    /// time, and the keyboard goes back to the page.
-    func closeFindBar() {
-        guard let tab = findTab else { return }
-        findTab = nil
-        tab.stopFind()
-        findBar.show(nil)
-        let hadKeyboard = findBar.field.currentEditor() != nil
-        findBar.isHidden = true
-        if hadKeyboard { webView.focusAttachedTab() }
-    }
-
     func tab(_ tab: any EngineTab, decidePermission request: PermissionRequest) async -> PermissionDecision {
         guard tabs.contains(where: { $0 === tab }) else { return .dismiss }
-        return await permissionPrompts.decide(request, for: tab)
+        for feature in features {
+            if let decision = await feature.decidePermission(request, for: tab) { return decision }
+        }
+        return .dismiss
     }
 
     private func tabClosed(_ tab: any EngineTab) {
-        if tab === findTab { closeFindBar() }
+        for feature in features { feature.tabDidClose(tab) }
         guard let id = modelID(of: tab) else { return }
         engineTabs[id] = nil
         modelIDs[tab.tabID] = nil
-        favicons[id] = nil
-        faviconReported[id] = nil
         // The tab list picks the neighbor that becomes active when the active tab closes.
         tabList.close(id)
         if tabList.isEmpty {
-            sidebar.show(tabList)
-            updateNavigationControls()
+            for feature in features { feature.selectedTabChanged(nil) }
             window?.close()
         } else {
             showActiveTab()
         }
-    }
-
-    /// Loads the site icon at `url` for tab `id` each time the page reports a new icon address. The icon shown stays
-    /// while a navigation has no address yet, so rows do not flicker; it goes once a new address fails to load.
-    /// An address that failed is tried again when the page reports it anew.
-    private func updateFavicon(of id: BrowserTabID, tab: any EngineTab, url: URL?) {
-        guard faviconReported[id] != url else { return }
-        faviconReported[id] = url
-        guard let url, favicons[id]?.url != url else { return }
-        EngineFavicons.load(for: tab, from: url, maxPixelSize: Self.faviconPixelSize) { [weak self] image in
-            guard let self, self.faviconReported[id] == url else { return }
-            self.favicons[id] = image.map { (url, $0) }
-            self.sidebar.reloadTab(id)
-        }
-    }
-
-    // MARK: Navigation controls
-
-    /// Goes back in the selected tab's history (toolbar button, History > Back, Cmd+[).
-    @objc func goBack(_ sender: Any?) {
-        selectedTab?.goBack()
-    }
-
-    /// Goes forward in the selected tab's history (toolbar button, History > Forward, Cmd+]).
-    @objc func goForward(_ sender: Any?) {
-        selectedTab?.goForward()
-    }
-
-    /// Reloads the selected tab (toolbar button while idle, View > Reload Page, Cmd+R), also while it loads.
-    @objc func reloadPage(_ sender: Any?) {
-        selectedTab?.reload()
-    }
-
-    /// Stops the selected tab's load (toolbar button while loading, View > Stop, Cmd+.).
-    @objc func stopLoading(_ sender: Any?) {
-        selectedTab?.stop()
-    }
-
-    func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
-        switch menuItem.action {
-        case #selector(goBack(_:)): navigationControls.canGoBack
-        case #selector(goForward(_:)): navigationControls.canGoForward
-        case #selector(reloadPage(_:)): navigationControls.canReload
-        case #selector(stopLoading(_:)): navigationControls.canStop
-        case #selector(closeActiveTab(_:)): tabList.activeID != nil
-        default: true
-        }
-    }
-
-    /// Reads the controls from the tab list's active tab and shows them in the toolbar.
-    private func updateNavigationControls() {
-        let activeTab = tabList.activeTab.flatMap { engineTabs[$0.id]?.isClosed == false ? $0 : nil }
-        navigationControls = NavigationControls(activeTab: activeTab)
-        navigationToolbar.show(navigationControls)
-    }
-
-    private func updateTitle() {
-        let title = tabList.activeTab?.title ?? ""
-        window?.title = title.isEmpty ? "Bow" : title
     }
 
     // MARK: Window

@@ -20,10 +20,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     let engine: any BrowserEngine = CEFEngine()
     private var windowControllers: [BrowserWindowController] = []
     private var options = LaunchOptions()
-    /// Where the engine keeps its profiles for this launch; each profile's permission answers are kept beside them.
+    /// Where the engine keeps its profiles for this launch; app services keep their files beside them.
     private var rootDataDirectory = AppDelegate.dataDirectory
-    /// Each profile's remembered permission answers, created on first use.
-    private var permissionStores: [ProfileID: SitePermissionStore] = [:]
+    /// The app's services (`AppFeatures.all`), created on first use, once launch has settled the data directory.
+    private lazy var appFeatures = AppFeatureSet(dataDirectory: rootDataDirectory)
     #if BOW_E2E
         private var e2eRunner: E2ERunner?  // E2E seam
     #endif
@@ -115,24 +115,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     ) -> BrowserWindowController {
         // The engine always has its default profile.
         let profile = profile ?? engine.profile(id: .default)!
-        let controller = BrowserWindowController(
-            url: url, profile: profile, permissions: permissionStore(for: profile), window: window)
+        let controller = BrowserWindowController(url: url, profile: profile, appFeatures: appFeatures, window: window)
         controller.onClose = { [weak self] closed in
             self?.windowControllers.removeAll { $0 === closed }
         }
         windowControllers.append(controller)
         return controller
-    }
-
-    /// The permission store of `profile`: a file in the data directory's `Permissions` folder for a persistent
-    /// profile, memory only for an in-memory one.
-    func permissionStore(for profile: any EngineProfile) -> SitePermissionStore {
-        if let store = permissionStores[profile.profileID] { return store }
-        let file = rootDataDirectory.appendingPathComponent("Permissions", isDirectory: true)
-            .appendingPathComponent(profile.profileID.rawValue + ".json")
-        let store = SitePermissionStore(fileURL: profile.isPersistent ? file : nil)
-        permissionStores[profile.profileID] = store
-        return store
     }
 
     /// Loads the start page, prints one result line, and quits the way `--smoke-quit` says,

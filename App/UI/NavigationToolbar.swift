@@ -2,8 +2,8 @@ import AppKit
 import BowCore
 
 /// The window toolbar's back, forward and reload buttons. The reload button turns into a stop button while the
-/// page loads, which is how the toolbar shows the loading state. The window controller pushes every change of its
-/// `NavigationControls` through `show(_:)`; the buttons never validate themselves, so they change exactly when
+/// page loads, which is how the toolbar shows the loading state. The window's `NavigationFeature` pushes every
+/// change of its `NavigationControls` through `show(_:)`; the buttons never validate themselves, so they change exactly when
 /// the selected tab's state does.
 @MainActor
 final class NavigationToolbar: NSObject, NSToolbarDelegate {
@@ -29,12 +29,12 @@ final class NavigationToolbar: NSObject, NSToolbarDelegate {
         }
     }
 
-    /// Adds the toolbar to `window`, sending the buttons' actions to `target` (a `BrowserWindowController`).
-    func install(in window: NSWindow, target: BrowserWindowController) {
+    /// Adds the toolbar to `window`, sending the buttons' actions to `target`.
+    func install(in window: NSWindow, target: NavigationFeature) {
         backButton.target = target
-        backButton.action = #selector(BrowserWindowController.goBack(_:))
+        backButton.action = #selector(NavigationFeature.goBack(_:))
         forwardButton.target = target
-        forwardButton.action = #selector(BrowserWindowController.goForward(_:))
+        forwardButton.action = #selector(NavigationFeature.goForward(_:))
         reloadButton.target = target
         toolbar.delegate = self
         toolbar.displayMode = .iconOnly
@@ -53,11 +53,11 @@ final class NavigationToolbar: NSObject, NSToolbarDelegate {
         forwardButton.isEnabled = controls.canGoForward
         if controls.isLoading {
             Self.configure(reloadButton, symbol: "xmark", label: "Stop")
-            reloadButton.action = #selector(BrowserWindowController.stopLoading(_:))
+            reloadButton.action = #selector(NavigationFeature.stopLoading(_:))
             reloadButton.isEnabled = controls.canStop
         } else {
             Self.configure(reloadButton, symbol: "arrow.clockwise", label: "Reload")
-            reloadButton.action = #selector(BrowserWindowController.reloadPage(_:))
+            reloadButton.action = #selector(NavigationFeature.reloadPage(_:))
             reloadButton.isEnabled = controls.canReload
         }
     }
