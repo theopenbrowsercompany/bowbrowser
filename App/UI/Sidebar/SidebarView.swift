@@ -203,7 +203,7 @@ final class SidebarView: NSView, NSOutlineViewDataSource, NSOutlineViewDelegate,
     ///
     /// A show asked for while one runs, which a header or accessory acting on the context during its update causes,
     /// is not nested inside it: the latest such content is shown on the next run loop turn, unless a later show comes
-    /// first.
+    /// first. Until then the outline (its rows, drops, menus, `beginRename`) still shows the content before it.
     func show(_ content: SidebarContent) {
         guard !isShowing, !isUpdatingSlots else {
             let scheduled = deferredContent != nil
@@ -231,6 +231,7 @@ final class SidebarView: NSView, NSOutlineViewDataSource, NSOutlineViewDelegate,
         headerHeights = sections.map { max($0.headerHeight(for: content), 1) }
         if newShape != shape {
             shape = newShape
+            cancelRenames(in: IndexSet(integersIn: 0..<outlineView.numberOfRows))
             outlineView.reloadData()
             syncExpansion(roots)
         } else {
@@ -241,7 +242,10 @@ final class SidebarView: NSView, NSOutlineViewDataSource, NSOutlineViewDelegate,
                     guard let id = (outlineView.item(atRow: row) as? SidebarNode)?.itemID else { return false }
                     return previous.tabs[id] != content.tabs[id] || previous.graph[id] != content.graph[id]
                 })
-            if !changed.isEmpty { outlineView.reloadData(forRowIndexes: changed, columnIndexes: IndexSet(integer: 0)) }
+            if !changed.isEmpty {
+                cancelRenames(in: changed)
+                outlineView.reloadData(forRowIndexes: changed, columnIndexes: IndexSet(integer: 0))
+            }
             // A header whose height changed with the content gets its new height without rebuilding the rows.
             let resized = IndexSet(
                 headerHeights.indices.filter { oldHeights.indices.contains($0) && oldHeights[$0] != headerHeights[$0] }
@@ -328,6 +332,13 @@ final class SidebarView: NSView, NSOutlineViewDataSource, NSOutlineViewDelegate,
             return false
         }
         return view.beginRename()
+    }
+
+    /// Ends without saving any folder rename running in `rows`, which are about to be reloaded.
+    private func cancelRenames(in rows: IndexSet) {
+        for row in rows {
+            (outlineView.view(atColumn: 0, row: row, makeIfNecessary: false) as? SidebarGroupRow)?.cancelRename()
+        }
     }
 
     /// Hands the scroll view's sideways swipes to `swipeHandler`, or leaves them all to the outline without one.
@@ -650,7 +661,10 @@ final class SidebarView: NSView, NSOutlineViewDataSource, NSOutlineViewDelegate,
                     ?? SidebarGroupRow()
                 view.show(item)
                 view.onRename = { [weak self] name in
-                    self?.delegate?.changeSidebar { try $0.apply([.rename(id, title: name)]) }
+                    // Saved on the next run loop turn: the change reloads this row, which is still ending its edit.
+                    DispatchQueue.main.async {
+                        self?.delegate?.changeSidebar { try $0.apply([.rename(id, title: name)]) }
+                    }
                 }
                 return view
             }

@@ -13,7 +13,7 @@ struct E2ESidebarRow: Equatable, CustomStringConvertible {
     var titleClearsClose = true
 
     var description: String {
-        "\(title)\(isActive ? "*" : "")\(isLoading ? " loading" : "")\(hasFavicon ? " icon" : "")"
+        "\(title)\(isActive ? "*" : "")\(isLoading ? " loading" : "")\(hasFavicon ? " icon" : "")\(titleClearsClose ? "" : " under-close")"
     }
 }
 

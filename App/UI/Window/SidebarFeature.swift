@@ -139,7 +139,10 @@ final class SidebarFeature: NSResponder, BrowserWindowFeature, SidebarViewDelega
     @discardableResult
     func open(favorite item: SidebarItemID) -> Bool {
         let graph = window.store.graph
-        guard graph.isInFavorites(item), let url = graph[item]?.tab?.savedPageURL else { return false }
+        // Only the Favorites the Space on screen shows, so the page opens in the profile it belongs to.
+        guard let space = graph.activeSpaceID, graph.isInFavorites(item, shownBy: space),
+            let url = graph[item]?.tab?.savedPageURL
+        else { return false }
         return window.openTab(url: url) != nil
     }
 

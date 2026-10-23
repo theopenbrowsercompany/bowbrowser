@@ -66,7 +66,8 @@ final class TabSidebarRow: NSTableCellView {
         accessorySlot.spacing = 2
         accessorySlot.setHuggingPriority(.required, for: .horizontal)
         let emptySlotWidth = accessorySlot.widthAnchor.constraint(equalToConstant: 0)
-        emptySlotWidth.priority = .defaultLow
+        // Above the title's hugging, so a short title keeps its width without the layout being ambiguous.
+        emptySlotWidth.priority = NSLayoutConstraint.Priority(NSLayoutConstraint.Priority.defaultLow.rawValue + 1)
 
         for view in [iconView, spinner, titleField, accessorySlot, closeButton] as [NSView] {
             view.translatesAutoresizingMaskIntoConstraints = false
@@ -87,8 +88,8 @@ final class TabSidebarRow: NSTableCellView {
             accessorySlot.trailingAnchor.constraint(equalTo: closeButton.leadingAnchor),
             accessorySlot.centerYAnchor.constraint(equalTo: centerYAnchor),
             // An empty stack view may add no width of its own, so these keep a long title clear of the close button
-            // whatever the slot holds: the slot is never narrower than nothing, and empty it shrinks to nothing.
-            accessorySlot.widthAnchor.constraint(greaterThanOrEqualToConstant: 0),
+            // whatever the slot holds (which also keeps the slot from going below no width), and the empty slot
+            // shrinks to nothing.
             emptySlotWidth,
             titleField.trailingAnchor.constraint(lessThanOrEqualTo: closeButton.leadingAnchor, constant: -4),
             closeButton.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -6),
@@ -257,6 +258,12 @@ final class SidebarGroupRow: NSTableCellView, NSTextFieldDelegate {
         guard commandSelector == #selector(cancelOperation(_:)) else { return false }
         endRename(commit: false)
         return true
+    }
+
+    /// Ends an edit without saving it, putting the old name back: the outline calls it before it reloads the row, so
+    /// a reload never saves a half-typed name.
+    func cancelRename() {
+        endRename(commit: false)
     }
 
     /// Ends the edit: hands a new, nonempty name to `onRename`, or puts the old name back.
