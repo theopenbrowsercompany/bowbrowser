@@ -48,5 +48,6 @@ enum E2EAreas {
         SplitTests.all,
         AuthTests.all,
         SpaceDropTests.all,
+        RoutingAreaTests.all,
     ]
 }

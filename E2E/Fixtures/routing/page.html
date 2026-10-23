@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Page</title>
+  <style>
+    body { margin: 0; font: 16px -apple-system, sans-serif; background: #fff; color: #111; }
+    h1 { margin: 0; padding: 24px; background: #0f766e; color: #fff; }
+  </style>
+  <script>
+    // Titled after its `name` parameter. The page counts its loads in sessionStorage (which a reload of the same tab
+    // keeps), so a page that loaded once reads 1. `bowMarkAtLoad` is what this profile's localStorage held under
+    // "bowMark" when the page started, before a `mark` parameter stores a new one: a page in the profile that was
+    // marked reads the mark, a page in any other profile reads null.
+    const params = new URLSearchParams(location.search);
+    document.title = params.get("name") || "?";
+    window.bowMarkAtLoad = localStorage.getItem("bowMark");
+    if (params.get("mark")) localStorage.setItem("bowMark", params.get("mark"));
+    sessionStorage.setItem("bowLoads", String(Number(sessionStorage.getItem("bowLoads") || "0") + 1));
+  </script>
+</head>
+<body>
+  <h1>Air Traffic Control fixture</h1>
+  <p style="padding: 0 24px">A page a routed link from another app opens.</p>
+</body>
+</html>

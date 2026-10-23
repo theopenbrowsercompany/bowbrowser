@@ -170,6 +170,7 @@ final class E2ERunner {
 
         AppSettings.defaults = UserDefaults(suiteName: defaultsSuiteName) ?? .standard
         E2EAppAdapter.prepareLittleArc()
+        E2EAppAdapter.prepareRouting()
         DownloadSettings.folder = downloadsDirectory
         // Never restore windows from an earlier run, and never show in the Dock or take focus.
         var arguments = UserDefaults.standard.volatileDomain(forName: UserDefaults.argumentDomain)

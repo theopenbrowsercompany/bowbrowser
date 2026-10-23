@@ -42,6 +42,9 @@ final class AirTrafficControl: AppFeature {
     /// The rules in use.
     var table: RoutingTable { store.table }
 
+    /// Where the rules are saved.
+    var fileURL: URL { store.fileURL }
+
     /// Why changes are not saved, for the editor, or nil when they are.
     var readOnlyReason: String? {
         switch store.origin {
@@ -95,7 +98,9 @@ final class AirTrafficControl: AppFeature {
             #endif
         }()
         let frame = placed ?? NSRect(x: 0, y: 0, width: 780, height: 440)
-        let editor = AirTrafficControlEditor(frame: frame, control: self, choices: choices) { [weak self] closed in
+        let editor = AirTrafficControlEditor(
+            frame: frame, keepsFrame: placed != nil, control: self, choices: choices
+        ) { [weak self] closed in
             if self?.editor === closed { self?.editor = nil }
         }
         self.editor = editor

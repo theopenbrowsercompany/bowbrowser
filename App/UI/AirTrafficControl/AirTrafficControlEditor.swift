@@ -51,21 +51,26 @@ final class AirTrafficControlEditor: NSWindowController, NSWindowDelegate, NSTab
     let lastSourceLabel = NSTextField(labelWithString: "")
     let statusLabel = NSTextField(wrappingLabelWithString: "")
 
+    /// `keepsFrame` keeps the window at `frame` even off every screen (e2e runs); otherwise AppKit keeps it on screen.
     init(
-        frame: NSRect, control: AirTrafficControl, choices: @escaping () -> [AirTrafficControl.Choice],
-        onClosed: @escaping (AirTrafficControlEditor) -> Void
+        frame: NSRect, keepsFrame: Bool = false, control: AirTrafficControl,
+        choices: @escaping () -> [AirTrafficControl.Choice], onClosed: @escaping (AirTrafficControlEditor) -> Void
     ) {
         self.control = control
         self.choices = choices
         self.onClosed = onClosed
         table = control.table
-        let window = NSWindow(
+        let window = AirTrafficControlWindow(
             contentRect: frame, styleMask: [.titled, .closable, .resizable, .miniaturizable], backing: .buffered,
             defer: false)
+        window.keepsFrame = keepsFrame
+        // AppKit pulls a new titled window onto a screen before `keepsFrame` is set; put it back where it was asked.
+        if keepsFrame { window.setFrame(window.frameRect(forContentRect: frame), display: false) }
         window.title = "Air Traffic Control"
         window.isReleasedWhenClosed = false
         window.minSize = NSSize(width: 640, height: 320)
         super.init(window: window)
+        shouldCascadeWindows = false
         window.delegate = self
         build(in: window)
         reload()
@@ -237,7 +242,11 @@ final class AirTrafficControlEditor: NSWindowController, NSWindowDelegate, NSTab
     /// The line under the controls: why changes are not saved, then the rules that cannot match, and why.
     private func updateStatus(saveProblem: String?) {
         var lines: [String] = []
-        if let reason = control.readOnlyReason { lines.append(reason) } else if let saveProblem { lines.append(saveProblem) }
+        if let reason = control.readOnlyReason {
+            lines.append(reason)
+        } else if let saveProblem {
+            lines.append(saveProblem)
+        }
         for invalid in table.invalidRules {
             guard let index = table.rules.firstIndex(where: { $0.id == invalid.rule }) else { continue }
             lines.append("Rule \(index + 1) never matches: \(invalid.problem).")
@@ -393,6 +402,15 @@ final class AirTrafficControlEditor: NSWindowController, NSWindowDelegate, NSTab
             default: ""
             }
         }
+    }
+}
+
+/// The editor's window, which can keep a frame off every screen.
+final class AirTrafficControlWindow: NSWindow {
+    var keepsFrame = false
+
+    override func constrainFrameRect(_ frameRect: NSRect, to screen: NSScreen?) -> NSRect {
+        keepsFrame ? frameRect : super.constrainFrameRect(frameRect, to: screen)
     }
 }
 
