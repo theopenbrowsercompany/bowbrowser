@@ -60,13 +60,10 @@ public enum PopupPolicy {
     /// Where a tab opened from a pinned tab or a Favorite goes.
     public static let pinnedOrFavoritePlacement = PopupPlacement.topOfToday
 
-    /// The modifiers come from the click, which the engine's disposition alone cannot tell apart
-    /// (`target="_blank"` and Cmd-Shift-click both arrive as a foreground tab).
-    public static func outcome(
-        for request: PopupRequest,
-        openerZone: PopupOpenerZone,
-        modifiers: PopupClickModifiers = .none
-    ) -> PopupOutcome {
+    /// The modifiers come from the request's click (`PopupRequest.clickModifiers`), which the engine's disposition
+    /// alone cannot tell apart (`target="_blank"` and Cmd-Shift-click both arrive as a foreground tab).
+    public static func outcome(for request: PopupRequest, openerZone: PopupOpenerZone) -> PopupOutcome {
+        let modifiers = request.clickModifiers
         guard request.isUserGesture else { return PopupOutcome(decision: noGestureDecision) }
         if isSized(request) { return PopupOutcome(decision: sizedPopupDecision) }
 

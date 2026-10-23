@@ -6,9 +6,12 @@ import Testing
     let url = URL(string: "https://example.com/")!
 
     func request(
-        gesture: Bool = true, disposition: PopupDisposition = .foregroundTab, features: PopupWindowFeatures = .init()
+        gesture: Bool = true, disposition: PopupDisposition = .foregroundTab, features: PopupWindowFeatures = .init(),
+        modifiers: PopupClickModifiers = .none
     ) -> PopupRequest {
-        PopupRequest(targetURL: url, disposition: disposition, isUserGesture: gesture, windowFeatures: features)
+        PopupRequest(
+            targetURL: url, disposition: disposition, isUserGesture: gesture, windowFeatures: features,
+            clickModifiers: modifiers)
     }
 
     @Test func noGestureIsBlocked() {
@@ -30,19 +33,19 @@ import Testing
 
     @Test func commandClickOpensInTheBackgroundAfterTheOpener() {
         let outcome = PopupPolicy.outcome(
-            for: request(disposition: .backgroundTab), openerZone: .today, modifiers: .init(command: true))
+            for: request(disposition: .backgroundTab, modifiers: .init(command: true)), openerZone: .today)
         #expect(outcome == PopupOutcome(decision: .backgroundTab, placement: .afterOpener))
     }
 
     @Test func commandShiftClickOpensInTheForegroundAfterTheOpener() {
         let outcome = PopupPolicy.outcome(
-            for: request(), openerZone: .today, modifiers: .init(command: true, shift: true))
+            for: request(modifiers: .init(command: true, shift: true)), openerZone: .today)
         #expect(outcome == PopupOutcome(decision: .foregroundTab, placement: .afterOpener))
     }
 
     @Test func shiftClickOpensInTheForeground() {
         let outcome = PopupPolicy.outcome(
-            for: request(disposition: .window), openerZone: .today, modifiers: .init(shift: true))
+            for: request(disposition: .window, modifiers: .init(shift: true)), openerZone: .today)
         #expect(outcome == PopupOutcome(decision: .foregroundTab, placement: .afterOpener))
     }
 
@@ -53,7 +56,7 @@ import Testing
 
     @Test func fromFavoriteGoesToTopOfToday() {
         let outcome = PopupPolicy.outcome(
-            for: request(), openerZone: .favorite, modifiers: .init(command: true, shift: true))
+            for: request(modifiers: .init(command: true, shift: true)), openerZone: .favorite)
         #expect(outcome == PopupOutcome(decision: .foregroundTab, placement: .topOfToday))
     }
 

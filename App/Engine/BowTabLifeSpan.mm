@@ -25,9 +25,10 @@ BowPopupDisposition ToPopupDisposition(cef_window_open_disposition_t disposition
 // The modifiers held at the click that opened a new page. CEF passes no input event to OnBeforePopup, and Chromium
 // folds the modifiers into the disposition: a background tab means Command (or a middle click) and a new window means
 // Shift, but a plain target="_blank" click and Cmd-Shift-click both arrive as a foreground tab. For that one case the
-// keys still held as the request arrives (a few milliseconds after the click) tell them apart. A modified click on a
-// link (Cmd-click, also on a target="_blank" link) does not come here at all: CEF 156 sends it to the request
-// handler's OnOpenURLFromTab, which the bridge does not handle yet.
+// keys still held as the request arrives (a few milliseconds after the click) tell them apart, counted only when a
+// mouse button was released within the last second, so a key press that opens a page is not taken for a click. A
+// modified click on a link (Cmd-click, also on a target="_blank" link) does not come here at all: CEF 156 sends it
+// to the request handler's OnOpenURLFromTab, which the bridge does not handle yet.
 BowPopupClickModifiers ClickModifiers(cef_window_open_disposition_t disposition, bool userGesture) {
   if (!userGesture) return 0;
   switch (disposition) {
@@ -36,6 +37,9 @@ BowPopupClickModifiers ClickModifiers(cef_window_open_disposition_t disposition,
     case CEF_WOD_NEW_WINDOW:
       return BowPopupClickModifierShift;
     case CEF_WOD_NEW_FOREGROUND_TAB: {
+      const double sinceClick =
+          CGEventSourceSecondsSinceLastEventType(kCGEventSourceStateCombinedSessionState, kCGEventLeftMouseUp);
+      if (sinceClick > 1) return 0;
       const NSEventModifierFlags held = NSEvent.modifierFlags;
       const bool command = held & NSEventModifierFlagCommand;
       const bool shift = held & NSEventModifierFlagShift;
