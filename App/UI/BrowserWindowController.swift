@@ -27,14 +27,22 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
     let navigationToolbar = NavigationToolbar()
     /// What the navigation controls offer for the selected tab; the toolbar and the menu items follow it.
     private(set) var navigationControls = NavigationControls.disabled
+    /// The window's permission prompts, anchored to `webView`.
+    let permissionPrompts: PermissionPrompts
 
     /// The tab `webView` shows, read back from the view so it always matches the screen (the view refuses a tab
     /// that is closing).
     var selectedTab: (any EngineTab)? { tabs.first { webView.isShowing($0) } }
 
     /// Opens `url` in a new centered window on `profile`, or in `window` when given (e2e runs pass an off-screen
-    /// one), which is not cascaded: the caller places it.
-    init(url: URL, profile: any EngineProfile, window givenWindow: BrowserWindow? = nil) {
+    /// one), which is not cascaded: the caller places it. Permission requests are answered from, and recorded in,
+    /// `permissions`, the profile's store.
+    init(
+        url: URL,
+        profile: any EngineProfile,
+        permissions: SitePermissionStore,
+        window givenWindow: BrowserWindow? = nil
+    ) {
         let window =
             givenWindow
             ?? BrowserWindow(
@@ -44,8 +52,10 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
                 defer: false
             )
         let contentSize = window.contentRect(forFrameRect: window.frame).size
-        webView = BowWebView(frame: NSRect(origin: .zero, size: contentSize))
+        let webView = BowWebView(frame: NSRect(origin: .zero, size: contentSize))
+        self.webView = webView
         self.profile = profile
+        permissionPrompts = PermissionPrompts(store: permissions, profile: profile, hostView: webView)
         window.title = "Bow"
         window.isReleasedWhenClosed = false
         window.contentView = Self.contentView(webView: webView, findBar: findBar)
@@ -100,6 +110,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
         webView.show(tab)
         // After showing it, so the keyboard the find bar gives back goes to the page now shown.
         if closesFind { closeFindBar() }
+        permissionPrompts.show(selectedTab)
         updateTitle()
         updateNavigationControls()
     }
@@ -124,8 +135,12 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
             }
         case .findResult(let result):
             if tab === findTab { findBar.show(result) }
+        case .didCommit:
+            // A prompt belongs to the page that asked; a new page asks again if it needs to.
+            permissionPrompts.dismissRequests(of: tab)
         case .closed:
             // A tab closes from this window, from quitting or from its page; the window follows its last tab.
+            permissionPrompts.dismissRequests(of: tab)
             tabClosed(tab)
         default:
             break
@@ -194,6 +209,11 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
         if hadKeyboard { webView.focusAttachedTab() }
     }
 
+    func tab(_ tab: any EngineTab, decidePermission request: PermissionRequest) async -> PermissionDecision {
+        guard tabs.contains(where: { $0 === tab }) else { return .dismiss }
+        return await permissionPrompts.decide(request, for: tab)
+    }
+
     private func tabClosed(_ tab: any EngineTab) {
         if tab === findTab { closeFindBar() }
         guard let index = tabs.firstIndex(where: { $0 === tab }) else { return }
@@ -201,6 +221,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
         if selectedTab == nil, !tabs.isEmpty {
             select(tabs[min(index, tabs.count - 1)])
         }
+        permissionPrompts.show(selectedTab)
         if tabs.isEmpty {
             window?.close()
         } else {

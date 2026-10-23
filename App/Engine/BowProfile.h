@@ -1,5 +1,7 @@
 #import <Foundation/Foundation.h>
 
+#import "BowTabUIRequests.h"
+
 @class BowTab;
 
 NS_ASSUME_NONNULL_BEGIN
@@ -17,6 +19,14 @@ NS_SWIFT_UI_ACTOR
 /// Creates a tab in this profile and starts loading `url`. The tab's ID is assigned now; it is not attached to
 /// any view until a `BowWebView` attaches it, and it lives until it is closed or the engine quits.
 - (BowTab *)createTabWithURL:(NSURL *)url NS_SWIFT_NAME(createTab(url:));
+
+/// Stores an answer to a permission prompt in this profile's content settings: allowed or blocked for each of
+/// `kinds` on the site `origin`. Chromium's own permission checks then agree with it (a page's
+/// `navigator.permissions.query` reads it, and Chromium does not prompt again for that kind). Kinds with no content
+/// setting (screen capture, other) are skipped. An in-memory profile keeps the setting only while it runs.
+- (void)setPermissionAllowed:(BOOL)allowed
+                    forKinds:(BowPermissionKind)kinds
+                      origin:(NSURL *)origin NS_SWIFT_NAME(setPermission(allowed:kinds:origin:));
 
 @end
 

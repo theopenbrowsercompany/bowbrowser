@@ -198,7 +198,7 @@ public final class SitePermissionStore {
             sites[site.origin] = Dictionary(uniqueKeysWithValues: kinds.map { ($0.key.rawValue, $0.value) })
         }
         let encoder = JSONEncoder()
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
         let data = try encoder.encode(FileContents(version: FileContents.currentVersion, sites: sites))
         try writer.write(data, to: fileURL)
     }

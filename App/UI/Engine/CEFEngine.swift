@@ -66,15 +66,21 @@ final class CEFProfile: EngineProfile {
     func createTab(url: URL) -> any EngineTab {
         CEFTab(profile.createTab(url: url))
     }
+
+    func setPermission(_ setting: SitePermissionSetting, for kind: PermissionKind, on site: PermissionSite) {
+        let kinds = BowPermissionRequest.Kind([kind])
+        guard !kinds.isEmpty else { return }
+        profile.setPermission(allowed: setting == .allow, kinds: kinds, origin: site.url)
+    }
 }
 
 /// One bridge tab as an `EngineTab`. The adapter is both of the bridge tab's delegates (navigation and UI) and
 /// merges what they report into `TabEvent` values for its one `EngineTabDelegate`. Whoever holds the adapter keeps
 /// receiving events; the page itself lives until it closes, held or not.
 ///
-/// JavaScript dialogs, permission prompts and context menus need answers the BowCore contract has no API for yet,
-/// so the adapter leaves those UI delegate methods out and the engine handles them its own way (its own dialogs,
-/// the tab's own "leave this site?" sheet, its own context menu).
+/// JavaScript dialogs and context menus need answers the BowCore contract has no API for yet, so the adapter leaves
+/// those UI delegate methods out and the engine handles them its own way (its own dialogs, the tab's own "leave
+/// this site?" sheet, its own context menu). Permission requests go to the delegate's `decidePermission`.
 @MainActor
 final class CEFTab: NSObject, EngineTab {
     /// Read only by the host view seam below, never by app logic.
@@ -174,6 +180,25 @@ extension CEFTab: BowTabUIDelegate {
                 FindResult(
                     matchCount: result.matchCount, activeMatch: result.activeMatch, isFinal: result.isFinalUpdate)))
     }
+
+    func tab(
+        _ tab: BowTab,
+        requestPermission request: BowPermissionRequest,
+        decisionHandler: @escaping (BowPermissionRequest.Decision) -> Void
+    ) {
+        let request = PermissionRequest(origin: request.requestingOrigin, kinds: Set(request.kinds))
+        Task { @MainActor [weak self] in
+            var decision = PermissionDecision.dismiss
+            if let self, let delegate = self.delegate {
+                decision = await delegate.tab(self, decidePermission: request)
+            }
+            switch decision {
+            case .allow: decisionHandler(.allow)
+            case .deny: decisionHandler(.deny)
+            case .dismiss: decisionHandler(.dismiss)
+            }
+        }
+    }
 }
 
 // The BowCore values of the bridge's values. The bridge mirrors them one to one.
@@ -222,6 +247,34 @@ extension PopupRequest {
             isUserGesture: request.isUserGesture,
             requestedSize: request.requestedSize.map { PopupSize(width: $0.width, height: $0.height) }
         )
+    }
+}
+
+// The bridge's permission kinds are an option set; BowCore's are a set of cases with the same names.
+private let permissionKinds: [(BowPermissionRequest.Kind, PermissionKind)] = [
+    (.camera, .camera),
+    (.microphone, .microphone),
+    (.screenCapture, .screenCapture),
+    (.geolocation, .geolocation),
+    (.notifications, .notifications),
+    (.clipboard, .clipboard),
+    (.midiSysex, .midiSysex),
+    (.storageAccess, .storageAccess),
+    (.windowManagement, .windowManagement),
+    (.localFonts, .localFonts),
+    (.other, .other),
+]
+
+extension Set where Element == PermissionKind {
+    fileprivate init(_ kinds: BowPermissionRequest.Kind) {
+        self.init(permissionKinds.filter { kinds.contains($0.0) }.map(\.1))
+    }
+}
+
+extension BowPermissionRequest.Kind {
+    fileprivate init(_ kinds: Set<PermissionKind>) {
+        self = []
+        for (bridgeKind, kind) in permissionKinds where kinds.contains(kind) { insert(bridgeKind) }
     }
 }
 

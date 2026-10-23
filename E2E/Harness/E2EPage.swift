@@ -102,6 +102,8 @@ protocol E2EPage: AnyObject {
     /// Opens the find bar of the page's window the way Edit > Find (Cmd+F) does, and returns it.
     /// Throws when the menu item is missing or the bar does not show.
     func openFindBar() throws -> any E2EFindBar
+    /// The permission prompt the page's window shows for this page now, or nil.
+    var permissionPrompt: E2EPermissionPrompt? { get }
     /// Calls a Chrome DevTools protocol method and returns its result object.
     func devTools(_ method: String, _ params: [String: Any]) async throws -> [String: Any]
     /// The view that shows the page's web content, for screenshots; nil while another tab of its window is shown
@@ -132,6 +134,30 @@ extension E2EPage {
             throw E2EError("\(expression) is \(value.map { "\($0)" } ?? "null"), not a string")
         }
         return string
+    }
+}
+
+/// A permission prompt on screen (off screen, in an e2e run) for one page.
+@MainActor
+struct E2EPermissionPrompt {
+    /// What the page asked for, by BowCore's names (camera, microphone, geolocation and others).
+    var kinds: Set<String>
+    /// The prompt's text.
+    var message: String
+    /// The prompt's frame in screen coordinates.
+    var frame: NSRect
+    /// Presses Allow (true) or Block (false), as a click on the button does.
+    var answer: (Bool) -> Void
+}
+
+extension E2EPage {
+    /// Waits until the page's permission prompt shows and returns it. The caller's step timeout bounds the wait.
+    func waitForPermissionPrompt() async throws -> E2EPermissionPrompt {
+        while true {
+            if let prompt = permissionPrompt { return prompt }
+            if isClosed { throw E2EError("the tab closed") }
+            try await Task.sleep(nanoseconds: 20_000_000)
+        }
     }
 }
 

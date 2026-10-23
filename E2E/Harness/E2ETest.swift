@@ -15,6 +15,7 @@ enum E2ETests {
     static let all: [any E2ETest] =
         AppTests.all + SandboxTests.all + InputTests.all + TabsTests.all + ProfilesTests.all + NavigationTests.all
         + FindTests.all
+        + PermissionsTests.all
 }
 
 /// Step timeouts shared by tests.
