@@ -9,6 +9,7 @@
 #include <cstring>
 #include <functional>
 #include <memory>
+#include <mutex>
 #include <set>
 #include <string>
 #include <vector>
@@ -111,14 +112,16 @@ const char kHeldPrefix[] = "/_held/";
 
 class HeldDownloadHandler;
 
-// The held downloads still running and the keys released so far. IO thread only, so they need no lock.
-std::vector<CefRefPtr<HeldDownloadHandler>>& LiveHeldDownloads() {
-  static auto* live = new std::vector<CefRefPtr<HeldDownloadHandler>>();
-  return *live;
-}
-std::set<std::string>& ReleasedHoldKeys() {
-  static auto* keys = new std::set<std::string>();
-  return *keys;
+// The held downloads still running and the keys released so far. Open and Read run on a worker sequence while Cancel
+// and the releases run on the IO thread (cef_resource_handler.h), so `mutex` guards these and every handler's state.
+struct HeldDownloads {
+  std::mutex mutex;
+  std::vector<CefRefPtr<HeldDownloadHandler>> live;
+  std::set<std::string> releasedKeys;
+};
+HeldDownloads& Held() {
+  static auto* held = new HeldDownloads();
+  return *held;
 }
 
 // A held download: an attachment named `fileName` that declares `length` bytes, sends its first chunk at once, then
@@ -132,8 +135,11 @@ class HeldDownloadHandler : public CefResourceHandler {
   const std::string& key() const { return key_; }
 
   bool Open(CefRefPtr<CefRequest> request, bool& handleRequest, CefRefPtr<CefCallback> callback) override {
-    released_ = ReleasedHoldKeys().count(key_) > 0;
-    LiveHeldDownloads().push_back(this);
+    {
+      std::lock_guard<std::mutex> lock(Held().mutex);
+      released_ = Held().releasedKeys.count(key_) > 0;
+      Held().live.push_back(this);
+    }
     handleRequest = true;
     return true;
   }
@@ -149,39 +155,49 @@ class HeldDownloadHandler : public CefResourceHandler {
 
   bool Read(void* dataOut, int bytesToRead, int& bytesRead, CefRefPtr<CefResourceReadCallback> callback) override {
     bytesRead = 0;
+    std::lock_guard<std::mutex> lock(Held().mutex);
     if (sent_ >= length_) {
-      Forget();
+      ForgetLocked();
       return false;
     }
     if (sent_ > 0 && !released_) {
-      // Held: the buffer stays valid until the callback runs, which ReleaseHold does.
+      // Held: the buffer stays valid until the callback runs, which ReleaseHold does. Checked and parked under one
+      // lock, so a release cannot slip in between and miss it.
       pendingData_ = dataOut;
       pendingSize_ = bytesToRead;
       pendingCallback_ = callback;
       return true;
     }
-    bytesRead = Fill(dataOut, sent_ == 0 && bytesToRead > kFirstChunk ? kFirstChunk : bytesToRead);
+    bytesRead = FillLocked(dataOut, sent_ == 0 && bytesToRead > kFirstChunk ? kFirstChunk : bytesToRead);
     return true;
   }
 
-  // Lets the download finish: a read waiting for the release continues now.
+  // Lets the download finish: a read waiting for the release continues now. The buffer is filled under the lock, so
+  // a Cancel cannot come first, and the callback runs outside it, since it may call Read again.
   void ReleaseHold() {
-    released_ = true;
-    if (!pendingCallback_) return;
-    CefRefPtr<CefResourceReadCallback> callback = pendingCallback_;
-    pendingCallback_ = nullptr;
-    callback->Continue(Fill(pendingData_, pendingSize_));
+    CefRefPtr<CefResourceReadCallback> callback;
+    int bytes = 0;
+    {
+      std::lock_guard<std::mutex> lock(Held().mutex);
+      released_ = true;
+      if (!pendingCallback_) return;
+      callback = pendingCallback_;
+      pendingCallback_ = nullptr;
+      bytes = FillLocked(pendingData_, pendingSize_);
+    }
+    callback->Continue(bytes);
   }
 
   void Cancel() override {
+    std::lock_guard<std::mutex> lock(Held().mutex);
     pendingCallback_ = nullptr;
-    Forget();
+    ForgetLocked();
   }
 
  private:
   static constexpr int kFirstChunk = 1024;
 
-  int Fill(void* dataOut, int size) {
+  int FillLocked(void* dataOut, int size) {
     const int64_t left = length_ - sent_;
     const int chunk = left < size ? static_cast<int>(left) : size;
     memset(dataOut, 'x', chunk);
@@ -189,16 +205,17 @@ class HeldDownloadHandler : public CefResourceHandler {
     return chunk;
   }
 
-  // Leaves the live list once the download has ended or was cancelled, so nothing keeps the handler.
-  void Forget() {
-    auto& live = LiveHeldDownloads();
+  // Leaves the live list once the download has ended or was cancelled, so nothing keeps the handler. The caller holds
+  // the lock, and CEF still holds the handler, so this never drops its last reference.
+  void ForgetLocked() {
+    auto& live = Held().live;
     live.erase(std::remove(live.begin(), live.end(), CefRefPtr<HeldDownloadHandler>(this)), live.end());
   }
 
   const std::string key_;
   const std::string fileName_;
   const int64_t length_;
-  // Read, ReleaseHold and Cancel all run on the IO thread.
+  // Guarded by Held().mutex.
   int64_t sent_ = 0;
   bool released_ = false;
   void* pendingData_ = nullptr;
@@ -220,20 +237,28 @@ class FunctionTask : public CefTask {
   IMPLEMENT_REFCOUNTING(FunctionTask);
 };
 
-// Releases the held downloads with `key`, and those that start with it later. IO thread only.
+// Releases the held downloads with `key`, and those that start with it later.
 void ReleaseHeldOnIO(const std::string& key) {
-  ReleasedHoldKeys().insert(key);
-  const auto live = LiveHeldDownloads();
+  std::vector<CefRefPtr<HeldDownloadHandler>> live;
+  {
+    std::lock_guard<std::mutex> lock(Held().mutex);
+    Held().releasedKeys.insert(key);
+    live = Held().live;
+  }
   for (const auto& handler : live) {
     if (handler->key() == key) handler->ReleaseHold();
   }
 }
 
-// Releases every held download and forgets the released keys, so the next test starts with none. IO thread only.
+// Releases every held download and forgets the released keys, so the next test starts with none.
 void ReleaseAllHeldOnIO() {
-  const auto live = LiveHeldDownloads();
+  std::vector<CefRefPtr<HeldDownloadHandler>> live;
+  {
+    std::lock_guard<std::mutex> lock(Held().mutex);
+    Held().releasedKeys.clear();
+    live = Held().live;
+  }
   for (const auto& handler : live) handler->ReleaseHold();
-  ReleasedHoldKeys().clear();
 }
 
 // Answers with no body: with `status` (a 302 redirect to `location`, or a 204), or, when `status` is 0, a failed
