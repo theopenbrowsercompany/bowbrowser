@@ -85,6 +85,14 @@ case "$*" in
         echo "E2E: FAIL $((n - 1))/$n repeats passed; failed: repeat 3"
         exit 2
         ;;
+      8) # a changed test's quit check fails after its RESULT line said pass, then a filler test fails
+        echo "REPEAT smoke.a $((n - 1))/$n"
+        echo "RESULT x.one pass seconds=1 checks=1/1 quit=pending"
+        echo "FAIL x.one.quit: it failed"
+        echo "RESULT smoke.a fail seconds=1 checks=0/1"
+        echo "E2E: FAIL $((n - 1))/$n repeats passed; failed: repeat 3"
+        exit 2
+        ;;
       7) # a filler test fails but make's summary is not a FAIL naming repeats
         echo "REPEAT smoke.a $((n - 1))/$n"
         echo "FAIL smoke.a.check: it failed"
@@ -270,6 +278,9 @@ out=$(run 0 0 6)
 has "a check printed before a changed test's RESULT line is the changed test's" "$out" \
   "FAIL (check smoke.a.shared is a changed test's or no test's)"
 has "a changed test's other-named check exits 1" "$out" "exit=1"
+out=$(run 0 0 8)
+has "a changed test's check printed after its passing RESULT line is not excused by a later filler" "$out" \
+  "FAIL (check x.one.quit is a changed test's or no test's)"
 out=$(run 0 0 7)
 has "a filler failure with a summary that does not name repeats fails the run" "$out" "changed tests, repeated: FAIL (FAIL killed)"
 # Three changed tests fill the 3 shards: no smoke padding.

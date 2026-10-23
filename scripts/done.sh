@@ -145,6 +145,9 @@ repeat_gate() {
       if (nc == 0) { print "fail repeats failed with no FAIL line to attribute"; exit }
       for (i = 1; i <= nc; i++) {
         owner = owned[i]
+        # When in doubt, fail: a check named after a changed test is its own whatever RESULT line follows it (a quit
+        # check prints its FAIL after its test passed, and short output leaves out a passing test'"'"'s RESULT line).
+        for (t in mine) if (checks[i] == t || index(checks[i], t ".") == 1) { print "fail check " checks[i] " is a changed test'"'"'s or no test'"'"'s"; exit }
         if (owner == "") {
           for (t in low) if ((checks[i] == t || index(checks[i], t ".") == 1) && length(t) > length(owner)) owner = t
           for (t in seen) if ((checks[i] == t || index(checks[i], t ".") == 1) && length(t) > length(owner)) owner = t
