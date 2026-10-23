@@ -37,7 +37,9 @@ Start every session in `~/code/GitHub/bowbrowser`: the maintainer's `.claude/set
 - `make e2e`: build Debug and run the e2e tests in the real app (`make e2e E2E=app.quit` runs one).
   `E2E` takes `all`, or a comma separated list of test names, areas (`tabs`, the part of a name before the first dot), globs (`'tabs.*'`) and tags (`smoke`); `E2E=list` prints one `TEST <name> area=<area> tags=<tags> checks=<checks>` line per test and runs nothing.
   Agents use it, not `make smoke`, for "Done when" checks: the window stays off screen, the app never takes focus or shows in the Dock, the profile and settings are throwaway, the network is blocked, and it runs from any worktree, beside a normal Bow and while other worktrees build.
-  It prints one `PASS <check>` or `FAIL <check>: <reason>` line per check, one `RESULT <test> pass|fail|timeout seconds=<s> checks=<passed>/<n>` line per test, and a final `E2E: PASS n/n` (or `E2E: FAIL passed/n`) line, also saved in `build/e2e/<run>/report.txt`.
+  `make e2e-run` does the same without building, to rerun the last build (for example a test that looked like load).
+  Both run the app through `scripts/e2e.sh`, which writes `build/e2e/<run>/`, points `build/e2e/latest` at it and keeps the newest 20 runs (`E2E_KEEP`).
+  It prints one `PASS <check>` or `FAIL <check>: <reason>` line per check, one `RESULT <test> pass|fail|timeout seconds=<s> checks=<passed>/<n>` line per test, and a final `E2E: PASS n/n` (or `E2E: FAIL passed/n`) line, also saved in `build/e2e/<run>/report.txt`, and always ends with one summary line, also written with every check and test to `build/e2e/<run>/results.json` (with the commit, a dirty flag and the load average).
   Each test declares its checks (`checks` in `E2ETest`, default its name), and a test that stops early still prints `FAIL <check>: not run` for the rest, so the total never depends on how far tests got; a check a test does not declare fails.
   Record each check once per test: a check recorded again fails once, printing a FAIL line that overrides its PASS without changing the total, and so does the last recorded check when the test throws after recording every check (the RESULT line then carries `error="<step>: <reason>"`).
   `e2e.isolation` and `chromium.errors` belong to the runner, and a test may not declare them.
@@ -47,16 +49,21 @@ Start every session in `~/code/GitHub/bowbrowser`: the maintainer's `.claude/set
   Each test gets a fresh in-memory profile (`openWindow(at:)`; `profile: .appDefault` asks for the shared default profile), and afterwards the runner closes its windows and the `e2e.isolation` check fails if any browser, popups included, is left open.
   `app.quit` (the test with `quitsApp`) always runs last and keeps its window, so quitting is timed with only that window open.
   A failing test leaves `build/e2e/<run>/<test>/log.txt` (each step's duration and limit) and `fail.png`; the last test leaves `build/e2e/<run>/final.png`: its window, AppKit chrome and web content together, as evidence to look at, not to compare pixels.
-  Exit code 0 means every check passed, 1 a check failed, 2 the main thread stopped answering for 10 seconds (or engine start or quit hung): the run prints `E2E: TIMEOUT <test>: <step> (...)` and `NOT RUN <test>` for each test left, writes a stack sample to `build/e2e/<run>/hang.txt`, and exits.
+  When the main thread stops answering for 10 seconds (or engine start or quit hangs), the run prints `E2E: TIMEOUT <test>: <step> (...)` and `NOT RUN <test>` for each test left, writes a stack sample to `build/e2e/<run>/hang.txt`, and exits.
+  A failed or timed out run is retried once in a fresh app, in `build/e2e/<run>/retry/` (`E2E_RETRY=0` turns this off).
+  Exit codes and their last lines:
+  0 `E2E: PASS n/n`; 1 `E2E: FAIL passed/n`, a check failed again on the retry; 2 `E2E: TIMEOUT <step>`, the main thread was stuck again; 3 `E2E: FLAKY ...`, failed then passed on the retry, which is not a pass: report it with the `FLAKY <test>` lines; 4 `E2E: CRASH exit=<code> ...`, the app ended without a summary line (a crash or Chromium's own watchdog); 64 `E2E: ERROR ...`, the run could not start (an unknown test, no build).
   A failed run keeps its profile in the run folder.
+  After each run the wrapper ends any process left running with the run folder in its arguments (Chromium's helpers carry it), and says how many it ended.
+  `make test-e2e-wrapper` tests the wrapper with a fake app.
   Everything the app and Chromium write to stderr goes to `build/e2e/<run>/chromium.log`, also after a timeout.
   After quitting (or timing out), the run echoes the lines that are not Chromium log lines (such as `quit: seconds=`) and every Chromium ERROR or FATAL line, except the known harmless ones listed with their reasons in `E2E/Harness/E2EChromiumLog.swift`; the `chromium.errors` check fails when any other ERROR or FATAL line is left.
-  When the app ends without an `E2E:` line instead (a crash or a failed engine start), `make e2e` prints the end of `chromium.log`.
+  When a run ends any other way than PASS or FAIL (a timeout, a crash, a failed engine start), `make e2e` prints the end of `chromium.log`.
   Add to that list only a message shown to be harmless, with its cause and evidence.
   Lines still under investigation sit apart in its temporary list, counted as `temporary=` in the check's line, and come out once their cause is found.
 - `make smoke`: build, open the app in a background window on one page (`make smoke SMOKE_URL=https://example.org` picks it), print the load status and title, quit.
   The window appears on the maintainer's screen, so run it only when the maintainer asks; the lead runs it for agents working in parallel.
-- `make verify`: lint, guards (`make guards`: the e2e seam check in `scripts/check-e2e-seams.sh` and the Swift header check in `scripts/check-swift-headers.sh`), tests and the Debug build.
+- `make verify`: lint, guards (`make guards`: the e2e seam check in `scripts/check-e2e-seams.sh` and the Swift header check in `scripts/check-swift-headers.sh`), tests (BowCore and `make test-e2e-wrapper`) and the Debug build.
   A change is done when this and its end-to-end check pass.
 - `make release`: a Release build that must carry no e2e harness code or fixtures. It is not part of `make verify`; the lead runs it once per branch before merging.
 - Builds take turns: every `xcodebuild` the Makefile runs goes through `scripts/build-lock.sh`, which leases one of `BOW_BUILD_SLOTS` slots (default 5) shared by all worktrees, queues waiting builds in arrival order (unless the priority file below says otherwise), and frees a slot when its build ends, fails or is interrupted (after a `kill -9` of the script, the orphaned build keeps the slot until it ends).
@@ -69,6 +76,7 @@ Start every session in `~/code/GitHub/bowbrowser`: the maintainer's `.claude/set
   A detached HEAD or a directory outside a checkout counts as unlisted.
   Xcode's compilation cache is shared too, in `~/Library/Caches/bowbrowser/compile-cache` (set in `project.yml`); it is not pruned, so delete the folder if it grows large.
   `BOW_BUILD_JOBS` caps the parallel compile jobs of each build (default 6).
+  An unchanged build skips recopying and re-signing the CEF framework and helpers (a stamp in `scripts/package-cef.sh`), and `make project` runs XcodeGen with its cache, so a no-change `make build` takes about a second.
   A waiting build prints one line saying so, with its rank (`priority 1 of 3` or `unlisted`), and again if a reorder changes that rank; just let it wait.
   Never run two `make e2e` at once in the same worktree: their build steps race in `package-cef.sh`.
   `make test-lock` tests the lock.
