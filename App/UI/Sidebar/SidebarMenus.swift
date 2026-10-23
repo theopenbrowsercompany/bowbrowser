@@ -39,8 +39,8 @@ protocol SidebarActionContext: AnyObject {
 /// Context menu items for sidebar items of some kinds.
 ///
 /// Extension point: a new set of items (Pin and Unpin, folder actions, Favorite actions) is one new file with a type
-/// conforming to this protocol plus one line in `SidebarMenus.all`. The menu lists each provider's items in list
-/// order, with a separator between providers.
+/// conforming to this protocol plus one line in `SidebarMenus.all` (`SidebarMenuList.swift`). The menu lists each
+/// provider's items in list order, with a separator between providers.
 @MainActor
 protocol SidebarMenuItems {
     /// The kinds of item this provider adds to.
@@ -49,15 +49,7 @@ protocol SidebarMenuItems {
     static func menuItems(for item: SidebarItemID, context: any SidebarActionContext) -> [NSMenuItem]
 }
 
-/// Every provider of sidebar context menu items, in menu order. One entry per line.
-@MainActor
-enum SidebarMenus {
-    // swift-format-ignore
-    // (a one-entry list keeps its trailing comma, so each provider stays one line.)
-    static let all: [any SidebarMenuItems.Type] = [
-        CloseTabMenuItems.self,
-    ]
-
+extension SidebarMenus {
     /// The context menu of `item`: each provider's items for its kind, separated by provider.
     static func menu(for item: SidebarItemID, context: any SidebarActionContext) -> [NSMenuItem] {
         guard let kind = SidebarItemKind(of: item, in: context.graph) else { return [] }

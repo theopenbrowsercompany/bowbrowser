@@ -6,3 +6,6 @@ App/UI/Window/WindowFeatures.swift merge=union
 App/UI/App/AppFeatures.swift merge=union
 E2E/Tests/E2EAreas.swift merge=union
 App/Engine/Bow-Bridging-Header.h merge=union
+App/UI/Sidebar/SidebarSectionList.swift merge=union
+App/UI/Sidebar/SidebarMenuList.swift merge=union
+App/UI/Sidebar/SidebarDropRuleList.swift merge=union

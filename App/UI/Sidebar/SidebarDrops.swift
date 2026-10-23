@@ -29,22 +29,15 @@ enum SidebarDropVerdict: Equatable, Sendable {
 /// One rule about where sidebar items may be dropped.
 ///
 /// Extension point: a new rule (dragging into Favorites, into a split) is one new file with a type conforming to
-/// this protocol plus one line in `SidebarDropValidators.all`. A drop goes through when no validator refuses it;
-/// the store's own rules (what a parent can hold, commit-time repair of splits) still apply when it is made.
+/// this protocol plus one line in `SidebarDropValidators.all` (`SidebarDropRuleList.swift`). A drop goes through
+/// when no validator refuses it; the store's own rules (what a parent can hold, commit-time repair of splits) still
+/// apply when it is made.
 @MainActor
 protocol SidebarDropValidator {
     static func validate(_ drop: SidebarDrop, in graph: SidebarGraph) -> SidebarDropVerdict
 }
 
-/// Every drop rule. One entry per line.
-@MainActor
-enum SidebarDropValidators {
-    static let all: [any SidebarDropValidator.Type] = [
-        StructureDropValidator.self,
-        FavoritesDropValidator.self,
-        SplitTabDropValidator.self,
-    ]
-
+extension SidebarDropValidators {
     /// Whether `drop` may happen: no validator refuses it.
     static func allows(_ drop: SidebarDrop, in graph: SidebarGraph) -> Bool {
         all.allSatisfy { $0.validate(drop, in: graph) != .refuse }
@@ -100,6 +93,8 @@ extension SidebarDrop {
             let isTab = graph[item]?.data.isTab
         else { return false }
         let index = storeIndex(in: graph)
+        // Dropped where it already is: nothing to save or redraw.
+        if graph[item]?.parentID == parent, graph[parent]?.childrenIDs.firstIndex(of: item) == index { return true }
         let wasPinned = graph.isDescendant(item, of: space.pinnedContainerID)
         let toPinned = graph.isDescendant(parent, of: space.pinnedContainerID)
         let crosses = wasPinned != toPinned

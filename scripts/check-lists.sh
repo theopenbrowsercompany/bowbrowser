@@ -1,8 +1,9 @@
 #!/bin/sh
 # Checks the registration lists that git merges by union (see .gitattributes). A union merge keeps every line both
 # sides added, so these lists stay one entry per line, and this check fails on what a merge can get wrong:
-#   - the Swift lists (WindowFeatures, AppFeatures, E2EAreas): a line inside the `static let all ... = [` literal
-#     that is not exactly one `Name.self,` or `Name.all,` entry, or the same entry twice;
+#   - the Swift lists (WindowFeatures, AppFeatures, E2EAreas, and the sidebar's section, menu and drop rule lists): a
+#     line inside the `static let all ... = [` literal that is not exactly one `Name.self,` or `Name.all,` entry, or
+#     the same entry twice;
 #   - the bridging header: an #import line that is not one `#import "File.h"` (with an optional // comment), or
 #     the same header imported twice;
 #   - the e2e tests: two tests with the same `let name = "..."` in E2E/Tests (the form every test uses; the runner's
@@ -11,7 +12,8 @@ set -eu
 
 cd "$(dirname "$0")/.."
 
-swift_lists="App/UI/Window/WindowFeatures.swift App/UI/App/AppFeatures.swift E2E/Tests/E2EAreas.swift"
+swift_lists="App/UI/Window/WindowFeatures.swift App/UI/App/AppFeatures.swift E2E/Tests/E2EAreas.swift
+  App/UI/Sidebar/SidebarSectionList.swift App/UI/Sidebar/SidebarMenuList.swift App/UI/Sidebar/SidebarDropRuleList.swift"
 header=App/Engine/Bow-Bridging-Header.h
 failed=0
 
