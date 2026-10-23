@@ -170,11 +170,12 @@ final class SpaceSwitcher: SidebarAccessory {
         var id: SidebarSpaceID
         var title: String
         var icon: SpaceIcon?
+        var theme: SpaceTheme?
         var isActive: Bool
     }
 
     init() {
-        let stack = NSStackView()
+        let stack = SpaceSwitcherStack()
         stack.orientation = .horizontal
         stack.spacing = 2
         stack.edgeInsets = NSEdgeInsets(top: 8, left: 0, bottom: 0, right: 0)
@@ -194,12 +195,22 @@ final class SpaceSwitcher: SidebarAccessory {
         newSpaceButton.identifier = NSUserInterfaceItemIdentifier("new-space")
         newSpaceButton.target = self
         newSpaceButton.action = #selector(newSpaceClicked(_:))
-        let spacer = NSView()
-        spacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        // Two equal spacers centre the dots between the footer buttons on the left and the "+" on the right.
+        let leadingSpacer = NSView()
+        let trailingSpacer = NSView()
+        for spacer in [leadingSpacer, trailingSpacer] {
+            spacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
+            spacer.translatesAutoresizingMaskIntoConstraints = false
+        }
+        stack.addArrangedSubview(leadingSpacer)
         stack.addArrangedSubview(icons)
-        stack.addArrangedSubview(spacer)
+        stack.addArrangedSubview(trailingSpacer)
         stack.addArrangedSubview(newSpaceButton)
+        stack.balance = leadingSpacer.widthAnchor.constraint(equalTo: trailingSpacer.widthAnchor)
+        // Below required, so a crowded footer gives this up before it clips a dot.
+        stack.balance.priority = .defaultHigh
         NSLayoutConstraint.activate([
+            stack.balance,
             newSpaceButton.widthAnchor.constraint(equalToConstant: 24),
             newSpaceButton.heightAnchor.constraint(equalToConstant: 24),
         ])
@@ -209,7 +220,7 @@ final class SpaceSwitcher: SidebarAccessory {
         self.context = context
         let graph = content.graph
         let next = graph.spaces.map {
-            Shown(id: $0.id, title: $0.title, icon: $0.icon, isActive: $0.id == graph.activeSpaceID)
+            Shown(id: $0.id, title: $0.title, icon: $0.icon, theme: $0.theme, isActive: $0.id == graph.activeSpaceID)
         }
         guard next != shown else { return }
         shown = next
@@ -240,11 +251,12 @@ final class SpaceSwitcher: SidebarAccessory {
                 NSImage(systemSymbolName: $0.value, accessibilityDescription: space.title)
             }
         case nil:
-            // Arc's default: a dot per Space. The one on screen is Jam with an Apricot ring, the frame showing in the
-            // 2 point gap between them; the others are Soft.
+            // Arc's default: a dot per Space. The one on screen has an Apricot ring, the frame showing in the 2 point
+            // gap between them. A Space with a theme shows its theme color; the default theme is Jam on screen and
+            // Soft otherwise.
             button.image = Self.dotImage
             button.imageScaling = .scaleNone
-            button.contentTintColor = space.isActive ? BowBrand.accent : BowBrand.soft
+            button.contentTintColor = Self.dotColor(theme: space.theme, isActive: space.isActive)
             button.wantsLayer = true
             button.layer?.cornerRadius = Self.dotButtonSize / 2
             button.layer?.borderWidth = space.isActive ? Self.ringWidth : 0
@@ -253,7 +265,10 @@ final class SpaceSwitcher: SidebarAccessory {
         if button.image == nil, button.title.isEmpty { button.title = String(space.title.prefix(1)) }
         button.makeMenu = { [weak self] in
             guard let self, let context = self.context else { return [] }
-            return SpaceActions.menuItems(for: space.id, context: context) { [weak self] in self?.view.window }
+            let actions = SpaceActions.menuItems(for: space.id, context: context) { [weak self] in self?.view.window }
+            // As in Arc, the dot's menu also sets the Space's theme and icon.
+            guard let current = context.graph.space(space.id) else { return actions }
+            return actions + [NSMenuItem.separator()] + SpaceThemeMenuItems.menuItems(for: current, context: context)
         }
         // A dot keeps its round ring; an emoji or symbol may narrow when many Spaces share the footer.
         let isDot = space.icon == nil
@@ -274,6 +289,14 @@ final class SpaceSwitcher: SidebarAccessory {
     static let dotButtonSize: CGFloat = dotSize + 2 * (2 + ringWidth)
     static let iconSpacing: CGFloat = 4
 
+    /// A dot's color: the Space's theme color when it has one, else Jam on screen and Soft otherwise.
+    static func dotColor(theme: SpaceTheme?, isActive: Bool) -> NSColor {
+        if let color = theme?.primaryColor {
+            return NSColor(srgbRed: color.red, green: color.green, blue: color.blue, alpha: 1)
+        }
+        return isActive ? BowBrand.accent : BowBrand.soft
+    }
+
     /// The dot: a filled circle exactly `dotSize` across, tinted by its button.
     static let dotImage: NSImage = {
         let image = NSImage(size: NSSize(width: dotSize, height: dotSize), flipped: false) { rect in
@@ -293,6 +316,31 @@ final class SpaceSwitcher: SidebarAccessory {
     @objc private func newSpaceClicked(_ sender: Any?) {
         guard let context else { return }
         SpaceActions.create(context: context)
+    }
+}
+
+/// The switcher's row. Its two spacers are kept equal in width, less what the row's own spacing and the gap to the
+/// view before it in a stack add on each side, so the dots sit exactly midway between that view's trailing edge
+/// and the "+" button.
+@MainActor
+private final class SpaceSwitcherStack: NSStackView {
+    var balance = NSLayoutConstraint()
+
+    override func layout() {
+        let gap = precedingGap
+        // Left of the dots: the gap, the leading spacer and one spacing; right of them: two spacings and the trailing
+        // spacer.
+        let constant = spacing - gap
+        if balance.constant != constant { balance.constant = constant }
+        super.layout()
+    }
+
+    /// The spacing of the stack this row sits in after another view, 0 when it is first or sits in no stack.
+    private var precedingGap: CGFloat {
+        guard let stack = superview as? NSStackView, let index = stack.arrangedSubviews.firstIndex(of: self),
+            index > 0
+        else { return 0 }
+        return stack.spacing
     }
 }
 

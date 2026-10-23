@@ -42,20 +42,18 @@ public enum StartScreen {
         quickLinks(from: graph.activeFavoriteIDs.filter { graph[$0]?.tab != nil })
     }
 
-    /// The hint under the screen: "<Space> · <N> tabs · press ⌘T to search", with "1 tab" singular. The name is
-    /// trimmed, cut to `hintNameLimit` characters with an ellipsis, and reads "Space" when it is empty.
-    public static func hint(spaceName: String, tabCount: Int) -> String {
+    /// The hint under the screen: "<Space> · press ⌘T to search". The screen only shows in an empty Space, so it
+    /// carries no tab count. The name is trimmed, cut to `hintNameLimit` characters with an ellipsis, and reads
+    /// "Space" when it is empty.
+    public static func hint(spaceName: String) -> String {
         let trimmed = spaceName.trimmingCharacters(in: .whitespacesAndNewlines)
         var name = trimmed.isEmpty ? "Space" : trimmed
         if name.count > hintNameLimit { name = String(name.prefix(hintNameLimit - 1)) + "\u{2026}" }
-        let count = max(tabCount, 0)
-        let tabs = count == 1 ? "1 tab" : "\(count) tabs"
-        return "\(name) \u{00B7} \(tabs) \u{00B7} press \u{2318}T to search"
+        return "\(name) \u{00B7} press \u{2318}T to search"
     }
 
-    /// The hint for Space `space` in `graph`: its name and the number of tabs it lists (pinned and today, folders
-    /// included; Favorites belong to the profile and are not counted).
+    /// The hint for Space `space` in `graph`: its name.
     public static func hint(for space: SidebarSpaceID, in graph: SidebarGraph) -> String {
-        hint(spaceName: graph.space(space)?.title ?? "", tabCount: graph.tabIDs(in: space).count)
+        hint(spaceName: graph.space(space)?.title ?? "")
     }
 }

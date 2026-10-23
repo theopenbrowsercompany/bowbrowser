@@ -37,4 +37,8 @@ struct E2EFontsLook {
     var spaceName: E2EFontInfo?
     var commandBarField: E2EFontInfo?
     var emptyStateLine: E2EFontInfo?
+    /// The first folder row's name, and the first command bar result row's title and detail lines.
+    var folderRow: E2EFontInfo?
+    var commandBarRowTitle: E2EFontInfo?
+    var commandBarRowDetail: E2EFontInfo?
 }

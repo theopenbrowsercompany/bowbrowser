@@ -28,6 +28,8 @@ extension E2ETestApp: E2EFontsApp {
             spaceName?.attributedStringValue.attribute(
                 .font, at: 0, effectiveRange: nil) as? NSFont
         let empty = controller.e2eEmptySpace
+        let folderRow = E2EAppAdapter.views(in: sidebar.outlineView, SidebarGroupRow.self).first
+        let barRow = controller.feature(CommandBarFeature.self)?.panel.rows.first
         return E2EFontsLook(
             nunitoRegistered: families.contains(BowBrand.uiFamily),
             fredokaRegistered: families.contains(BowBrand.displayFamily),
@@ -47,6 +49,9 @@ extension E2ETestApp: E2EFontsApp {
             spaceName: info(spaceFont),
             commandBarField: info(controller.feature(CommandBarFeature.self)?.panel.field.font),
             emptyStateLine: empty.window == nil || empty.isHiddenOrHasHiddenAncestor
-                ? nil : info(empty.showsUnloadedTab ? empty.messageLabel.font : empty.startScreen.hintLabel.font))
+                ? nil : info(empty.showsUnloadedTab ? empty.messageLabel.font : empty.startScreen.hintLabel.font),
+            folderRow: info(folderRow?.titleField.font),
+            commandBarRowTitle: info(barRow?.titleLabel.font),
+            commandBarRowDetail: info(barRow?.detailLabel.font))
     }
 }
