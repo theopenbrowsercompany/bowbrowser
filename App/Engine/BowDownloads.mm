@@ -262,12 +262,12 @@ class BowDownloadHandler : public CefDownloadHandler {
 - (BowDownloadItem*)snapshot:(CefRefPtr<CefDownloadItem>)item {
   const uint32_t downloadID = item->GetId();
   BowDownloadState state = ToState(item);
-  NSString* fullPath = nil;
+  // A finished download reports the file Chromium actually wrote, which can differ from the one chosen (Chromium
+  // may number or rename it); until then, the chosen file.
+  NSString* fullPath = state == BowDownloadStateComplete ? ToNSString(item->GetFullPath()) : nil;
   auto destination = _destinations.find(downloadID);
-  if (destination != _destinations.end()) {
+  if (fullPath.length == 0 && destination != _destinations.end()) {
     fullPath = [NSString stringWithUTF8String:destination->second.c_str()];
-  } else if (state == BowDownloadStateComplete) {
-    fullPath = ToNSString(item->GetFullPath());
   }
   NSString* url = ToNSString(item->GetURL());
   return [[BowDownloadItem alloc] initWithDownloadID:downloadID
