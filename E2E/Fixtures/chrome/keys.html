@@ -1,0 +1,12 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Chrome keys</title>
+<script>
+  // Every key the page sees. The page tries to act on Cmd+Shift+C itself, as a web app might.
+  window.keyDowns = [];
+  addEventListener('keydown', (event) => {
+    keyDowns.push((event.metaKey ? 'Meta+' : '') + (event.shiftKey ? 'Shift+' : '') + event.key);
+    if (event.metaKey && event.key.toLowerCase() === 'c') event.preventDefault();
+  }, true);
+</script>
+<input id="field" style="width: 300px; height: 40px" placeholder="Type here">

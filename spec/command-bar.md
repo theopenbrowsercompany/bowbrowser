@@ -15,6 +15,12 @@ Everyone who browses uses it, mostly through Cmd+T and Cmd+L.
 - Escape, a click anywhere outside the panel, or View > Close Command Bar closes the bar and changes nothing: no tab is opened, no page is loaded.
 - The shortcuts work even when the page has keyboard focus, and the page never sees them; Escape is taken from the page only while the bar is open.
 - Escape has no shortcut in the menu: a menu item takes its key even while it is disabled, which would take Escape from the find bar and from pages.
+- Cmd+Shift+C (Edit > Copy Current URL) copies the shown page's address to the pasteboard, as a link and as plain text, and shows a small rounded "Copied URL" label near the bottom of the page that fades after about a second and a half.
+  Like Cmd+T and Cmd+L it is taken before the page, so a page that handles the key itself never sees it.
+  A blank tab, an internal page or an empty Space has no address to copy: nothing is copied, no label shows and the menu item is disabled.
+  A second press restarts the one label; the label goes with the window.
+  The address is copied as it is (Arc's Supercopy also strips tracking parameters; Bow does not yet).
+  `make e2e E2E=chrome` checks it (`PASS chrome.copy`, `chrome.copy.twice`, `chrome.copy.fade`, `chrome.copy.page-key`, `chrome.copy.blank`, `chrome.copy.window-close`).
 - Each window has its own bar; opening, typing in or closing one leaves the bars of other windows as they are.
 - Up and Down move the highlighted row, and Enter or a click chooses it.
   Typed text highlights the best row, also when a slower source's answer puts a better row first; a row picked with an arrow key stays picked while the list updates.

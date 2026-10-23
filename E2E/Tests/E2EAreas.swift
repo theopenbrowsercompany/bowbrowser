@@ -30,5 +30,6 @@ enum E2EAreas {
         CommandBarTests.all,
         UnloadTests.all,
         DesignTests.all,
+        ChromeTests.all,
     ]
 }

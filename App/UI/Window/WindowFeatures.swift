@@ -18,5 +18,6 @@ enum WindowFeatures {
         ContextMenuFeature.self,
         TabUnloadFeature.self,
         WindowLookFeature.self,
+        CopyURLFeature.self,
     ]
 }
