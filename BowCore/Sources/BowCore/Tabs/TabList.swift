@@ -11,8 +11,7 @@ public enum TabInsertion: Equatable, Sendable, Codable {
 ///
 /// Invariants, kept by every operation and checked when decoding: tab IDs are unique, and the active ID
 /// is nil or names a tab in the list. An empty list has no active tab; a list with tabs may have none
-/// too, as a window does when its Space on screen has no tab of its own selected but still lists the
-/// Favorites it shows.
+/// too.
 public struct TabList: Equatable, Sendable {
     public private(set) var tabs: [BrowserTab]
     public private(set) var activeID: BrowserTabID?
@@ -53,8 +52,8 @@ public struct TabList: Equatable, Sendable {
     }
 
     /// Opens a tab. By default it becomes the active tab; pass `activate: false` for a background
-    /// tab, which still becomes active when no tab is. Returns nil, changing nothing, when a tab with
-    /// the same ID is already in the list.
+    /// tab, which still becomes active when it is the list's only tab. Returns nil, changing nothing,
+    /// when a tab with the same ID is already in the list.
     @discardableResult
     public mutating func open(
         _ tab: BrowserTab = BrowserTab(),
@@ -68,8 +67,8 @@ public struct TabList: Equatable, Sendable {
         case .end: position = tabs.count
         }
         tabs.insert(tab, at: position)
-        // A list with no active tab gets one, as the first tab of an empty list always did.
-        if activate || activeID == nil {
+        // The first tab of an empty list is always active.
+        if activate || tabs.count == 1 {
             activeID = tab.id
         }
         return tab.id
