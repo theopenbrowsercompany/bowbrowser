@@ -57,5 +57,6 @@ The person reads the page and closes the window, or moves the page into a Space 
 ## Out of scope
 
 - Making Bow the default browser (a separate item).
-- A settings window for the setting, a global hotkey that opens an empty Little Arc, Option+Command+click and routing rules whose destination is Little Arc (see `spec/link-routing.md`).
+- A settings window for the setting, a global hotkey that opens an empty Little Arc and Option+Command+click.
+  Routing rules whose destination is Little Arc are in `spec/link-routing.md`.
 - Choosing Little Arc's profile from its toolbar, its downloads tray, auto archiving Little Arc windows and remembering a window size the person chose.
