@@ -15,5 +15,6 @@ enum E2EAreas {
         SidebarViewTests.all,
         ImportTests.all,
         DownloadsTests.all,
+        StoreTests.all,
     ]
 }
