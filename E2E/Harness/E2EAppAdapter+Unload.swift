@@ -60,11 +60,13 @@ extension E2ETestApp: E2EUnloadApp {
         let tab = controller.engineTab(for: row.id).flatMap { $0.isClosed ? nil : $0 }
         let state = tab?.state
         // What the row draws whenever it is shown again (a drawn row keeps its icon until its tab changes).
-        let hasFavicon =
-            controller.sidebarItemID(for: row.id).flatMap { controller.e2eSidebarFeature.favicon(for: $0) } != nil
+        let sidebar = controller.e2eSidebarFeature
+        let hasFavicon = sidebar.favicon(for: SidebarItemID(item)) != nil
+        // The title its row draws.
+        let title = sidebar.shownTab(for: SidebarItemID(item))?.title ?? row.title
         return E2EUnloadTabState(
             isListed: true, isLoaded: tab != nil, isShown: tab.map { controller.selectedTab === $0 } ?? false,
-            url: (state?.url ?? row.url)?.absoluteString ?? "", title: row.title,
+            url: (state?.url ?? row.url)?.absoluteString ?? "", title: title,
             isCapturing: state.map { $0.isCapturingVideo || $0.isCapturingAudio } ?? false,
             isReleased: controller.engineTab(for: row.id) == nil, hasFavicon: hasFavicon)
     }

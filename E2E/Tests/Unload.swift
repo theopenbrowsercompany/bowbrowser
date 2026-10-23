@@ -7,7 +7,7 @@ import Foundation
 enum UnloadTests {
     static let all: [any E2ETest] = [
         UnloadEngineReloadTest(), UnloadOffTest(), UnloadPolicyTest(), UnloadExemptTest(), UnloadPressureTest(),
-        UnloadDialogTest(),
+        UnloadDialogTest(), UnloadOffscreenSpaceTest(), UnloadPinnedAwayTest(), UnloadTypedTest(),
     ]
 
     /// Longer than every idle limit at normal pressure, pinned tabs included.
@@ -51,6 +51,19 @@ enum UnloadTests {
     /// How many of `items` the window lists with an open page.
     static func liveCount(_ app: any E2EUnloadApp, _ items: [String], besides page: any E2EPage) throws -> Int {
         try items.filter { try app.unloadTabState($0, besides: page).isLoaded }.count
+    }
+
+    /// Presses and releases a character key in `page`'s focused element through the DevTools Input domain, as a
+    /// keyboard does, so the app sees the key before the page.
+    static func pressCharacter(_ character: String, keyCode: Int, macKeyCode: Int, in page: any E2EPage) async throws {
+        var down: [String: Any] = [
+            "type": "keyDown", "key": character, "code": "Key\(character.uppercased())", "text": character,
+            "windowsVirtualKeyCode": keyCode, "nativeVirtualKeyCode": macKeyCode,
+        ]
+        _ = try await page.devTools("Input.dispatchKeyEvent", down)
+        down["type"] = "keyUp"
+        down["text"] = nil
+        _ = try await page.devTools("Input.dispatchKeyEvent", down)
     }
 
     static func describe(_ state: E2EUnloadTabState) -> String {
@@ -266,5 +279,191 @@ struct UnloadDialogTest: E2ETest {
                 && afterState.isListed,
             "with-alert=\(during) tab=\(UnloadTests.describe(duringState)) alert=\(alertKept ? "kept" : "gone")"
                 + " answered=\(after) tab=\(UnloadTests.describe(afterState))")
+    }
+}
+
+/// Tabs unloaded while their Space is off screen keep their rows: switching back to that Space shows a today tab and
+/// a pinned tab (still on its pinned address) with their icon, address and page title, and choosing each loads it
+/// again on that address.
+struct UnloadOffscreenSpaceTest: E2ETest {
+    let name = "unload.offscreen_space"
+    let checks = ["unload.offscreen_space", "unload.offscreen_reload"]
+
+    func run(_ run: E2ERun) async throws {
+        let (app, edges) = try UnloadTests.apps(run)
+        guard let seeder = run.app as? any E2EStoreSeedApp else { throw E2EError("the app cannot seed a sidebar") }
+        defer { app.resetUnloader() }
+        let seed = E2ESeed(
+            spaces: [
+                E2ESeedSpace(
+                    "Away", pinned: [.tab("pin", url: UnloadTests.url("pin"))],
+                    today: [.tab("home", url: UnloadTests.url("home")), .tab("bg", url: UnloadTests.url("bg"))]),
+                E2ESeedSpace("Here", today: [.tab("here", url: UnloadTests.url("here"))]),
+            ], activeSpace: "Here")
+        let window = try await run.step("open the seeded window", timeout: E2ETimeouts.firstLoad) {
+            let window = try await seeder.openWindow(seeded: seed)
+            _ = try await window.page.waitForLoad(after: 0)
+            return window
+        }
+        let page = window.page
+        let away = window.spaceIDs["Away"] ?? ""
+        let here = window.spaceIDs["Here"] ?? ""
+        let pin = window.itemIDs["pin"] ?? ""
+        let bg = window.itemIDs["bg"] ?? ""
+        let home = window.itemIDs["home"] ?? ""
+        try await run.step("load the tabs of the other Space", timeout: E2ETimeouts.firstLoad) {
+            try edges.switchToSpace(away, besides: page)
+            for (item, name) in [(pin, "pin"), (bg, "bg"), (home, "home")] {
+                guard try await TabEdgesTests.until({ try app.unloadTabState(item, besides: page).isListed }) else {
+                    throw E2EError("tab \(name) is not listed")
+                }
+                try edges.selectSavedTab(item, besides: page)
+                guard
+                    try await TabEdgesTests.until({
+                        let state = try app.unloadTabState(item, besides: page)
+                        return state.isShown && state.hasFavicon && state.title == "Unload \(name)"
+                    })
+                else { throw E2EError("tab \(name) never showed its page and icon") }
+            }
+        }
+        let unloaded = try await run.step("pass with that Space off screen", timeout: E2ETimeouts.step) {
+            try edges.switchToSpace(here, besides: page)
+            guard try await TabEdgesTests.until({ page.isShown }) else { throw E2EError("the Space did not switch") }
+            try app.setUnloadEnabled(true)
+            try app.useManualUnloadClock()
+            try app.advanceUnloadClock(by: UnloadTests.longIdle)
+            return try await app.runUnloadPass()
+        }
+        let rows = try await run.step("switch back", timeout: E2ETimeouts.firstLoad) {
+            try edges.switchToSpace(away, besides: page)
+            // Its active tab loads again; the others stay unloaded with their rows.
+            _ = try await TabEdgesTests.until { try app.unloadTabState(home, besides: page).isShown }
+            return try [pin, bg].map { try app.unloadTabState($0, besides: page) }
+        }
+        let expected = [("pin", UnloadTests.url("pin")), ("bg", UnloadTests.url("bg"))]
+        let rowsRight = zip(rows, expected).allSatisfy { row, want in
+            row.isListed && !row.isLoaded && row.hasFavicon && row.url == want.1.absoluteString
+                && row.title == "Unload \(want.0)"
+        }
+        run.check(
+            name, passed: unloaded == 3 && rowsRight,
+            "unloaded=\(unloaded) "
+                + zip(rows, expected).map { row, want in
+                    "\(want.0)=\(UnloadTests.describe(row)) icon=\(row.hasFavicon) title=\"\(row.title)\""
+                        + " url=\(URL(string: row.url)?.query ?? row.url)"
+                }.joined(separator: " "))
+
+        let chosen = try await run.step("choose the unloaded tabs", timeout: E2ETimeouts.firstLoad) {
+            var states: [E2EUnloadTabState] = []
+            for (item, want) in zip([pin, bg], expected) {
+                try edges.selectSavedTab(item, besides: page)
+                _ = try await TabEdgesTests.until {
+                    let state = try app.unloadTabState(item, besides: page)
+                    return state.isShown && state.url == want.1.absoluteString
+                }
+                states.append(try app.unloadTabState(item, besides: page))
+            }
+            return states
+        }
+        run.check(
+            "unload.offscreen_reload",
+            passed: zip(chosen, expected).allSatisfy { $0.isShown && $0.isLoaded && $0.url == $1.1.absoluteString },
+            zip(chosen, expected).map { "\($1.0): shown=\($0.isShown) url=\(URL(string: $0.url)?.query ?? $0.url)" }
+                .joined(separator: " "))
+    }
+}
+
+/// A pinned tab browsed away from its pinned address is never unloaded (loading it again would return to the pinned
+/// address and lose the page it was on), while a background today tab unloads on the same pass.
+struct UnloadPinnedAwayTest: E2ETest {
+    let name = "unload.pinned_away"
+
+    func run(_ run: E2ERun) async throws {
+        let (app, edges) = try UnloadTests.apps(run)
+        defer { app.resetUnloader() }
+        let page = try await UnloadTests.openWindow(run, "home")
+        let other = try await UnloadTests.openBackground(run, ["other"], besides: page)[0]
+        let pinned = try await run.step("pin a tab and browse away", timeout: E2ETimeouts.firstLoad) {
+            let pinned = try run.app.openTab(at: UnloadTests.url("pin"), besides: page, select: true)
+            _ = try await pinned.waitForLoad(after: 0)
+            try edges.pin(pinned)
+            let loads = pinned.finishedLoads
+            try pinned.load(UnloadTests.url("moved"))
+            _ = try await pinned.waitForLoad(after: loads)
+            try run.app.select(page)
+            return pinned
+        }
+        let items = try [pinned, other].map { try app.unloadItem(of: $0) }
+        let (unloaded, states) = try await run.step("pass after a day idle", timeout: E2ETimeouts.step) {
+            try app.setUnloadEnabled(true)
+            try app.useManualUnloadClock()
+            try app.advanceUnloadClock(by: UnloadTests.longIdle)
+            let unloaded = try await app.runUnloadPass()
+            return (unloaded, try items.map { try app.unloadTabState($0, besides: page) })
+        }
+        run.check(
+            name,
+            passed: unloaded == 1 && states[0].isLoaded && states[0].url == UnloadTests.url("moved").absoluteString
+                && !states[1].isLoaded,
+            "unloaded=\(unloaded) pinned=\(UnloadTests.describe(states[0]))"
+                + " url=\(URL(string: states[0].url)?.query ?? states[0].url) other=\(UnloadTests.describe(states[1]))")
+    }
+}
+
+/// Text typed into a page's field keeps the tab loaded through a pass after a day idle, with its text; once the tab
+/// navigates to another page, the next pass unloads it.
+struct UnloadTypedTest: E2ETest {
+    let name = "unload.typed"
+    let checks = ["unload.typed", "unload.typed_navigated"]
+
+    func run(_ run: E2ERun) async throws {
+        let (app, _) = try UnloadTests.apps(run)
+        defer { app.resetUnloader() }
+        let form = try await run.step("open the form", timeout: E2ETimeouts.firstLoad) {
+            let form = try await run.app.openWindow(at: E2EFixture.url("unload/form.html"))
+            _ = try await form.waitForLoad(after: 0)
+            return form
+        }
+        let item = try app.unloadItem(of: form)
+        let typed = try await run.step("type into the field", timeout: E2ETimeouts.step) {
+            try await form.click("#field")
+            // A page may drop the first keys after its focus changes, so a key is pressed until the field has text.
+            let deadline = Date().addingTimeInterval(E2EWaits.budget())
+            var value = ""
+            while value.isEmpty {
+                guard Date() < deadline else { throw E2EError("the field never got the typed text") }
+                try await UnloadTests.pressCharacter("u", keyCode: 85, macKeyCode: 32, in: form)
+                value = try await form.string("document.getElementById('field').value")
+            }
+            return value
+        }
+        let page = try await run.step("switch to another tab", timeout: E2ETimeouts.firstLoad) {
+            let page = try run.app.openTab(at: UnloadTests.url("home"), besides: form, select: true)
+            _ = try await page.waitForLoad(after: 0)
+            return page
+        }
+        let (during, duringState, kept) = try await run.step("pass after a day idle", timeout: E2ETimeouts.step) {
+            try app.setUnloadEnabled(true)
+            try app.useManualUnloadClock()
+            try app.advanceUnloadClock(by: UnloadTests.longIdle)
+            let unloaded = try await app.runUnloadPass()
+            let state = try app.unloadTabState(item, besides: page)
+            let kept = state.isLoaded ? try await form.string("document.getElementById('field').value") : ""
+            return (unloaded, state, kept)
+        }
+        run.check(
+            name, passed: during == 0 && duringState.isLoaded && kept == typed,
+            "unloaded=\(during) tab=\(UnloadTests.describe(duringState)) text=\"\(kept)\" typed=\"\(typed)\"")
+
+        let (after, afterState) = try await run.step("navigate it, then pass", timeout: E2ETimeouts.firstLoad) {
+            let loads = form.finishedLoads
+            try form.load(UnloadTests.url("after"))
+            _ = try await form.waitForLoad(after: loads)
+            let unloaded = try await app.runUnloadPass()
+            return (unloaded, try app.unloadTabState(item, besides: page))
+        }
+        run.check(
+            "unload.typed_navigated", passed: after == 1 && !afterState.isLoaded && afterState.isListed,
+            "unloaded=\(after) tab=\(UnloadTests.describe(afterState))")
     }
 }
