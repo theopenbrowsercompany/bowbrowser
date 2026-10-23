@@ -8,7 +8,7 @@ import Foundation
 enum StoreTests {
     static let all: [any E2ETest] = [
         StoreRoundtripTest(), LinkProfileTest(), StoreRefusedTest(), StoreNewerFileTest(), StoreSetAsideTest(),
-        StoreMissingProfileTest(), StoreWindowSidebarTest(), LinkIgnoredTest(),
+        StoreMissingProfileTest(), StoreWindowSidebarTest(), StoreSaveFailedTest(), LinkIgnoredTest(),
     ]
 
     static func app(_ run: E2ERun) throws -> any E2EStoreApp {
@@ -42,29 +42,71 @@ enum StoreTests {
     }
 }
 
-/// The app's sidebar cannot be opened: its data folder cannot be created, or its file can be neither read nor set
-/// aside. No window opens, the person is told why, and asking again opens no window on a temporary sidebar either.
+/// The app's sidebar cannot be opened: its data folder cannot be created or changed, or its file can be neither read
+/// nor set aside. No window opens, the person is told why, and asking the same stores again opens no window on a
+/// temporary sidebar either.
 struct StoreRefusedTest: E2ETest {
     let name = "store.refused"
-    var checks: [String] { ["store.refused.folder", "store.refused.locked", "store.refused.again"] }
+    var checks: [String] {
+        [
+            "store.refused.folder", "store.refused.unreadable", "store.refused.readonly", "store.refused.locked",
+            "store.refused.again",
+        ]
+    }
 
     func run(_ run: E2ERun) async throws {
         let app = try StoreTests.app(run)
         let windows = try StoreTests.folder(run, "windows")
+        func open(_ session: E2ESidebarSession, _ step: String) async throws -> E2ESidebarOpening {
+            try await run.step(step, timeout: E2ETimeouts.step) {
+                try await app.openSavedSidebar(in: session, url: StoreTests.url("refused"), ownSidebar: false)
+            }
+        }
 
         // A file where the data folder's parent should be, so the folder cannot be created.
         let parent = try StoreTests.folder(run, "uncreatable")
         let blocker = parent.appendingPathComponent("Bow")
         try Data("not a folder".utf8).write(to: blocker)
-        let uncreatable = try await run.step("open with no data folder", timeout: E2ETimeouts.step) {
-            try await app.openSavedSidebar(
-                inDataFolder: blocker.appendingPathComponent("Data"), windowFolder: windows,
-                url: StoreTests.url("refused"), ownSidebar: false)
-        }
+        let uncreatable = try await open(
+            E2ESidebarSession(dataFolder: blocker.appendingPathComponent("Data"), windowFolder: windows),
+            "open with no data folder")
         let folderKinds = StoreTests.kinds(uncreatable.notices)
         run.check(
             "store.refused.folder", passed: !uncreatable.opened && folderKinds == "cannotOpen",
             "opened=\(uncreatable.opened) notices=\(folderKinds)")
+
+        // A file this build cannot read at all: it may be a newer Bow's, so it is not set aside.
+        let unreadable = try StoreTests.folder(run, "unreadable")
+        let unreadableFile = StoreTests.sidebarFile(in: unreadable)
+        let newer = Data(#"{"version": 999, "items": [], "spaces": []}"#.utf8)
+        try newer.write(to: unreadableFile)
+        try FileManager.default.setAttributes([.posixPermissions: 0o000], ofItemAtPath: unreadableFile.path)
+        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: unreadableFile.path) }
+        let noRead = try await open(
+            E2ESidebarSession(dataFolder: unreadable, windowFolder: windows), "open a file that cannot be read")
+        try FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: unreadableFile.path)
+        let unreadableKept =
+            (try? Data(contentsOf: unreadableFile)) == newer && StoreTests.contents(of: unreadable) == ["Sidebar.json"]
+        let unreadableKinds = StoreTests.kinds(noRead.notices)
+        run.check(
+            "store.refused.unreadable", passed: !noRead.opened && unreadableKinds == "cannotOpen" && unreadableKept,
+            "opened=\(noRead.opened) notices=\(unreadableKinds) file_kept=\(unreadableKept)")
+
+        // A good sidebar in a folder that cannot be changed: it would run without ever being saved.
+        let readonly = try StoreTests.folder(run, "readonly")
+        let saved = try SidebarStore(fileURL: StoreTests.sidebarFile(in: readonly))
+        try saved.createSpace(title: "Saved", profileID: .default)
+        try saved.save()
+        let savedBytes = try Data(contentsOf: StoreTests.sidebarFile(in: readonly))
+        try FileManager.default.setAttributes([.posixPermissions: 0o555], ofItemAtPath: readonly.path)
+        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: readonly.path) }
+        let noWrite = try await open(
+            E2ESidebarSession(dataFolder: readonly, windowFolder: windows), "open a sidebar in a read-only folder")
+        let readonlyKept = (try? Data(contentsOf: StoreTests.sidebarFile(in: readonly))) == savedBytes
+        let readonlyKinds = StoreTests.kinds(noWrite.notices)
+        run.check(
+            "store.refused.readonly", passed: !noWrite.opened && readonlyKinds == "cannotOpen" && readonlyKept,
+            "opened=\(noWrite.opened) notices=\(readonlyKinds) file_kept=\(readonlyKept)")
 
         // An unreadable file in a folder it cannot be moved out of.
         let locked = try StoreTests.folder(run, "locked")
@@ -73,20 +115,16 @@ struct StoreRefusedTest: E2ETest {
         try garbage.write(to: file)
         try FileManager.default.setAttributes([.posixPermissions: 0o555], ofItemAtPath: locked.path)
         defer { try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: locked.path) }
-        let first = try await run.step("open an unreadable locked file", timeout: E2ETimeouts.step) {
-            try await app.openSavedSidebar(
-                inDataFolder: locked, windowFolder: windows, url: StoreTests.url("refused"), ownSidebar: false)
-        }
+        let session = E2ESidebarSession(dataFolder: locked, windowFolder: windows)
+        let first = try await open(session, "open an unreadable locked file")
         let kept = (try? Data(contentsOf: file)) == garbage && StoreTests.contents(of: locked) == ["Sidebar.json"]
         let lockedKinds = StoreTests.kinds(first.notices)
         run.check(
             "store.refused.locked", passed: !first.opened && lockedKinds == "cannotOpen" && kept,
             "opened=\(first.opened) notices=\(lockedKinds) file_kept=\(kept)")
 
-        let again = try await run.step("open it again", timeout: E2ETimeouts.step) {
-            try await app.openSavedSidebar(
-                inDataFolder: locked, windowFolder: windows, url: StoreTests.url("refused"), ownSidebar: false)
-        }
+        // The same stores asked again, as the app asks its own for a link or a new window.
+        let again = try await open(session, "open it again")
         // A temporary sidebar would have been written in the window folder.
         let temporary = StoreTests.contents(of: windows)
         let againKinds = StoreTests.kinds(again.notices)
@@ -96,28 +134,56 @@ struct StoreRefusedTest: E2ETest {
     }
 }
 
-/// A sidebar file written by a newer Bow is refused with a message naming it, and left exactly where and as it was.
+/// A sidebar file written by a newer Bow is refused with a message naming it and saying how to go on without a
+/// newer Bow, and left exactly where and as it was. After an upgrade and a downgrade, the message names the copy
+/// the newer Bow kept.
 struct StoreNewerFileTest: E2ETest {
     let name = "store.newer_file"
+    var checks: [String] { ["store.newer_file", "store.newer_file.downgrade"] }
 
     func run(_ run: E2ERun) async throws {
         let app = try StoreTests.app(run)
+        let windows = try StoreTests.folder(run, "windows")
+        let newer = Data(#"{"version": 999, "items": [], "spaces": []}"#.utf8)
+
         let folder = try StoreTests.folder(run, "data")
         let file = StoreTests.sidebarFile(in: folder)
-        let newer = Data(#"{"version": 999, "items": [], "spaces": []}"#.utf8)
         try newer.write(to: file)
-        let windows = try StoreTests.folder(run, "windows")
         let opening = try await run.step("open the newer file", timeout: E2ETimeouts.step) {
             try await app.openSavedSidebar(
-                inDataFolder: folder, windowFolder: windows, url: StoreTests.url("newer"), ownSidebar: false)
+                in: E2ESidebarSession(dataFolder: folder, windowFolder: windows), url: StoreTests.url("newer"),
+                ownSidebar: false)
         }
         let kept = (try? Data(contentsOf: file)) == newer && StoreTests.contents(of: folder) == ["Sidebar.json"]
         let notice = opening.notices.first
         let named = notice?.detail.contains(file.path) == true && notice?.message.contains("newer") == true
+        let onward = notice?.detail.contains("If you have no newer Bow, quit Bow and move Sidebar.json") == true
         let kinds = StoreTests.kinds(opening.notices)
         run.check(
-            name, passed: !opening.opened && kinds == "newerFile" && named && kept,
-            "opened=\(opening.opened) notices=\(kinds) names_file=\(named) file_kept=\(kept)")
+            name, passed: !opening.opened && kinds == "newerFile" && named && onward && kept,
+            "opened=\(opening.opened) notices=\(kinds) names_file=\(named) recovery=\(onward) file_kept=\(kept)")
+
+        // A newer Bow migrated this build's file and kept a copy of it as it was, then this build came back.
+        let downgraded = try StoreTests.folder(run, "downgraded")
+        try newer.write(to: StoreTests.sidebarFile(in: downgraded))
+        // Two upgrades: the first copy took the plain name, so the newer one carries a number.
+        let version = SidebarFileFormat.currentVersion
+        let stale = downgraded.appendingPathComponent("Sidebar.version-\(version).json")
+        let copy = downgraded.appendingPathComponent("Sidebar.version-\(version)-1.json")
+        try SidebarFileFormat.encode(.fresh()).write(to: stale)
+        try SidebarFileFormat.encode(.fresh()).write(to: copy)
+        try FileManager.default.setAttributes(
+            [.modificationDate: Date(timeIntervalSinceNow: -3600)], ofItemAtPath: stale.path)
+        let back = try await run.step("open the newer file after a downgrade", timeout: E2ETimeouts.step) {
+            try await app.openSavedSidebar(
+                in: E2ESidebarSession(dataFolder: downgraded, windowFolder: windows), url: StoreTests.url("newer"),
+                ownSidebar: false)
+        }
+        let namesCopy = back.notices.first?.detail.contains(copy.path) == true
+        let backKinds = StoreTests.kinds(back.notices)
+        run.check(
+            "store.newer_file.downgrade", passed: !back.opened && backKinds == "newerFile" && namesCopy,
+            "opened=\(back.opened) notices=\(backKinds) names_copy=\(namesCopy)")
     }
 }
 
@@ -134,7 +200,8 @@ struct StoreSetAsideTest: E2ETest {
         let windows = try StoreTests.folder(run, "windows")
         let opening = try await run.step("open the unreadable file", timeout: E2ETimeouts.firstLoad) {
             let opening = try await app.openSavedSidebar(
-                inDataFolder: folder, windowFolder: windows, url: StoreTests.url("aside"), ownSidebar: false)
+                in: E2ESidebarSession(dataFolder: folder, windowFolder: windows), url: StoreTests.url("aside"),
+                ownSidebar: false)
             _ = try await opening.page?.waitForLoad(after: 0)
             return opening
         }
@@ -167,14 +234,17 @@ struct StoreMissingProfileTest: E2ETest {
         let windows = try StoreTests.folder(run, "windows")
         let opening = try await run.step("open the sidebar", timeout: E2ETimeouts.step) {
             try await app.openSavedSidebar(
-                inDataFolder: folder, windowFolder: windows, url: StoreTests.url("ghost"), ownSidebar: false)
+                in: E2ESidebarSession(dataFolder: folder, windowFolder: windows), url: StoreTests.url("ghost"),
+                ownSidebar: false)
         }
         let notice = opening.notices.first
         let named = notice?.detail.contains("“ghost”") == true && notice?.detail.contains("“Ghost”") == true
+        // Its only Space: there is no other one to switch to.
+        let onward = notice?.detail.contains("Create another Space") == true
         let kinds = StoreTests.kinds(opening.notices)
         run.check(
-            name, passed: opening.opened && kinds == "missingProfile" && named,
-            "opened=\(opening.opened) notices=\(kinds) names_profile=\(named)")
+            name, passed: opening.opened && kinds == "missingProfile" && named && onward,
+            "opened=\(opening.opened) notices=\(kinds) names_profile=\(named) onward=\(onward)")
     }
 }
 
@@ -191,11 +261,49 @@ struct StoreWindowSidebarTest: E2ETest {
         let data = try StoreTests.folder(run, "data")
         let opening = try await run.step("open a window on its own sidebar", timeout: E2ETimeouts.step) {
             try await app.openSavedSidebar(
-                inDataFolder: data, windowFolder: blocker, url: StoreTests.url("own"), ownSidebar: true)
+                in: E2ESidebarSession(dataFolder: data, windowFolder: blocker), url: StoreTests.url("own"),
+                ownSidebar: true)
         }
         let kinds = StoreTests.kinds(opening.notices)
         run.check(
             name, passed: !opening.opened && kinds == "windowSidebar", "opened=\(opening.opened) notices=\(kinds)")
+    }
+}
+
+/// The app's sidebar folder stops taking writes while Bow runs (made read-only, a full disk): the first change that
+/// cannot be saved is told to the person, once, instead of only going to standard error.
+struct StoreSaveFailedTest: E2ETest {
+    let name = "store.save_failed"
+
+    func run(_ run: E2ERun) async throws {
+        let app = try StoreTests.app(run)
+        let folder = try StoreTests.folder(run, "data")
+        let windows = try StoreTests.folder(run, "windows")
+        let session = E2ESidebarSession(dataFolder: folder, windowFolder: windows)
+        let opening = try await run.step("open the sidebar", timeout: E2ETimeouts.firstLoad) {
+            let opening = try await app.openSavedSidebar(in: session, url: StoreTests.url("saved"), ownSidebar: false)
+            _ = try await opening.page?.waitForLoad(after: 0)
+            return opening
+        }
+        guard opening.page != nil, opening.notices.isEmpty else {
+            run.check(name, passed: false, "opened=\(opening.opened) notices=\(StoreTests.kinds(opening.notices))")
+            return
+        }
+        try FileManager.default.setAttributes([.posixPermissions: 0o555], ofItemAtPath: folder.path)
+        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: folder.path) }
+        let notices = try await run.step("change the sidebar twice", timeout: E2ETimeouts.step) {
+            // Each new tab is a change the store tries to write.
+            _ = try app.openExternalLink(StoreTests.url("unsaved-1"))
+            _ = try app.openExternalLink(StoreTests.url("unsaved-2"))
+            // The notice shows on a later main thread turn, outside the change.
+            for _ in 0..<20 where session.notices.isEmpty {
+                try await Task.sleep(nanoseconds: 50_000_000)
+            }
+            try await Task.sleep(nanoseconds: 200_000_000)
+            return session.notices
+        }
+        let kinds = StoreTests.kinds(notices)
+        run.check(name, passed: kinds == "saveFailed", "notices=\(kinds)")
     }
 }
 
