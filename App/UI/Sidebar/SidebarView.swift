@@ -183,8 +183,11 @@ final class SidebarView: NSView, NSOutlineViewDataSource, NSOutlineViewDelegate,
         // safe area starts below it): the top row is centered there too.
         let topRowCenter = topAnchor.anchorWithOffset(to: topRow.centerYAnchor).constraint(
             equalTo: topAnchor.anchorWithOffset(to: safeAreaLayoutGuide.topAnchor), multiplier: 0.5)
+        // Without a title bar (full screen hides it) the row keeps clear of the top edge.
+        topRowCenter.priority = .defaultHigh
         NSLayoutConstraint.activate([
             topRowCenter,
+            topRow.topAnchor.constraint(greaterThanOrEqualTo: topAnchor, constant: 4),
             topRow.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -BowBrand.sidebarTrailing),
             topRow.heightAnchor.constraint(equalToConstant: Self.topRowHeight),
             newTabButton.leadingAnchor.constraint(equalTo: leadingAnchor, constant: BowBrand.sidebarLeading),
