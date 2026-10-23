@@ -45,6 +45,9 @@ public final class SidebarStore {
     public private(set) var lastCommitRepairs: [SidebarRepair] = []
     public let openReport: OpenReport
     public var isInTransaction: Bool { draft != nil }
+    /// Called with the error each time `save()` (and so a commit) cannot write the file, before it is thrown, so the
+    /// app can tell the person whichever caller made the change.
+    public var onSaveFailed: ((SidebarStoreError) -> Void)?
 
     private var draft: SidebarGraph?
     private let writer: AtomicFileWriter
@@ -205,7 +208,9 @@ public final class SidebarStore {
         do {
             try writer.write(try SidebarFileFormat.encode(graph), to: fileURL)
         } catch {
-            throw .saveFailed(String(describing: error))
+            let failure = SidebarStoreError.saveFailed(String(describing: error))
+            onSaveFailed?(failure)
+            throw failure
         }
         hasUnsavedChanges = false
     }
