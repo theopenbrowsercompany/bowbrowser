@@ -56,6 +56,11 @@ protocol E2ELittleArcApp: E2EApp {
     /// downloads), as the real close path decides it and without acting on it, or "none" when no Little Arc window
     /// has closed as the last window since the previous call or the previous test's end. Reading clears it.
     func takeLittleArcClosedDecision() throws -> String
+    /// Orders the run's shared downloads window out, so a test can leave the app with no window at all (an open
+    /// downloads window keeps the app running, as any window does). Returns whether one was shown.
+    func hideDownloadsWindow() throws -> Bool
+    /// Orders the downloads window `hideDownloadsWindow` hid back in, off screen.
+    func showDownloadsWindow() throws
     /// Makes the next move of Little Arc window `window`'s page fail after its window switched Space, as a window
     /// refusing the page would.
     func failNextLittleArcAdopt(in window: E2ELittleArcWindow) throws
