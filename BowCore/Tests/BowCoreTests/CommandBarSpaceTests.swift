@@ -88,8 +88,10 @@ import Testing
     @Test func onlyOpenTabResultsCarryASpace() {
         let summary = SpaceSummary(id: "s", name: "work", profileID: .default)
         let url = URL(string: "https://x.example/")!
-        let tab = CommandBarResult(candidate: CommandBarCandidate(kind: .openTab(tabA), title: "x", url: url, space: summary))
-        let page = CommandBarResult(candidate: CommandBarCandidate(kind: .history, title: "x", url: url, space: summary))
+        let tab = CommandBarResult(
+            candidate: CommandBarCandidate(kind: .openTab(tabA), title: "x", url: url, space: summary))
+        let page = CommandBarResult(
+            candidate: CommandBarCandidate(kind: .history, title: "x", url: url, space: summary))
         #expect(tab.space == summary)
         #expect(page.space == nil)
     }
