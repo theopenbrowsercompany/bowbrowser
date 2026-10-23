@@ -1,4 +1,3 @@
-import BowCoreTestSupport
 import Foundation
 import Testing
 
@@ -183,27 +182,6 @@ import Testing
             #expect(store.graph.closeOutcome(for: "wiki") == .removeFromSidebar)
             try store.pinTab("wiki")
             #expect(store.graph.closeOutcome(for: "wiki") == .unloadKeepingInSidebar)
-        }
-    }
-
-    @MainActor @Test func aPageThatClosesItselfFollowsTheCloseRuleAndOtherClosesKeepTheirPlace() throws {
-        // The reasons as a closed engine tab reports them.
-        let engine = MockEngine()
-        func closed(_ reason: TabCloseReason) -> TabCloseReason? {
-            let tab = engine.defaultProfile.createTab(url: pageA) as! MockTab
-            tab.markClosed(reason: reason)
-            return tab.closeReason
-        }
-        let page = closed(.page)
-        let quit = closed(.quit)
-        let app = closed(.app)
-        try withTemporaryFolder { folder in
-            let store = try makeStore(in: folder)
-            #expect(store.graph.closeOutcome(for: "news", reason: page) == .removeFromSidebar)
-            #expect(store.graph.closeOutcome(for: "mail", reason: page) == .unloadKeepingInSidebar)
-            #expect(store.graph.closeOutcome(for: "news", reason: quit) == .unloadKeepingInSidebar)
-            #expect(store.graph.closeOutcome(for: "news", reason: app) == .unloadKeepingInSidebar)
-            #expect(store.graph.closeOutcome(for: "news", reason: nil) == .unloadKeepingInSidebar)
         }
     }
 

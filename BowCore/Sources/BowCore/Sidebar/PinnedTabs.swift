@@ -103,14 +103,6 @@ extension SidebarGraph {
     public func closeOutcome(for id: SidebarItemID) -> TabCloseOutcome {
         isPinned(id) ? .unloadKeepingInSidebar : .removeFromSidebar
     }
-
-    /// What a tab that closed without the person's close command does to its item, by why it closed: a page that
-    /// closed itself (`window.close()`) follows the close rule above, so a today tab leaves and a pinned tab unloads
-    /// and stays; a tab the app closed (its window closing), one closed by quitting, and one whose reason the engine
-    /// did not give keep their place, unloaded, to come back on the next launch.
-    public func closeOutcome(for id: SidebarItemID, reason: TabCloseReason?) -> TabCloseOutcome {
-        reason == .page ? closeOutcome(for: id) : .unloadKeepingInSidebar
-    }
 }
 
 // MARK: Changing pinned tabs

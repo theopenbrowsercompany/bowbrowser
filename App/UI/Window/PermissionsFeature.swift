@@ -9,7 +9,7 @@ import BowCore
 final class PermissionsFeature: NSResponder, BrowserWindowFeature {
     /// The window's permission prompts, anchored to the web view, the page area to the right of the sidebar. A tab
     /// whose profile the engine does not know has its requests dismissed.
-    let prompts: PermissionPrompts?
+    let prompts: PermissionPrompts
 
     init(window: BrowserWindowController) {
         let stores = window.appFeatures.require(SitePermissionStores.self)
@@ -27,19 +27,19 @@ final class PermissionsFeature: NSResponder, BrowserWindowFeature {
 
     func selectedTabChanged(_ tab: (any EngineTab)?) {
         // Another tab shows its own waiting request, or none.
-        prompts?.show(tab)
+        prompts.show(tab)
     }
 
     func tab(_ tab: any EngineTab, didReceive event: TabEvent) {
         // A prompt belongs to the page that asked; a new page asks again if it needs to.
-        if case .didCommit = event { prompts?.dismissRequests(of: tab) }
+        if case .didCommit = event { prompts.dismissRequests(of: tab) }
     }
 
     func tabDidClose(_ tab: any EngineTab) {
-        prompts?.dismissRequests(of: tab)
+        prompts.dismissRequests(of: tab)
     }
 
     func decidePermission(_ request: PermissionRequest, for tab: any EngineTab) async -> PermissionDecision? {
-        await prompts?.decide(request, for: tab)
+        await prompts.decide(request, for: tab)
     }
 }

@@ -270,12 +270,15 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
     func select(_ id: BrowserTabID) {
         guard let item = itemIDs[id] else { return }
         let previous = store.graph.activeTabID
+        let previousKept = keptUnloaded
         if keptUnloaded == item { keptUnloaded = nil }
         change { try $0.selectTab(item) }
         storeDidChange()
         let shown = engineTabs[id].map { webView.isShowing($0) } ?? false
         if !shown, let previous, previous != item, store.graph[previous] != nil {
             change { try $0.selectTab(previous) }
+            // A pinned tab kept unloaded stays so when the selection returns to it.
+            if previousKept == previous { keptUnloaded = previous }
             storeDidChange(loadActive: false)
         }
     }
@@ -513,7 +516,8 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
     }
 
     func tab(_ tab: any EngineTab, decidePermission request: PermissionRequest) async -> PermissionDecision {
-        guard tabs.contains(where: { $0 === tab }) else { return .dismiss }
+        // Any loaded tab of the window may ask, also one in a Space not on screen; it waits for its prompt there.
+        guard modelID(of: tab) != nil else { return .dismiss }
         for feature in features {
             if let decision = await feature.decidePermission(request, for: tab) { return decision }
         }
@@ -528,21 +532,20 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
         let closedWithWindow = closingWithWindow.removeValue(forKey: id) != nil
         closingOrphans.remove(id)
         let requested = closingByRequest.remove(id) != nil
-        // A today tab whose page closed itself leaves as a close would; a pinned one unloads and stays, below.
-        let closedByPage =
-            !closedWithWindow && !isClosing
-            && itemIDs[id].map { store.graph.closeOutcome(for: $0, reason: tab.closeReason) == .removeFromSidebar }
-                == true
+        // A page that closed itself goes as a close would: a today tab leaves, a pinned one unloads and stays.
+        let closedByPage = !closedWithWindow && !isClosing && tab.closeReason == .page
         guard requested || closedByPage, let item = itemIDs[id], store.graph[item] != nil else {
-            // Closed with its window, by quitting, for no known reason, or a pinned page that closed itself: the tab
-            // keeps its place in the sidebar, unloaded.
+            // Closed with its window, by quitting, or for a reason the engine did not give: the tab keeps its place
+            // in the sidebar, unloaded.
             // A closing window follows its last open tab. Otherwise nothing else loads, since quitting must leave
             // the sidebar's active tab as it was; selecting a row loads it.
             if (closedWithWindow || isClosing) && engineTabs.isEmpty {
                 for feature in features { feature.selectedTabChanged(nil) }
                 window?.close()
             } else {
-                storeDidChange(loadActive: false)
+                // A window close that a page stayed through has ended: show the active tab again. Quitting and
+                // a tab closed for no known reason load nothing, so quitting leaves the active tab as it was.
+                storeDidChange(loadActive: closedWithWindow && !isClosing)
             }
             return
         }
@@ -606,7 +609,11 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
         for (id, tab) in engineTabs {
             closingWithWindow[id] = request
             Task {
-                if !(await tab.close()), self.closingWithWindow[id] == request { self.closingWithWindow[id] = nil }
+                guard !(await tab.close()), self.closingWithWindow[id] == request else { return }
+                self.closingWithWindow[id] = nil
+                // Once every page asked has answered and one stayed, the window stays open: show its active tab
+                // again (loading it when it closed meanwhile).
+                if !self.isClosing { self.storeDidChange() }
             }
         }
         return false
