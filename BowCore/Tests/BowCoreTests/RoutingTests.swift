@@ -127,6 +127,17 @@ private let personal = RouteDestination.space(id: "personal")
         #expect(table.invalidRules.map(\.rule) == [bad.id])
     }
 
+    @Test func whitespaceOnlyConditionsAreUnusable() {
+        #expect(URLPattern(.contains, " ").problem != nil)
+        #expect(RoutingRule(sourceApp: "  ", destination: work).problem != nil)
+    }
+
+    @Test func helperMappingIsDeterministicAndIgnoresEmptyParents() {
+        let helpers = ["A.helper": "first", "a.HELPER": "second"]
+        #expect(RoutingTable.resolveSource("a.helper", helperParents: helpers) == "first")
+        #expect(RoutingTable.resolveSource("x.helper", helperParents: ["x.helper": ""]) == nil)
+    }
+
     @Test func reportsShadowedRules() {
         let broad = RoutingRule(urlPattern: URLPattern(.contains, "github.com"), destination: work)
         let narrow = RoutingRule(urlPattern: URLPattern(.contains, "github.com/me"), destination: personal)
