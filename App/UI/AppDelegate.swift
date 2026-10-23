@@ -182,12 +182,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if let link = linkIntake.receive(link) { openIncomingLink(link) }
     }
 
-    /// Opens a link from another app where `LittleArc.opening` says: in a new Little Arc window while "links from other
-    /// apps open in Little Arc" is on (the default, as in Arc) and a browser window is open, its page in the profile
-    /// of that window's Space on screen; otherwise in a browser window (`openLink`).
+    /// Opens a link from another app where Air Traffic Control's rules send it (`AirTrafficControl.decide`), before
+    /// any tab exists for it: a new tab created in the routed Space, or in a Space of the routed profile, so its first
+    /// request goes out there; Little Arc; or the browser window (`openLink`). When no rule matches, the default
+    /// applies; a default of Little Arc (the initial one) opens a new Little Arc window while "links from other apps
+    /// open in Little Arc" is on (as in Arc) and a browser window is open, its page in the profile of that window's
+    /// Space on screen, and otherwise opens in a browser window.
     func openIncomingLink(_ link: IncomingLink) {
         let window = linkWindow()
-        switch LittleArc.opening(setting: LittleArcCenter.opensExternalLinks, hasBrowserWindow: window != nil) {
+        let decision = appFeatures.require(AirTrafficControl.self).decide(link, isAvailable: routingDestinationExists)
+        let opening = LinkRouting.opening(
+            for: decision, littleArcSetting: LittleArcCenter.opensExternalLinks, hasBrowserWindow: window != nil)
+        switch opening {
+        case .space(let id):
+            openRoutedLink(link) { $0.space(id) != nil ? id : nil }
+        case .profile(let id):
+            openRoutedLink(link) { LinkRouting.spaceID(forProfile: id, in: $0) }
         case .littleArc:
             let panel = window.flatMap { window in
                 appFeatures.require(LittleArcCenter.self).open(link.url, from: window, takesFocus: !options.isE2E) {
@@ -211,30 +221,113 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             ?? (NSApp.isHidden ? open.last : nil)
     }
 
-    /// Opens a link from another app in a browser window. `source` is the app that sent it, for link routing rules;
-    /// until they exist the link opens in the profile of the target window's Space on screen, as Arc does without
-    /// rules. Returns the window it opened in, or nil when it opened nowhere (an e2e run never opens an on screen
-    /// window for it).
+    /// Opens a link from another app in a browser window, in the profile of the target window's Space on screen, as
+    /// Arc does without rules. `source` is the app that sent it. Returns the window it opened in, or nil when it opened
+    /// nowhere (an e2e run never opens an on screen window for it).
     @discardableResult
     func openLink(_ url: URL, from source: LinkSource? = nil) -> BrowserWindowController? {
         // With no window to take it (`linkWindow`), the link opens a new one.
-        if let controller = linkWindow() {
-            guard controller.openTab(url: url) != nil else { return nil }
-            #if BOW_E2E
-                e2eLinkOpened?(url, source, controller)  // E2E seam
-            #endif
-            // Brought forward (out of the Dock too), so the link is seen; e2e windows stay off screen and never key.
-            if !options.isE2E {
-                controller.window?.deminiaturize(nil)
-                controller.showWindow(nil)
-                NSApp.activate()
-            }
-            return controller
-        }
+        if let controller = linkWindow() { return openLink(url, from: source, in: controller) }
         guard !options.isE2E else { return nil }
         let controller = openWindowOrExplain(url: url)
         controller?.showWindow(nil)
         return controller
+    }
+
+    /// Opens `url` in a new tab of `controller`'s Space on screen and brings the window forward.
+    @discardableResult
+    private func openLink(_ url: URL, from source: LinkSource?, in controller: BrowserWindowController)
+        -> BrowserWindowController?
+    {
+        guard controller.openTab(url: url) != nil else { return nil }
+        #if BOW_E2E
+            e2eLinkOpened?(url, source, controller)  // E2E seam
+        #endif
+        // Brought forward (out of the Dock too), so the link is seen; e2e windows stay off screen and never key.
+        if !options.isE2E {
+            controller.window?.deminiaturize(nil)
+            controller.showWindow(nil)
+            NSApp.activate()
+        }
+        return controller
+    }
+
+    /// Opens a routed link in the Space `space` picks from a window's sidebar: the link window when it has one, else
+    /// the most recently used window that has one. The window shows that Space first, then the tab is created in it,
+    /// so its page loads in the Space's profile from its first request and never moves. With no window showing such a
+    /// Space, a new window opens on the app's sidebar with that Space on screen; failing that the link opens as
+    /// without rules.
+    private func openRoutedLink(_ link: IncomingLink, space: (SidebarGraph) -> SidebarSpaceID?) {
+        let open = windowControllers.filter { !$0.isClosing }
+        let candidates = (linkWindow().map { [$0] } ?? []) + open.reversed()
+        for controller in candidates {
+            guard let id = space(controller.store.graph) else { continue }
+            if controller.store.graph.activeSpaceID != id {
+                if let sidebar = controller.feature(SidebarFeature.self) {
+                    SpaceActions.show(id, context: sidebar)
+                } else {
+                    controller.changeSidebar { try $0.switchToSpace(id) }
+                }
+            }
+            guard controller.store.graph.activeSpaceID == id else { continue }
+            openLink(link.url, from: link.source, in: controller)
+            return
+        }
+        if !options.isE2E, let main = try? appFeatures.require(SidebarStores.self).main().store,
+            let id = space(main.graph), (try? main.switchToSpace(id)) != nil
+        {
+            openWindowOrExplain(url: link.url)?.showWindow(nil)
+            return
+        }
+        openLink(link.url, from: link.source)
+    }
+
+    /// The sidebars the open windows show, and the app's own sidebar once it is open.
+    private var routingGraphs: [SidebarGraph] {
+        var graphs = windowControllers.filter { !$0.isClosing }.map(\.store.graph)
+        if engineStarted, !options.isE2E, let main = try? appFeatures.require(SidebarStores.self).main().store {
+            graphs.append(main.graph)
+        }
+        return graphs
+    }
+
+    /// Whether a routing destination still exists: a Space some sidebar holds, or a profile some Space shows (a link
+    /// opens in a Space, so a profile with none cannot take it).
+    private func routingDestinationExists(_ destination: RouteDestination) -> Bool {
+        let graphs = routingGraphs
+        let spaces = graphs.flatMap(\.spaces)
+        return LinkRouting.isAvailable(
+            destination, spaceIDs: Set(spaces.map(\.id.rawValue)), profileIDs: Set(spaces.map(\.profileID.rawValue)))
+    }
+
+    /// Bow > Air Traffic Control…: shows the routing rules editor, which offers every Space the windows show, every
+    /// profile, Little Arc and the most recent window as destinations.
+    func showAirTrafficControl() {
+        appFeatures.require(AirTrafficControl.self).showEditor(takesFocus: !options.isE2E) { [weak self] in
+            self?.routingChoices() ?? []
+        }
+    }
+
+    /// The destinations the editor offers, in order: Spaces (in sidebar order, each once), profiles, Little Arc, the
+    /// most recent window.
+    private func routingChoices() -> [AirTrafficControl.Choice] {
+        var choices: [AirTrafficControl.Choice] = []
+        var seen = Set<String>()
+        for space in routingGraphs.flatMap(\.spaces) where seen.insert(space.id.rawValue).inserted {
+            choices.append(.init(title: "Space: \(space.title)", destination: .space(id: space.id.rawValue)))
+        }
+        var profiles: [(id: String, name: String)] =
+            appFeatures.require(ProfileRegistryStore.self).registry?.profiles.map { ($0.id.rawValue, $0.name) } ?? []
+        for space in routingGraphs.flatMap(\.spaces)
+        where !profiles.contains(where: { $0.id.lowercased() == space.profileID.rawValue.lowercased() }) {
+            profiles.append((space.profileID.rawValue, space.profileID.rawValue))
+        }
+        for profile in profiles {
+            choices.append(.init(title: "Profile: \(profile.name)", destination: .profile(id: profile.id)))
+        }
+        choices.append(.init(title: "Little Arc", destination: .littleArc))
+        choices.append(.init(title: "Most recent window", destination: .mostRecentWindow))
+        return choices
     }
 
     /// Opens a window as `openWindow` does, or shows the person why it cannot (an alert of its own) and returns nil.
