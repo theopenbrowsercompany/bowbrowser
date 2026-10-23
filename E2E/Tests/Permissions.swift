@@ -93,7 +93,7 @@ struct PermissionsPerProfileTest: E2ETest {
     let name = "permissions.per_profile"
 
     func run(_ run: E2ERun) async throws {
-        guard let edges = (run.app as? any E2EWindowEdgesApp)?.windowEdges else {
+        guard let edges = run.app as? any E2EWindowEdgesApp else {
             throw E2EError("the app has no window edges to drive")
         }
         let url = E2EFixture.url("permissions/index.html")
@@ -110,7 +110,7 @@ struct PermissionsPerProfileTest: E2ETest {
         }
         let work = try await run.step("open the work Space", timeout: E2ETimeouts.firstLoad) {
             _ = try edges.createSpace(besides: personal, profileID: "e2e-work")
-            let work = try edges.openTab(at: url, besides: personal)
+            let work = try run.app.openTab(at: url, besides: personal, select: true)
             _ = try await work.waitForLoad(after: 0)
             return work
         }

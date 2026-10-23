@@ -50,8 +50,10 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
     /// Pages whose sidebar item left the store (its Space deleted, archived, a Favorite removed), which the window is
     /// closing so no page runs without a row.
     private var closingOrphans: Set<BrowserTabID> = []
-    /// A pinned tab the person closed while it was the Space's only tab: it stays active but unloaded, and loads
-    /// again only once the person selects it.
+    /// Which closed pages closed themselves, told apart from pages the engine never created.
+    private var selfClosedPages = SelfClosedPages()
+    /// A pinned tab the person closed while it was the Space's only tab: it stays active but unloaded, also across a
+    /// switch to another Space and back, and loads again only once the person selects it.
     private var keptUnloaded: SidebarItemID?
     /// Writes the sidebar a short while after the last page it recorded, so a page changing its title or address
     /// many times writes the file once. Window close and quit write what is left.
@@ -391,7 +393,11 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
             itemIDs[tab.id] = nil
         }
         closeOrphans()
-        if let kept = keptUnloaded, store.graph.activeTabID != kept || store.graph[kept] == nil { keptUnloaded = nil }
+        if let kept = keptUnloaded {
+            let graph = store.graph
+            let selectedOther = graph.spaceID(containing: kept) == graph.activeSpaceID && graph.activeTabID != kept
+            if graph[kept] == nil || selectedOther { keptUnloaded = nil }
+        }
         let loadActive = loadActive && !isClosing
         // A Space with tabs always has one active (a saved sidebar may name none, or a tab that is gone).
         if loadActive, activeItemID == nil, let first = ids.first {
@@ -465,6 +471,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
     // MARK: Engine events
 
     func tab(_ tab: any EngineTab, didReceive event: TabEvent) {
+        selfClosedPages.record(event, of: tab.tabID)
         if case .stateChanged(let state) = event, let id = modelID(of: tab), let item = itemIDs[id] {
             runtimeTabs[item]?.apply(state)
             recordPage(of: item, state: state)
@@ -488,9 +495,12 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
         let record = SidebarMutation.setSavedPage(item, url: url.absoluteString, title: state.title)
         guard change({ try $0.apply([record], saving: false) }) else { return }
         guard pendingSave == nil else { return }
-        pendingSave = Timer.scheduledTimer(withTimeInterval: Self.recordSaveDelay, repeats: false) { [weak self] _ in
+        // In the common modes, so a menu open or a drag in progress does not hold the write back.
+        let timer = Timer(timeInterval: Self.recordSaveDelay, repeats: false) { [weak self] _ in
             MainActor.assumeIsolated { self?.saveRecordedPages() }
         }
+        RunLoop.main.add(timer, forMode: .common)
+        pendingSave = timer
     }
 
     /// Writes the pages recorded since the last write, if no other change wrote them already.
@@ -500,14 +510,13 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
         change { try $0.save() }
     }
 
-    /// Closes the pages whose sidebar item left the store, each running its beforeunload handler; a page that asks to
-    /// stay keeps running until the next change asks again.
+    /// Closes the pages whose sidebar item left the store, each running its beforeunload handler once: a page whose
+    /// person chooses to stay keeps running, unlisted, and is not asked again by later changes (closing the window
+    /// asks it again, as it asks every page).
     private func closeOrphans() {
         for (item, runtime) in runtimeTabs where store.graph[item] == nil {
             guard let tab = engineTabs[runtime.id], closingOrphans.insert(runtime.id).inserted else { continue }
-            Task {
-                if !(await tab.close()) { self.closingOrphans.remove(runtime.id) }
-            }
+            Task { _ = await tab.close() }
         }
     }
 
@@ -526,26 +535,31 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
 
     private func tabClosed(_ tab: any EngineTab) {
         for feature in features { feature.tabDidClose(tab) }
+        let closedItself = selfClosedPages.closedItself(tab)
         guard let id = modelID(of: tab) else { return }
         engineTabs[id] = nil
         modelIDs[tab.tabID] = nil
         let closedWithWindow = closingWithWindow.removeValue(forKey: id) != nil
         closingOrphans.remove(id)
         let requested = closingByRequest.remove(id) != nil
-        // A page that closed itself goes as a close would: a today tab leaves, a pinned one unloads and stays.
-        let closedByPage = !closedWithWindow && !isClosing && tab.closeReason == .page
+        // A page that closed itself goes as a close would: a today tab leaves, a pinned one unloads and stays. A
+        // page the engine could not create closes for the same reason but never had a page, so it keeps its row.
+        let closedByPage = !closedWithWindow && !isClosing && closedItself
         guard requested || closedByPage, let item = itemIDs[id], store.graph[item] != nil else {
-            // Closed with its window, by quitting, or for a reason the engine did not give: the tab keeps its place
-            // in the sidebar, unloaded.
+            // Closed with its window, by quitting, never created, or for a reason the engine did not give: the tab
+            // keeps its place in the sidebar, unloaded.
             // A closing window follows its last open tab. Otherwise nothing else loads, since quitting must leave
             // the sidebar's active tab as it was; selecting a row loads it.
             if (closedWithWindow || isClosing) && engineTabs.isEmpty {
                 for feature in features { feature.selectedTabChanged(nil) }
                 window?.close()
+            } else if closedWithWindow && !isClosing {
+                // A window close that a page stayed through has ended: show the page the person stayed on.
+                showAfterStayedClose()
             } else {
-                // A window close that a page stayed through has ended: show the active tab again. Quitting and
-                // a tab closed for no known reason load nothing, so quitting leaves the active tab as it was.
-                storeDidChange(loadActive: closedWithWindow && !isClosing)
+                // Quitting and a tab closed for no known reason load nothing, so quitting leaves the active tab as it
+                // was.
+                storeDidChange(loadActive: false)
             }
             return
         }
@@ -578,6 +592,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
         let ids = activeSpaceTabIDs
         let removes = graph.closeOutcome(for: item) == .removeFromSidebar
         var next = graph.activeTabID
+        var keeps = false
         if graph.activeTabID == item, let position = ids.firstIndex(of: item) {
             let rest = ids.filter { $0 != item }
             if !rest.isEmpty {
@@ -585,15 +600,17 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
             } else if removes {
                 next = nil
             } else {
-                keptUnloaded = item
+                keeps = true
             }
         }
-        change { store in
+        let changed = change { store in
             try store.transaction {
                 if removes { try store.mutate(.delete(item)) }
                 try store.mutate(.setActiveTab(next))
             }
         }
+        guard changed else { return }
+        if keeps { keptUnloaded = item }
         if removes, let runtime = runtimeTabs.removeValue(forKey: item) { itemIDs[runtime.id] = nil }
     }
 
@@ -611,12 +628,24 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
             Task {
                 guard !(await tab.close()), self.closingWithWindow[id] == request else { return }
                 self.closingWithWindow[id] = nil
-                // Once every page asked has answered and one stayed, the window stays open: show its active tab
-                // again (loading it when it closed meanwhile).
-                if !self.isClosing { self.storeDidChange() }
+                // Once every page asked has answered and one stayed, the window stays open on a page it stayed on.
+                if !self.isClosing { self.showAfterStayedClose() }
             }
         }
         return false
+    }
+
+    /// Shows the window again once a close it was asked for has ended with a page staying: the active tab when its
+    /// page is still open, else a page of the Space on screen that stayed, rather than loading the closed active tab
+    /// again. The active tab loads again only when no page of the Space stayed.
+    private func showAfterStayedClose() {
+        let activeOpen = activeItemID.flatMap { runtimeTabs[$0] }.map { engineTabs[$0.id] != nil } ?? false
+        if !activeOpen,
+            let stayed = activeSpaceTabIDs.first(where: { runtimeTabs[$0].map { engineTabs[$0.id] != nil } ?? false })
+        {
+            change { try $0.selectTab(stayed) }
+        }
+        storeDidChange()
     }
 
     func windowDidBecomeMain(_ notification: Notification) {
