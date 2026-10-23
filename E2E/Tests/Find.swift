@@ -10,6 +10,7 @@ enum FindTests {
 /// Shift+Enter, and closes the bar with Escape, which leaves the active match selected in the page.
 struct FindBarTest: E2ETest {
     let name = "find"
+    let checks = ["find", "find.step", "find.close", "find.reopen"]
 
     func run(_ run: E2ERun) async throws {
         let page = try await run.step("open window", timeout: E2ETimeouts.step) {

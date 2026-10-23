@@ -46,7 +46,7 @@ struct NavigationHistoryTest: E2ETest {
         }
         if let fresh { problems.append("fresh tab: \(fresh)") }
         try await run.step("load page B", timeout: E2ETimeouts.step) {
-            _ = try await navigate { page.load(pageB) }
+            _ = try await navigate { try page.load(pageB) }
             if let wrong = try await Self.waitForButtons(app, page, back: true, forward: false) {
                 problems.append("after loading B: \(wrong)")
             }
@@ -125,7 +125,7 @@ struct NavigationHistoryTest: E2ETest {
         let stops = try await run.step("stop loads", timeout: E2ETimeouts.step * 3) {
             // Stopped once the page has committed, so the page shown, and so reloaded, is the slow one.
             var commits = Self.commits(of: slow, in: page)
-            page.load(slow)
+            try page.load(slow)
             let loading = try await Self.waitForReload(app, page, label: "Stop")
             try await Self.waitForCommit(of: slow, after: commits, in: page)
             try app.click(.reload, in: page)
@@ -272,7 +272,7 @@ struct NavigationEventsTest: E2ETest {
         var first = page.navigationEvents.count
         try await run.step("load through a redirect", timeout: E2ETimeouts.step) {
             let loads = page.finishedLoads
-            page.load(redirect)
+            try page.load(redirect)
             let status = try await page.waitForLoad(after: loads)
             guard status == 200 else { throw E2EError("the redirect target loaded with status \(status)") }
         }
@@ -286,7 +286,7 @@ struct NavigationEventsTest: E2ETest {
         first = page.navigationEvents.count
         try await run.step("load a page that fails", timeout: E2ETimeouts.step) {
             let loads = page.finishedLoads
-            page.load(broken)
+            try page.load(broken)
             // The load is expected to fail; the events checked below say how.
             let status = try? await page.waitForLoad(after: loads)
             if let status { throw E2EError("the failing page loaded with status \(status)") }
@@ -299,14 +299,14 @@ struct NavigationEventsTest: E2ETest {
                 policyAsked.append(url)
                 return url != blocked
             }
-            page.load(blocked)
+            try page.load(blocked)
             // The policy answers synchronously when the navigation starts; loading again before then would
             // replace the blocked navigation instead of letting the policy cancel it.
             while !policyAsked.contains(blocked) {
                 try await Task.sleep(nanoseconds: 20_000_000)
             }
             let loads = page.finishedLoads
-            page.load(target)
+            try page.load(target)
             let status = try await page.waitForLoad(after: loads)
             guard status == 200 else { throw E2EError("the page after the cancel loaded with status \(status)") }
         }
@@ -335,7 +335,7 @@ struct NavigationEventsTest: E2ETest {
         page.navigationPolicy = nil
         try await run.step("load the start page again", timeout: E2ETimeouts.step) {
             let loads = page.finishedLoads
-            page.load(start)
+            try page.load(start)
             let status = try await page.waitForLoad(after: loads)
             guard status == 200 else { throw E2EError("the start page loaded with status \(status)") }
         }
@@ -356,7 +356,7 @@ struct NavigationEventsTest: E2ETest {
         first = page.navigationEvents.count
         try await run.step("load a page with no content", timeout: E2ETimeouts.step) {
             let loads = page.finishedLoads
-            page.load(noContent)
+            try page.load(noContent)
             let status = try? await page.waitForLoad(after: loads)
             if let status { throw E2EError("the 204 answer loaded with status \(status)") }
         }

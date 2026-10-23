@@ -59,13 +59,18 @@ enum E2ETests {
         return tests.filter { chosen.contains($0.name) }
     }
 
-    /// Throws when two tests share a name or a check, which would make their lines ambiguous.
+    /// Throws when two tests share a name or a check, which would make their lines ambiguous, or a test declares a
+    /// check the runner records itself.
     static func checkUnique(_ tests: [any E2ETest] = all) throws {
+        let reserved: Set<String> = [E2ERunner.isolationCheck, E2ERunner.chromiumErrorsCheck]
         var names = Set<String>()
         var checks = Set<String>()
         for test in tests {
             guard names.insert(test.name).inserted else { throw E2EError("two e2e tests are named \(test.name)") }
             for check in test.checks {
+                guard !reserved.contains(check) else {
+                    throw E2EError("\(test.name) declares the check \(check), which the runner records itself")
+                }
                 guard checks.insert(check).inserted else { throw E2EError("two e2e tests declare the check \(check)") }
             }
         }

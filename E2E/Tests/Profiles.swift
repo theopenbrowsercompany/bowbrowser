@@ -67,6 +67,11 @@ struct ProfilesIsolationTest: E2ETest {
                     problems.append("\(id) was accepted")
                 } catch let error as E2EError where error.reason == .profileTaken {
                     refused.append(id)
+                } catch let error as CancellationError {
+                    // A timed-out step is cancelled; stop here instead of opening the next window.
+                    throw error
+                } catch let error as E2EError where error.reason == .testEnded {
+                    throw error
                 } catch {
                     problems.append("\(id) failed for another reason: \(error)")
                 }

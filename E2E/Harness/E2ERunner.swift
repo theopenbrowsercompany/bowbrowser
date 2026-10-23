@@ -41,6 +41,8 @@ final class E2ERunner {
     static let listSelection = "list"
     /// The run-level check that every test left no window or browser open.
     static let isolationCheck = "e2e.isolation"
+    /// The run-level check that Chromium logged no unexpected errors.
+    static let chromiumErrorsCheck = "chromium.errors"
 
     let engineConfiguration: BowEngineConfiguration
 
@@ -54,6 +56,8 @@ final class E2ERunner {
     private let chromiumLog: E2EChromiumLog
     private var checks: [(name: String, passed: Bool)] = []
     private var quitCheck: (name: String, limit: TimeInterval)?
+    /// The error of a quit test that failed after expecting quit, which fails the quit check.
+    private var quitFailure: String?
     /// The test running now, which the heartbeat names if the main thread gets stuck.
     private var activeRun: E2ERun?
     private var heartbeat: Timer?
@@ -188,13 +192,11 @@ final class E2ERunner {
     /// Runs one test with its own profile and limit, fills in the checks it never reached, saves evidence when it
     /// failed, closes its windows and prints its RESULT line. Returns what the test left open, if anything.
     private func run(_ test: any E2ETest, index: Int, isLast: Bool, app: E2EAppAdapter) async -> String? {
-        let run = E2ERun(runner: self, test: test, app: app)
+        let run = E2ERun(runner: self, test: test, app: app.beginTest(index: index))
         activeRun = run
         beat()
         defer { activeRun = nil }
-        app.beginTest(index: index)
         let baseline = app.openBrowserCount
-        let checksBefore = checks.count
         let started = Date()
 
         let result = await E2ERace.run(
@@ -206,13 +208,24 @@ final class E2ERunner {
         }
         let failure: (step: String, error: Error)?
         if case .failure(let error) = result { failure = (run.currentStep, error) } else { failure = nil }
+        let checksBefore = run.firstCheck
         run.finish()
+        // Work the test left running (a timed-out step) can no longer drive the app.
+        app.endTest()
 
         let missing = test.checks.filter { !run.recorded.contains($0) }
         if let failure {
             if missing.isEmpty {
-                // Every check was reported, so the error gets a line of its own.
-                record(test.name + ".error", passed: false, detail: "\(failure.step): \(failure.error)")
+                // Every check was recorded, so the error fails the last one rather than adding a check, which
+                // would make the total depend on how far tests got. The RESULT line names the error too.
+                let detail = "\(failure.step): \(failure.error) (after the check was recorded)"
+                let recorded = checks[checksBefore...].map(\.name)
+                if let last = test.checks.last(where: recorded.contains) {
+                    fail(last, after: checksBefore, detail: detail)
+                } else if test.quitsApp, quitCheck != nil {
+                    // The quit check is reported after the engine stops; it fails then.
+                    quitFailure = detail
+                }
             }
             for (offset, check) in missing.enumerated() {
                 let detail =
@@ -236,6 +249,8 @@ final class E2ERunner {
             try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
             let failURL = folder.appendingPathComponent("fail.png")
             if isLast {
+                // copyItem refuses to replace a file, which would leave an older fail.png in place.
+                try? FileManager.default.removeItem(at: failURL)
                 try? FileManager.default.copyItem(at: finalURL, to: failURL)
             } else {
                 await writeScreenshot(of: app, to: failURL)
@@ -259,9 +274,10 @@ final class E2ERunner {
         let status = isTimeout ? "timeout" : (failed || leftover != nil ? "fail" : "pass")
         // The quit check is reported after the engine stops, so the quit test's RESULT line says it is pending.
         let pendingQuit = quitCheck != nil && test.quitsApp ? " quit=pending" : ""
+        let error = failure.map { " error=\"\($0.step): \($0.error)\"" } ?? ""
         output.line(
             "RESULT \(test.name) \(status) seconds=\(String(format: "%.2f", seconds)) "
-                + "checks=\(passed)/\(testChecks.count)\(pendingQuit)")
+                + "checks=\(passed)/\(testChecks.count)\(pendingQuit)\(error)")
         return leftover
     }
 
@@ -271,7 +287,9 @@ final class E2ERunner {
         if let quitCheck {
             let seconds = BowEngine.quitDuration
             let limit = Self.format(quitCheck.limit)
-            if seconds <= 0 {
+            if let quitFailure {
+                record(quitCheck.name, passed: false, detail: quitFailure)
+            } else if seconds <= 0 {
                 record(quitCheck.name, passed: false, detail: "the quit clock never started, so quitting was not timed")
             } else if seconds < quitCheck.limit {
                 record(quitCheck.name, passed: true, detail: "seconds<\(limit)")
@@ -285,12 +303,13 @@ final class E2ERunner {
         let log = chromiumLog.finish()
         if log.unexpected.isEmpty {
             record(
-                "chromium.errors", passed: true, detail: "unexpected=0 known=\(log.known) temporary=\(log.temporary)")
+                Self.chromiumErrorsCheck, passed: true,
+                detail: "unexpected=0 known=\(log.known) temporary=\(log.temporary)")
         } else {
             let count = log.unexpected.count
             let detail =
                 "\(count) unexpected ERROR or FATAL lines in \(E2EChromiumLog.fileName), first: \(log.unexpected[0])"
-            record("chromium.errors", passed: false, detail: detail)
+            record(Self.chromiumErrorsCheck, passed: false, detail: detail)
         }
 
         let passed = checks.filter(\.passed).count
@@ -337,6 +356,19 @@ final class E2ERunner {
     fileprivate func expectQuit(_ name: String, within limit: TimeInterval) {
         quitCheck = (name, limit)
     }
+
+    /// Fails the check `name` that the running test recorded (at or after index `start` of `checks`), printing a
+    /// FAIL line that overrides its earlier PASS without adding to the total. Does nothing when it already failed.
+    fileprivate func fail(_ name: String, after start: Int, detail: String) {
+        guard let index = checks.indices.last(where: { $0 >= start && checks[$0].name == name }),
+            checks[index].passed
+        else { return }
+        checks[index].passed = false
+        output.line("FAIL \(name): \(detail)")
+    }
+
+    /// Where the running test's checks start in `checks`.
+    fileprivate var checkCount: Int { checks.count }
 
     /// Re-arms the watchdog from the main thread a few times a second, so it fires only when the main thread has
     /// not answered for `mainThreadStuckTimeout`.
@@ -424,11 +456,16 @@ final class E2ERun {
     private let test: any E2ETest
     private let deadline = Date(timeIntervalSinceNow: E2ERun.testTimeout)
     private var finished = false
+    /// Where this test's checks start in the runner's list.
+    fileprivate let firstCheck: Int
+    /// Checks recorded more than once, each failed once already.
+    private var repeated = Set<String>()
 
     fileprivate init(runner: E2ERunner, test: any E2ETest, app: any E2EApp) {
         self.runner = runner
         self.test = test
         self.app = app
+        firstCheck = runner.checkCount
     }
 
     /// Runs one step. If it has not finished after `timeout` seconds (or the test's own limit runs out first), the
@@ -464,18 +501,28 @@ final class E2ERun {
     static let testTimeout: TimeInterval = 120
     private var remainingTime: TimeInterval { max(deadline.timeIntervalSinceNow, 0.001) }
 
-    /// Records a check, printing `PASS name: detail` or `FAIL name: detail`. A check the test does not declare in
-    /// `E2ETest.checks` fails, so the run's total stays the same however far tests get.
+    /// Records a check, printing `PASS name: detail` or `FAIL <step>: name: detail`. A check the test does not
+    /// declare in `E2ETest.checks` fails, so the run's total stays the same however far tests get. A check recorded
+    /// a second time (in a loop, say) fails once, keeping its single place in the total.
     func check(_ name: String, passed: Bool, _ detail: String) {
         guard !finished else {
             log.append("ignored late check \(name) from a step that had timed out: \(detail)")
             return
         }
-        recorded.insert(name)
-        if test.checks.contains(name) {
-            runner.record(name, passed: passed, detail: detail)
+        // FAIL lines name the step, as a failing step's error does.
+        let failDetail = "\(currentStep): \(detail)"
+        guard recorded.insert(name).inserted else {
+            log.append("check \(name) recorded again in \(currentStep): \(detail)")
+            guard repeated.insert(name).inserted else { return }
+            runner.fail(
+                name, after: firstCheck,
+                detail: "\(failDetail) (recorded more than once; record each check once per test)")
+            return
+        }
+        if !test.checks.contains(name) {
+            runner.record(name, passed: false, detail: "\(failDetail) (not declared in the checks of \(test.name))")
         } else {
-            runner.record(name, passed: false, detail: "\(detail) (not declared in the checks of \(test.name))")
+            runner.record(name, passed: passed, detail: passed ? detail : failDetail)
         }
     }
 
