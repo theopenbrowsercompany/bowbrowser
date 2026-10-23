@@ -29,10 +29,10 @@ How a split is saved in the sidebar is in `sidebar-store.md`; this spec covers h
 ## Acceptance checks
 
 1. Open tabs A to D and show all four as panes with C focused: four equal panes show A, B, C and D in order, C is outlined, selected and active.
-2. Show A and B with A focused, then focus the second pane: B becomes the selected and active tab, is outlined, and its page has the keyboard.
+2. Show A and C with A focused, then focus the second pane: C becomes the selected and active tab, is outlined, and its page has the keyboard.
 3. Click into the first pane: A is focused, selected and active again.
 4. Place an overlay over the page area, then change the panes: the overlay stays in front.
-5. Close A while it has focus: B is shown alone, filling the page area, selected and active.
+5. Close A while it has focus: C (the other pane, not B, A's neighbour in the sidebar) is shown alone, filling the page area, selected and active.
 
 ## Out of scope
 
