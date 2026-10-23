@@ -55,7 +55,7 @@ targets:
       # The app icon (AppIcon) and the Bow mark (BowMark), compiled into Assets.car and AppIcon.icns.
       - App/Assets.xcassets
       - path: E2E
-        excludes: [Fixtures]
+        excludes: [Fixtures, README.md]
       # The brand's variable fonts (Nunito Sans, Fredoka), copied as one folder into Resources/Fonts and registered
       # at launch by ATSApplicationFontsPath below. The folder's OFL texts also ship at the top of Resources through
       # scripts/bundle-licenses.sh, where the About panel links them.
