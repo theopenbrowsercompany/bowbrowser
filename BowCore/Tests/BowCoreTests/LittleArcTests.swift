@@ -9,18 +9,19 @@ import Testing
 
     @Test func linksOpenInLittleArcByDefault() {
         #expect(LittleArc.opensExternalLinksByDefault)
-        #expect(LittleArc.opening(setting: nil, hasBrowserWindow: true) == .littleArc)
-        #expect(LittleArc.opening(setting: true, hasBrowserWindow: true) == .littleArc)
+        #expect(LittleArc.opening(setting: nil, hasSpace: true) == .littleArc)
+        #expect(LittleArc.opening(setting: true, hasSpace: true) == .littleArc)
     }
 
     @Test func settingOffOpensInTheBrowserWindow() {
-        #expect(LittleArc.opening(setting: false, hasBrowserWindow: true) == .browserWindow)
-        #expect(LittleArc.opening(setting: false, hasBrowserWindow: false) == .browserWindow)
+        #expect(LittleArc.opening(setting: false, hasSpace: true) == .browserWindow)
+        #expect(LittleArc.opening(setting: false, hasSpace: false) == .browserWindow)
     }
 
-    @Test func withNoBrowserWindowTheLinkOpensAWindowAsBefore() {
-        #expect(LittleArc.opening(setting: nil, hasBrowserWindow: false) == .browserWindow)
-        #expect(LittleArc.opening(setting: true, hasBrowserWindow: false) == .browserWindow)
+    /// `hasSpace` is true with no browser window while the Space shown last is known, so Little Arc opens then too.
+    @Test func withNoSpaceTheLinkOpensAWindowAsBefore() {
+        #expect(LittleArc.opening(setting: nil, hasSpace: false) == .browserWindow)
+        #expect(LittleArc.opening(setting: true, hasSpace: false) == .browserWindow)
     }
 
     // MARK: Where a page moves
@@ -78,6 +79,58 @@ import Testing
         #expect(targets[8].shortcutNumber == 9)
         #expect(targets[9].shortcutNumber == nil && targets[10].shortcutNumber == nil)
         #expect(targets[10].isEnabled)
+    }
+
+    // MARK: With no browser window
+
+    @Test func withNoBrowserWindowOpenInBowIsAlwaysOffered() throws {
+        #expect(LittleArc.canOpenInBow(hasBrowserWindow: false, targets: []))
+        let targets = LittleArc.moveTargets(in: try graph(), profileID: .default)
+        #expect(LittleArc.canOpenInBow(hasBrowserWindow: true, targets: targets))
+        #expect(!LittleArc.canOpenInBow(hasBrowserWindow: true, targets: []))
+        let personalOnly = LittleArc.moveTargets(in: try graph(), profileID: "other")
+        #expect(!LittleArc.canOpenInBow(hasBrowserWindow: true, targets: personalOnly))
+    }
+
+    @Test func theNewWindowShowsTheSpaceShownLastWhenItHasThePagesProfile() throws {
+        var graph = try graph()
+        #expect(LittleArc.newWindowSpace(in: graph, profileID: .default) == "home")
+        try graph.apply(.setActiveSpace("work"))
+        #expect(LittleArc.newWindowSpace(in: graph, profileID: .default) == "work")
+    }
+
+    @Test func theNewWindowShowsTheFirstSpaceOfThePagesProfileOtherwise() throws {
+        var graph = try graph()
+        try graph.apply(.setActiveSpace("personal"))
+        #expect(LittleArc.newWindowSpace(in: graph, profileID: .default) == "home")
+        #expect(LittleArc.newWindowSpace(in: graph, profileID: "personal") == "personal")
+        #expect(LittleArc.newWindowSpace(in: graph, profileID: "gone") == nil)
+    }
+
+    // MARK: Menu commands and the app's lifetime
+
+    @Test func pageCommandsFollowThePageAndFindStaysDisabled() {
+        let idle = NavigationControls(canGoBack: true, canGoForward: false, canReload: true, isLoading: false)
+        #expect(LittleArc.isEnabled(.reload, controls: idle))
+        #expect(LittleArc.isEnabled(.openLocation, controls: idle))
+        #expect(LittleArc.isEnabled(.back, controls: idle))
+        #expect(!LittleArc.isEnabled(.forward, controls: idle))
+        #expect(!LittleArc.isEnabled(.stop, controls: idle))
+        let loading = NavigationControls(canGoBack: false, canGoForward: true, canReload: true, isLoading: true)
+        #expect(LittleArc.isEnabled(.stop, controls: loading) && LittleArc.isEnabled(.forward, controls: loading))
+        for controls in [idle, loading, .disabled] { #expect(!LittleArc.isEnabled(.find, controls: controls)) }
+    }
+
+    @Test func aPageThatHasGoneEnablesNoCommand() {
+        for command in LittleArc.MenuCommand.allCases {
+            #expect(!LittleArc.isEnabled(command, controls: .disabled))
+        }
+    }
+
+    @Test func anOpenLittleArcWindowKeepsTheAppRunning() {
+        #expect(LittleArc.keepsAppRunning(openLittleArcWindows: 1))
+        #expect(LittleArc.keepsAppRunning(openLittleArcWindows: 3))
+        #expect(!LittleArc.keepsAppRunning(openLittleArcWindows: 0))
     }
 
     // MARK: Where the window goes

@@ -74,32 +74,32 @@ private let slack = "com.tinyspeck.slackmacgap"
     @Test func spacesAndProfilesOpenThere() {
         #expect(
             LinkRouting.opening(
-                for: decision(.space(id: "s"), .rule(UUID())), littleArcSetting: false, hasBrowserWindow: false)
+                for: decision(.space(id: "s"), .rule(UUID())), littleArcSetting: false, hasSpace: false)
                 == .space("s"))
         #expect(
             LinkRouting.opening(
-                for: decision(.profile(id: "p"), .noSource), littleArcSetting: nil, hasBrowserWindow: true)
+                for: decision(.profile(id: "p"), .noSource), littleArcSetting: nil, hasSpace: true)
                 == .profile("p"))
         #expect(
             LinkRouting.opening(
                 for: decision(.mostRecentWindow, .defaultDestination), littleArcSetting: true,
-                hasBrowserWindow: true) == .browserWindow)
+                hasSpace: true) == .browserWindow)
     }
 
     @Test func aDefaultOfLittleArcFollowsTheSetting() {
         let fallback = decision(.littleArc, .defaultDestination)
-        #expect(LinkRouting.opening(for: fallback, littleArcSetting: nil, hasBrowserWindow: true) == .littleArc)
-        #expect(LinkRouting.opening(for: fallback, littleArcSetting: true, hasBrowserWindow: true) == .littleArc)
-        #expect(LinkRouting.opening(for: fallback, littleArcSetting: false, hasBrowserWindow: true) == .browserWindow)
-        #expect(LinkRouting.opening(for: fallback, littleArcSetting: true, hasBrowserWindow: false) == .browserWindow)
+        #expect(LinkRouting.opening(for: fallback, littleArcSetting: nil, hasSpace: true) == .littleArc)
+        #expect(LinkRouting.opening(for: fallback, littleArcSetting: true, hasSpace: true) == .littleArc)
+        #expect(LinkRouting.opening(for: fallback, littleArcSetting: false, hasSpace: true) == .browserWindow)
+        #expect(LinkRouting.opening(for: fallback, littleArcSetting: true, hasSpace: false) == .browserWindow)
     }
 
     @Test func aRuleNamingLittleArcOpensItWhateverTheSetting() {
         for basis in [RoutingDecision.Basis.rule(UUID()), .noSource] {
             let chosen = decision(.littleArc, basis)
-            #expect(LinkRouting.opening(for: chosen, littleArcSetting: false, hasBrowserWindow: true) == .littleArc)
+            #expect(LinkRouting.opening(for: chosen, littleArcSetting: false, hasSpace: true) == .littleArc)
             #expect(
-                LinkRouting.opening(for: chosen, littleArcSetting: true, hasBrowserWindow: false) == .browserWindow)
+                LinkRouting.opening(for: chosen, littleArcSetting: true, hasSpace: false) == .browserWindow)
         }
     }
 }
