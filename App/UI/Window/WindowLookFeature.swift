@@ -63,6 +63,19 @@ final class WindowDragArea: NSView {
 
     override func mouseDown(with event: NSEvent) {
         guard let window else { return super.mouseDown(with: event) }
-        window.performDrag(with: event)
+        if event.clickCount == 2 {
+            performTitleBarDoubleClick(on: window)
+        } else {
+            window.performDrag(with: event)
+        }
+    }
+
+    /// What a title bar double click does per System Settings (AppleActionOnDoubleClick): zoom by default.
+    func performTitleBarDoubleClick(on window: NSWindow) {
+        switch UserDefaults.standard.string(forKey: "AppleActionOnDoubleClick") {
+        case "Minimize": window.performMiniaturize(nil)
+        case "None": break
+        default: window.performZoom(nil)
+        }
     }
 }
