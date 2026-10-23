@@ -179,7 +179,8 @@ final class E2ERunner {
         watchdog.disarm()
         BowFixtureServer.serveDirectory(fixtureDirectory.path)
         BowPopupParking.start()
-        let app = E2EAppAdapter(delegate: delegate)
+        let app = E2EAppAdapter(
+            delegate: delegate, seedFolder: profileDirectory.appendingPathComponent("seeds", isDirectory: true))
         Task {
             startHeartbeat()
             var leftovers: [String] = []

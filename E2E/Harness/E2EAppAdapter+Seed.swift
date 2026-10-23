@@ -2,30 +2,24 @@ import AppKit
 import BowCore
 
 // The store seed area of the adapter: E2EStoreSeedApp over BowCore's SidebarStore and the app delegate's window
-// opening.
+// opening. Seeded sidebars are saved in `seedFolder`, one folder per test.
 
 extension E2EAppAdapter {
-    /// Where seeded sidebars are kept: a folder of this process in the temporary directory, emptied between tests.
-    private static var seedFolder: URL {
-        FileManager.default.temporaryDirectory
-            .appendingPathComponent("bow-e2e-seeds-\(ProcessInfo.processInfo.processIdentifier)", isDirectory: true)
-    }
-
-    /// Removes the seeded sidebars. Called once no window shows them.
-    func removeSeededSidebars() {
-        try? FileManager.default.removeItem(at: Self.seedFolder)
-    }
-
     func openWindow(seeded seed: E2ESeed, token: Int) async throws -> E2ESeededWindow {
         guard !seed.spaces.isEmpty else { throw E2EError("a seed needs at least one Space") }
-        let names = seed.spaces.map(\.name) + seed.spaces.flatMap { Self.names(in: $0.pinned + $0.today) }
-        if let repeated = Dictionary(grouping: names, by: { $0 }).first(where: { $0.value.count > 1 })?.key {
-            throw E2EError("the seed names \"\(repeated)\" more than once")
+        // Spaces and items are named apart (spaceIDs, itemIDs), so a Space and an item may share a name.
+        let itemNames = seed.spaces.flatMap { Self.names(in: $0.pinned + $0.today) }
+        for (kind, names) in [("Space", seed.spaces.map(\.name)), ("item", itemNames)] {
+            if let repeated = Dictionary(grouping: names, by: { $0 }).first(where: { $0.value.count > 1 })?.key {
+                throw E2EError("the seed names more than one \(kind) \"\(repeated)\"")
+            }
         }
         let store: SidebarStore
         do {
-            try FileManager.default.createDirectory(at: Self.seedFolder, withIntermediateDirectories: true)
-            store = try SidebarStore(fileURL: Self.seedFolder.appendingPathComponent("\(UUID().uuidString).json"))
+            // One folder per test, so a failed test's seeds are easy to find in the kept profile folder.
+            let folder = seedFolder.appendingPathComponent(testProfileID, isDirectory: true)
+            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+            store = try SidebarStore(fileURL: folder.appendingPathComponent("\(UUID().uuidString).json"))
         } catch {
             throw E2EError("cannot create a sidebar to seed: \(error)")
         }
@@ -38,11 +32,12 @@ extension E2EAppAdapter {
             let fresh = store.graph.spaces.map(\.id)
             for space in seed.spaces {
                 let engineProfile: (any EngineProfile)?
-                if case .new(let profile) = space.profile, let made = newProfiles[profile.id] {
-                    engineProfile = made
-                } else {
+                switch space.profile {
+                case .new(let profile):
+                    engineProfile = try newProfiles[profile.id] ?? self.engineProfile(for: space.profile)
+                    newProfiles[profile.id] = engineProfile
+                case .test, .appDefault:
                     engineProfile = try self.engineProfile(for: space.profile)
-                    if case .new(let profile) = space.profile { newProfiles[profile.id] = engineProfile }
                 }
                 guard let engineProfile else { throw E2EError("the engine has no profile for Space \(space.name)") }
                 let id = try store.createSpace(

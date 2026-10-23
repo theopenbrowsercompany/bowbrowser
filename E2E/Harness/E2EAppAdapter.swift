@@ -19,7 +19,7 @@ final class E2EAppAdapter {
     private(set) var testControllers: [BrowserWindowController] = []
     private var testPages: [E2ETabPage] = []
     private var testProfile: (any EngineProfile)?
-    private var testProfileID = ""
+    private(set) var testProfileID = ""
     /// The token of the running test, nil between tests. Every app and page action a test takes carries its test's
     /// token and is refused unless it matches, so work left running by a test that ended (a timed-out step) cannot
     /// drive the app any further: a window it opened then would miss the cleanup and stay into later tests.
@@ -29,8 +29,13 @@ final class E2EAppAdapter {
     /// no alert waits for a click.
     private(set) var appSidebarNotices: [E2ESidebarNotice] = []
 
-    init(delegate: AppDelegate) {
+    /// Where seeded sidebars are saved (`E2EStoreSeedApp`): a folder in the run's profile folder, so a failed run
+    /// keeps them with the profile and a passing run removes them with it.
+    let seedFolder: URL
+
+    init(delegate: AppDelegate, seedFolder: URL) {
         self.delegate = delegate
+        self.seedFolder = seedFolder
         delegate.appFeatures.require(SidebarStores.self).presentNotice = { [weak self] notice, _ in
             self?.appSidebarNotices.append(E2ESidebarNotice(notice))
         }
@@ -139,8 +144,6 @@ final class E2EAppAdapter {
         testPages.removeAll()
         testProfile = nil
         testProfileID = "e2e-test-\(index)"
-        // The windows of earlier tests are closed by now, so their seeded sidebars can go.
-        removeSeededSidebars()
         activeToken = index
         return E2ETestApp(adapter: self, token: index)
     }
@@ -357,7 +360,6 @@ final class E2EAppAdapter {
         testControllers.removeAll()
         testPages.removeAll()
         pages.removeAll()
-        removeSeededSidebars()
         NSApp.terminate(nil)
     }
 }
@@ -531,16 +533,8 @@ final class E2ETabPage: E2EPage {
     func openFindBar() throws -> any E2EFindBar {
         try requireActive("open the find bar")
         guard let window = controller.window else { throw E2EError("the page has no window") }
-        guard let item = E2EAppAdapter.menuItem(key: "f", modifiers: .command) else {
-            throw E2EError("no menu item has the key equivalent Cmd+F")
-        }
-        guard let action = item.action else { throw E2EError("the Cmd+F menu item has no action") }
-        // The menu sends its action along the key window's responder chain. The e2e window is never key, so send
-        // it along this window's chain the same way.
-        let responder: NSResponder = window.firstResponder ?? window
-        guard responder.tryToPerform(action, with: item) else {
-            throw E2EError("nothing in the window's responder chain handles \(action)")
-        }
+        // Find… (Cmd+F) through the app's menu, as for every other shortcut.
+        try adapter.chooseMenuItem(key: "f", modifiers: .command, in: self)
         let bar = WindowFindBar(page: self, window: window)
         guard bar.isShown else { throw E2EError("the find bar did not show") }
         return bar
