@@ -13,5 +13,6 @@ enum AppFeatures {
         TabActivityLog.self,
         HistoryStores.self,
         TabUnloader.self,
+        ArchiveCenter.self,
     ]
 }
