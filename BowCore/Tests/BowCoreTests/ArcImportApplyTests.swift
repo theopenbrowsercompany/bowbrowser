@@ -3,13 +3,13 @@ import Testing
 
 @testable import BowCore
 
-private func parsed(_ name: String) throws -> ArcImportResult {
+func parsed(_ name: String) throws -> ArcImportResult {
     let url = try #require(Bundle.module.url(forResource: "Fixtures/ArcImport/\(name)", withExtension: "json"))
     return try ArcImporter.parse(Data(contentsOf: url))
 }
 
 /// Runs `body` with a sidebar store that has only its starter Space, saved in a temporary folder.
-private func withStore(_ body: (SidebarStore, URL) throws -> Void) throws {
+func withStore(_ body: (SidebarStore, URL) throws -> Void) throws {
     try withTemporaryFolder { folder in
         let url = folder.appendingPathComponent(SidebarStore.fileName)
         try body(try SidebarStore(fileURL: url), url)
@@ -103,8 +103,11 @@ private func favoriteTitles(_ profile: SidebarProfileID, in graph: SidebarGraph)
         #expect(preview.spaces.map(\.title) == ["Work", "Personal", "Scratch"])
         #expect(
             preview.spaces.map(\.profile)
-                == [.defaultProfile, .arcProfile(SidebarProfileID("arc-Profile 1")), .defaultProfile])
-        #expect(preview.favorites.map(\.profile) == [.defaultProfile, .arcProfile(SidebarProfileID("arc-Profile 1"))])
+                == [.defaultProfile, .arcProfile(SidebarProfileID("arc-profile-1-ef0ccd1ac1")), .defaultProfile])
+        #expect(
+            preview.favorites.map(\.profile) == [
+                .defaultProfile, .arcProfile(SidebarProfileID("arc-profile-1-ef0ccd1ac1")),
+            ])
         #expect(preview.favorites.map { titles($0.items) } == [["Chat", "Notes"], ["Photos"]])
     }
 
@@ -313,7 +316,7 @@ private func favoriteTitles(_ profile: SidebarProfileID, in graph: SidebarGraph)
             #expect(graph.activeTabID == before.activeTabID)
             #expect(graph.contentItemCount == before.contentItemCount)
             #expect(graph.items.count == before.items.count + 1)
-            let extra = try #require(graph.favoritesContainerIDs[SidebarProfileID("arc-Profile 1")])
+            let extra = try #require(graph.favoritesContainerIDs[SidebarProfileID("arc-profile-1-ef0ccd1ac1")])
             #expect(graph.children(of: extra).isEmpty)
             #expect(graph.integrityProblems().isEmpty)
         }

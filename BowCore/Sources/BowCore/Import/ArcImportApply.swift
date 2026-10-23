@@ -2,37 +2,101 @@ import Foundation
 
 /// What one applied import added to the sidebar, enough to take it out again in one step.
 public struct ArcImportApplied: Equatable, Sendable {
-    /// The Spaces the import created, in order. Their pinned and unpinned items go with them.
+    /// The Spaces the import created, in order.
     public var spaceIDs: [SidebarSpaceID] = []
     /// The Favorites the import added, in profile Favorites that existed or were created.
     public var favoriteItemIDs: [SidebarItemID] = []
-    /// Every sidebar item the import inserted (folders, tabs and splits), Favorites included.
-    public var itemCount = 0
+    /// The Favorites section each of `favoriteItemIDs` was added to.
+    public var favoriteContainerIDs: [SidebarItemID: SidebarItemID] = [:]
+    /// Every item the import inserted into the Spaces it created (folders, tabs and splits), and nothing else.
+    /// Undo removes only these, so whatever else sits in an imported Space is not the import's to delete.
+    public var spaceItemIDs: [SidebarItemID] = []
     /// Set when the change is in the sidebar but writing the file failed. The store keeps retrying on its next save.
     public var saveFailure: String?
 
+    /// Every sidebar item the import inserted, Favorites included.
+    public var itemCount: Int { spaceItemIDs.count + favoriteItemIDs.count }
+
     public var isEmpty: Bool { spaceIDs.isEmpty && favoriteItemIDs.isEmpty }
 
-    /// Takes the import out again in one undoable-style transaction: the Favorites it added and the Spaces it
-    /// created, with whatever is still inside them. Anything already gone is skipped. Items the person moved out of
-    /// the imported Spaces since stay where they are.
+    /// Takes the import out again in one transaction, without touching anything the person added or moved since.
     ///
-    /// An empty Favorites section that the import created for a new profile stays behind, exactly as it does when
-    /// any Space of that profile is deleted.
-    public func undo(on store: SidebarStore) throws {
-        guard !isEmpty else { return }
+    /// - The Favorites the import added are deleted, unless the person moved one out of the Favorites section it was
+    ///   added to, which keeps it where it is now.
+    /// - In each imported Space, exactly the items the import inserted are deleted. Anything else found there (an
+    ///   existing tab or folder the person moved in, a tab opened there since) moves, with what is inside it, to the
+    ///   end of the same section (pinned or unpinned) of the first Space that is not an imported one, in the order it
+    ///   had. Then the imported Space is deleted.
+    /// - Items of the import that the person moved out of an imported Space stay where they are. Anything already
+    ///   gone is skipped.
+    ///
+    /// Throws `ArcImportUndoError.noOtherSpaceRemains` and changes nothing when no Space other than the imported
+    /// ones is left to take over what the person added. A failure to write the file does not undo the undo: the
+    /// change is in the sidebar and the result carries the failure, as `ArcImporter.apply` does.
+    ///
+    /// An empty Favorites section that the import created for a new profile stays behind, as it does when any Space
+    /// of that profile is deleted: the sidebar has no change that removes a section.
+    @discardableResult
+    public func undo(on store: SidebarStore) throws -> ArcImportUndone {
+        var undone = ArcImportUndone()
+        guard !isEmpty else { return undone }
+        let imported = Set(spaceItemIDs)
+        let importedSpaces = Set(spaceIDs)
         do {
             try store.transaction {
-                for id in favoriteItemIDs where store.transactionGraph?.items[id] != nil {
+                guard let before = store.transactionGraph else { throw SidebarStoreError.noOpenTransaction }
+                for id in favoriteItemIDs {
+                    guard let item = before.items[id], item.parentID == favoriteContainerIDs[id] else { continue }
                     try store.mutate(.delete(id))
                 }
-                for id in spaceIDs where store.transactionGraph?.space(id) != nil {
-                    try store.mutate(.deleteSpace(id))
+                let present = spaceIDs.compactMap { before.space($0) }
+                if !present.isEmpty {
+                    guard let destination = before.spaces.first(where: { !importedSpaces.contains($0.id) }) else {
+                        throw ArcImportUndoError.noOtherSpaceRemains
+                    }
+                    undone.destinationSpaceID = destination.id
+                    for space in present {
+                        let sections = [
+                            (space.pinnedContainerID, destination.pinnedContainerID),
+                            (space.unpinnedContainerID, destination.unpinnedContainerID),
+                        ]
+                        for (source, target) in sections {
+                            for id in Self.foreignRoots(under: source, importedItems: imported, in: before) {
+                                try store.mutate(.move(id, parent: target))
+                                undone.keptItemIDs.append(id)
+                            }
+                        }
+                    }
+                    for space in present { try store.mutate(.deleteSpace(space.id)) }
+                    try store.mutate(.reconcileSelectedTab)
+                }
+                if let after = store.transactionGraph {
+                    undone.removedItemIDs = before.orderedIDs().filter {
+                        before.items[$0]?.data.isContainer == false && after.items[$0] == nil
+                    }
                 }
             }
-        } catch SidebarStoreError.saveFailed {
+        } catch SidebarStoreError.saveFailed(let reason) {
             // The change is committed in memory and the store retries the write, so the undo has happened.
+            undone.saveFailure = reason
         }
+        return undone
+    }
+
+    /// The topmost items under `container` that the import did not insert, in sidebar order. Items the import
+    /// inserted are looked through, because the person may have put something inside one of them; foreign items are
+    /// not looked into, since they move whole.
+    private static func foreignRoots(
+        under container: SidebarItemID, importedItems: Set<SidebarItemID>, in graph: SidebarGraph
+    ) -> [SidebarItemID] {
+        var roots: [SidebarItemID] = []
+        func visit(_ id: SidebarItemID) {
+            for child in graph.children(of: id) {
+                if importedItems.contains(child.id) { visit(child.id) } else { roots.append(child.id) }
+            }
+        }
+        visit(container)
+        return roots
     }
 
     /// The same line `ArcImportPreview.summaryLine` gives, read back from the sidebar the import landed in.
@@ -107,10 +171,10 @@ extension ArcImporter {
                         throw SidebarStoreError.spaceNotFound(id)
                     }
                     for node in entry.pinned {
-                        try insert(node, under: space.pinnedContainerID, in: store, count: &applied.itemCount)
+                        try insert(node, under: space.pinnedContainerID, in: store, into: &applied.spaceItemIDs)
                     }
                     for node in entry.unpinned {
-                        try insert(node, under: space.unpinnedContainerID, in: store, count: &applied.itemCount)
+                        try insert(node, under: space.unpinnedContainerID, in: store, into: &applied.spaceItemIDs)
                     }
                 }
                 for entry in preview.favorites {
@@ -128,8 +192,10 @@ extension ArcImporter {
                         throw SidebarStoreError.invalidHierarchy("profile \(profile) has no favorites")
                     }
                     for node in entry.items {
-                        let item = try insert(node, under: container, in: store, count: &applied.itemCount)
-                        applied.favoriteItemIDs.append(item)
+                        var inserted: [SidebarItemID] = []
+                        try insert(node, under: container, in: store, into: &inserted)
+                        applied.favoriteItemIDs.append(contentsOf: inserted)
+                        for id in inserted { applied.favoriteContainerIDs[id] = container }
                     }
                 }
             }
@@ -150,7 +216,8 @@ extension ArcImporter {
     /// Inserts a node and everything under it, returning the new item's ID.
     @discardableResult
     private static func insert(
-        _ node: ArcImportPreviewNode, under parent: SidebarItemID, in store: SidebarStore, count: inout Int
+        _ node: ArcImportPreviewNode, under parent: SidebarItemID, in store: SidebarStore,
+        into inserted: inout [SidebarItemID]
     )
         throws -> SidebarItemID
     {
@@ -161,8 +228,34 @@ extension ArcImporter {
         case .splitView: item = .split(orientation: node.orientation ?? .horizontal)
         }
         try store.mutate(.insert(item, parent: parent))
-        count += 1
-        for child in node.children { try insert(child, under: item.id, in: store, count: &count) }
+        inserted.append(item.id)
+        for child in node.children { try insert(child, under: item.id, in: store, into: &inserted) }
         return item.id
     }
+}
+
+/// Why an import could not be undone. Nothing in the sidebar changed.
+public enum ArcImportUndoError: Error, Equatable, CustomStringConvertible {
+    /// Only imported Spaces are left, so there is no Space to keep what the person added to them.
+    case noOtherSpaceRemains
+
+    public var description: String {
+        switch self {
+        case .noOtherSpaceRemains:
+            "the imported Spaces are the only Spaces left, so undoing would have no Space to keep your own tabs in"
+        }
+    }
+}
+
+/// What an undo did beyond removing the import.
+public struct ArcImportUndone: Equatable, Sendable {
+    /// Items that were not the import's (found inside an imported Space) and moved, with what is inside them, to the
+    /// end of the same section of `destinationSpaceID`.
+    public var keptItemIDs: [SidebarItemID] = []
+    /// The Space that took them, nil when no imported Space was left to undo.
+    public var destinationSpaceID: SidebarSpaceID?
+    /// The folders, tabs and splits the undo deleted, so the app can close the pages of the tabs among them.
+    public var removedItemIDs: [SidebarItemID] = []
+    /// Set when the change is in the sidebar but writing the file failed. The store keeps retrying on its next save.
+    public var saveFailure: String?
 }
