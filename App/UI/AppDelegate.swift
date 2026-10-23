@@ -31,6 +31,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var engineStarted = false
     /// Links from other apps that arrived before the engine started.
     private var pendingLinks: [URL] = []
+    /// True once launch found the app's sidebar unusable and is telling the person before it quits.
+    private var refusedToStart = false
     private var smokeTimer: Timer?
     private var smokeFinished = false
     /// The smoke run's window, for the navigation delegate methods that finish the run.
@@ -60,6 +62,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return nil
         }
 
+        // Before Chromium starts: it keeps its profiles in this folder and could stop before any alert shows.
+        do {
+            try SidebarStores.prepareDataFolder(Self.dataDirectory)
+        } catch {
+            FileHandle.standardError.write(Data("bow: \(error)\n".utf8))
+            if !options.isSmokeTest {
+                NSApp.activate()
+                SidebarStores.showAlert(error, in: nil)
+            }
+            BowEngine.exitCode = 1
+            return nil
+        }
         let configuration = BowEngineConfiguration(rootDataDirectory: Self.dataDirectory.path)
         if options.isSmokeTest {
             configuration.quitTimeout = Self.smokeQuitTimeout
@@ -84,8 +98,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if options.isSmokeTest {
             // A smoke run opens its page in a sidebar of its own, so it never adds tabs to the person's sidebar.
             let startURL = options.smokeInput.flatMap(AddressInput.resolve) ?? Self.homeURL
+            guard let profile = engine.profile(id: .default) else {
+                // Never the person's own sidebar in its place.
+                finishSmokeTest("the engine has no default profile", exitCode: 1)
+                return
+            }
             do {
-                let controller = try openWindow(url: startURL, profile: engine.profile(id: .default))
+                let controller = try openWindow(url: startURL, profile: profile)
                 // Stay in the background so a smoke run never takes the keyboard from whoever is typing.
                 controller.window?.orderBack(nil)
                 runSmokeTest(in: controller)
@@ -96,8 +115,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         } else {
             // The saved sidebar comes back with only its active tab loading; an empty one opens the home page.
             NSApp.activate()
-            guard let controller = openWindowOrExplain(url: nil) else {
-                // Bow refuses to start rather than run on a sidebar that would not be saved.
+            let controller: BrowserWindowController
+            do {
+                controller = try openWindow(url: nil)
+            } catch {
+                // Bow refuses to start rather than run on a sidebar that would not be saved. Links that arrive
+                // while the alert is open are dropped, so no second alert stacks on it.
+                refusedToStart = true
+                pendingLinks.removeAll()
+                appFeatures.require(SidebarStores.self).present(error, in: nil)
                 BowEngine.exitCode = 1
                 NSApp.terminate(nil)
                 return
@@ -123,7 +149,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// arrive before the engine has started open once it has.
     func application(_ application: NSApplication, open urls: [URL]) {
         // An e2e or smoke run is a throwaway beside the person's own Bow: a link meant for them never opens in it.
-        guard !options.isE2E, !options.isSmokeTest else { return }
+        guard !options.isE2E, !options.isSmokeTest, !refusedToStart else { return }
         for url in urls where ["http", "https"].contains(url.scheme?.lowercased()) {
             if engineStarted {
                 openLink(url)
@@ -138,7 +164,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// screen window for it).
     @discardableResult
     func openLink(_ url: URL) -> BrowserWindowController? {
-        if let controller = windowControllers.last {
+        // The main window, else the last one on screen or in the Dock (a window that is closing may still be listed),
+        // else, while Bow is hidden and so no window is on screen, the last one.
+        if let controller = windowControllers.first(where: { $0.window?.isMainWindow == true })
+            ?? windowControllers.last(where: { $0.window.map { $0.isVisible || $0.isMiniaturized } == true })
+            ?? (NSApp.isHidden ? windowControllers.last : nil)
+        {
             guard controller.openTab(url: url) != nil else { return nil }
             // Brought forward (out of the Dock too), so the link is seen; e2e windows stay off screen and never key.
             if !options.isE2E {
