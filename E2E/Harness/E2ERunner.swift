@@ -49,6 +49,8 @@ final class E2ERunner {
     private let tests: [any E2ETest]
     fileprivate let profileDirectory: URL
     private let runDirectory: URL
+    /// The run's downloads folder, emptied at the start of each run, so no download reaches the real one.
+    fileprivate let downloadsDirectory: URL
     private let fixtureDirectory: URL
     private let defaultsSuiteName: String
     private let output: E2EOutput
@@ -103,6 +105,10 @@ final class E2ERunner {
                 try fileManager.removeItem(at: profileDirectory)
             }
             try fileManager.createDirectory(at: profileDirectory, withIntermediateDirectories: true)
+            downloadsDirectory = runDirectory.appendingPathComponent("downloads", isDirectory: true)
+            if fileManager.fileExists(atPath: downloadsDirectory.path) {
+                try fileManager.removeItem(at: downloadsDirectory)
+            }
         } catch {
             throw E2EError("cannot prepare \(runDirectory.path): \(error.localizedDescription)")
         }
@@ -151,6 +157,7 @@ final class E2ERunner {
         engineConfiguration = configuration
 
         AppSettings.defaults = UserDefaults(suiteName: defaultsSuiteName) ?? .standard
+        DownloadSettings.folder = downloadsDirectory
         // Never restore windows from an earlier run, and never show in the Dock or take focus.
         var arguments = UserDefaults.standard.volatileDomain(forName: UserDefaults.argumentDomain)
         arguments["ApplePersistenceIgnoreState"] = true
@@ -476,6 +483,8 @@ final class E2ERun {
     fileprivate private(set) var recorded = Set<String>()
     /// One line per step: its name, limit, duration and outcome, for the failing test's log.txt.
     fileprivate private(set) var log: [String] = []
+    /// The run's throwaway downloads folder, where the app saves downloads during the run.
+    var downloadsDirectory: URL { runner.downloadsDirectory }
 
     private unowned let runner: E2ERunner
     private let test: any E2ETest

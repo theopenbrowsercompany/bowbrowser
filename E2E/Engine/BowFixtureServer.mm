@@ -5,10 +5,12 @@
 
 #include <sys/stat.h>
 
+#include <cstring>
 #include <string>
 
 #include "include/cef_parser.h"
 #include "include/cef_scheme.h"
+#include "include/cef_task.h"
 #include "include/wrapper/cef_stream_resource_handler.h"
 
 namespace {
@@ -26,6 +28,60 @@ CefRefPtr<CefResourceHandler> NotFound() {
 const char kRedirectPrefix[] = "/_redirect/";
 const char kErrorPrefix[] = "/_error/";
 const char kNoContentPrefix[] = "/_204/";
+const char kSlowPrefix[] = "/_slow/";
+
+// Calls a read callback later, from a delayed task.
+class ContinueReadTask : public CefTask {
+ public:
+  ContinueReadTask(CefRefPtr<CefResourceReadCallback> callback, int bytesRead)
+      : callback_(callback), bytesRead_(bytesRead) {}
+  void Execute() override { callback_->Continue(bytesRead_); }
+
+ private:
+  CefRefPtr<CefResourceReadCallback> callback_;
+  const int bytesRead_;
+
+  IMPLEMENT_REFCOUNTING(ContinueReadTask);
+};
+
+// A download that never finishes: an attachment named `fileName` of unknown length, sending a small chunk every
+// few milliseconds until it is cancelled, so tests can pause, resume and cancel it while it runs.
+class SlowDownloadHandler : public CefResourceHandler {
+ public:
+  explicit SlowDownloadHandler(std::string fileName) : fileName_(std::move(fileName)) {}
+
+  bool Open(CefRefPtr<CefRequest> request, bool& handleRequest, CefRefPtr<CefCallback> callback) override {
+    handleRequest = true;
+    return true;
+  }
+
+  void GetResponseHeaders(CefRefPtr<CefResponse> response, int64_t& responseLength, CefString& redirectUrl) override {
+    responseLength = -1;
+    response->SetStatus(200);
+    response->SetStatusText("OK");
+    response->SetMimeType("application/octet-stream");
+    response->SetHeaderByName("Cache-Control", "no-store", true);
+    response->SetHeaderByName("Content-Disposition", "attachment; filename=\"" + fileName_ + "\"", true);
+  }
+
+  bool Read(void* dataOut, int bytesToRead, int& bytesRead, CefRefPtr<CefResourceReadCallback> callback) override {
+    const int chunk = bytesToRead < kChunk ? bytesToRead : kChunk;
+    memset(dataOut, 'x', chunk);
+    // Asynchronous read: the buffer stays valid until the callback runs.
+    bytesRead = 0;
+    CefPostDelayedTask(TID_IO, new ContinueReadTask(callback, chunk), kDelayMs);
+    return true;
+  }
+
+  void Cancel() override {}
+
+ private:
+  static constexpr int kChunk = 1024;
+  static constexpr int64_t kDelayMs = 20;
+  const std::string fileName_;
+
+  IMPLEMENT_REFCOUNTING(SlowDownloadHandler);
+};
 
 // Answers with no body: with `status` (a 302 redirect to `location`, or a 204), or, when `status` is 0, a failed
 // connection (ERR_CONNECTION_REFUSED), which Chromium reports as a failed load.
@@ -116,6 +172,11 @@ class FixtureHandlerFactory : public CefSchemeHandlerFactory {
     if (path.rfind(kErrorPrefix, 0) == 0) return new EmptyResponseHandler(0);
     if (path.rfind(kNoContentPrefix, 0) == 0) return new EmptyResponseHandler(204);
     if (path.rfind(kHangPrefix, 0) == 0) return new HangingResponseHandler();
+    if (path.rfind(kSlowPrefix, 0) == 0) {
+      std::string fileName = path.substr(sizeof(kSlowPrefix) - 1);
+      if (fileName.empty() || fileName.find_first_of("/\"\\") != std::string::npos) return NotFound();
+      return new SlowDownloadHandler(fileName);
+    }
     if (path.back() == '/') path += "index.html";
 
     const std::string file = directory_ + path;

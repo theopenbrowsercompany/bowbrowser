@@ -31,6 +31,33 @@ protocol E2EApp: AnyObject {
     func press(_ shortcut: E2EShortcut, in page: any E2EPage) throws
     /// Quits the way the app's Quit menu item does.
     func quit()
+
+    /// Every row of the downloads window, newest first. The window opens off screen on first use.
+    func downloads() async throws -> [E2EDownload]
+    /// Clicks one of a download's buttons in the downloads window. Throws when the button is hidden.
+    func press(_ button: E2EDownload.Button, of download: E2EDownload) async throws
+}
+
+/// One row of the downloads window.
+struct E2EDownload: Equatable {
+    enum Button {
+        /// Pause while running, resume while paused or failed.
+        case pauseOrResume
+        /// Cancel while running or paused, clear once finished.
+        case cancelOrClear
+    }
+
+    /// Stable for the life of the download.
+    var id: String
+    /// The name the row shows.
+    var fileName: String
+    /// `inProgress`, `paused`, `complete`, `cancelled` or `interrupted`.
+    var state: String
+    /// The status line the row shows under the name.
+    var status: String
+    var receivedBytes: Int64
+    /// The file the download writes, once chosen.
+    var path: URL?
 }
 
 extension E2EApp {

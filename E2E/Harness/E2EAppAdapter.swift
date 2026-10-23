@@ -293,6 +293,50 @@ final class E2EAppAdapter {
         }
     }
 
+    private var downloadsWindow: DownloadsWindowController?
+
+    /// The downloads window, opened off screen the first time.
+    private func downloadsList() async throws -> DownloadsWindowController {
+        if let downloadsWindow { return downloadsWindow }
+        let frame = NSRect(x: -20_000, y: -21_000, width: 480, height: 360)
+        let window = OffscreenBrowserWindow(
+            contentRect: frame, styleMask: [.titled, .closable, .resizable], backing: .buffered, defer: false)
+        let controller = delegate.openDownloadsWindow(window: window)
+        window.setFrame(window.frameRect(forContentRect: frame), display: false)
+        try await Self.checkInvisible(window)
+        window.orderFrontRegardless()
+        try await Self.checkInvisible(window)
+        downloadsWindow = controller
+        return controller
+    }
+
+    func downloads() async throws -> [E2EDownload] {
+        let list = try await downloadsList()
+        return list.rows.enumerated().map { index, entry in
+            let row = list.rowView(at: index)
+            return E2EDownload(
+                id: "\(entry.profileID)/\(entry.item.id)",
+                fileName: row?.nameLabel.stringValue ?? "",
+                state: entry.item.state.rawValue,
+                status: row?.statusLabel.stringValue ?? "",
+                receivedBytes: entry.item.receivedBytes,
+                path: entry.item.destination
+            )
+        }
+    }
+
+    func press(_ button: E2EDownload.Button, of download: E2EDownload) async throws {
+        let list = try await downloadsList()
+        guard let index = list.rows.firstIndex(where: { "\($0.profileID)/\($0.item.id)" == download.id }),
+            let row = list.rowView(at: index)
+        else { throw E2EError("no row for download \(download.id)") }
+        let control = button == .pauseOrResume ? row.pauseButton : row.cancelButton
+        guard !control.isHidden else {
+            throw E2EError("the \(control.title) button of \(download.fileName) is hidden")
+        }
+        control.performClick(nil)
+    }
+
     func quit() {
         // Tests no longer hold their pages; releasing them here frees their DevTools sessions (and the Chromium
         // objects they hold) while the engine still runs.
