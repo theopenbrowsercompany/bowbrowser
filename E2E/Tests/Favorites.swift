@@ -3,7 +3,7 @@ import Foundation
 /// Tests of the Favorites grid at the top of the sidebar. Uses the sidebar fixtures in E2E/Fixtures/sidebar/.
 @MainActor
 enum FavoritesGridTests {
-    static let all: [any E2ETest] = [FavoritesGridTest(), FavoritesActiveTabTest()]
+    static let all: [any E2ETest] = [FavoritesGridTest(), FavoritesActiveTabTest(), FavoritesEmptySpaceTest()]
 
     /// What `read` gives once `condition` holds for it, or what it gave last when the wait's budget (at most 3 seconds
     /// of the step's time) runs out, so the check that follows says what it saw.
@@ -234,5 +234,82 @@ struct FavoritesActiveTabTest: E2ETest {
             "d_closed=\(closed.closedD) tiles_after_close=\(closed.after.tiles) "
                 + "rows_after_close=\(SidebarWaits.summary(closed.after.rows)) active_after_close=\(closed.afterClose) "
                 + "reopened=\(closed.reopened) tiles=\(closed.tiles) rows=\(SidebarWaits.summary(closed.rows))")
+    }
+}
+
+/// Opens A and B and drags A, with its site icon, onto the grid, then switches to a new empty Space of the same profile
+/// and adds Favorite S, saved and never loaded. The empty Space lists both Favorites: the start screen's quick links
+/// show A's icon and S's letter, and clicking S's tile in the sidebar loads S in place, the start screen giving way.
+/// After a switch to the first Space and back, clicking A's tile shows A's own page.
+struct FavoritesEmptySpaceTest: E2ETest {
+    let name = "favorites.empty-space"
+    let checks = ["favorites.empty-space", "favorites.empty-space-icons"]
+
+    func run(_ run: E2ERun) async throws {
+        guard let app = run.app as? any E2EFavoritesApp, let edges = run.app as? any E2EWindowEdgesApp,
+            let start = run.app as? any E2EStartScreenApp
+        else { throw E2EError("the app lacks the Favorites, window edges or start screen hooks") }
+        let url = { (name: String) in E2EFixture.url("sidebar/page.html?name=\(name)") }
+        func settle<T>(_ read: () throws -> T, until condition: (T) -> Bool) async throws -> T {
+            try await FavoritesGridTests.settle(read, until: condition)
+        }
+        let titles = FavoritesGridTests.titles
+
+        let (a, home) = try await run.step("open A and B, drag A onto the grid", timeout: E2ETimeouts.firstLoad) {
+            let a = try await run.app.openWindow(at: url("A"))
+            _ = try await a.waitForLoad(after: 0)
+            let b = try await app.clickNewTab(besides: a, opening: url("B"))
+            _ = try await b.waitForLoad(after: 0)
+            try await SidebarWaits.rows(app, of: a) { $0.map(\.title) == ["A", "B"] && $0.allSatisfy(\.hasFavicon) }
+            try app.dragToFavorites(a, at: 0)
+            let tiles = try await settle({ try app.favoriteTiles(of: a) }) { titles($0) == "[A]" && $0[0].hasIcon }
+            guard titles(tiles) == "[A]" else { throw E2EError("the grid shows \(titles(tiles)), not [A]") }
+            return (a, try edges.activeSpace(besides: a))
+        }
+
+        let empty = try await run.step("switch to an empty Space and add Favorite S", timeout: E2ETimeouts.step) {
+            let space = try edges.createSpace(besides: a, profileID: edges.profileID(of: a))
+            _ = try start.addFavorite(title: "S", url: url("S"), in: a)
+            let look = try await settle({ try start.startScreen(of: a) }) {
+                $0.isShown && $0.linkTitles == ["A", "S"] && $0.linkIcons == [true, false]
+            }
+            let tiles = try app.favoriteTiles(of: a)
+            return (space: space, look: look, tiles: tiles)
+        }
+        run.check(
+            "favorites.empty-space-icons",
+            passed: empty.look.isShown && empty.look.linkTitles == ["A", "S"] && empty.look.linkIcons == [true, false]
+                && titles(empty.tiles) == "[A,S]" && empty.tiles.map(\.hasIcon) == [true, false],
+            "start_shown=\(empty.look.isShown) links=\(empty.look.linkTitles) link_icons=\(empty.look.linkIcons) "
+                + "tiles=\(empty.tiles)")
+
+        /// What the window shows: the active tab, whether the start screen shows, and the grid's tiles.
+        func shown() throws -> (active: E2EActiveTab, start: Bool, tiles: [E2EFavoriteTile]) {
+            (try app.activeTab(of: a), try start.startScreen(of: a).isShown, try app.favoriteTiles(of: a))
+        }
+        func describe(_ seen: (active: E2EActiveTab, start: Bool, tiles: [E2EFavoriteTile])) -> String {
+            "active=\(seen.active) start=\(seen.start) tiles=\(seen.tiles)"
+        }
+        func shows(_ title: String) -> ((active: E2EActiveTab, start: Bool, tiles: [E2EFavoriteTile])) -> Bool {
+            { seen in
+                seen.active.title == title && seen.active.isShown && seen.active.url == url(title).absoluteString
+                    && !seen.start && seen.tiles.first { $0.title == title }?.isActive == true
+            }
+        }
+        let opened = try await run.step("click S, switch away and back, click A", timeout: E2ETimeouts.firstLoad) {
+            try app.clickFavorite(titled: "S", in: a)
+            let s = try await settle(shown, until: shows("S"))
+            try edges.switchToSpace(home, besides: a)
+            _ = try await settle({ try edges.activeSpace(besides: a) }) { $0 == home }
+            try edges.switchToSpace(empty.space, besides: a)
+            _ = try await settle({ try edges.activeSpace(besides: a) }) { $0 == empty.space }
+            try app.clickFavorite(titled: "A", in: a)
+            let shownA = try await settle(shown, until: shows("A"))
+            return (s: s, a: shownA, aShown: a.isShown)
+        }
+        run.check(
+            "favorites.empty-space",
+            passed: shows("S")(opened.s) && shows("A")(opened.a) && opened.aShown,
+            "after_s=\(describe(opened.s)) after_a=\(describe(opened.a)) a_page_shown=\(opened.aShown)")
     }
 }

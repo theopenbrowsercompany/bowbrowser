@@ -31,6 +31,7 @@ Each Favorite is its own tab: it opens in place, and there is never a copy of it
 
 - Switching to a Space of another profile shows that profile's Favorites; Spaces of the same profile show the same grid, and a Favorite shown stays shown across a switch to another Space of its profile.
 - An empty Space never loads a Favorite by itself: it shows its empty state until the person clicks one.
+  Its Favorites stay listed and work as in any other Space: clicking a tile, or its quick link on the start screen, shows it in place, and the start screen's quick links show the icons the window has for them.
 - A Favorite whose saved address is empty shows its letter tile and does nothing when clicked.
 - Favorites are never archived or closed by auto-archiving.
 - Favorites are saved with the sidebar, so they come back in order after a relaunch.
@@ -44,6 +45,8 @@ Each Favorite is its own tab: it opens in place, and there is never a copy of it
 5. Right-click B and choose "Remove from Favorites": the grid is empty and B is the first tab in today, with its page still open.
 6. With tabs A and D open and D shown, drag D onto the grid: D stays shown with its tile highlighted; load another page in it from the address bar and Back turns on.
 7. Choose Close Tab: D's page closes, D stays in the grid and A is shown; click D: it loads its saved address in place, not the page it navigated to.
+8. With A, carrying its icon, in the grid, switch to a new empty Space of the same profile and add Favorite S that has never loaded: the start screen's quick links show A's icon and S's letter.
+9. Click S's tile in the sidebar: S loads its saved address in place and the start screen gives way; switch to the first Space and back, then click A's tile: A's own page shows.
 
 ## Out of scope
 

@@ -198,12 +198,52 @@ import Testing
 
     @Test func decodingRejectsInconsistentLists() throws {
         let tab = makeTab("a")
-        #expect(TabList(tabs: [tab], activeID: nil) == nil)
         #expect(TabList(tabs: [tab], activeID: BrowserTabID()) == nil)
         #expect(TabList(tabs: [], activeID: tab.id) == nil)
         #expect(TabList(tabs: [tab, tab], activeID: tab.id) == nil)
         let bad = try JSONEncoder().encode(Fixture(tabs: [tab], activeID: BrowserTabID()))
         #expect(throws: DecodingError.self) { try JSONDecoder().decode(TabList.self, from: bad) }
+    }
+
+    // A window whose Space on screen has no tab selected still lists the Favorites it shows.
+
+    @Test func listsTabsWithNoActiveTab() throws {
+        let tabs = [makeTab("a"), makeTab("b")]
+        let list = try #require(TabList(tabs: tabs, activeID: nil))
+        #expect(titles(list) == ["a", "b"])
+        #expect(list.activeID == nil)
+        #expect(list.activeTab == nil)
+        #expect(list.activeIndex == nil)
+        #expect(list.tab(id: tabs[1].id)?.title == "b")
+    }
+
+    @Test func noActiveTabSurvivesClosingAndMovingOthers() throws {
+        let tabs = [makeTab("a"), makeTab("b"), makeTab("c")]
+        var list = try #require(TabList(tabs: tabs, activeID: nil))
+        let closed = list.close(tabs[0].id)
+        let moved = list.move(tabs[2].id, to: 0)
+        #expect(closed && moved)
+        #expect(titles(list) == ["c", "b"])
+        #expect(list.activeID == nil)
+    }
+
+    @Test func selectingOrOpeningInAListWithNoActiveTabActivates() throws {
+        let tabs = [makeTab("a"), makeTab("b")]
+        var list = try #require(TabList(tabs: tabs, activeID: nil))
+        let selected = list.select(tabs[1].id)
+        #expect(selected && list.activeID == tabs[1].id)
+
+        var other = try #require(TabList(tabs: tabs, activeID: nil))
+        let id = other.open(makeTab("c"), at: .afterActive, activate: false)
+        // With no active tab, after the active one means the end.
+        #expect(titles(other) == ["a", "b", "c"])
+        #expect(other.activeID == id)
+    }
+
+    @Test func listWithNoActiveTabRoundTrips() throws {
+        let list = try #require(TabList(tabs: [makeTab("a")], activeID: nil))
+        let data = try JSONEncoder().encode(list)
+        #expect(try JSONDecoder().decode(TabList.self, from: data) == list)
     }
 
     private struct Fixture: Codable {
