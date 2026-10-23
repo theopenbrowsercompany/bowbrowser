@@ -189,10 +189,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let window = linkWindow()
         switch LittleArc.opening(setting: LittleArcCenter.opensExternalLinks, hasBrowserWindow: window != nil) {
         case .littleArc:
-            guard let window else { return }
-            appFeatures.require(LittleArcCenter.self).open(
-                link.url, from: window, takesFocus: !options.isE2E
-            ) { [weak self] in self?.linkWindow() }
+            let panel = window.flatMap { window in
+                appFeatures.require(LittleArcCenter.self).open(link.url, from: window, takesFocus: !options.isE2E) {
+                    [weak self] in self?.linkWindow()
+                }
+            }
+            // A Space without its profile opens no page; the window path reports that.
+            if panel == nil { openLink(link.url, from: link.source) }
         case .browserWindow:
             openLink(link.url, from: link.source)
         }

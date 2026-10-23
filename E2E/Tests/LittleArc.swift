@@ -183,7 +183,9 @@ struct LittleArcOffTest: E2ETest {
         }
         let before = try app.browserWindowState(of: main)
         let opened = try await run.step("deliver a link", timeout: E2ETimeouts.firstLoad) {
-            let opened = try app.deliverLinks([E2ELink(address: LittleArcAreaTests.url("off").absoluteString, sender: true)]
+            let opened = try app.deliverLinks([
+                E2ELink(address: LittleArcAreaTests.url("off").absoluteString, sender: true)
+            ]
             )
             for link in opened { _ = try await link.page.waitForLoad(after: 0) }
             return opened
