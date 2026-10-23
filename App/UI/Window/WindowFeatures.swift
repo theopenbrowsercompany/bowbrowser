@@ -19,5 +19,6 @@ enum WindowFeatures {
         TabUnloadFeature.self,
         WindowLookFeature.self,
         CopyURLFeature.self,
+        SpaceThemeFeature.self,
     ]
 }

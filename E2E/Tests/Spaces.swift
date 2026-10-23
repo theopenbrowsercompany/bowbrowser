@@ -3,7 +3,7 @@ import Foundation
 /// Spaces: switching with the menu shortcuts and the switcher, swiping, and creating, renaming and deleting them.
 @MainActor
 enum SpacesAreaTests {
-    static let all: [any E2ETest] = [SpacesSwitchTest(), SpacesSwipeTest(), SpacesManageTest()]
+    static let all: [any E2ETest] = [SpacesSwitchTest(), SpacesSwipeTest(), SpacesManageTest(), SpacesThemeTest()]
 
     static func url(_ name: String) -> URL { E2EFixture.url("sidebar/page.html?name=\(name)") }
 
@@ -278,5 +278,135 @@ struct SpacesManageTest: E2ETest {
             "spaces.last", passed: last.0.contains("disabled") && last.1.spaces == ["personal"],
             "delete=\(last.0.contains("disabled") ? "disabled" : last.0) spaces=[\(last.1.spaces.joined(separator: ","))]"
         )
+    }
+}
+
+/// Seeds "work" (A, B) and "personal" (C) and themes "work" from its Space menu: Theme > Blue and the icon 💼 (a
+/// two letter icon is refused with a message). The window's background, and the sidebar drawn over it, take a 12
+/// percent wash of the blue over the Frame color; switching to "personal" fades back to the plain Frame color, and
+/// three quick switches end on the right tint. In dark appearance the wash goes over the dark Frame color, and
+/// Theme > Default while "work" is on screen removes it. Screenshots go to `<run>/spaces/`.
+struct SpacesThemeTest: E2ETest {
+    let name = "spaces.theme"
+    let checks = ["spaces.theme_menu", "spaces.theme_tint", "spaces.theme_switch", "spaces.theme_dark"]
+
+    /// The Frame colors, and #3B5BDB at 12 percent over them.
+    static let frameLight = "#FFF3E6"
+    static let frameDark = "#2A1710"
+    static let blueLight = "#E7E1E5"
+    static let blueDark = "#2C1F28"
+
+    func run(_ run: E2ERun) async throws {
+        guard let app = run.app as? any E2ESpaceThemeApp & E2EStoreSeedApp, let design = run.app as? any E2EDesignApp
+        else { throw E2EError("the app cannot drive Space themes") }
+        let page = try await SpacesAreaTests.openWorkAndPersonal(run, app: app)
+        let folder = run.dataDirectory.deletingLastPathComponent().appendingPathComponent("spaces", isDirectory: true)
+        func settled(_ done: @escaping (E2ESpaceTheme) -> Bool) async throws -> E2ESpaceTheme {
+            let deadline = Date().addingTimeInterval(E2EWaits.budget())
+            while true {
+                let theme = try app.spaceTheme(of: page)
+                if (done(theme) && !theme.animating) || Date() >= deadline { return theme }
+                try await Task.sleep(nanoseconds: 10_000_000)
+            }
+        }
+
+        let menu = try await run.step("theme and icon from the Space menu", timeout: E2ETimeouts.step) {
+            let before = try app.spaceMenuTitles(in: page)
+            try app.chooseSpaceMenuItem(["Theme", "Blue"], in: page)
+            let fading = try app.spaceTheme(of: page)
+            try app.chooseSpaceMenuItem(["Change Icon…"], in: page)
+            let asked = try app.sheetMessage(in: page) ?? "no sheet"
+            try app.answerSheet("Set Icon", text: "💼", in: page)
+            _ = try await SpacesAreaTests.settle(app, page) { $0.header == "💼 work" }
+            try await SpacesAreaTests.sheetClosed(app, page)
+            try app.chooseSpaceMenuItem(["Change Icon…"], in: page)
+            try app.answerSheet("Set Icon", text: "ab", in: page)
+            let refusal = try await refusalMessage(app, page)
+            if refusal != nil { try app.answerSheet("OK", text: nil, in: page) }
+            try await SpacesAreaTests.sheetClosed(app, page)
+            let after = try app.spaceMenuTitles(in: page)
+            return (before, fading, asked, refusal, after, try app.spaceTheme(of: page), try app.spaces(of: page))
+        }
+        let offered = ["Theme", "Theme/Default*"] + ["Blue", "Jam", "Apricot", "Cocoa", "Green", "Brick"].map {
+            "Theme/\($0)"
+        } + ["Change Icon…", "Remove Icon!"]
+        let menuOK =
+            menu.0.suffix(offered.count) == offered[...] && (menu.1.animating || menu.1.reduceMotion)
+            && menu.2.contains("Change Icon") && menu.3?.contains("is not a single emoji") == true
+            && menu.4.contains("Theme/Blue*") && menu.4.contains("Remove Icon") && menu.5.icons == ["💼", "-"]
+            && menu.5.themes == ["#3B5BDB", "default"] && menu.6.header == "💼 work"
+        run.check(
+            "spaces.theme_menu", passed: menuOK,
+            "menu=[\(menu.0.joined(separator: ","))] faded=\(menu.1.animating) refused=\(menu.3 ?? "none") "
+                + "after=[\(menu.4.joined(separator: ","))] \(menu.5) header=\(menu.6.header)")
+
+        let tint = try await run.step("work's tint", timeout: E2ETimeouts.step) {
+            let theme = try await settled { $0.background == Self.blueLight }
+            let drawn = try app.sidebarDrawnColor(of: page)
+            try await design.writeScreenshot(of: page, to: folder.appendingPathComponent("theme-work.png"))
+            return (theme, drawn)
+        }
+        let tintMatches = tint.0.background == Self.blueLight && Self.near(tint.1, Self.blueLight)
+        run.check(
+            "spaces.theme_tint", passed: tintMatches && tint.0.activeTheme == "#3B5BDB",
+            "work=\(tint.0.activeTheme) tint_matches=\(tintMatches)"
+                + (tintMatches ? "" : " background=\(tint.0.background) drawn=\(tint.1)"))
+
+        let switched = try await run.step("switch away and back quickly", timeout: E2ETimeouts.step) {
+            try app.chooseMenuItem(key: "2", modifiers: .control, in: page)
+            let fading = try app.spaceTheme(of: page)
+            let personal = try await settled { $0.background == Self.frameLight }
+            let drawn = try app.sidebarDrawnColor(of: page)
+            try app.chooseMenuItem(key: "1", modifiers: .control, in: page)
+            try app.chooseMenuItem(key: "2", modifiers: .control, in: page)
+            try app.chooseMenuItem(key: "1", modifiers: .control, in: page)
+            let back = try await settled { $0.background == Self.blueLight }
+            return (fading, personal, drawn, back)
+        }
+        run.check(
+            "spaces.theme_switch",
+            passed: (switched.0.animating || switched.0.reduceMotion) && switched.1.activeTheme == "#8E96A8"
+                && switched.1.background == Self.frameLight && Self.near(switched.2, Self.frameLight)
+                && switched.3.background == Self.blueLight && switched.3.activeTheme == "#3B5BDB",
+            "faded=\(switched.0.animating) personal=\(switched.1.background) drawn=\(switched.2) "
+                + "back=\(switched.3.background) animating=\(switched.3.animating)")
+
+        let dark = try await run.step("dark, then Theme > Default", timeout: E2ETimeouts.step) {
+            try design.setDarkAppearance(true, of: page)
+            let tinted = try await settled { $0.dark && $0.background == Self.blueDark }
+            let drawn = try app.sidebarDrawnColor(of: page)
+            try await design.writeScreenshot(of: page, to: folder.appendingPathComponent("theme-dark.png"))
+            try app.chooseSpaceMenuItem(["Theme", "Default"], in: page)
+            let plain = try await settled { $0.background == Self.frameDark }
+            try design.setDarkAppearance(false, of: page)
+            return (tinted, drawn, plain)
+        }
+        run.check(
+            "spaces.theme_dark",
+            passed: dark.0.background == Self.blueDark && Self.near(dark.1, Self.blueDark)
+                && dark.2.background == Self.frameDark && dark.2.themes == ["default", "default"]
+                && dark.2.icons == ["💼", "-"],
+            "dark=\(dark.0.background) drawn=\(dark.1) default=\(dark.2.background) themes=[\(dark.2.themes.joined(separator: ","))]")
+    }
+
+    /// The message of the sheet that refuses an icon, once the icon sheet has given way to it; nil when none comes.
+    private func refusalMessage(_ app: any E2ESpacesApp, _ page: any E2EPage) async throws -> String? {
+        let deadline = Date().addingTimeInterval(E2EWaits.budget())
+        while Date() < deadline {
+            if let message = try app.sheetMessage(in: page), message.contains("is not") { return message }
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+        return nil
+    }
+
+    /// Whether two `#RRGGBB` colors differ by at most 3 in every channel (drawing may round on the way).
+    static func near(_ a: String, _ b: String) -> Bool {
+        func channels(_ hex: String) -> [Int]? {
+            let digits = Array(hex.dropFirst())
+            guard hex.first == "#", digits.count == 6 else { return nil }
+            return stride(from: 0, to: 6, by: 2).compactMap { Int(String(digits[$0..<$0 + 2]), radix: 16) }
+        }
+        guard let left = channels(a), let right = channels(b), left.count == 3, right.count == 3 else { return false }
+        return zip(left, right).allSatisfy { abs($0 - $1) <= 3 }
     }
 }

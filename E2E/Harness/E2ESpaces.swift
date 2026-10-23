@@ -59,3 +59,43 @@ protocol E2ESpacesApp: E2EMenuApp {
     /// has no swipe handler.
     func swipeSidebar(_ swipe: E2ESwipe, distance: Double, in page: any E2EPage) throws
 }
+
+/// The Spaces' icons and themes and the window's tint as a test sees them (`E2ESpaceThemeApp.spaceTheme(of:)`).
+struct E2ESpaceTheme: Equatable, CustomStringConvertible {
+    /// Each Space's icon in order: its emoji or symbol name, "-" for none.
+    var icons: [String]
+    /// Each Space's own theme color in order, as `#RRGGBB`, "default" for none.
+    var themes: [String]
+    /// The theme color of the Space on screen, as `#RRGGBB` (the default theme's when it has none).
+    var activeTheme: String
+    /// The window's background color, as `#RRGGBB` in the appearance it is drawn in.
+    var background: String
+    /// Whether the window is drawn in dark appearance.
+    var dark: Bool
+    /// Whether the tint is fading to the active theme right now.
+    var animating: Bool
+    /// Whether Reduce Motion is on, so the tint changes without fading.
+    var reduceMotion: Bool
+
+    var description: String {
+        "icons=[\(icons.joined(separator: ","))] themes=[\(themes.joined(separator: ","))] active=\(activeTheme) "
+            + "background=\(background) dark=\(dark) animating=\(animating) reduce_motion=\(reduceMotion)"
+    }
+}
+
+/// Space themes and icons as a test drives them: the Space menu (the context menu of the Space name above its tabs),
+/// read and chosen without showing it, and the window's tint.
+@MainActor
+protocol E2ESpaceThemeApp: E2ESpacesApp {
+    /// The Spaces' icons and themes and the window's tint, for the window `page` is in.
+    func spaceTheme(of page: any E2EPage) throws -> E2ESpaceTheme
+    /// The color drawn on the sidebar's empty area just above its footer, as `#RRGGBB` in sRGB, read from a bitmap
+    /// of the window's AppKit views.
+    func sidebarDrawnColor(of page: any E2EPage) throws -> String
+    /// The titles of the Space menu of the window `page` is in, a separator as "-", a submenu's items as
+    /// "<submenu>/<item>" right after it, with "*" after a checked item and "!" after a disabled one.
+    func spaceMenuTitles(in page: any E2EPage) throws -> [String]
+    /// Chooses the item at `path` (such as ["Theme", "Blue"] or ["Change Icon…"]) in the Space menu of the window
+    /// `page` is in, as clicking it does. Throws when the item is missing or disabled.
+    func chooseSpaceMenuItem(_ path: [String], in page: any E2EPage) throws
+}
