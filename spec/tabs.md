@@ -29,9 +29,10 @@ The list comes from the saved sidebar (see `sidebar-store.md`): a window's tabs 
   Switching to a Space that has no tabs shows the same empty state, never the page of the Space left behind.
   Closing the window itself (its close button, Close Window) still closes it.
 - Closing a pinned tab with Close Tab unloads its page and keeps its row; the next tab becomes active.
-  When it was the Space's only tab, it stays active with no page loaded, and loads again only once its row is chosen.
+  When it was the Space's only tab, it stays active with no page loaded, also after switching to another Space and back, and loads again only once its row or the page area's Load Tab button is chosen.
+  Meanwhile the page area says the tab is not loaded, with that Load Tab button, rather than staying blank.
 - Closing a window closes all of its tabs, each running its page's beforeunload handler.
-  A page whose person chooses to stay keeps its tab and the window open, while the other tabs close; one page staying never stops the window from following the others the next time it is closed.
+  A page whose person chooses to stay keeps its tab and the window open, while the other tabs close; the window then shows the page the person stayed on, not a closed tab loading again, and one page staying never stops the window from following the others the next time it is closed.
   A window that is closing loads no other tab, even when a tab the person closed just before was followed by a saved one, and opens no new tab, so links go to another window.
   Quitting works the same way (see `quit.md`).
 
@@ -45,7 +46,7 @@ The list comes from the saved sidebar (see `sidebar-store.md`): a window's tabs 
 - Every tab is created in the profile of the Space that holds it, decided before its first request, so it never starts in another profile's cookies.
   This holds for every way a tab opens: the New Tab button and menu, a link from another app, and a saved tab loading after a relaunch.
   A tab whose Space names a profile Bow does not have does not open.
-- A link from another app (for example one clicked in Mail) opens in a new tab of the most recently used window, in the profile of its Space on screen, or in a new window when none is open.
+- A link from another app (for example one clicked in Mail) opens in a new tab of the most recently used window that is not closing, in the profile of its Space on screen, or in a new window when there is none.
   Rules that send links to a chosen Space come later.
 - Opening, selecting, moving and closing tabs are saved to the sidebar as they happen.
   A tab in the tabs section remembers the page it shows, so a relaunch brings it back on that page; a pinned tab keeps the address it was pinned on.
@@ -67,7 +68,9 @@ The list comes from the saved sidebar (see `sidebar-store.md`): a window's tabs 
 - Closing a tab (its close button, Close Tab) removes it from the sidebar; closing a pinned tab only unloads its page and keeps it.
   Tabs that close because their window closes or the app quits keep their place in the sidebar and come back on the next launch.
   A tab whose page closes itself (`window.close()`) leaves the sidebar the same way, and a pinned one unloads and stays.
+  A tab whose page could not be opened at all keeps its row and saved page, so a saved tab never disappears without the person closing it.
 - A loaded tab whose row leaves the sidebar any other way (its Space deleted, archived, a Favorite removed) has its page closed, so no page keeps running without a row.
+  A page that asks before leaving asks once; when the person chooses to stay it keeps running unlisted until its window closes, and later sidebar changes do not ask again.
 - Asking for a tab that does not exist (select, close, move or update with an unknown identity) changes nothing.
 - Opening a tab whose identity is already in the list is refused and changes nothing.
 
@@ -107,7 +110,7 @@ The list comes from the saved sidebar (see `sidebar-store.md`): a window's tabs 
 - Saved tab lists are plain data.
   A saved list that is inconsistent (repeated identities, an active tab that is not in the list, an active tab in an empty list, or no active tab in a non-empty list) is rejected as a whole instead of being repaired silently.
 - Tab identities are separate from the engine's page identities, which do not survive a restart.
-- A page that closes itself is told apart from quitting by the reason the engine gives for the close; while the engine gives none, the tab keeps its place in the sidebar, unloaded, as it does for quitting.
+- A page that closes itself only counts as closed by the person once it has shown a page; a tab that closes before it ever showed one, or for no known cause, keeps its place in the sidebar, unloaded, as it does for quitting.
 - A saved tab that has not loaded yet closes at once from its close button or Close Tab, since it has no page to ask.
 - Moving a tab to a position in the window's tab order puts it in the place of the tab it lands on, in that tab's section or folder (pinning or unpinning it when that is the other zone); past the last tab it goes to the end of today.
   How dragging across the divider pins and unpins is in `sidebar.md`.
@@ -133,15 +136,19 @@ The list comes from the saved sidebar (see `sidebar-store.md`): a window's tabs 
 15. Run `make e2e`: `PASS sidebar.close: button=closed cmd-w=closed` shows one tab closed with its row's close button and another with Command-W, each leaving A and B with B active.
 16. By hand: drag a row to another position in the sidebar; the tab moves there and the highlighted tab stays the same.
 17. Run `make e2e`: `PASS tabs.last_closed: windows=1 empty_state=shown page=none` shows closing a window's only tab keeping the window on the empty state, and `PASS tabs.empty_space` shows switching to an empty Space hiding the previous Space's page.
-18. Run `make e2e`: `PASS tabs.pinned_close: rows=1 loaded=0 window=open active=pinned` shows Command-W on a lone pinned tab unloading it without loading it again.
+18. Run `make e2e`: `PASS tabs.pinned_close: rows=1 loaded=0 window=open active=pinned load_button=shown` shows Command-W on a lone pinned tab unloading it without loading it again, with the Load Tab button shown, and `PASS tabs.pinned_space_switch` shows it still unloaded after a switch to another Space and back, then loaded by Load Tab.
 19. Run `make e2e`: `PASS tabs.close_while_closing: window=closed loaded_next=0` shows a window closed right after one of its tabs closing without loading the saved tab that followed.
 20. Run `make e2e`: `PASS tabs.select_failed: active=unchanged page=none` shows selecting a tab that cannot load leaving the selection and the page area as they were.
 21. Run `make e2e`: `PASS tabs.orphan_closed: orphan=closed kept=running` shows deleting a Space closing the page loaded in it.
-22. Run `make e2e`: `PASS tabs.record_debounced: written_at_once=no written_later=yes` shows title changes written to the sidebar file once they settle.
-17. Run `make e2e`: `PASS store.roundtrip: items=12 after_relaunch=12` shows twelve tabs saved, their window closed and the sidebar read back from its file into a new window, which lists all twelve with the same active tab and loads only that one.
-18. Run `make e2e`: `PASS link.profile: opened_in=work cookie=1` shows a link from another app opening in the most recent window, created in its Space's profile (work), and seeing the cookie that profile set.
-19. By hand: open a few tabs, select one, quit and relaunch; the same tabs come back in order with the selected one loaded and the others loading only when clicked.
-20. Run `make e2e`: `PASS activity: last=B` shows two tabs A and B with A selected and then B, B recorded as the more recently active.
+22. Run `make e2e`: `PASS tabs.record_debounced: writes=1` shows five title changes written to the sidebar file once, no sooner than the save delay after the first change.
+23. Run `make e2e`: `PASS tabs.orphan_asked_once: prompts=1` shows a page with a draft whose Space was deleted asked once, answered stay, and not asked again by later sidebar changes.
+24. Run `make e2e`: `PASS tabs.window_close_stay` shows a window close answered stay keeping the window open on the draft the person stayed on, and `PASS tabs.window_close_again` shows a second close answered leave closing it.
+25. Run `make e2e`: `PASS tabs.link_while_closing: link=other window` shows a link arriving while the last used window closes opening in the other window.
+26. BowCore tests (`make test`): `SelfClosedPagesTests` show a page that committed and then closed itself told apart from one the engine never created.
+27. Run `make e2e`: `PASS store.roundtrip: items=12 after_relaunch=12` shows twelve tabs saved, their window closed and the sidebar read back from its file into a new window, which lists all twelve with the same active tab and loads only that one.
+28. Run `make e2e`: `PASS link.profile: opened_in=work cookie=1` shows a link from another app opening in the most recent window, created in its Space's profile (work), and seeing the cookie that profile set.
+29. By hand: open a few tabs, select one, quit and relaunch; the same tabs come back in order with the selected one loaded and the others loading only when clicked.
+30. Run `make e2e`: `PASS activity: last=B` shows two tabs A and B with A selected and then B, B recorded as the more recently active.
 
 ## Out of scope
 
