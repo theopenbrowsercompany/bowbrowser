@@ -12,7 +12,7 @@ import BowCore
 @MainActor
 final class RecentTabsFeature: NSResponder, BrowserWindowFeature {
     private unowned let window: BrowserWindowController
-    private let panel = RecentTabsPanel()
+    let panel = RecentTabsPanel()
 
     /// The window's tabs, most recently shown first. Each window has its own.
     private(set) var recency = RecencyList<SidebarItemID>()
@@ -22,6 +22,8 @@ final class RecentTabsFeature: NSResponder, BrowserWindowFeature {
     private var resignObserver: NSObjectProtocol?
 
     var isOpen: Bool { switcher != nil }
+    /// Whether the Ctrl release monitor is installed: only while the overlay shows.
+    var isMonitoring: Bool { flagsMonitor != nil }
 
     init(window: BrowserWindowController) {
         self.window = window
