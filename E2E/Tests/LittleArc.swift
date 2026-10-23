@@ -8,7 +8,7 @@ enum LittleArcAreaTests {
     static let all: [any E2ETest] = [
         LittleArcPromoteTest(), LittleArcCloseTest(), LittleArcOffTest(), LittleArcNoWindowTest(),
         LittleArcDialogTest(), LittleArcPermissionTest(), LittleArcMenuTest(), LittleArcLastWindowTest(),
-        LittleArcAdoptFailTest(),
+        LittleArcLastWindowThenCloseTest(), LittleArcAdoptFailTest(),
     ]
 
     /// The seed most Little Arc tests start from: Home on screen with one tab, and Work, both in the test's profile.
@@ -408,6 +408,35 @@ struct LittleArcLastWindowTest: E2ETest {
         if try await page.string("window.bowLoadID") != loadID { problems.append("a new document") }
         let kept = problems.isEmpty ? "kept" : problems.joined(separator: ", ")
         run.check(name, passed: decision == "stay" && kept == "kept", "app=\(decision) little_arc=\(kept)")
+    }
+}
+
+/// Closing Little Arc after the last browser window closed leaves the app with no window, so the last window rule
+/// runs again and decides to quit (or to wait for downloads, then quit). The e2e run reads the decision instead of
+/// quitting; only app.quit quits.
+struct LittleArcLastWindowThenCloseTest: E2ETest {
+    let name = "little-arc.last_window_then_close"
+
+    func run(_ run: E2ERun) async throws {
+        let app = try LittleArcAreaTests.app(run)
+        let main = try await LittleArcAreaTests.openWindow(app, run, seed: LittleArcAreaTests.homeAndWork)
+        let littleArc = try await LittleArcAreaTests.deliver(app, run, LittleArcAreaTests.url("then_close"))
+        _ = try app.takeLittleArcClosedDecision()
+        try await run.step("close the browser window", timeout: E2ETimeouts.step) {
+            try await app.closeWindow(of: main)
+        }
+        // Little Arc is still open, so nothing has decided anything yet.
+        let whileOpen = try app.takeLittleArcClosedDecision()
+        try await run.step("close Little Arc", timeout: E2ETimeouts.step) {
+            try app.closeLittleArc(littleArc)
+            try await app.untilNoLittleArc()
+        }
+        let decision = try app.takeLittleArcClosedDecision()
+        let rule = try app.lastWindowClosedDecision()
+        run.check(
+            name,
+            passed: whileOpen == "none" && ["quit", "waitForDownloads"].contains(decision) && decision == rule,
+            "while_open=\(whileOpen) on_close=\(decision) rule=\(rule)")
     }
 }
 

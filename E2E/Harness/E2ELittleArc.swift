@@ -52,6 +52,10 @@ protocol E2ELittleArcApp: E2EApp {
     /// What the app would do now if its last browser window had just closed (stay, quit or wait for downloads),
     /// decided as the real handler decides it, without the e2e run's own "never quit".
     func lastWindowClosedDecision() throws -> String
+    /// What the app decided when a Little Arc window last closed as its last window (stay, quit or wait for
+    /// downloads), as the real close path decides it and without acting on it, or "none" when no Little Arc window
+    /// has closed as the last window since the previous call or the previous test's end. Reading clears it.
+    func takeLittleArcClosedDecision() throws -> String
     /// Makes the next move of Little Arc window `window`'s page fail after its window switched Space, as a window
     /// refusing the page would.
     func failNextLittleArcAdopt(in window: E2ELittleArcWindow) throws
