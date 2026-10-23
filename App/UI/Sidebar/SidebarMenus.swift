@@ -23,8 +23,9 @@ enum SidebarItemKind: Hashable, Sendable {
     }
 }
 
-/// What sidebar actions (context menu items, drops) may do to the window: read its sidebar, select or close a tab,
-/// and change the store. The sidebar feature provides it.
+/// What sidebar actions (context menu items, drops, accessories, section headers, the swipe handler) may do to the
+/// window: read its sidebar, select, close, load or open a tab, change the store, rename a folder in place and slide
+/// the outline. The sidebar feature provides it.
 @MainActor
 protocol SidebarActionContext: AnyObject {
     /// The window's committed sidebar.
@@ -43,6 +44,23 @@ protocol SidebarActionContext: AnyObject {
     /// whether a page was asked to load; false for a Favorite or an item that is not such a tab.
     @discardableResult
     func load(_ item: SidebarItemID, url: URL) -> Bool
+    /// The site icon loaded for tab `item`, nil while there is none. Only tabs of the Space on screen load pages, so a
+    /// Favorite has none until Favorites load in place.
+    func favicon(for item: SidebarItemID) -> NSImage?
+    /// Opens Favorite `item` (a click on it in the Favorites grid): its saved page loads in a new tab in today of the
+    /// Space on screen, which is shown, as opening any address does. Returns whether a tab opened; false for an item
+    /// that is not a tab in the Favorites.
+    @discardableResult
+    func open(favorite item: SidebarItemID) -> Bool
+    /// Makes the name of folder or split `item` editable in its row (a "Rename" menu item, a new folder); the new
+    /// name is saved as the item's title when the edit ends with Return or by leaving the field, and Escape keeps
+    /// the old one. Returns false when the item has no row on screen (it is inside a closed folder, or not a folder
+    /// or split).
+    @discardableResult
+    func beginRename(_ item: SidebarItemID) -> Bool
+    /// Runs `change`, which changes what the sidebar shows (switching Spaces through `changeSidebar`), with the
+    /// outline's old content sliding out towards `direction` as the new comes in: `SidebarView.slideOutline`.
+    func slideOutline(_ direction: SidebarSlideDirection, change: () -> Void)
 }
 
 /// Context menu items for sidebar items of some kinds.

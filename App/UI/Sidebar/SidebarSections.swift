@@ -35,6 +35,9 @@ protocol SidebarSection {
     /// Brings `view`, the one `makeHeaderView()` made, up to date with `content`: once on every `SidebarView.show(_:)`,
     /// and when the view is made outside one, so a header such as a Space switcher always shows the Space on screen.
     /// `context` is nil while the sidebar has no window to act on.
+    ///
+    /// Only update the view here. Acting on `context` changes what the sidebar shows while it is showing: such a
+    /// change is shown on the next run loop turn, not within this call, so act from the view's own controls instead.
     func updateHeaderView(_ view: NSView, content: SidebarContent, context: (any SidebarActionContext)?)
 }
 
