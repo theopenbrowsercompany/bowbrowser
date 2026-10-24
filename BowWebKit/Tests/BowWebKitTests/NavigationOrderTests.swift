@@ -95,7 +95,8 @@ func closedLoopbackPort() throws -> UInt16 {
         let tab = rig.tab("/navigation/start.html")
         try await rig.waitFor("finish \(start)")
         #expect(rig.delegate.navigation == ["start \(start)", "commit \(start)", "finish \(start)"])
-        #expect(rig.delegate.events.contains(.didFinish(EngineNavigation(url: start, transition: .typed), httpStatus: 200)))
+        #expect(
+            rig.delegate.events.contains(.didFinish(EngineNavigation(url: start, transition: .typed), httpStatus: 200)))
         #expect(rig.delegate.policyRequests == [EngineNavigation(url: start, transition: .typed)])
 
         rig.delegate.reset()
@@ -104,7 +105,9 @@ func closedLoopbackPort() throws -> UInt16 {
         #expect(rig.delegate.navigation == ["start \(a)", "commit \(a)", "finish \(a)"])
         let link = EngineNavigation(url: a, transition: .link, isUserGesture: true)
         #expect(rig.delegate.policyRequests == [link])
-        #expect(rig.delegate.events.first { if case .didStartNavigation = $0 { true } else { false } } == .didStartNavigation(link))
+        #expect(
+            rig.delegate.events.first { if case .didStartNavigation = $0 { true } else { false } }
+                == .didStartNavigation(link))
         try await rig.finish()
     }
 
@@ -191,7 +194,8 @@ func closedLoopbackPort() throws -> UInt16 {
         tab.stop()
         tab.load(a)
         try await rig.waitFor("finish \(a)")
-        #expect(rig.delegate.navigation == ["start \(slow)", "fail \(slow)", "start \(a)", "commit \(a)", "finish \(a)"])
+        #expect(
+            rig.delegate.navigation == ["start \(slow)", "fail \(slow)", "start \(a)", "commit \(a)", "finish \(a)"])
         let reasons = rig.delegate.events.compactMap { if case .didFail(_, let e) = $0 { e.reason } else { nil } }
         #expect(reasons == [.aborted])
 
@@ -201,7 +205,8 @@ func closedLoopbackPort() throws -> UInt16 {
         try await rig.waitFor("start \(slow)")
         tab.load(a)
         try await rig.waitFor("finish \(a)")
-        #expect(rig.delegate.navigation == ["start \(slow)", "fail \(slow)", "start \(a)", "commit \(a)", "finish \(a)"])
+        #expect(
+            rig.delegate.navigation == ["start \(slow)", "fail \(slow)", "start \(a)", "commit \(a)", "finish \(a)"])
         try await rig.finish()
     }
 }
@@ -245,7 +250,11 @@ func closedLoopbackPort() throws -> UInt16 {
         all += events.started(one, url: b)
         all += events.committed(one, url: b)
         all += events.committed(two, url: a)
-        #expect(names(all) == ["start /a", "commit /a", "finish /a 0", "start /b", "commit /b", "fail /b aborted", "start /a", "commit /a"])
+        #expect(
+            names(all) == [
+                "start /a", "commit /a", "finish /a 0", "start /b", "commit /b", "fail /b aborted", "start /a",
+                "commit /a",
+            ])
     }
 
     @Test func callbacksOutOfPlaceAreDropped() {
@@ -276,7 +285,10 @@ func closedLoopbackPort() throws -> UInt16 {
         #expect(second == [.didStartNavigation(EngineNavigation(url: a, transition: .link, isUserGesture: true))])
         #expect(events.isProvisional)
         let redirect = events.redirected(two, url: b)
-        #expect(redirect == [.didRedirect(EngineNavigation(url: b, transition: .link, isUserGesture: true, isRedirect: true))])
+        #expect(
+            redirect == [
+                .didRedirect(EngineNavigation(url: b, transition: .link, isUserGesture: true, isRedirect: true))
+            ])
         let commit = events.committed(two, url: b)
         #expect(commit == [.didCommit(EngineNavigation(url: b, transition: .link, isUserGesture: true))])
         #expect(!events.isProvisional && events.isActive)
@@ -288,7 +300,9 @@ func closedLoopbackPort() throws -> UInt16 {
         #expect(NavigationError.reason(domain: NSURLErrorDomain, code: NSURLErrorCannotFindHost) == .nameNotResolved)
         #expect(NavigationError.reason(domain: NSURLErrorDomain, code: NSURLErrorTimedOut) == .timedOut)
         #expect(NavigationError.reason(domain: NSURLErrorDomain, code: NSURLErrorNotConnectedToInternet) == .offline)
-        #expect(NavigationError.reason(domain: NSURLErrorDomain, code: NSURLErrorServerCertificateUntrusted) == .certificate)
+        #expect(
+            NavigationError.reason(domain: NSURLErrorDomain, code: NSURLErrorServerCertificateUntrusted) == .certificate
+        )
         #expect(NavigationError.reason(domain: NSURLErrorDomain, code: NSURLErrorUnsupportedURL) == .badAddress)
         #expect(NavigationError.reason(domain: "WebKitErrorDomain", code: 102) == .aborted)
         #expect(NavigationError.reason(domain: "WebKitErrorDomain", code: 103) == .blocked)
