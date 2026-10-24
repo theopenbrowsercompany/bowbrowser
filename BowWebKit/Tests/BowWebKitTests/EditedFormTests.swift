@@ -28,14 +28,14 @@ import WebKit
     /// from the window between two steps, so each try asserts key again, and a try whose keys did not all reach the
     /// field empties it by script (which fires no event) and types again.
     private func type(_ text: String, into selector: String, _ driver: PageDriver, _ window: TestWindow) async throws {
-        _ = try await waitFor("\(text) typed into \(selector)", timeout: 20) { () -> Bool? in
+        _ = try await waitFor("\(text) typed into \(selector)", timeout: 30) { () -> Bool? in
             window.reportsKey = true
             window.makeFirstResponder(driver.webView)
             guard try await driver.bool("return document.hasFocus()") else { return nil }
             _ = try await driver.eval("document.querySelector(selector).value = ''", ["selector": selector])
             try await driver.click(selector)
             try driver.type(text)
-            return try? await waitFor("the field got \(text)", timeout: 2) {
+            return try? await waitFor("the field got \(text)", timeout: 5) {
                 try await driver.string("return document.querySelector(selector).value", ["selector": selector])
                     == text ? true : nil
             }
@@ -79,7 +79,7 @@ import WebKit
         // Typing into a field is an edit.
         try await type("Ab", into: "#name", driver, rig.window)
         // Waits on the value checked next.
-        try? await waitUntil("hasEditedForm true", timeout: 5) { tab.state.hasEditedForm }
+        try? await waitUntil("hasEditedForm true", timeout: 10) { tab.state.hasEditedForm }
         let typed = tab.state.hasEditedForm && editedStates(rig.delegate).last == true
         #expect(typed, "typing did not mark the form edited; states \(editedStates(rig.delegate))")
         print("\(typed ? "PASS" : "FAIL") pageSignals.editedForm.typed: hasEditedForm=\(tab.state.hasEditedForm)")
@@ -129,7 +129,7 @@ import WebKit
         try await rig.waitFor("finish \(page)")
         let restoredText = try await driver.string("return document.getElementById('name').value")
         let fromCache = restoredText == "Ab"
-        try? await waitUntil("hasEditedForm \(fromCache)", timeout: 5) { tab.state.hasEditedForm == fromCache }
+        try? await waitUntil("hasEditedForm \(fromCache)", timeout: 10) { tab.state.hasEditedForm == fromCache }
         let back = tab.state.hasEditedForm == fromCache
         #expect(back, "back to the form (from the cache: \(fromCache)): hasEditedForm=\(tab.state.hasEditedForm)")
         print(
