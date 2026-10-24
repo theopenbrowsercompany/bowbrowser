@@ -14,7 +14,9 @@ You did not write the change, and your read should not lean on the author's: jud
 ## How to review
 
 - Read only: use git and file reads.
-  Do not edit files, commit, push, build, run make targets, launch the app or start agents.
+  Do not edit files, commit, push, build, launch the app or start agents.
+- `make test` (the BowCore unit tests, which take seconds and build nothing) is the one make target you may run, to check the worker's claim yourself.
+  Every other make target (`make build`, `make e2e`, `make check`, `make verify`, `make done` and the rest) stays off limits, because they load the build slots every worktree shares.
 - Diff the branch against `origin/main` (`git diff origin/main...<branch>`), and read touched files in full where needed with `git show <branch>:<path>`.
 - `AGENTS.md` on that branch describes the layout and the rules that matter here: the single seam header `App/Engine/BowE2EHooks.h`, Release builds carrying no harness code, the shared build lock, and `make e2e`.
 - Remember the machine: several agents build and run e2e at once from different worktrees, and the maintainer's own apps run too.
@@ -32,6 +34,8 @@ A blocker is one of these six:
 
 Style, naming, comments, commit layout and polish are never blockers.
 
+A look review (the lead sends only design captures, Arc references and the Done when list) is advisory and overrides "Report blockers only": compare each capture with its Arc reference, list every visible difference, and raise no blockers, blocker 6 included.
+
 ## Evidence
 
 - A claim about CEF or Chromium behavior needs a CEF header `path:line` under `Vendor/cef/include` or a line of the diff that shows it.
@@ -43,22 +47,22 @@ Style, naming, comments, commit layout and polish are never blockers.
 ## Rule IDs
 
 Cite the ID with the `file:line` when a finding breaks one of these rules.
-Each row's source is the line that states the rule; if the line has moved, find it by the rule's words.
+Each row's source names the file and section that states the rule; find the line by the rule's words and cite that `file:line`.
 
 | ID | Rule | Source |
 | --- | --- | --- |
-| T-WAIT-1 | A test waits through `E2EWaits` (it gives up shortly before the step's limit and names what it saw), for a specific URL, ID or event, never for a fixed time (blocker 5). | `E2E/README.md:34` |
-| T-CHECK-1 | Each test declares its checks and records each check once. | `E2E/README.md:30` |
-| T-INPUT-1 | Page input goes through the DevTools Input domain with focus emulation on; app shortcuts go through the app's menu, never DevTools. | `AGENTS.md:28` |
-| T-FLAKY-1 | A FLAKY run (failed, then passed on the retry) is not a pass unless every such test is on the unexpired quarantine list. | `AGENTS.md:53` |
-| S-SEAM-1 | `App/` and `BowCore/` reach `E2E/` only through `BowE2EHooks.h` and lines marked `E2E seam` inside an `#if BOW_E2E` block; Release builds leave the harness out. | `AGENTS.md:33` |
-| S-LIST-1 | A feature is its own files plus one line in its list; the window core and central list expressions do not grow. | `AGENTS.md:80` |
-| H-SWIFT-1 | Headers Swift sees stay plain Objective-C, with browsers addressed by ID and never by pointer. | `AGENTS.md:14` |
-| H-REF-1 | No method named `Release`, `AddRef` or `HasOneRef` on a class in `App/Engine` or `E2E/Engine`. | `AGENTS.md:59` |
-| D-CORE-1 | Browser decisions live in `BowCore` with unit tests; the app and engine layers stay thin wiring. | `AGENTS.md:76` |
-| D-SPEC-1 | A behavior change extends the spec in `spec/` that covers the area. | `AGENTS.md:79` |
-| P-ARC-1 | The installed Arc app and its profile are never opened, quit, scripted or read. | `AGENTS.md:86` |
-| P-PATH-1 | No commit adds a private path (a macOS home directory, for example). | `AGENTS.md:58` |
+| T-WAIT-1 | A test waits through `E2EWaits` (it gives up shortly before the step's limit and names what it saw), for a specific URL, ID or event, never for a fixed time (blocker 5). | `E2E/README.md` "Tests and checks" (`E2EWaits`) |
+| T-CHECK-1 | Each test declares its checks and records each check once. | `E2E/README.md` "Tests and checks" |
+| T-INPUT-1 | Page input goes through the DevTools Input domain with focus emulation on; app shortcuts go through the app's menu, never DevTools. | `AGENTS.md` Layout, `E2E/Harness/` |
+| T-FLAKY-1 | A FLAKY run (failed, then passed on the retry) is not a pass unless every such test is on the unexpired quarantine list. | `AGENTS.md` Commands, `make e2e` |
+| S-SEAM-1 | `App/` and `BowCore/` reach `E2E/` only through `BowE2EHooks.h` and lines marked `E2E seam` inside an `#if BOW_E2E` block; Release builds leave the harness out. | `AGENTS.md` Layout, `App/Engine/BowE2EHooks.h` |
+| S-LIST-1 | A feature is its own files plus one line in its list; the window core and central list expressions do not grow. | `AGENTS.md` Working rules |
+| H-SWIFT-1 | Headers Swift sees stay plain Objective-C, with browsers addressed by ID and never by pointer. | `AGENTS.md` Layout, `App/Engine/` |
+| H-REF-1 | No method named `Release`, `AddRef` or `HasOneRef` on a class in `App/Engine` or `E2E/Engine`. | `AGENTS.md` Commands, `make verify` |
+| D-CORE-1 | Browser decisions live in `BowCore` with unit tests; the app and engine layers stay thin wiring. | `AGENTS.md` Working rules |
+| D-SPEC-1 | A behavior change extends the spec in `spec/` that covers the area. | `AGENTS.md` Working rules |
+| P-ARC-1 | The installed Arc app and its profile are never opened, quit, scripted or read. | `AGENTS.md` Working rules |
+| P-PATH-1 | No commit adds a private path (a macOS home directory, for example). | `AGENTS.md` Commands, `make verify` |
 
 ## Report
 

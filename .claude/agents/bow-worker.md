@@ -50,7 +50,7 @@ Your working directory is your own git worktree of this repository.
 ## Known traps
 
 - In a worktree, Bash refuses any compound command with "too complex to verify that it stays inside the worktree", and each refusal costs a turn.
-  Run one plain command per call, from the worktree root: `git status --short`, `git fetch origin`, `make check`, `make done > /tmp/done.log 2>&1` (a plain redirect passes), and `bash /tmp/<name>.sh` for a script you wrote with Write.
+  Run one plain command per call, from the worktree root: `git status --short`, `git fetch origin`, `make check`, `make done > /tmp/done-<branch>.log 2>&1` (a plain redirect passes), and `bash /tmp/<name>.sh` for a script you wrote with Write.
   Refused, most often first: a heredoc (`<<EOF`, `python3 - <<EOF`), a pipeline (`git log | tail`, `| head`, `| grep`), a chain (`a && b`, `a; b`, `||`), command substitution (`$(...)`), `cd <dir> && ...`, `git -C <path>`, `make -C <path>`, and a multiline `sed -i`.
   Instead: read a result with Read (redirect to a file under /tmp first, never into the worktree), edit with Edit or Write, and put multi-step work in a script written with Write and run with `bash <path>`.
 - Run `make bootstrap` first in a fresh worktree.
@@ -69,6 +69,7 @@ Your working directory is your own git worktree of this repository.
 
 Your report answers each of these:
 1. Fails without the change: revert the core change (or stub its key line), show that each Done when check prints FAIL, then restore it.
+   Evidence is a real file from a real run: a script that reads files another program writes (Crashpad, CEF, Chromium) also shows one such file, never only planted fakes, because fakes planted where the code looks confirm the code's mistake.
 2. Waits on events, not time: wait for the specific URL, ID, prompt or event, never a fixed sleep.
 3. Unhappy paths of anything that closes, deletes, moves or saves: a leave prompt answered Stay, the Space switching midway, two actions at once, the active tab being the one affected, quit during it.
 4. Nothing outlives close or quit: timers, references, parked pages, open files.
