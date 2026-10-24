@@ -11,10 +11,10 @@
 
 NS_ASSUME_NONNULL_BEGIN
 
-/// Receives one tab's requests for UI, always on the main thread. State, fullscreen and find result changes come
-/// inside the engine callback that produced them; close, popups, dialogs, permissions, context menus and render
-/// process exits come on a later main thread task, so the app may show modal UI from them. A tab holds its UI
-/// delegate weakly.
+/// Receives one tab's requests for UI, always on the main thread. State, fullscreen, find result and status text
+/// changes come inside the engine callback that produced them; close, popups, dialogs, permissions, context menus
+/// and render process exits come on a later main thread task, so the app may show modal UI from them. A tab holds
+/// its UI delegate weakly.
 ///
 /// Every method is optional: when the delegate is nil or lacks a method, the engine does what it does by default
 /// (for example it opens a popup in a window of its own, shows its own dialog, or shows its own context menu).
@@ -115,6 +115,10 @@ NS_SWIFT_UI_ACTOR
 /// A search started by `findText:forward:matchCase:` found matches or moved the active one (mirrors
 /// `TabEvent.findResult`). One search can report several times as the engine counts; the last has `finalUpdate`.
 - (void)tab:(BowTab *)tab didUpdateFindResult:(BowFindResult *)result NS_SWIFT_NAME(tab(_:didUpdateFindResult:));
+
+/// The page's status text changed (mirrors `TabEvent.statusTextChanged`): the address of the link under the pointer,
+/// or an empty string once the pointer has left every link. Called only when the text changes.
+- (void)tab:(BowTab *)tab statusTextDidChange:(NSString *)text NS_SWIFT_NAME(tab(_:statusTextChanged:));
 
 @end
 
