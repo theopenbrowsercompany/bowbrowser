@@ -9,7 +9,11 @@
 #    rebases and reruns the checks" and goes on; a conflict refuses, naming the files. No origin/main also refuses.
 # 3. Runs make bootstrap when Vendor/cef is missing (a fresh worktree).
 # 4. Runs make verify, then the full make e2e (E2E=all), as separate commands. A failed verify skips the e2e and the
-#    release build.
+#    release build. A full e2e that ends `E2E: FLAKY` (failed, then passed on the retry) does not fail the branch
+#    when every `FLAKY <name>` line is a test it neither adds nor changes: the block reports the lines under the e2e
+#    line and the run goes on. A FLAKY test the branch adds or changes, a FLAKY check no test owns (e2e.isolation,
+#    chromium.errors), a FLAKY summary with no FLAKY lines and every FAIL, CRASH, TIMEOUT or ERROR still fail. The
+#    landing is unchanged: there FLAKY is not a pass unless quarantined.
 # 5. Once verify passed, runs make release beside the full e2e when the branch (committed or not, against its merge
 #    base) touches App/, E2E/, BowCore/Sources/ or project.yml (App/ holds the bridging header), as the landing
 #    does. Release builds into its own derived data (build/release), and verify has already generated the project
@@ -165,6 +169,46 @@ repeat_gate() {
     }' "$log"
 }
 
+# changed_tests_of <changed files, one per line>: the e2e tests the branch adds or changes (the names in each changed
+# E2E/Tests file), as a comma list. The repeat step and the FLAKY tolerance both use it, so they never disagree.
+changed_tests_of() {
+  local f names=""
+  while IFS= read -r f; do
+    case $f in E2E/Tests/*.swift) [ -f "$f" ] && names="$names"$'\n'"$(sed -n 's/.*let name = "\([^"]*\)".*/\1/p' "$f")" ;; esac
+  done <<< "$1"
+  echo "$names" | grep -v '^$' | sort -u | paste -sd, -
+}
+
+# flaky_verdict <changed tests, comma list> <e2e log>: whether a FLAKY full e2e may be gone past, on one line:
+#   ok <names>      every `FLAKY <name>: failed then passed (...)` line names a test the branch neither adds nor
+#                   changes (or a check one owns: the test name, or the longest test name and a dot before it);
+#   fail <reason>   a FLAKY test the branch changes, a check no test owns (e2e.isolation, chromium.errors), or no
+#                   FLAKY line to attribute: when in doubt, fail.
+flaky_verdict() {
+  local changed=$1 log=$2 all_tests
+  all_tests=$(cat E2E/Tests/*.swift 2> /dev/null | sed -n 's/.*let name = "\([^"]*\)".*/\1/p' | paste -sd, -)
+  awk -v changed="$changed" -v all="$all_tests" '
+    BEGIN {
+      k = split(changed, c, ","); for (i = 1; i <= k; i++) mine[c[i]] = 1
+      k = split(all, a, ","); for (i = 1; i <= k; i++) if (a[i] != "") known[a[i]] = 1
+    }
+    /^FLAKY [^ ]+:/ { n = $2; sub(/:$/, "", n); names[++nn] = n }
+    END {
+      if (nn == 0) { print "fail FLAKY with no FLAKY lines"; exit }
+      for (i = 1; i <= nn; i++) {
+        owner = ""
+        for (t in known) if ((names[i] == t || index(names[i], t ".") == 1) && length(t) > length(owner)) owner = t
+        for (t in mine) if ((names[i] == t || index(names[i], t ".") == 1) && length(t) > length(owner)) owner = t
+        if (names[i] == "e2e.isolation" || names[i] == "chromium.errors") owner = ""
+        if (owner == "") { print "fail FLAKY check no test owns: " names[i]; exit }
+        if (owner in mine) { print "fail FLAKY test this branch changes: " names[i]; exit }
+      }
+      list = ""
+      for (i = 1; i <= nn; i++) list = list (list == "" ? "" : ", ") names[i]
+      print "ok " list
+    }' "$log"
+}
+
 # Whether the branch needs a Release build: it touches what the Release app is built from. When the changed files
 # cannot be listed, it builds, to be safe.
 release_reason=""
@@ -227,9 +271,24 @@ elif [ "$failed" = 0 ]; then
     fi
     step e2e make --no-print-directory e2e E2E=all
     e2e_line=$(grep '^E2E: ' "$out/e2e.log" | tail -1)
+    changed_tests=$(changed_tests_of "${changed:-}")
+    flaky_lines=""
     if [ "$step_status" = 0 ]; then e2e="ok"; else
       e2e="FAIL (exit $step_status)"
       failed=1
+      # A FLAKY run (failed, then passed on the retry) goes on when every flaky test is outside this branch.
+      case $e2e_line in "E2E: FLAKY"*)
+        flaky=$(flaky_verdict "$changed_tests" "$out/e2e.log")
+        case $flaky in
+          "ok "*)
+            e2e="ok (FLAKY outside this branch, reported: ${flaky#ok })"
+            flaky_lines=$(grep '^FLAKY ' "$out/e2e.log")
+            failed=0
+            ;;
+          *) e2e="FAIL (exit $step_status): ${flaky#fail }" ;;
+        esac
+        ;;
+      esac
     fi
     if [ -n "$release_pid" ]; then
       release_status=0
@@ -255,12 +314,6 @@ repeat_lines=""
 if [ "$docs_only" = 1 ]; then
   repeat="skip (docs only)"
 elif [ "$failed" = 0 ]; then
-  changed_tests=""
-  changed_files=${changed:-}
-  while IFS= read -r f; do
-    case $f in E2E/Tests/*.swift) [ -f "$f" ] && changed_tests="$changed_tests"$'\n'"$(sed -n 's/.*let name = "\([^"]*\)".*/\1/p' "$f")" ;; esac
-  done <<< "$changed_files"
-  changed_tests=$(echo "$changed_tests" | grep -v '^$' | sort -u | paste -sd, -)
   if [ -z "$changed_tests" ]; then
     repeat="skip (no e2e test added or changed)"
   else
@@ -305,6 +358,7 @@ if [ "$docs_only" = 1 ]; then
 fi
 echo "make verify: $verify"
 echo "make e2e: $e2e"
+[ -z "${flaky_lines:-}" ] || echo "$flaky_lines" | sed 's/^/  /'
 echo "e2e summary: ${e2e_line:-none}"
 echo "make release: $release"
 echo "changed tests, repeated: $repeat"

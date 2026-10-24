@@ -123,6 +123,17 @@ case "$*" in
     ;;
   *e2e*)
     echo "ran: $*" >> "$FAKE_LOG"
+    if [ "${FAKE_E2E:-0}" = flaky ]; then
+      # A run that failed, then passed on the retry: the FLAKY lines FAKE_NAMES lists, then FAKE_SUMMARY, exit 2
+      # (make exits 2 for any failure; e2e.sh itself exits 3).
+      mkdir -p build/e2e/20260101-1
+      ln -sfn 20260101-1 build/e2e/latest
+      echo png > build/e2e/20260101-1/final.png
+      for n in ${FAKE_NAMES:-}; do echo "FLAKY $n: failed then passed (it failed)"; done
+      echo "${FAKE_SUMMARY:-E2E: FLAKY 3/3 after retrying $FAKE_NAMES}"
+      echo "make: *** [e2e] Error 3"
+      exit 2
+    fi
     if [ "${FAKE_BESIDE:-0}" = 1 ]; then
       # Waits up to 5 s for the release build to start: it only can when done.sh runs it beside the e2e.
       for _ in $(seq 50); do [ -e "$FAKE_LOG.release-started" ] && break; sleep 0.1; done
@@ -301,6 +312,60 @@ has "as many changed tests as shards need no filler" "$(cat "$tmp/log")" \
   "E2E_REPEAT=20 E2E_SHARDS=3 --no-print-directory e2e-run E2E=x.one,x.three,x.two"
 out=$(run 0 1)
 has "a failing e2e skips the repeat" "$out" "changed tests, repeated: skip (the e2e did not pass)"
+
+# A FLAKY full e2e (failed, then passed on the retry): gone past only when every flaky test is outside the branch.
+g checkout -q -f "$head_two"
+g update-ref refs/remotes/origin/main HEAD
+mkdir -p "$repo/E2E/Tests"
+printf 'let name = "y.other"\nlet name = "y.other.deep"\n' > "$repo/E2E/Tests/Y.swift"
+g add -A
+g commit -qm "an untouched test file"
+g update-ref refs/remotes/origin/main HEAD
+printf 'let name = "x.one"\nlet name = "x.two"\n' > "$repo/E2E/Tests/X.swift"
+g add -A
+g commit -qm "adds tests"
+out=$(FAKE_NAMES="y.other" run 0 flaky)
+has "a FLAKY test the branch does not change passes" "$out" "done: PASS"
+has "a FLAKY test outside the branch is named in the e2e line" "$out" \
+  "make e2e: ok (FLAKY outside this branch, reported: y.other)"
+has "a FLAKY test outside the branch keeps its FLAKY line in the block" "$out" \
+  "  FLAKY y.other: failed then passed (it failed)"
+has "a FLAKY test outside the branch keeps the summary line" "$out" "e2e summary: E2E: FLAKY 3/3 after retrying y.other"
+has "a FLAKY test outside the branch still runs the repeat" "$out" \
+  "changed tests, repeated: ok (20 repeats in 3 shards of x.one,x.two)"
+has "a FLAKY test outside the branch exits 0" "$out" "exit=0"
+check "done: PASS is the last line" "done: PASS|exit=0" "$(echo "$out" | tail -n 2 | paste -sd'|' -)"
+out=$(FAKE_NAMES="y.other.deep y.other.quit" run 0 flaky)
+has "FLAKY checks of an untouched test pass" "$out" "reported: y.other.deep, y.other.quit"
+has "FLAKY checks of an untouched test exit 0" "$out" "exit=0"
+out=$(FAKE_NAMES="y.other" FAKE_SUMMARY="E2E: FLAKY retried tests passed 1/1 after retrying y.other (the first attempt printed no total)" run 0 flaky)
+has "the FLAKY summary of a retried subset passes too" "$out" "done: PASS"
+out=$(FAKE_NAMES="y.other" FAKE_SUMMARY="E2E: FLAKY 3 after retrying y.other" run 0 flaky)
+has "the FLAKY summary with no total passes too" "$out" "done: PASS"
+out=$(FAKE_NAMES="x.one" run 0 flaky)
+has "a FLAKY test the branch changes fails" "$out" "make e2e: FAIL (exit 2): FLAKY test this branch changes: x.one"
+has "a FLAKY changed test skips the repeat" "$out" "changed tests, repeated: skip (the e2e did not pass)"
+has "a FLAKY changed test exits 1" "$out" "exit=1"
+out=$(FAKE_NAMES="x.one.quit" run 0 flaky)
+has "a FLAKY check a changed test owns fails" "$out" "FLAKY test this branch changes: x.one.quit"
+out=$(FAKE_NAMES="y.other x.two" run 0 flaky)
+has "one changed test among FLAKY ones fails" "$out" "FLAKY test this branch changes: x.two"
+out=$(FAKE_NAMES="e2e.isolation" run 0 flaky)
+has "a FLAKY run wide check fails" "$out" "make e2e: FAIL (exit 2): FLAKY check no test owns: e2e.isolation"
+out=$(FAKE_NAMES="chromium.errors" run 0 flaky)
+has "a FLAKY chromium.errors fails" "$out" "FLAKY check no test owns: chromium.errors"
+out=$(FAKE_NAMES="z.unknown" run 0 flaky)
+has "a FLAKY check no test owns fails" "$out" "FLAKY check no test owns: z.unknown"
+out=$(FAKE_NAMES="" FAKE_SUMMARY="E2E: FLAKY the run" run 0 flaky)
+has "a FLAKY summary with no FLAKY lines fails" "$out" "make e2e: FAIL (exit 2): FLAKY with no FLAKY lines"
+has "a FLAKY summary with no FLAKY lines exits 1" "$out" "exit=1"
+out=$(run 0 1)
+has "a real E2E: FAIL still fails" "$out" "make e2e: FAIL (exit 2)"
+has "a real E2E: FAIL is not excused" "$out" "done: FAIL"
+out=$(FAKE_NAMES="y.other" FAKE_SUMMARY="E2E: FAIL 2/3" run 0 flaky)
+has "FLAKY lines under a FAIL summary still fail" "$out" "make e2e: FAIL (exit 2)"
+out=$(FAKE_NAMES="y.other" FAKE_SUMMARY="E2E: CRASH exit=139" run 0 flaky)
+has "FLAKY lines under a CRASH summary still fail" "$out" "make e2e: FAIL (exit 2)"
 
 # The Release build: a branch touching App/ (or E2E/, BowCore/Sources/, project.yml) builds Release beside the e2e.
 g checkout -q -f "$head_two"
