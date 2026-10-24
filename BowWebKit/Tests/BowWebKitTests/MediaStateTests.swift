@@ -93,7 +93,8 @@ import WebKit
         }
         #expect(grant.asked.sorted() == ["cameraAndMicrophone"])
 
-        _ = try await PageDriver(tab.webView!).eval("window.bowTestStream.getTracks().forEach(t => t.stop()); return true")
+        _ = try await PageDriver(tab.webView!).eval(
+            "window.bowTestStream.getTracks().forEach(t => t.stop()); return true")
         try await waitUntil("a stateChanged with the camera and microphone off", timeout: 10) {
             let last = states(rig.delegate).last
             return last?.isCapturingVideo == false && last?.isCapturingAudio == false && !tab.state.isCapturingVideo
