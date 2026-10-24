@@ -272,8 +272,8 @@ struct ProfilesFavoritesRefuseTest: E2ETest {
 
 /// Deletes a profile from the Space menu: with "Used" (the Space's profile now) and "Old" (no Space) registered,
 /// Profile > Delete Profile… enables only Old; deleting it asks in a sheet, takes it out of the list and leaves its
-/// folder on disk, and the launch step then removes the folder while Used's stays. First it checks that the storage
-/// UUIDs the registry gave at open were saved to Profiles.json before any profile change.
+/// folder on disk, and the launch step then removes the folder while Used's stays. First it opens a profile store on an
+/// older Bow's Profiles.json in a scratch folder and checks the storage UUIDs given at open were saved there at once.
 struct ProfilesDeleteNextLaunchTest: E2ETest {
     let name = "profiles.delete_next_launch"
     let checks = ["profiles.store_ids", "profiles.delete_next_launch"]
@@ -283,12 +283,22 @@ struct ProfilesDeleteNextLaunchTest: E2ETest {
         let app = setup.app
         let page = setup.page
         let names = (old: "\(setup.testProfile) Old", used: "\(setup.testProfile) Used")
-        // Before this test changes a profile: the storage UUIDs the registry gave at open are already on disk.
-        let heldIDs = try app.registeredStoreIDs()
-        let savedIDs = Self.storedStoreIDs(in: run.dataDirectory)
+        // A profile store opened on a version 1 file (an older Bow's) gives each profile a storage UUID and saves them
+        // at once, with no profile change.
+        let scratch = FileManager.default.temporaryDirectory
+            .appendingPathComponent("e2e-store-ids-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: scratch, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: scratch) }
+        try Data(
+            #"{"version":1,"profiles":[{"id":"default","name":"Default","isPersistent":true},"#
+                .appending(#"{"id":"work","name":"Work","isPersistent":true}],"pendingDeletions":[],"retiredIDs":[]}"#)
+                .utf8
+        ).write(to: scratch.appendingPathComponent("Profiles.json"))
+        let heldIDs = try app.openProfileStoreIDs(in: scratch)
+        let saved = Self.storedStoreIDs(in: scratch)
         run.check(
-            "profiles.store_ids", passed: !heldIDs.isEmpty && savedIDs == heldIDs,
-            "held=\(heldIDs.count) saved=\(savedIDs.count) same=\(savedIDs == heldIDs)")
+            "profiles.store_ids", passed: heldIDs.count == 2 && saved.version == 2 && saved.ids == heldIDs,
+            "held=\(heldIDs.count) saved=\(saved.ids.count) version=\(saved.version) same=\(saved.ids == heldIDs)")
         let ids = try await run.step("register Old and Used, put Work A on Used", timeout: E2ETimeouts.firstLoad) {
             let old = try app.createRegisteredProfile(named: names.old)
             let used = try app.createRegisteredProfile(named: names.used)
@@ -329,17 +339,17 @@ struct ProfilesDeleteNextLaunchTest: E2ETest {
                 + "after_launch=\(gone ? "gone" : "kept") used=\(usedKept ? "kept" : "gone") outcomes=\(outcomes)")
     }
 
-    /// Profiles.json's storage UUID text by profile ID, as the file in `folder` holds them; empty when it is missing.
-    static func storedStoreIDs(in folder: URL) -> [String: String] {
+    /// Profiles.json's version and storage UUID text by profile ID, as the file in `folder` holds them.
+    static func storedStoreIDs(in folder: URL) -> (version: Int, ids: [String: String]) {
         let url = folder.appendingPathComponent("Profiles.json")
         guard let data = try? Data(contentsOf: url),
             let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
-        else { return [:] }
+        else { return (0, [:]) }
         var ids: [String: String] = [:]
         for profile in object["profiles"] as? [[String: Any]] ?? [] {
             if let id = profile["id"] as? String, let storeID = profile["storeID"] as? String { ids[id] = storeID }
         }
-        return ids
+        return (object["version"] as? Int ?? 0, ids)
     }
 }
 
