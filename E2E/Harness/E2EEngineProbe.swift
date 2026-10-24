@@ -117,7 +117,9 @@ final class E2EEngineProbe: EngineTabDelegate {
     }
 
     /// Presses and releases the character key `character` (a letter), whose macOS virtual key code is `macKeyCode`
-    /// (kVK_*), with Command when `command` is true. Call `focusPage` first, so the page can receive it.
+    /// (kVK_*), with Command when `command` is true. Call `focusPage` first, so the page can receive it. A key without
+    /// Command is confirmed by the page's `keydown` and `keyup` and resent when missed (`E2EKeyRecord.press`); one
+    /// with Command is a shortcut the app may claim, so it is sent once.
     func pressKey(_ character: String, macKeyCode: Int, command: Bool = false) async throws {
         var down: [String: Any] = [
             "type": "keyDown", "key": character, "code": "Key\(character.uppercased())",
@@ -128,8 +130,16 @@ final class E2EEngineProbe: EngineTabDelegate {
         var up = down
         up["type"] = "keyUp"
         up["text"] = nil
-        _ = try await devTools("Input.dispatchKeyEvent", down)
-        _ = try await devTools("Input.dispatchKeyEvent", up)
+        guard !command else {
+            _ = try await devTools("Input.dispatchKeyEvent", down)
+            _ = try await devTools("Input.dispatchKeyEvent", up)
+            return
+        }
+        try await E2EKeyRecord.press(character, code: "Key\(character.uppercased())") { expression in
+            try await evaluate(expression)
+        } send: { isDown in
+            _ = try await devTools("Input.dispatchKeyEvent", isDown ? down : up)
+        }
     }
 
     // MARK: EngineTabDelegate
