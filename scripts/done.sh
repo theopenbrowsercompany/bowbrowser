@@ -227,7 +227,8 @@ unreadable_test_files_of() {
             for (j = i + 1; j <= NR; j++) if (ind[j] >= 0 && ind[j] <= ind[i]) { e = j; break }
             ok = 0
             for (j = i; j <= e; j++) if (L[j] ~ /let name = "/ || L[j] ~ /selectedByNameOnly: Bool \{ true \}/) ok = 1
-            for (j = 1; !ok && j <= NR; j++) if (index(L[j], type "(name: \"")) ok = 1
+            # test_names_in reads a construction only for a type whose name ends in Test.
+            for (j = 1; !ok && type ~ /Test$/ && j <= NR; j++) if (index(L[j], type "(name: \"")) ok = 1
             if (!ok) { print FILE; exit }
           }
         }' "$f"

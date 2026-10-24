@@ -209,45 +209,76 @@ members_of() {
   ' "$1"
 }
 
-# test_blocks <test file>: one row per test (tab separated: file, start, end, name, smoke 0 or 1): the struct that
-# holds the `let name = "..."` line, from its declaration to its closing brace.
+
+# test_blocks <test file>: one row per test (tab separated: file, start, end, name, smoke 0 or 1): the struct (or
+# class, enum, actor) conforming to E2ETest, from its declaration to its closing brace. Its names are its stored
+# `let name = "..."` literals, or, for a type with none, the names it is constructed with in the file
+# (`<Type>(name: "...")`, one row per name over the same lines, as the popups tests are).
 test_blocks() {
   awk -v FILE="$1" '
   {
     lines[NR] = $0
     ind[NR] = ($0 ~ /[^ \t]/) ? match($0, /[^ \t]/) - 1 : -1
-    if (match($0, /let name = "[^"]*"/)) { nn++; nm[nn] = substr($0, RSTART + 12, RLENGTH - 13); nl[nn] = NR }
   }
   END {
-    for (i = 1; i <= nn; i++) {
-      n = nl[i]; me = ind[n]; s = n; e = NR
-      for (j = n - 1; j >= 1; j--) if (ind[j] >= 0 && ind[j] < me) { s = j; break }
-      for (j = n + 1; j <= NR; j++) if (ind[j] >= 0 && ind[j] < me) { e = j; break }
-      smoke = 0
-      for (j = s; j <= e; j++) if (lines[j] ~ /tags *= *\[[^]]*"smoke"/) smoke = 1
-      printf "%s\t%d\t%d\t%s\t%d\n", FILE, s, e, nm[i], smoke
+    for (i = 1; i <= NR; i++) {
+      if (lines[i] !~ /^[ \t]*((final|private|fileprivate|public|internal) +)*(struct|class|enum|actor) +[A-Za-z0-9_]+ *:[^{]*(^|[^A-Za-z0-9_])E2ETest([^A-Za-z0-9_]|$)/) continue
+      type = lines[i]
+      sub(/^[ \t]*((final|private|fileprivate|public|internal) +)*(struct|class|enum|actor) +/, "", type)
+      sub(/[^A-Za-z0-9_].*$/, "", type)
+      e = NR
+      for (j = i + 1; j <= NR; j++) if (ind[j] >= 0 && ind[j] <= ind[i]) { e = j; break }
+      delete names
+      nn = 0; smoke = 0
+      for (j = i; j <= e; j++) {
+        if (match(lines[j], /let name = "[^"]*"/)) names[++nn] = substr(lines[j], RSTART + 12, RLENGTH - 13)
+        if (lines[j] ~ /tags *= *\[[^]]*"smoke"/) smoke = 1
+      }
+      if (nn == 0) {
+        key = type "(name: \""
+        for (j = 1; j <= NR; j++) {
+          t = lines[j]
+          while ((p = index(t, key)) > 0) {
+            t = substr(t, p + length(key))
+            q = index(t, "\"")
+            names[++nn] = substr(t, 1, q - 1)
+            t = substr(t, q + 1)
+          }
+        }
+      }
+      for (k = 1; k <= nn; k++) printf "%s\t%d\t%d\t%s\t%d\n", FILE, i, e, names[k], smoke
     }
   }' "$1"
 }
 
 # changed_lines_of <file>: the line numbers of the file the branch changes (committed, staged or not), one per line;
-# every line for a file the base does not have, and with --stdin.
+# every line for a file the base does not have, and with --stdin. A hunk that only deletes lines gives the two lines
+# around the gap with a trailing `!`, which meaningful_lines keeps whatever they hold: removing a wait or a guard
+# from a helper changes it.
 changed_lines_of() {
   if [ "$stdin" = 1 ] || ! git cat-file -e "$fork:$1" 2> /dev/null; then
     awk '{ print NR }' "$1"
   else
     git diff -U0 --no-renames "$fork" -- "$1" | awk '/^@@/ {
       s = substr($3, 2); n = split(s, p, ","); c = (n > 1) ? p[2] : 1
+      if (c == 0) { if (p[1] > 0) print p[1] "!"; print (p[1] + 1) "!" }
       for (i = 0; i < c; i++) print p[1] + i
     }'
   fi
 }
 
-# meaningful_lines <file> <line numbers, one per line>: those that are code, not a comment, a blank or a lone brace.
+# meaningful_lines <file> <line numbers, one per line>: those that are code, not a comment, a blank or a lone brace
+# (a number with a trailing `!` is kept as it is).
 meaningful_lines() {
   awk -v ls="$(echo "$2" | paste -sd, -)" '
-    BEGIN { n = split(ls, a, ","); for (i = 1; i <= n; i++) ch[a[i]] = 1 }
-    (FNR in ch) && $0 !~ /^[ \t]*(\/\/.*|[]{}(),;]*)$/ { print FNR }' "$1"
+    BEGIN {
+      n = split(ls, a, ",")
+      for (i = 1; i <= n; i++) {
+        if (a[i] ~ /!$/) { sub(/!$/, "", a[i]); force[a[i]] = 1 }
+        ch[a[i]] = 1
+      }
+    }
+    (FNR in ch) && ((FNR in force) || $0 !~ /^[ \t]*(\/\/.*|[]{}(),;]*)$/) { print FNR }' "$1"
 }
 
 # swift_symbols <file> <meaningful changed lines>: "display<TAB>pattern" for each symbol those lines sit in.
@@ -310,23 +341,27 @@ callers_main() {
   # The changed symbols.
   : > "$tmp/primary"
   : > "$tmp/declared"
+  : > "$tmp/common"
+  local syms
   while IFS= read -r f; do
     [ -f "$f" ] || continue
     lines=$(meaningful_lines "$f" "$(changed_lines_of "$f")")
     [ -n "$lines" ] || continue
     case $f in
       *.swift)
-        swift_symbols "$f" "$lines" >> "$tmp/primary"
+        syms=$(swift_symbols "$f" "$lines")
         declared_in "$f" >> "$tmp/declared"
         ;;
-      *) objc_symbols "$f" "$lines" >> "$tmp/primary" ;;
+      *) syms=$(objc_symbols "$f" "$lines") ;;
     esac
+    # Code changed but no symbol could be read from the lines (a construct the parser does not follow): the
+    # fallback applies, so the change is never reported as reaching nothing.
+    if [ -n "$syms" ]; then echo "$syms" >> "$tmp/primary"; else echo "$f (changed lines in no symbol it can read)" >> "$tmp/common"; fi
   done <<< "$harness_files"
   sort -u "$tmp/primary" -o "$tmp/primary"
-  [ -s "$tmp/primary" ] || return 0
+  [ -s "$tmp/primary" ] || [ -s "$tmp/common" ] || return 0
 
   : > "$tmp/found"
-  : > "$tmp/common"
   : > "$tmp/symbols"
   # resolve <pattern> <display>: adds the tests that mention it to found; returns 1 when it is too common.
   resolve() {
