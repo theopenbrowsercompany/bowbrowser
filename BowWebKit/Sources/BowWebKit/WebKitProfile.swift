@@ -64,7 +64,9 @@ final class WebKitProfile: EngineProfile {
     /// It goes through the same init as every tab, so it registers with the profile and quitting closes it, and a
     /// profile that is quitting gives a tab already closed with `.quit` and no web view.
     func createTab(configuration: WKWebViewConfiguration) -> WebKitTab {
-        precondition(configuration.websiteDataStore === store, "a popup's configuration is on its opener's store")
+        // WebKit's own copy of the opener's configuration, so always on this store; checked in Debug only, since a
+        // trap here would end the app inside WebKit's callback.
+        assert(configuration.websiteDataStore === store, "a popup's configuration is on its opener's store")
         return WebKitTab(profile: self, configuration: configuration)
     }
 
