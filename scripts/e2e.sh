@@ -21,7 +21,8 @@
 #                                                exit code of the first failing repeat (1, 2 or 4)
 #     E2E: ERROR repeat <i>/N could not run: ...  exit 64, and the repeats stop (a bad N exits 64 at once)
 #     E2E: ERROR interrupted                      exit 130: a signal ends the repeat running and the rest
-#   E2E_KEEP is raised to N inside the repeats, so none prunes another. list ignores E2E_REPEAT.
+#   E2E_KEEP is raised to N inside the repeats, so none prunes another, and none prunes the run folder
+#   latest named when the repeats started (make done's full run, with its final.png and crash reports). list ignores E2E_REPEAT.
 # E2E_QUIET  1 prints short output for agents, 0 the full output; unset, it is 1 when CLAUDECODE=1 (every agent
 #   shell in Claude Code has it). Short output keeps only the FAIL, FLAKY, QUARANTINED, QUARANTINE EXPIRED, TIMEOUT
 #   and NOT RUN lines, the RESULT lines of failing tests (a retry's prefixed `retry: `), the app's echoed Chromium
@@ -212,6 +213,11 @@ if [ "$repeat" != 1 ]; then
   trap on_repeat_signal INT TERM HUP
   # Each repeat keeps every run folder of the repeats before it.
   [ "$keep" -ge "$repeat" ] || keep=$repeat
+  # The run folder latest names now (make done's full run) is not one of the repeats: no repeat prunes it, so its
+  # final.png and crash reports survive the repeats. It does not count against the keep either.
+  E2E_PROTECT=$(basename "$(readlink "$root/latest" 2>/dev/null)")
+  [ "$E2E_PROTECT" != . ] || E2E_PROTECT=""
+  export E2E_PROTECT
   tally="" failed="" passed=0 first_code="" first_kind="" folders=""
   for i in $(seq "$repeat"); do
     say "repeat $i/$repeat"
@@ -314,6 +320,7 @@ prune() {
   local n=0 entry
   while IFS= read -r entry; do
     [ -n "$entry" ] && [ "$entry" != latest ] && [ -f "$root/$entry/$marker" ] || continue
+    [ "$entry" != "${E2E_PROTECT:-}" ] || continue
     n=$((n + 1))
     if [ "$n" -gt "$keep" ] && [ "$entry" != "$run_name" ]; then
       # A test that locks a folder and is killed before it unlocks it would otherwise keep the run forever.

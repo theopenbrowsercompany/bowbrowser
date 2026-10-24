@@ -1152,6 +1152,18 @@ E2E_KEEP=3 run pass
 check "prunes a run with a locked folder" not test -e "$BOW_E2E_ROOT/$oldest"
 check "keeps the newest E2E_KEEP runs" is "$(find "$BOW_E2E_ROOT" -mindepth 1 -maxdepth 1 -type d | wc -l | tr -d ' ')" 3
 
+# make done's repeats follow its full run: the full run's folder (the one latest names) survives them, however old
+# the other folders are.
+rroot protect
+run pass
+run pass
+full=$(basename "$(readlink "$BOW_E2E_ROOT/latest")")
+touch "$BOW_E2E_ROOT/$full/final.png"
+E2E_KEEP=1 E2E_REPEAT=3 run pass
+check "repeats keep the full run's folder" test -f "$BOW_E2E_ROOT/$full/final.png"
+check "repeats keep latest on the last repeat, not the full run" not is "$(basename "$(readlink "$BOW_E2E_ROOT/latest")")" "$full"
+check "repeats prune the runs before the full run" is "$(find "$BOW_E2E_ROOT" -mindepth 1 -maxdepth 1 -type d | wc -l | tr -d ' ')" 4
+
 check "list: passes the TEST lines through" is "$(FAKE_MODE=pass ./scripts/e2e.sh "$app" list | head -n 1)" "TEST a.one area=a tags=- checks=a.one"
 
 check "no build: exit 64" is "$(./scripts/e2e.sh "$tmp/none.app" >/dev/null 2>&1; echo $?)" 64
