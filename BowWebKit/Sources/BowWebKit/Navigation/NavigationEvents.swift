@@ -111,9 +111,13 @@ struct NavigationEvents {
         return [.didFinish(current.navigation, httpStatus: current.httpStatus)]
     }
 
-    /// The navigation failed, before or after committing. A failure of a navigation already ended is dropped.
+    /// The navigation failed, before or after committing. A failure of a navigation already ended is dropped, and so
+    /// is one without a `WKNavigation` while the navigation in progress has one: it may be a late failure of a
+    /// navigation already ended, and must not end the one in progress. WebKit names the
+    /// navigation in every failure the package tests see; a navigation whose failure came without one still ends at
+    /// the next start, stop or close.
     mutating func failed(_ key: NavigationKey?, error: NavigationError) -> [TabEvent] {
-        guard let current = active, belongs(key) else { return [] }
+        guard let current = active, belongs(key), key != nil || current.key == nil else { return [] }
         active = nil
         return [.didFail(current.navigation, error)]
     }

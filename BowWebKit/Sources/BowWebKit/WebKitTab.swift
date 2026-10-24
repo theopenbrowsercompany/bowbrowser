@@ -26,6 +26,8 @@ final class WebKitTab: SPIDelegateBase, EngineTab, WKNavigationDelegate, WKUIDel
     var state: EngineTabState
     private(set) var isClosed = false
     private(set) var closeReason: TabCloseReason?
+    /// The page's session as the tab unloaded (WebKitTab+Unload.swift); nil otherwise.
+    private(set) var sessionState: Data?
 
     /// The main frame navigation in progress, fed by the responders.
     var navigationEvents = NavigationEvents()
@@ -107,10 +109,28 @@ final class WebKitTab: SPIDelegateBase, EngineTab, WKNavigationDelegate, WKUIDel
     func close() async -> Bool {
         guard !isClosed else { return true }
         releaseWebView()
-        isClosed = true
-        closeReason = .app
-        send(.closed)
+        end(.closed(.app))
         return true
+    }
+
+    /// How a tab ended: closed for a reason, or unloaded with the session it saved.
+    enum Ending {
+        case closed(TabCloseReason)
+        case unloaded(sessionState: Data?)
+    }
+
+    /// Marks the tab closed, its web view already released, and sends its last event (`closed` or `unloaded`).
+    func end(_ ending: Ending) {
+        precondition(!isClosed && webView == nil, "release the web view of an open tab before ending it")
+        isClosed = true
+        switch ending {
+        case .closed(let reason):
+            closeReason = reason
+            send(.closed)
+        case .unloaded(let sessionState):
+            self.sessionState = sessionState
+            send(.unloaded)
+        }
     }
 
     // MARK: Events
