@@ -21,25 +21,31 @@ import WebKit
         let start = rig.url("/navigation/start.html")
         let a = rig.url("/navigation/a.html")
         let tab = rig.tab("/navigation/start.html")
-        try await waitUntil("start loaded", timeout: 10) { tab.state.url == start && !tab.state.isLoading }
+        try await waitUntil("start loaded", timeout: 10) {
+            tab.state.url == start && !tab.state.isLoading && tab.state.title == "Navigation start"
+        }
         #expect(tab.state.title == "Navigation start")
         #expect(!tab.state.canGoBack && !tab.state.canGoForward)
         #expect(tab.state.tabID == tab.tabID)
 
         tab.load(a)
         try await waitUntil("a loaded", timeout: 10) {
-            tab.state.url == a && !tab.state.isLoading && tab.state.title == "A"
+            tab.state.url == a && !tab.state.isLoading && tab.state.title == "A" && tab.state.canGoBack
+                && !tab.state.canGoForward
         }
         #expect(tab.state.canGoBack && !tab.state.canGoForward)
 
         tab.goBack()
         try await waitUntil("back at start", timeout: 10) {
-            tab.state.url == start && !tab.state.isLoading && tab.state.canGoForward
+            tab.state.url == start && !tab.state.isLoading && tab.state.title == "Navigation start"
+                && tab.state.canGoForward && !tab.state.canGoBack
         }
         #expect(tab.state.title == "Navigation start" && !tab.state.canGoBack)
 
         tab.goForward()
-        try await waitUntil("forward at a", timeout: 10) { tab.state.url == a && !tab.state.isLoading }
+        try await waitUntil("forward at a", timeout: 10) {
+            tab.state.url == a && !tab.state.isLoading && tab.state.canGoBack && !tab.state.canGoForward
+        }
         #expect(tab.state.canGoBack && !tab.state.canGoForward)
         // Every change was pushed: the last stateChanged is the state.
         #expect(lastState(rig.delegate) == tab.state)

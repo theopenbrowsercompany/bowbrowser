@@ -67,6 +67,7 @@ import WebKit
         }
         let driver = PageDriver(webView)
         try await driver.load(server.url("/host/index.html"))
+        try await waitUntil("the title", timeout: 10) { webView.title == "Host" }
         #expect(webView.title == "Host")
         // Arguments are passed as values: the selector reaches the page as a string, never as source.
         let text = try await driver.string(
