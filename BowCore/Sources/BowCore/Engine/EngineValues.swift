@@ -134,24 +134,46 @@ public enum NavigationPolicy: Equatable, Sendable {
     case cancel
 }
 
-/// A failed navigation: the engine's network error code and its readable description.
+/// A failed navigation: why it failed, in the engine's terms mapped to Bow's, and the engine's own readable text
+/// for it (for logs, never shown as the reason).
 public struct NavigationError: Error, Equatable, Sendable {
-    public var code: Int
+    /// Why a navigation ended without loading a page. Each engine maps its own error codes to these.
+    public enum Reason: Hashable, Sendable, CaseIterable {
+        /// The navigation ended without failing to load: it was stopped, replaced by a newer navigation, cancelled
+        /// by the policy at a redirect, cut short by the tab closing or its page's process ending, or it left no
+        /// new page (a 204 response or a download).
+        case aborted
+        /// The host's name did not resolve.
+        case nameNotResolved
+        /// The server could not be reached or refused the connection.
+        case cannotConnect
+        /// The connection dropped or the server closed it before answering.
+        case connectionLost
+        /// The server took too long to answer.
+        case timedOut
+        /// The Mac is not connected to the internet.
+        case offline
+        /// The server's certificate failed to verify (the certificate question comes first, see `CertificateError`).
+        case certificate
+        /// The address is malformed or names a scheme the engine cannot load.
+        case badAddress
+        /// The load was blocked, by the engine, a content rule or the server's response policy.
+        case blocked
+        /// Any other failure.
+        case other
+    }
+
+    public var reason: Reason
     public var description: String
 
-    public init(code: Int, description: String) {
-        self.code = code
+    public init(reason: Reason, description: String) {
+        self.reason = reason
         self.description = description
     }
 
-    /// The engine's code for a navigation that ended without failing to load: it was stopped, replaced by a
-    /// newer navigation, cancelled by the policy at a redirect, cut short by the tab closing or its render
-    /// process ending, or it left no new page (a 204 response or a download).
-    public static let abortedCode = -3
-
-    /// True when the navigation was aborted rather than failed to load (see `abortedCode`). An app showing load
+    /// True when the navigation was aborted rather than failed to load (`Reason.aborted`). An app showing load
     /// errors should skip these: the page shown stays, or the navigation that replaced it reports its own result.
-    public var isAborted: Bool { code == Self.abortedCode }
+    public var isAborted: Bool { reason == .aborted }
 }
 
 /// Where a page asked a new page to open.

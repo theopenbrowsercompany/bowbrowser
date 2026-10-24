@@ -33,13 +33,14 @@ struct E2EAuthQuestion: CustomStringConvertible {
 /// One certificate question and the window's answer.
 struct E2ECertificateQuestion: CustomStringConvertible {
     var url: URL?
-    /// The engine's network error code (for example -202 for an untrusted authority).
-    var code: Int
+    /// The name of what is wrong with the certificate (BowCore's `CertificateError.Reason`, for example
+    /// `untrustedAuthority`).
+    var reason: String
     /// True when the window let the load go on; nil while it has not answered.
     var proceeded: Bool?
 
     var description: String {
         let answer = proceeded.map { $0 ? "proceed" : "cancel" } ?? "pending"
-        return "\(url?.absoluteString ?? "no URL") \(code) answer=\(answer)"
+        return "\(url?.absoluteString ?? "no URL") \(reason) answer=\(answer)"
     }
 }

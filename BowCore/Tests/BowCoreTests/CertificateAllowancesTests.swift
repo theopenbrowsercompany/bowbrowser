@@ -6,27 +6,35 @@ import Testing
     let cert = Data([0x30, 0x82, 0x01])
     let otherCert = Data([0x30, 0x82, 0x02])
 
-    func error(_ url: String?, _ code: Int = -202) -> CertificateError {
-        CertificateError(url: url.flatMap { URL(string: $0) }, code: code)
+    func error(_ url: String?, _ reason: CertificateError.Reason = .untrustedAuthority) -> CertificateError {
+        CertificateError(url: url.flatMap { URL(string: $0) }, reason: reason)
     }
 
     @Test func overridableErrorsAreOfferedForStandardHosts() {
-        for code in [-200, -201, -202, -213, -219] {
-            #expect(CertificateAllowances.mayOffer(error("https://example.com/", code), enforcement: .standard))
+        let overridable: [CertificateError.Reason] = [
+            .nameMismatch, .dateInvalid, .untrustedAuthority, .noRevocationMechanism, .unableToCheckRevocation,
+            .weakSignature, .nonUniqueName,
+            .weakKey, .nameConstraintViolation, .validityTooLong, .notPubliclyLogged, .selfSignedLocalNetwork,
+        ]
+        #expect(CertificateAllowances.overridableReasons == Set(overridable))
+        for reason in overridable {
+            #expect(
+                CertificateAllowances.mayOffer(error("https://example.com/", reason), enforcement: .standard),
+                "\(reason)")
         }
     }
 
-    @Test func fatalErrorsAreNeverOffered() {
-        // Contains errors, revoked, invalid, pinned key, known interception.
-        for code in [-203, -206, -207, -150, -217] {
-            #expect(!CertificateAllowances.mayOffer(error("https://example.com/", code), enforcement: .standard))
+    @Test func fatalAndUnknownErrorsAreNeverOffered() {
+        // Malformed, revoked, invalid, a distrusted authority, and a reason Bow does not know.
+        let fatal: [CertificateError.Reason] = [.containsErrors, .revoked, .invalid, .distrustedAuthority, .other]
+        for reason in fatal {
+            #expect(
+                !CertificateAllowances.mayOffer(error("https://example.com/", reason), enforcement: .standard),
+                "\(reason)")
         }
-    }
-
-    @Test func unknownAndNonCertificateCodesAreNeverOffered() {
-        for code in [-220, -209, -216, -218, -105, 0, 200] {
-            #expect(!CertificateAllowances.mayOffer(error("https://example.com/", code), enforcement: .standard))
-        }
+        // Every reason is either overridable or fatal.
+        #expect(
+            Set(CertificateError.Reason.allCases) == CertificateAllowances.overridableReasons.union(fatal))
     }
 
     @Test func strictHostsAreNeverOffered() {
@@ -95,16 +103,19 @@ import Testing
 
     @Test func anotherErrorOnTheSameHostIsStillAsked() {
         var allowances = CertificateAllowances()
-        allowances.allow(error("https://example.com/", -202), certificate: cert, enforcement: .standard)
+        allowances.allow(error("https://example.com/", .untrustedAuthority), certificate: cert, enforcement: .standard)
         #expect(
-            allowances.decision(for: error("https://example.com/", -201), certificate: cert, enforcement: .standard)
+            allowances.decision(
+                for: error("https://example.com/", .dateInvalid), certificate: cert, enforcement: .standard)
                 == nil)
-        allowances.allow(error("https://example.com/", -201), certificate: cert, enforcement: .standard)
+        allowances.allow(error("https://example.com/", .dateInvalid), certificate: cert, enforcement: .standard)
         #expect(
-            allowances.decision(for: error("https://example.com/", -201), certificate: cert, enforcement: .standard)
+            allowances.decision(
+                for: error("https://example.com/", .dateInvalid), certificate: cert, enforcement: .standard)
                 == .proceed)
         #expect(
-            allowances.decision(for: error("https://example.com/", -202), certificate: cert, enforcement: .standard)
+            allowances.decision(
+                for: error("https://example.com/", .untrustedAuthority), certificate: cert, enforcement: .standard)
                 == .proceed)
     }
 
@@ -118,13 +129,14 @@ import Testing
 
     @Test func fatalErrorsAndStrictHostsAreNeverRemembered() {
         var allowances = CertificateAllowances()
-        let revoked = allowances.allow(error("https://example.com/", -206), certificate: cert, enforcement: .standard)
+        let revoked = allowances.allow(
+            error("https://example.com/", .revoked), certificate: cert, enforcement: .standard)
         let strict = allowances.allow(error("https://example.com/"), certificate: cert, enforcement: .strict)
         let noHost = allowances.allow(error(nil), certificate: cert, enforcement: .standard)
         #expect(!revoked && !strict && !noHost)
         #expect(allowances.isEmpty)
         #expect(
-            allowances.decision(for: error("https://example.com/", -206), certificate: cert, enforcement: .standard)
+            allowances.decision(for: error("https://example.com/", .revoked), certificate: cert, enforcement: .standard)
                 == nil)
     }
 

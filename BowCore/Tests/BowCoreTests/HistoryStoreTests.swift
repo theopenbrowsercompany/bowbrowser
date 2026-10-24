@@ -36,7 +36,8 @@ import Testing
         let store = try store()
         try store.handle(.didStartNavigation(EngineNavigation(url: a)), at: t0)
         try store.handle(.didRedirect(EngineNavigation(url: a)), at: t0)
-        try store.handle(.didFail(EngineNavigation(url: a), NavigationError(code: -105, description: "x")), at: t0)
+        try store.handle(
+            .didFail(EngineNavigation(url: a), NavigationError(reason: .nameNotResolved, description: "x")), at: t0)
         try store.handle(.stateChanged(EngineTabState(tabID: 1, url: a, title: "Unvisited")), at: t0)
         #expect(try store.count() == 0)
     }

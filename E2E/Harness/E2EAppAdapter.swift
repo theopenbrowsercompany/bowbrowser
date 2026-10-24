@@ -538,9 +538,9 @@ final class E2ETabPage: E2EPage {
             navigationEvents.append(E2ENavigationEvent(kind: .finish, url: navigation.url, code: status))
             loadFinished(.success(status))
         case .didFail(let navigation, let error):
-            navigationEvents.append(E2ENavigationEvent(kind: .fail, url: navigation.url, code: error.code))
+            navigationEvents.append(E2ENavigationEvent(kind: .fail, url: navigation.url, failure: "\(error.reason)"))
             let url = navigation.url.absoluteString
-            loadFinished(.failure(E2EError("loading \(url) failed: \(error.code) \(error.description)")))
+            loadFinished(.failure(E2EError("loading \(url) failed: \(error.reason) \(error.description)")))
         case .findResult(let result):
             lastFindResult = E2EFindResult(
                 matches: result.matchCount, active: result.activeMatch, isFinal: result.isFinal)

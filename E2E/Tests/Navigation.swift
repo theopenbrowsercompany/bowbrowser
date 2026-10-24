@@ -317,7 +317,7 @@ struct NavigationEventsTest: E2ETest {
         Self.check(
             run, "nav.fail", Array(page.navigationEvents[first..<min(failEvents + 1, page.navigationEvents.count)]),
             expected: [
-                .init(kind: .start, url: broken), .init(kind: .fail, url: broken, code: -102),
+                .init(kind: .start, url: broken), .init(kind: .fail, url: broken, failure: "cannotConnect"),
                 .init(kind: .start, url: target),
             ])
         try await run.step("check the cancel", timeout: E2ETimeouts.step) {
@@ -355,7 +355,7 @@ struct NavigationEventsTest: E2ETest {
                 .init(kind: .start, url: target), .init(kind: .commit, url: target), .init(kind: .finish, url: target),
             ])
 
-        // A 204 answer leaves the page where it is, and the navigation still ends: it fails as aborted (-3).
+        // A 204 answer leaves the page where it is, and the navigation still ends: it fails as aborted.
         first = page.navigationEvents.count
         try await run.step("load a page with no content", timeout: E2ETimeouts.step) {
             let loads = page.finishedLoads
@@ -367,7 +367,7 @@ struct NavigationEventsTest: E2ETest {
             let title = try await page.string("document.title")
             let events = Array(page.navigationEvents[first...])
             let expected: [E2ENavigationEvent] = [
-                .init(kind: .start, url: noContent), .init(kind: .fail, url: noContent, code: -3),
+                .init(kind: .start, url: noContent), .init(kind: .fail, url: noContent, failure: "aborted"),
             ]
             let passed = events == expected && title == "Navigation target"
             let order = events.map(\.kind.rawValue).joined(separator: ",")

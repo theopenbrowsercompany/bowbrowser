@@ -23,7 +23,8 @@ This is what intranet sites, routers and broken certificates meet, as they do in
 - A page in a popup panel (a sign in window a site opened) that asks gets the same sheet on the panel, never on the window under it.
   Closing the panel, closing the tab that opened it, closing its window and quitting each cancel the request once, and the panel goes.
 - The sign in sheet and the page dialogs share one way of showing a sheet, so one waits for the other on the same window or panel.
-- A page whose certificate fails to verify does not load: the tab shows a page over its content titled "This connection is not secure", saying in plain words that Bow could not confirm this is the real site (by its host), what is wrong with the certificate (for example that it is not from an authority this Mac trusts), and what could happen, with the engine's error name under it (for example `NET::ERR_CERT_AUTHORITY_INVALID`).
+- A page whose certificate fails to verify does not load: the tab shows a page over its content titled "This connection is not secure", saying in plain words that Bow could not confirm this is the real site (by its host), what is wrong with the certificate (for example that it is not from an authority this Mac trusts), and what could happen, with the error's name under it as Chrome prints it, and so as Arc shows it (for example `NET::ERR_CERT_AUTHORITY_INVALID`).
+  Bow keeps its own reasons for a certificate error, whichever engine reports it, and names each with Chrome's label for it, so the page reads the same on any engine.
 - The error page's one action is Go back, the primary pill: it goes back to the page before in the tab's history, or, in a tab with no page before, closes the tab as Cmd+W does (the Space then shows its next tab, or the start screen when it has none).
 - The error page offers no way on to the site, and nothing loads the site silently: the site never sees a request.
 - The error page goes when its tab goes to another address, reloads, crashes or closes; a tab that failed while the person looked elsewhere shows it when shown.
@@ -43,7 +44,7 @@ This is what intranet sites, routers and broken certificates meet, as they do in
 - While another sheet is up on the window (a page dialog or a leave prompt), the sign in sheet waits for it to end, then comes up.
 - A site naming a very long or multi-line area is quoted on one line, cut to 80 characters with an ellipsis.
 - An error the engine reports for a load the tab has already left (the person went elsewhere while it was asked) shows nothing.
-- A certificate error the engine has no plain words for says its certificate could not be verified, with its error number.
+- A certificate error Bow has no reason for says its certificate could not be verified, named `NET::ERR_CERT_INVALID`, Chrome's label for an invalid certificate.
 
 ## Acceptance checks
 
