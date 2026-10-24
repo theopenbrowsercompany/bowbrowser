@@ -249,6 +249,21 @@ final class RecordingDownloadsDelegate: EngineDownloadsDelegate {
         }
     }
 
+    @Test func cancellingNeverDeletesAFileThatWasAtTheDestinationBefore() async throws {
+        try await withRig { rig in
+            let existing = rig.folder.appendingPathComponent("fast.bin")
+            try Data("the person's own file".utf8).write(to: existing)
+            _ = rig.tabs.tab("/fast.bin")
+            // WebKit refuses a destination that exists, so the download fails.
+            let failed = try await rig.waitForItem("fast.bin failing on the file already there") {
+                $0.state == .interrupted && $0.destination == existing
+            }
+            rig.downloads.cancel(failed.id)
+            _ = try await rig.waitForItem("fast.bin cancelled") { $0.state == .cancelled }
+            #expect(try Data(contentsOf: existing) == Data("the person's own file".utf8))
+        }
+    }
+
     /// The W1 side question: does a `WKDownload` finish after its web view is released? It does, because the
     /// profile's downloads, not the tab, hold it and are its delegate.
     @Test func aDownloadCompletesAfterItsTabClosedAndItsWebViewWasReleased() async throws {

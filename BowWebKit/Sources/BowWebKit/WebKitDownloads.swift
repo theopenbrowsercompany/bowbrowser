@@ -149,6 +149,7 @@ final class WebKitDownloads: NSObject, EngineDownloads, WKDownloadDelegate {
             return nil
         }
         entry.item.destination = destination
+        entry.ownsDestination = !FileManager.default.fileExists(atPath: destination.path)
         entry.phase = .running
         entry.attach(download) { [weak self, weak entry] in self?.progressed(entry) }
         send(.updated(entry.item))
@@ -213,7 +214,10 @@ final class WebKitDownloads: NSObject, EngineDownloads, WKDownloadDelegate {
         if entry.download === download { return }
         // Cancelled, or quitting began, meanwhile.
         guard entry.phase == .resuming, entry.item.state == .inProgress, !isQuitting else {
-            return download.cancel(nil)
+            // The resumed download writes into the same file, which a cancel meanwhile already deleted once.
+            return download.cancel { [weak entry] _ in
+                if entry?.item.state == .cancelled { entry?.removePartialFile() }
+            }
         }
         entry.phase = .running
         entry.attach(download) { [weak self, weak entry] in self?.progressed(entry) }
