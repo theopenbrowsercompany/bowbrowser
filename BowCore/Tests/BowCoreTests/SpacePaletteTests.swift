@@ -137,6 +137,33 @@ import Testing
         #expect(p.backdropOpacity == 0.4)
     }
 
+    @Test func anyThemeColorIsReadable() throws {
+        var hexes = ["#000000", "#FFFFFF", "#808080", "#999999"]
+        for hue in stride(from: 0.0, to: 360, by: 15) {
+            for saturation in [0.2, 0.6, 1.0] {
+                for lightness in [0.2, 0.5, 0.85] {
+                    hexes.append(SpaceTintColor(hue: hue, saturation: saturation, lightness: lightness).hex)
+                }
+            }
+        }
+        for hex in hexes {
+            let theme = try SpaceTheme(primaryColorHex: hex)
+            for appearance in SpacePaletteAppearance.allCases {
+                let palette = SpacePalette(theme: theme, appearance: appearance)
+                #expect(palette.foregroundPrimary.contrast(with: palette.background) >= 7, "\(hex) \(appearance)")
+                #expect(palette.foregroundSecondary.contrast(with: palette.background) >= 4.5, "\(hex) \(appearance)")
+                #expect(palette.focus.contrast(with: palette.background) >= 3, "focus \(hex) \(appearance)")
+            }
+        }
+    }
+
+    @Test func aGrayThemeGivesGrayNeutrals() throws {
+        let palette = SpacePalette(theme: try SpaceTheme(primaryColorHex: "#808080"), appearance: .light)
+        for color in [palette.background, palette.title, palette.hover, palette.focus] {
+            #expect(color.hsl.saturation == 0, "\(color)")
+        }
+    }
+
     @Test func hslRoundTripsAndContrastIsWcag() {
         let color = SpaceTintColor(try! SpaceColor(hex: "#3B5BDB"))
         let (h, s, l) = color.hsl

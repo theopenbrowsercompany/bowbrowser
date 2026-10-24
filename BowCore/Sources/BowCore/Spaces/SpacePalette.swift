@@ -62,7 +62,8 @@ public struct SpacePalette: Hashable, Sendable {
             let primary = SpaceTintColor(theme.primaryColor).hsl
             hue = primary.hue
             // Keep enough saturation that the hue survives 8 bit rounding, and not so much that the surface shouts.
-            saturation = min(max(primary.saturation, 0.3), 0.8)
+            // A gray stays gray: it has no hue to keep.
+            saturation = primary.saturation < 0.05 ? 0 : min(max(primary.saturation, 0.3), 0.8)
             background = SpaceTintColor(
                 hue: hue, saturation: dark ? saturation * 0.6 : saturation, lightness: dark ? 0.13 : 0.92)
             ink = SpaceTintColor(
@@ -83,7 +84,16 @@ public struct SpacePalette: Hashable, Sendable {
         tileFill = background.mixed(with: white, fraction: dark ? 0.07 : 0.4)
         fieldFill = background.mixed(with: white, fraction: dark ? 0.1 : 0.7)
         divider = background.mixed(with: ink, fraction: 0.12)
-        focus = SpaceTintColor(hue: hue, saturation: max(saturation, 0.6), lightness: dark ? 0.65 : 0.38)
+        // The accent moves away from the background in lightness until it reads at 3:1, which yellows and greens need.
+        var focusLightness = dark ? 0.65 : 0.38
+        var accent = SpaceTintColor(
+            hue: hue, saturation: saturation == 0 ? 0 : max(saturation, 0.6), lightness: focusLightness)
+        while accent.contrast(with: background) < 3, focusLightness > 0.02, focusLightness < 0.98 {
+            focusLightness += dark ? 0.02 : -0.02
+            accent = SpaceTintColor(
+                hue: hue, saturation: saturation == 0 ? 0 : max(saturation, 0.6), lightness: focusLightness)
+        }
+        focus = accent
         backdropOpacity = theme == .default ? 0 : (dark ? 0.4 : 0.5)
     }
 }
