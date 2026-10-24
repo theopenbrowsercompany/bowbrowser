@@ -12,6 +12,10 @@ final class PopupRecordingDelegate: EngineTabDelegate {
     var decision: PopupDecision
     /// Answers with Bow's popup rules for a Today tab instead of `decision`, as the app does.
     var decidesByPolicy = false
+    /// Gives each new tab a delegate like this one deciding by Bow's rules (`popupPopupDelegates`), as the app takes
+    /// a popup, instead of a recording one.
+    var popupsDecideByPolicy = false
+    private(set) var popupPopupDelegates: [TabID: PopupRecordingDelegate] = [:]
     private(set) var requests: [PopupRequest] = []
     private(set) var opened: [(tab: WebKitTab, request: PopupRequest)] = []
     /// Each opened tab's delegate, by tab ID.
@@ -33,9 +37,16 @@ final class PopupRecordingDelegate: EngineTabDelegate {
     func tab(_ tab: any EngineTab, didOpenPopup newTab: any EngineTab, request: PopupRequest) {
         let popup = newTab as! WebKitTab
         arrivedOpen.append(!popup.isClosed && popup.webView != nil)
-        let delegate = RecordingTabDelegate()
-        popupDelegates[popup.tabID] = delegate
-        popup.delegate = delegate
+        if popupsDecideByPolicy {
+            let delegate = PopupRecordingDelegate(.block)
+            delegate.decidesByPolicy = true
+            popupPopupDelegates[popup.tabID] = delegate
+            popup.delegate = delegate
+        } else {
+            let delegate = RecordingTabDelegate()
+            popupDelegates[popup.tabID] = delegate
+            popup.delegate = delegate
+        }
         // Test host only: a page no window shows counts as occluded, and WebKit throttles it.
         if let webView = popup.webView { WebKitSPI.setWindowOcclusionDetectionEnabled(webView, false) }
         opened.append((popup, request))
@@ -222,14 +233,17 @@ final class PopupRecordingDelegate: EngineTabDelegate {
 
     /// A popup's own popup is asked about as Bow on CEF asks: a popup the app took as a tab asks its own delegate,
     /// and a popup opened as `.window` (on CEF a window of the engine's own) opens its popups as `.window` unasked,
-    /// handing them to its delegate. Either way the new page keeps its opener.
+    /// handing them to its delegate, except one with no user gesture, which is blocked as everywhere. Either way the
+    /// new page keeps its opener.
     @Test func aPopupsOwnPopupIsAskedAsOnCEF() async throws {
         let rig = try TabRig()
         let page = rig.url("/popups/opener.html")
-        let nested = rig.url("/popups/nested.html")
+        let nested = rig.url("/popups/nested.html?timer")
         let child = rig.url("/popups/child.html")
         let opener = rig.tab("/popups/opener.html")
         let delegate = PopupRecordingDelegate(.foregroundTab)
+        // Each popup's delegate, set before its first navigation, decides by Bow's rules as the app's would.
+        delegate.popupsDecideByPolicy = true
         opener.delegate = delegate
         try await PageDriver(opener.webView!).waitForLoad(of: page)
 
@@ -239,11 +253,17 @@ final class PopupRecordingDelegate: EngineTabDelegate {
             try await click("#nested", in: opener)
             let popup = try await delegate.waitForPopup(index + 1).tab
             #expect(popup.isPopupWindow == (decision == .window), "\(decision)")
-            // The app takes the popup and becomes its delegate, which would answer a popup of its own with a tab.
-            let inner = PopupRecordingDelegate(.backgroundTab)
-            popup.delegate = inner
+            let inner = try #require(delegate.popupPopupDelegates[popup.tabID])
             rig.surface.show(popup)
             try await PageDriver(popup.webView!).waitForLoad(of: nested)
+            // The popup's page opens one from a timer as it loads, with no gesture: blocked either way.
+            let timed = try await waitFor("\(decision): the timer's window.open returned; asked \(inner.requests)") {
+                let value = try await PageDriver(popup.webView!).string("return document.body.dataset.timer || 'none'")
+                return value == "none" ? nil : value
+            }
+            #expect(timed == "null", "\(decision): a popup's popup with no gesture opened")
+            #expect(inner.opened.isEmpty, "\(decision): a popup with no gesture was handed over")
+
             try await click("#open", in: popup)
             let (grandchild, request) = try await inner.waitForPopup(1)
             #expect(request.targetURL == child && request.isUserGesture, "\(decision): \(request)")
@@ -251,7 +271,9 @@ final class PopupRecordingDelegate: EngineTabDelegate {
                 #expect(inner.requests.isEmpty, "a popup window's popup was asked about")
                 #expect(grandchild.isPopupWindow, "a popup window's popup did not open as a window")
             } else {
-                #expect(inner.requests.count == 1, "a popup tab's popup was not asked about")
+                #expect(
+                    inner.requests.map(\.isUserGesture) == [false, true],
+                    "a popup tab's popups were not asked about: \(inner.requests)")
                 #expect(!grandchild.isPopupWindow)
             }
             try await waitUntil(

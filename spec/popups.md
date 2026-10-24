@@ -17,7 +17,7 @@ That connection is what sign in popups (for example Google or GitHub sign in) us
   The window answers with the rules below, or with a Peek (spec/peek.md).
 - The engine asks about every new page, with or without a click, and says whether a click or key press opened it, so Bow's rules (not the engine's own popup blocker) decide a page that opens one on its own.
   The WebKit engine reads this from WebKit's own record of whether it was handling a click or key press when the page asked, with WebKit's built in popup blocker off; only on a WebKit that cannot say does that blocker stay on, refusing such pages before the app is asked.
-- A page in a popup window of its own opens its own new pages in popup windows too, without asking; a new page the app took as a tab, a popup panel or a Peek asks like any tab.
+- A page in a popup window of its own opens its own new pages in popup windows too, without asking, except one without a click or key press, which is blocked as everywhere; a new page the app took as a tab, a popup panel or a Peek asks like any tab.
 - A link opened with a modified click has no `window.opener`, as in other browsers.
 - A new page the app takes as a tab is still connected to the page that opened it through `window.opener`.
 - The app owns such a tab before its first navigation, so the app's rules for where pages may go apply to that first page too.
