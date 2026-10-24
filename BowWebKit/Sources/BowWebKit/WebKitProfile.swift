@@ -12,6 +12,9 @@ final class WebKitProfile: EngineProfile {
     let isPersistent: Bool
     let store: WKWebsiteDataStore
     let downloads: any EngineDownloads
+    /// Every tab made on the profile, held weakly: whoever holds a tab keeps it, and quitting closes those still
+    /// open (see `register(_:)`).
+    private var registered: [WeakTab] = []
 
     /// A profile over `store`, which the engine makes from the profile's `ProfileRef`.
     init(profileID: ProfileID, storeID: UUID, isPersistent: Bool, store: WKWebsiteDataStore) {
@@ -20,6 +23,20 @@ final class WebKitProfile: EngineProfile {
         self.isPersistent = isPersistent
         self.store = store
         downloads = WebKitDownloads(profileID: profileID)
+    }
+
+    /// The profile `ref` names, on its own store (see `store(for:)`).
+    convenience init(_ ref: ProfileRef) {
+        self.init(
+            profileID: ref.engineID, storeID: ref.storeID, isPersistent: ref.isPersistent, store: Self.store(for: ref))
+    }
+
+    /// The data store `ref` names. A persistent profile's store is the one WebKit keeps on disk under its storage
+    /// UUID, so the profile reaches the same cookies and site data on every launch and never another profile's; an
+    /// ephemeral profile gets a new store in memory, which keeps nothing once its last web view is gone. Never
+    /// WebKit's default store, which no Bow profile owns.
+    static func store(for ref: ProfileRef) -> WKWebsiteDataStore {
+        ref.isPersistent ? WKWebsiteDataStore(forIdentifier: ref.storeID) : .nonPersistent()
     }
 
     /// A fresh configuration for one tab's web view, on the profile's store. Each web view gets its own, since a
@@ -32,11 +49,35 @@ final class WebKitProfile: EngineProfile {
 
     func createTab(url: URL) -> any EngineTab {
         let tab = WebKitTab(profile: self)
+        register(tab)
         tab.load(url)
         return tab
+    }
+
+    /// Records `tab` as one of the profile's, so quitting closes it. Every way of making a tab on the profile calls
+    /// this once the tab exists (restoring an unloaded tab and opening a popup too); a second call does nothing.
+    func register(_ tab: WebKitTab) {
+        registered.removeAll { $0.tab == nil || $0.tab?.isClosed == true }
+        guard !registered.contains(where: { $0.tab === tab }) else { return }
+        registered.append(WeakTab(tab))
+    }
+
+    /// The profile's tabs that are still open, in the order they were made.
+    var openTabs: [WebKitTab] {
+        registered.compactMap(\.tab).filter { !$0.isClosed }
     }
 
     /// Does nothing: Bow's own permission store is the only record of a site's permissions, and the tab answers
     /// WebKit's permission questions from it, so WebKit keeps no answers of its own to agree with.
     func setPermission(_ setting: SitePermissionSetting, for kind: PermissionKind, on site: PermissionSite) {}
+}
+
+/// A tab held weakly.
+@MainActor
+private struct WeakTab {
+    weak var tab: WebKitTab?
+
+    init(_ tab: WebKitTab) {
+        self.tab = tab
+    }
 }

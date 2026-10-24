@@ -15,13 +15,25 @@ final class TestStores {
         return WKWebsiteDataStore(forIdentifier: id)
     }
 
+    /// Records `id` for removal: the ID of a store the code under test makes (a persistent profile's), returned so a
+    /// test can pass it on.
+    @discardableResult
+    func track(_ id: UUID = UUID()) -> UUID {
+        if !ids.contains(id) { ids.append(id) }
+        return id
+    }
+
     /// Removes every store made, retrying while a web view still holds one (WebKit refuses to remove a store in
     /// use), and returns the IDs WebKit still lists afterwards: empty when the cleanup worked. Call it only once
     /// the test has dropped its web views.
+    ///
+    /// WebKit makes a store's folder in its network process a moment after the store is made, so a store made and
+    /// dropped at once can be removed before its folder exists and then appear: removal goes on until WebKit lists
+    /// none of the IDs.
     func removeAll(timeout: Double = 15) async -> [UUID] {
         var left = Set(ids)
         let deadline = Date().addingTimeInterval(timeout)
-        while !left.isEmpty, Date() < deadline {
+        while Date() < deadline {
             for id in left {
                 do {
                     try await WKWebsiteDataStore.remove(forIdentifier: id)
@@ -30,7 +42,15 @@ final class TestStores {
                     try? await Task.sleep(for: .milliseconds(100))
                 }
             }
+            guard left.isEmpty else { continue }
+            left = Set(await listed())
+            if left.isEmpty { break }
         }
+        return await listed()
+    }
+
+    /// The recorded IDs WebKit lists as stores.
+    private func listed() async -> [UUID] {
         let listed = Set(await WKWebsiteDataStore.allDataStoreIdentifiers)
         return ids.filter { listed.contains($0) }
     }
