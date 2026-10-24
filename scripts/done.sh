@@ -440,7 +440,7 @@ reusable_check_pass() {
   [ -f "$stamp" ] && [ "$1" != unknown ] || return 0
   { read -r key; read -r sel; read -r summary; read -r run; } < "$stamp"
   [ "$key" = "$1" ] && [ "$sel" = all ] || return 0
-  case $summary in "E2E: PASS"*) ;; *) return 0 ;; esac
+  case $summary in *quarantined*) return 0 ;; "E2E: PASS"*) ;; *) return 0 ;; esac
   [ -n "$run" ] && [ -d "build/e2e/$run" ] || return 0
   printf '%s\n%s\n' "$summary" "$run"
 }
@@ -590,7 +590,7 @@ package_repeat() {
     what="$what${what:+; }$pkg $suite"
     for run in $(seq 1 "$pkg_count"); do
       st=0
-      swift test --skip-build --package-path "$pkg" --filter "\\.$suite/" > "$out/package.log" 2>&1 || st=$?
+      swift test --skip-build --package-path "$pkg" --filter "\\.$suite/" < /dev/null > "$out/package.log" 2>&1 || st=$?
       ran_n=$(sed -n 's/.*Test run with \([0-9][0-9]*\) tests\{0,1\}.*/\1/p' "$out/package.log" | tail -1)
       if [ "$st" != 0 ] || [ "${ran_n:-0}" = 0 ]; then
         echo "== done: package tests, $pkg $suite run $run"
