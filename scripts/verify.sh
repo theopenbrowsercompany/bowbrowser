@@ -36,6 +36,7 @@ self_tests=(
   "test-check-lists scripts/check-lists.sh scripts/test-check-lists.sh"
   "test-e2e-bisect scripts/e2e-bisect.sh scripts/test-e2e-bisect.sh"
   "test-verify-plan scripts/verify.sh scripts/test-verify-plan.sh"
+  "test-e2e-flakes scripts/e2e-flakes.sh scripts/test-e2e-flakes.sh"
 )
 script_inputs=(scripts Makefile .githooks)
 base=${VERIFY_BASE:-origin/main}

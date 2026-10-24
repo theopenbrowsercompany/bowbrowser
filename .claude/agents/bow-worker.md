@@ -54,6 +54,7 @@ Your working directory is your own git worktree of this repository.
   Refused, most often first: a heredoc (`<<EOF`, `python3 - <<EOF`), a pipeline (`git log | tail`, `| head`, `| grep`), a chain (`a && b`, `a; b`, `||`), command substitution (`$(...)`), `cd <dir> && ...`, `git -C <path>`, `make -C <path>`, and a multiline `sed -i`.
   Instead: read a result with Read (redirect to a file under /tmp first, never into the worktree), edit with Edit or Write, and put multi-step work in a script written with Write and run with `bash <path>`.
 - Run `make bootstrap` first in a fresh worktree.
+- Write make done output and any scratch file to a name that includes your branch (for example /tmp/done-<branch>.log), never a shared name like /tmp/done.log: two worktrees clobbered each other's log on 2026-10-23.
 - Any new e2e input helper goes through `E2EInput`'s confirm and resend path.
 - Never open DevTools in an e2e run.
 - E2E type names share one namespace with the BowCore tests, so give harness additions an `e2e` prefix.
