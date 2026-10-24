@@ -11,6 +11,15 @@ final class EmptySpaceFeature: NSResponder, BrowserWindowFeature {
     /// The empty state, over the page area; hidden while the page area shows a page.
     let emptyView: EmptySpaceView
     private weak var window: BrowserWindowController?
+    /// Where the greeting reads the time of day: the real clock, or the harness's fixed one in an e2e run.
+    private(set) static var clock: any TimeSource = SystemTimeSource()
+
+    #if BOW_E2E  // E2E seam: the design fixture fixes the clock so the greeting reads the same in every capture.
+        /// Makes the greeting read `clock` from the next time a start screen shows; nil goes back to the real clock.
+        static func e2eUseClock(_ clock: (any TimeSource)?) {
+            Self.clock = clock ?? SystemTimeSource()
+        }
+    #endif
 
     init(window: BrowserWindowController) {
         self.window = window
@@ -58,7 +67,7 @@ final class EmptySpaceFeature: NSResponder, BrowserWindowFeature {
                 item: id, title: FavoritesGridView.title(of: item, saved: saved), icon: sidebar?.favicon(for: id))
         }
         emptyView.startScreen.show(
-            hour: StartScreen.hour(at: Date()), hint: StartScreen.hint(for: space, in: graph),
+            hour: StartScreen.hour(at: Self.clock.now), hint: StartScreen.hint(for: space, in: graph),
             quickLinks: links)
     }
 
