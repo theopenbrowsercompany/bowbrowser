@@ -30,13 +30,30 @@ public struct UnloadTab: Equatable, Sendable {
     /// it last loaded a new document. Unloading would lose that input, so such a tab is kept at every memory pressure
     /// but critical.
     public var hasEditedForm: Bool
+    /// The page is still loading (a navigation is under way). Such a tab is never unloaded.
+    public var isLoading: Bool
+    /// The person's attention holds the tab: its window is closing or shows a sheet, the app shows a modal panel, or
+    /// its page dialog waits for the tab to be shown. An unload would take that away unanswered, so such a tab is
+    /// never unloaded (the next pass tries again).
+    public var isHeld: Bool
+    /// A pinned tab or Favorite showing another page than its saved address. Unloading loses that page unless the
+    /// engine restores page state (`UnloadPolicy.EngineAbilities.restoresPageState`).
+    public var isBrowsedAwayFromSaved: Bool
+    /// The tab's profile has a download under way. Unloading may cancel it unless downloads survive an unload
+    /// (`UnloadPolicy.EngineAbilities.downloadsSurviveUnload`).
+    public var hasDownloadInProgress: Bool
 
     public init(
         id: UUID = UUID(), lastActive: Date, isPinnedOrFavorite: Bool = false, isAudible: Bool = false,
         lastAudibleAt: Date? = nil, isCapturing: Bool = false, isVisible: Bool = false, isLoaded: Bool = true,
-        hasEditedForm: Bool = false
+        hasEditedForm: Bool = false, isLoading: Bool = false, isHeld: Bool = false,
+        isBrowsedAwayFromSaved: Bool = false, hasDownloadInProgress: Bool = false
     ) {
         self.hasEditedForm = hasEditedForm
+        self.isLoading = isLoading
+        self.isHeld = isHeld
+        self.isBrowsedAwayFromSaved = isBrowsedAwayFromSaved
+        self.hasDownloadInProgress = hasDownloadInProgress
         self.id = id
         self.lastActive = lastActive
         self.isPinnedOrFavorite = isPinnedOrFavorite
@@ -109,14 +126,33 @@ public struct UnloadPolicy: Sendable {
         )
     }
 
+    /// What the engine can do around an unload, which decides how many tabs must be kept alive. Both are false for
+    /// CEF, which loses a page's state on unload and may cancel a download with the page that started it.
+    public struct EngineAbilities: Equatable, Sendable {
+        /// An unloaded tab comes back with its history and scroll, so a pinned tab or Favorite browsed away may unload.
+        public var restoresPageState: Bool
+        /// A download keeps going when the page that started it is unloaded.
+        public var downloadsSurviveUnload: Bool
+
+        public init(restoresPageState: Bool = false, downloadsSurviveUnload: Bool = false) {
+            self.restoresPageState = restoresPageState
+            self.downloadsSurviveUnload = downloadsSurviveUnload
+        }
+    }
+
     /// Whether unloading is on when the person has not chosen: on, as Chrome's Memory Saver and Arc are.
     public static let enabledByDefault = true
 
     public var configuration: Configuration
+    public var abilities: EngineAbilities
     private let now: @Sendable () -> Date
 
-    public init(configuration: Configuration = .default, now: @escaping @Sendable () -> Date = { Date() }) {
+    public init(
+        configuration: Configuration = .default, abilities: EngineAbilities = EngineAbilities(),
+        now: @escaping @Sendable () -> Date = { Date() }
+    ) {
         self.configuration = configuration
+        self.abilities = abilities
         self.now = now
     }
 
@@ -127,6 +163,7 @@ public struct UnloadPolicy: Sendable {
         let window = max(0, configuration.recentlyAudibleWindow)
         let candidates = loaded.filter {
             !$0.isExempt && !$0.wasAudible(within: window, of: current) && !Self.keepsEditedForm($0, at: pressure)
+                && !keepsAlive($0)
         }
         .sorted(by: Self.leastRecentlyUsedFirst)
         // When trimming to the limit, pinned tabs and Favorites go last.
@@ -146,6 +183,15 @@ public struct UnloadPolicy: Sendable {
             remaining -= 1
         }
         return decisions
+    }
+
+    /// Tabs kept at every memory pressure, critical included, that still count toward the loaded tab limit: one loading,
+    /// held by the person's attention, a pinned tab or Favorite browsed away (unless the engine restores page state) or
+    /// of a profile with a download under way (unless downloads survive an unload).
+    private func keepsAlive(_ tab: UnloadTab) -> Bool {
+        tab.isLoading || tab.isHeld
+            || (tab.isBrowsedAwayFromSaved && !abilities.restoresPageState)
+            || (tab.hasDownloadInProgress && !abilities.downloadsSurviveUnload)
     }
 
     /// A tab with an edited form is neither unloaded for being idle nor trimmed to the loaded tab limit, except under

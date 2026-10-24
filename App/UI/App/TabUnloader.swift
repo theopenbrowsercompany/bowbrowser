@@ -6,6 +6,9 @@ import Foundation
 enum UnloadTuning {
     /// Idle limits, loaded tab limits and the recently audible window, from the hidden tab measurements.
     static let policy = UnloadPolicy.Configuration.default
+    /// What the engine can do around an unload. CEF loses a page's state on unload and cannot tell which page a
+    /// download came from, so both are false; the WebKit engine sets them from what it restores.
+    static let engineAbilities = UnloadPolicy.EngineAbilities(restoresPageState: false, downloadsSurviveUnload: false)
     /// How often the unloader looks for idle tabs while it is on. Memory pressure events run a pass at once.
     static let passInterval: TimeInterval = 60
 }
@@ -90,7 +93,7 @@ final class TabUnloader: AppFeature {
             }
         }
         let clock = self.clock
-        let policy = UnloadPolicy(configuration: UnloadTuning.policy, now: { clock.now })
+        let policy = UnloadPolicy(configuration: UnloadTuning.policy, abilities: UnloadTuning.engineAbilities, now: { clock.now })
         let decisions = policy.decide(tabs: tabs, pressure: pressure)
         // Every unload runs at once, so one page's slow beforeunload handler holds no other back.
         var pending: [(id: TabID, task: Task<Bool, Never>)] = []

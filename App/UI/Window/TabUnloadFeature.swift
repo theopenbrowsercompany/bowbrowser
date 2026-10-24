@@ -3,14 +3,12 @@ import BowCore
 
 /// Lists a window's loaded tabs, in every Space, for the app's `TabUnloader`, and unloads the ones it picks.
 ///
-/// Never offered: the tab the window shows, every tab while the window closes, shows a sheet (a leave prompt or a
-/// page's dialog) or the app shows a modal panel, which an unload would take away unanswered (the next pass tries
-/// again), a tab whose page dialog waits for the tab to be shown (`PageDialogsFeature`), a tab whose row left the
-/// sidebar,
-/// a tab still loading (a navigation under way), every tab of a profile with a download under way, since the
-/// engine cannot tell which page a download came from and destroying that page would cancel it, and a pinned tab or
-/// Favorite showing another page than its saved address (loading it again returns to that address, so the page it
-/// was on would be lost). The policy itself spares tabs using the camera or microphone, tabs playing sound and tabs
+/// Never offered: a tab whose page is closed or whose row left the sidebar. Every other loaded tab is offered with
+/// the facts the policy decides on: held (the window closes, shows a sheet or the app shows a modal panel, which an
+/// unload would take away unanswered, or its page dialog waits for the tab to be shown, `PageDialogsFeature`), loading
+/// (a navigation under way), browsed away from its saved address (a pinned tab or Favorite), and its profile has a
+/// download under way (the engine cannot tell which page a download came from). The policy spares those, tabs the
+/// window shows, tabs using the camera or microphone, tabs playing sound and tabs
 /// that stopped less than 30 seconds ago, and, at every pressure but critical, a tab with an edited form: one whose
 /// page reports a form edit (the page signals, which catch paste, drop, dictation and autofill too) or that the
 /// person typed into since its page last committed a navigation (form input with no beforeunload handler would be
@@ -188,24 +186,21 @@ final class TabUnloadFeature: NSResponder, BrowserWindowFeature {
 
     /// The window's loaded tabs the unloader may consider now (see the type's notes for those never offered).
     func unloadCandidates() -> [Candidate] {
-        guard let window, Self.isIdle(window) else { return [] }
+        guard let window else { return [] }
         let graph = window.store.graph
         let shown = window.shownTabs
         let dialogs = window.feature(PageDialogsFeature.self)
+        let windowHeld = !Self.isIdle(window)
         var busyProfiles: [ProfileID: Bool] = [:]
         var result: [Candidate] = []
         for entry in loaded.values {
             let tab = entry.tab
-            guard !tab.isClosed, window.modelID(of: tab) != nil, let item = graph[entry.item], !tab.state.isLoading,
-                dialogs?.hasDialog(for: tab) != true
-            else { continue }
+            guard !tab.isClosed, window.modelID(of: tab) != nil, let item = graph[entry.item] else { continue }
             let returnsToSaved = graph.isPinned(entry.item) || graph.isInFavorites(entry.item)
-            if returnsToSaved, item.tab?.hasNavigatedAway(from: tab.state.url) == true { continue }
             let downloading =
                 busyProfiles[tab.profileID]
                 ?? (window.engineProfile(of: tab)?.downloads.items.contains { !$0.state.isFinal } ?? true)
             busyProfiles[tab.profileID] = downloading
-            if downloading { continue }
             let state = tab.state
             let lastActive = max(activity.lastActive(entry.item) ?? .distantPast, entry.loadedAt)
             let unloadTab = UnloadTab(
@@ -214,7 +209,11 @@ final class TabUnloadFeature: NSResponder, BrowserWindowFeature {
                 isAudible: state.isAudible, lastAudibleAt: lastAudible[tab.tabID],
                 isCapturing: state.isCapturingVideo || state.isCapturingAudio,
                 isVisible: shown.contains { $0 === tab },
-                hasEditedForm: state.hasEditedForm || typedInto.contains(tab.tabID))
+                hasEditedForm: state.hasEditedForm || typedInto.contains(tab.tabID),
+                isLoading: state.isLoading,
+                isHeld: windowHeld || dialogs?.hasDialog(for: tab) == true,
+                isBrowsedAwayFromSaved: returnsToSaved && item.tab?.hasNavigatedAway(from: state.url) == true,
+                hasDownloadInProgress: downloading)
             result.append(Candidate(tab: tab, unloadTab: unloadTab))
         }
         return result
