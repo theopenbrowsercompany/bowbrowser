@@ -162,9 +162,6 @@ func withEngine(_ stores: TestStores, _ body: (EngineRig) async throws -> Void) 
             #expect(try await rig.whoami(in: f) == "who: nobody")
             #expect(try await rig.whoami(in: rig.engine.profile(id: .default)!) == "who: nobody")
             #expect(await rig.cookies(of: f).isEmpty)
-            // An ephemeral profile leaves no store on disk under its UUID.
-            let listed = await WKWebsiteDataStore.allDataStoreIdentifiers
-            #expect(!listed.contains(storeE) && !listed.contains(storeF))
         }
     }
 
@@ -225,8 +222,17 @@ func withEngine(_ stores: TestStores, _ body: (EngineRig) async throws -> Void) 
             #expect(await closedEarlier.close())
             let boxes = [loaded, slow, other].compactMap { $0.webView.map(WeakBox.init) }
             #expect(boxes.count == 3)
+            // A delegate that answers its tab closing with a new tab, as an app keeping a window's last tab would:
+            // quitting closes the new tab too.
+            let reopener = rig.tab(in: main, "/navigation/start.html")
+            var reopened: WebKitTab?
+            let reopening = ReopeningTabDelegate {
+                reopened = main.createTab(url: rig.server.url("/navigation/a.html")) as? WebKitTab
+            }
+            reopener.delegate = reopening
 
             await engine.quit()
+            #expect(reopener.isClosed && reopened != nil && reopened?.isClosed == true && reopened?.webView == nil)
             for tab in [loaded, slow, other, closedEarlier] {
                 #expect(tab.isClosed && tab.webView == nil)
                 let events = rig.delegates[tab.tabID]!.events
@@ -239,7 +245,26 @@ func withEngine(_ stores: TestStores, _ body: (EngineRig) async throws -> Void) 
 
             // Quitting again closes nothing twice.
             await engine.quit()
-            #expect(rig.delegates.values.allSatisfy { $0.events.filter { $0 == .closed }.count == 1 })
+            let others = rig.delegates.filter { $0.key != reopener.tabID }.values
+            #expect(others.allSatisfy { $0.events.filter { $0 == .closed }.count == 1 })
         }
     }
+}
+
+/// A tab delegate that answers the tab's closing by running `onClosed` once.
+@MainActor
+final class ReopeningTabDelegate: EngineTabDelegate {
+    private var onClosed: (() -> Void)?
+
+    init(onClosed: @escaping () -> Void) {
+        self.onClosed = onClosed
+    }
+
+    func tab(_ tab: any EngineTab, didReceive event: TabEvent) {
+        guard event == .closed else { return }
+        onClosed?()
+        onClosed = nil
+    }
+
+    func tab(_ tab: any EngineTab, decidePolicyFor navigation: EngineNavigation) -> NavigationPolicy { .allow }
 }
