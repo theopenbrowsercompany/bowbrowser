@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Find cross origin frame</title>
+  <style>
+    body { margin: 0; padding: 24px; font: 18px -apple-system, sans-serif; background: #fff; color: #111; }
+    iframe { width: 480px; height: 200px; border: 1px solid #888; }
+  </style>
+</head>
+<body>
+  <p>The page has one quokka.</p>
+  <iframe id="frame"></iframe>
+  <script>
+    // The other origin: the same server under the name localhost instead of 127.0.0.1.
+    document.getElementById("frame").src = "http://localhost:" + location.port + "/find/frame.html";
+  </script>
+</body>
+</html>

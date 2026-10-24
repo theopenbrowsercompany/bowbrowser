@@ -1,0 +1,16 @@
+{
+  "rule": "A match counts when its text is rendered and can be scrolled into view, in any frame. Search is case insensitive for the word quokka.",
+  "query": "quokka",
+  "counts": {
+    "plain.html": 4,
+    "iframe-same.html": 5,
+    "iframe-cross.html": 4,
+    "hidden.html": 4
+  },
+  "why": {
+    "plain.html": "four visible matches in three cases",
+    "iframe-same.html": "two in the page and three in the same origin frame",
+    "iframe-cross.html": "one in the page and three in the frame from the other origin",
+    "hidden.html": "plain, split across inline elements, in the open shadow root, and below the fold count; display none, visibility hidden, the hidden attribute, script text and style text do not"
+  }
+}

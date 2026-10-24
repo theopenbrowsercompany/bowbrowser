@@ -96,9 +96,8 @@ final class WebKitTab: SPIDelegateBase, EngineTab, WKNavigationDelegate, WKUIDel
         refreshState()
     }
 
-    /// Find in page arrives with its own slice; until then it finds nothing.
-    func find(_ text: String, forward: Bool, matchCase: Bool) {}
-    func stopFind() {}
+    /// Find in page (WebKitTab+Find.swift).
+    lazy var finder = TabFinder(tab: self)
 
     /// Releases the page; WebKit has no public way to run its beforeunload handler first, so it never keeps the
     /// tab open.

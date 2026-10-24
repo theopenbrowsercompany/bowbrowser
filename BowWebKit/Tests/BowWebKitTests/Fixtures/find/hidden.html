@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Find hidden text</title>
+  <style>
+    body { margin: 0; padding: 24px; font: 18px -apple-system, sans-serif; background: #fff; color: #111; }
+    .none { display: none; }
+    .invisible { visibility: hidden; }
+    #spacer { height: 3000px; }
+    /* style text: quokka */
+  </style>
+</head>
+<body>
+  <p id="plain">A plain quokka.</p>
+  <p class="none">A quokka with display none.</p>
+  <p class="invisible">A quokka with visibility hidden.</p>
+  <p hidden>A quokka with the hidden attribute.</p>
+  <p id="split">A split qu<b>ok</b><i>ka</i> across inline elements.</p>
+  <div id="host"></div>
+  <script>
+    // script text: quokka
+    const root = document.getElementById("host").attachShadow({ mode: "open" });
+    root.innerHTML = "<p>A shadow " + "quo" + "kka in an open shadow root.</p>";
+  </script>
+  <div id="spacer"></div>
+  <p id="below">A quokka below the fold.</p>
+</body>
+</html>
