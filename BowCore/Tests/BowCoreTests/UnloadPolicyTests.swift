@@ -12,6 +12,11 @@ import Testing
         return UnloadPolicy(configuration: configuration, now: { now })
     }
 
+    func policy(abilities: UnloadPolicy.EngineAbilities) -> UnloadPolicy {
+        let now = self.now
+        return UnloadPolicy(abilities: abilities, now: { now })
+    }
+
     func tab(idleMinutes: Double, _ configure: (inout UnloadTab) -> Void = { _ in }) -> UnloadTab {
         var tab = UnloadTab(lastActive: now.addingTimeInterval(-idleMinutes * minute))
         configure(&tab)
@@ -290,5 +295,87 @@ import Testing
         let edited = tab(idleMinutes: 61) { $0.hasEditedForm = true }
         #expect(
             policy().decide(tabs: [plain, edited], pressure: .normal) == [UnloadDecision(id: plain.id, reason: .idle)])
+    }
+
+    // MARK: Keep alive rules the window used to apply
+
+    private static let restoring = UnloadPolicy.EngineAbilities(restoresPageState: true)
+    private static let surviving = UnloadPolicy.EngineAbilities(downloadsSurviveUnload: true)
+
+    @Test func aLoadingTabIsKeptAtEveryPressure() {
+        let loading = tab(idleMinutes: 24 * 60) { $0.isLoading = true }
+        let all = UnloadPolicy.EngineAbilities(restoresPageState: true, downloadsSurviveUnload: true)
+        for pressure in MemoryPressure.allCases {
+            #expect(policy().decide(tabs: [loading], pressure: pressure).isEmpty)
+            #expect(policy(abilities: all).decide(tabs: [loading], pressure: pressure).isEmpty)
+        }
+    }
+
+    @Test func aHeldTabIsKeptAtEveryPressure() {
+        let held = tab(idleMinutes: 24 * 60) { $0.isHeld = true }
+        let all = UnloadPolicy.EngineAbilities(restoresPageState: true, downloadsSurviveUnload: true)
+        for pressure in MemoryPressure.allCases {
+            #expect(policy().decide(tabs: [held], pressure: pressure).isEmpty)
+            #expect(policy(abilities: all).decide(tabs: [held], pressure: pressure).isEmpty)
+        }
+    }
+
+    @Test func aPinnedTabBrowsedAwayIsKeptUnlessThePageStateIsRestored() {
+        let away = tab(idleMinutes: 24 * 60) {
+            $0.isPinnedOrFavorite = true
+            $0.isBrowsedAwayFromSaved = true
+        }
+        for pressure in MemoryPressure.allCases {
+            #expect(policy().decide(tabs: [away], pressure: pressure).isEmpty)
+            #expect(policy(abilities: Self.surviving).decide(tabs: [away], pressure: pressure).isEmpty)
+            #expect(
+                policy(abilities: Self.restoring).decide(tabs: [away], pressure: pressure)
+                    == [UnloadDecision(id: away.id, reason: .idle)])
+        }
+    }
+
+    @Test func aPinnedTabBrowsedAwayWithRestoredStateStillWaitsForTheLongerLimit() {
+        let away = tab(idleMinutes: 61) {
+            $0.isPinnedOrFavorite = true
+            $0.isBrowsedAwayFromSaved = true
+        }
+        #expect(policy(abilities: Self.restoring).decide(tabs: [away], pressure: .normal).isEmpty)
+    }
+
+    @Test func aTabOfAProfileWithADownloadIsKeptUnlessDownloadsSurvive() {
+        let downloading = tab(idleMinutes: 24 * 60) { $0.hasDownloadInProgress = true }
+        for pressure in MemoryPressure.allCases {
+            #expect(policy().decide(tabs: [downloading], pressure: pressure).isEmpty)
+            #expect(policy(abilities: Self.restoring).decide(tabs: [downloading], pressure: pressure).isEmpty)
+            #expect(
+                policy(abilities: Self.surviving).decide(tabs: [downloading], pressure: pressure)
+                    == [UnloadDecision(id: downloading.id, reason: .idle)])
+        }
+    }
+
+    @Test func keptTabsStillCountTowardTheLoadedTabLimit() {
+        // Six kept tabs at warning pressure (limit 6) leave only the plain tab to trim.
+        let kept: [(inout UnloadTab) -> Void] = [
+            { $0.isLoading = true }, { $0.isHeld = true },
+            {
+                $0.isPinnedOrFavorite = true
+                $0.isBrowsedAwayFromSaved = true
+            },
+            { $0.hasDownloadInProgress = true },
+        ]
+        for configure in kept {
+            let keptTabs = (1...6).map { minutes in tab(idleMinutes: Double(minutes), configure) }
+            let plain = tab(idleMinutes: 0)
+            #expect(
+                policy().decide(tabs: keptTabs + [plain], pressure: .warning)
+                    == [UnloadDecision(id: plain.id, reason: .overLimit)])
+        }
+    }
+
+    @Test func aHeldTabDoesNotShieldAnotherIdleTab() {
+        let plain = tab(idleMinutes: 61)
+        let held = tab(idleMinutes: 61) { $0.isHeld = true }
+        #expect(
+            policy().decide(tabs: [plain, held], pressure: .normal) == [UnloadDecision(id: plain.id, reason: .idle)])
     }
 }
