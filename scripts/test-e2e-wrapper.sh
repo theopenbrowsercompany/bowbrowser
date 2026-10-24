@@ -1,11 +1,73 @@
 #!/bin/bash
-# Tests scripts/e2e.sh with a fake Bow.app (a shell script) in a throwaway folder: the summary line, exit codes,
+# Tests scripts/e2e.sh with a fake Bow.app (a shell script) in throwaway folders: the summary line, exit codes,
 # results.json, the retry and FLAKY, crash classification, the helper sweep, --only and build/e2e/latest, repeats
 # (E2E_REPEAT), short output (E2E_QUIET, CLAUDECODE), the flake count (scripts/e2e-flakes.sh), the quarantine list
-# and shards (E2E_SHARDS: planning, merging and every outcome against a single run's).
-# Takes a few seconds and launches no real app.
+# and shards (E2E_SHARDS: planning, merging and every outcome against a single run's), signals, the build lock
+# guards, the Makefile hand-off, package-cef.sh and the ledger. Launches no real app.
+#
+#   scripts/test-e2e-wrapper.sh [group ...]
+#
+# The checks are split into groups that run side by side, each in its own process with its own throwaway folder,
+# fake app, run root, lock folder, ledger and quarantine list (and none of the E2E_* or FAKE_* settings of the
+# caller's environment). Each group's output is printed whole, in the order below, when all have ended, then a
+# "group <name> <seconds>s" line per group and the same final line as before ("e2e wrapper: all checks passed" or
+# "e2e wrapper: some checks failed"). Name groups on the command line to run only those.
+# The whole run takes 30 to 40 seconds (the slowest group, the shard plan, sets it; it took 150 to 165 seconds as one
+# sequence). The checks are many runs of the wrapper, 1 to 2 seconds each, so the time is spread out, not one case.
 set -u
+self=$(cd "$(dirname "$0")" && pwd)/$(basename "$0")
 cd "$(dirname "$0")/.."
+
+groups=(basic repeat quarantine shards shard-plan shard-outcomes shard-timeouts signals signals-shards signals-stuck locks make-package
+  ledger ledger-stale threshold crash-reports)
+
+if [ "${1:-}" != --group ]; then
+  for g in "$@"; do
+    case " ${groups[*]} " in *" $g "*) ;; *) echo "e2e wrapper: no group '$g' (groups: ${groups[*]})" >&2; exit 64 ;; esac
+  done
+  [ $# -gt 0 ] && groups=("$@")
+  out=$(mktemp -d)
+  # Job control gives each group its own process group, so stopping this script stops each group's whole tree.
+  set -m
+  pids=()
+  cleanup() {
+    local p
+    for p in ${pids[@]+"${pids[@]}"}; do kill -TERM -- "-$p" 2> /dev/null; done
+    wait 2> /dev/null
+    rm -rf "$out"
+  }
+  trap cleanup EXIT
+  trap 'exit 130' INT
+  trap 'exit 143' TERM
+  trap 'exit 129' HUP
+  start=$SECONDS
+  for g in "${groups[@]}"; do
+    (
+      s=$SECONDS
+      "$self" --group "$g" > "$out/$g.log" 2>&1 < /dev/null
+      echo $? > "$out/$g.status"
+      echo $((SECONDS - s)) > "$out/$g.secs"
+    ) &
+    pids+=($!)
+  done
+  wait
+  pids=()
+  failed=0
+  for g in "${groups[@]}"; do
+    cat "$out/$g.log"
+    status=$(cat "$out/$g.status" 2> /dev/null || echo "?")
+    if [ "$status" != 0 ]; then
+      failed=1
+      # A group that ends early (a syntax error, an unset variable) shows here even when no FAIL line says so.
+      grep -q '^FAIL ' "$out/$g.log" || echo "FAIL group $g ended with exit $status before its checks were done"
+    fi
+  done
+  for g in "${groups[@]}"; do echo "e2e wrapper: group $g $(cat "$out/$g.secs" 2> /dev/null || echo "?")s"; done
+  echo "e2e wrapper: all groups in $((SECONDS - start))s"
+  [ "$failed" = 0 ] && echo "e2e wrapper: all checks passed" || echo "e2e wrapper: some checks failed"
+  exit "$failed"
+fi
+group=${2:?group name}
 
 # The real path, as scripts/e2e.sh sees it, so the orphan check can match this run's folder exactly.
 tmp=$(cd "$(mktemp -d)" && pwd -P)
@@ -19,6 +81,13 @@ quarantine="$tmp/quarantine.txt"
 export E2E_QUARANTINE="$quarantine"
 # The shared flake ledger, a temp file here so no check touches the real one.
 export BOW_E2E_LEDGER="$tmp/ledger.tsv"
+# Nothing of the caller's environment reaches a check: each setting the wrapper or the fake app reads is cleared, and
+# the build lock's timings go to the throwaway folder, not the shared file.
+unset E2E_RETRY E2E_KEEP E2E_SHARDS E2E_SHARD_DIR BOW_E2E_SLOTS BOW_BUILD_SLOTS BOW_BUILD_JOBS
+for v in $(env | grep -o '^FAKE_[A-Z_]*'); do unset "$v"; done
+export BOW_TIMINGS_DIR="$tmp/timings"
+trap 'exit 143' TERM
+trap 'exit 130' INT
 app="$tmp/Bow.app"
 mkdir -p "$app/Contents/MacOS"
 # The fake app reads FAKE_MODE and writes report.txt into its --e2e-out folder like the real runner.
@@ -336,6 +405,55 @@ run() {
   res="$BOW_E2E_ROOT/latest/results.json"
 }
 
+# Helpers the groups share.
+rroot() { export BOW_E2E_ROOT="$tmp/repeat-$1"; }
+says() { printf '%s\n' "$out" | grep -qx -- "$1"; }
+says_some() { printf '%s\n' "$out" | grep -q -- "$1"; }
+runs_in() { find "$BOW_E2E_ROOT" -mindepth 2 -maxdepth 2 -name results.json | wc -l | tr -d ' '; }
+list() { printf '%s\n' "$@" > "$quarantine"; }
+today=$(date +%Y-%m-%d)
+latest() { echo "$BOW_E2E_ROOT/latest/$1"; }
+shard_args() { cat "$(latest "shard-$1/args")" 2>/dev/null; }
+shard_dirs() { find "$BOW_E2E_ROOT/latest/" -mindepth 1 -maxdepth 1 -name 'shard-*' | wc -l | tr -d ' '; }
+retry_args() { cat "$(latest retry/args)" 2>/dev/null; }
+# interrupt <signal> [mode] [tenths]: runs the wrapper on an app that never ends (FAKE_MODE hang), sends the signal
+# once the app runs, and sets stopped (yes when the wrapper ended within tenths of a second, default 100), code, last,
+# res and iroot.
+interrupt() {
+  local sig=$1 mode=${2:-hang} limit=${3:-100} ready=${4:-latest/report.txt} i wpid
+  iroot="$tmp/int-$sig-$mode"
+  # perl gives the wrapper a default INT, as a terminal does: a background job of a script starts with INT ignored.
+  BOW_E2E_ROOT=$iroot FAKE_MODE=$mode PATH="${ipath:-$PATH}" perl -e '$SIG{INT} = "DEFAULT"; exec @ARGV' ./scripts/e2e.sh "$app" \
+    > "$tmp/int-$sig.out" 2>&1 &
+  wpid=$!
+  for i in $(seq 300); do [ -s "$iroot/$ready" ] && break; sleep 0.1; done
+  kill -"$sig" "$wpid"
+  stopped=no
+  for i in $(seq "$limit"); do kill -0 "$wpid" 2>/dev/null || { stopped=yes; break; }; sleep 0.1; done
+  if [ "$stopped" = no ]; then
+    kill -KILL "$wpid" 2>/dev/null
+    pkill -KILL -f "$app/Contents/" 2>/dev/null
+  fi
+  wait "$wpid" 2>/dev/null
+  code=$?
+  last=$(tail -n 1 "$tmp/int-$sig.out")
+  res="$iroot/latest/results.json"
+}
+nomake() { env -u MAKEFLAGS -u MAKELEVEL -u MFLAGS "$@"; }
+fakewt() {
+  local d="$tmp/wt-$1"
+  mkdir -p "$d"
+  cp -R scripts "$d/scripts"
+  git -C "$d" init -q
+  git -C "$d" checkout -q -b "$1"
+  echo "$1" > "$d/marker"
+  git -C "$d" add -A
+  git -C "$d" -c user.name=t -c user.email=t@t commit -q -m t
+}
+# wtrun <worktree> <fake mode>: a run (after stamping a build of that tree) of that worktree's wrapper, its run folders outside the worktree.
+wtrun() { (cd "$tmp/wt-$1" && ./scripts/stamp-tree.sh "$tmp/.bow-tree-key" true && FAKE_MODE=$2 BOW_E2E_ROOT="$tmp/wt-$1-runs" ./scripts/e2e.sh "$app" a.one > "$tmp/wt-$1.out" 2>&1; echo $?); }
+
+group_basic() {
 run pass
 check "pass: exit 0" is "$code" 0
 check "pass: ends with the app's summary" is "$last" "E2E: PASS 1/1"
@@ -456,13 +574,9 @@ check "a timeout, then a FAIL on the retry: the summary names both" is "$last" "
 run badjson
 check "an app results.json that is not JSON: results.json stays valid" valid_json "$res"
 check "an app results.json is kept aside" has "$BOW_E2E_ROOT/latest/app-results.json" "not json"
+}
 
-# E2E_REPEAT: whole runs in their own folders with the retry off, each test's passes out of N, one summary line.
-# Each group of checks uses its own run root, so the fake app's run count starts at 1.
-rroot() { export BOW_E2E_ROOT="$tmp/repeat-$1"; }
-says() { printf '%s\n' "$out" | grep -qx -- "$1"; }
-says_some() { printf '%s\n' "$out" | grep -q -- "$1"; }
-runs_in() { find "$BOW_E2E_ROOT" -mindepth 2 -maxdepth 2 -name results.json | wc -l | tr -d ' '; }
+group_repeat() {
 rroot pass
 E2E_REPEAT=3 run loudpass a.one
 check "repeat: exit 0" is "$code" 0
@@ -580,12 +694,10 @@ check "flakes: an empty root exits 1" not ./scripts/e2e-flakes.sh "$tmp/none" 2>
 quit_row() { ./scripts/e2e-flakes.sh "$tmp/repeat-$1" | awk '$1 == "a.one" { print $2, $3, $4, $5, $6 }'; }
 check "flakes: a quit check failing after a passing RESULT fails the test" is "$(quit_row quit)" "3 2 0 1 0"
 check "flakes: a crash after quit=pending fails the test" is "$(quit_row quitcrash)" "3 2 0 1 0"
+}
 
-# The quarantine list (E2E_QUARANTINE): a FLAKY run whose every failure is a listed, unexpired test passes with a
-# note; anything else fails as before, an expired entry is named on every run, and a malformed list stops the run.
+group_quarantine() {
 rroot qmain
-list() { printf '%s\n' "$@" > "$quarantine"; }
-today=$(date +%Y-%m-%d)
 list "# known flakes" "" "a.one 2999-01-01 slow under load"
 rroot quarantineflakes
 run flakyresult
@@ -682,14 +794,9 @@ rm -f "$quarantine"
 run flakyresult
 check "quarantine: a missing list quarantines nothing" is "$code" 3
 check "quarantine: the checked in list is well formed" is "$(E2E_QUARANTINE="" FAKE_MODE=pass ./scripts/e2e.sh "$app" 2>&1 | tail -n 1)" "E2E: PASS 1/1"
+}
 
-# E2E_SHARDS: the selection split across N apps at once, planned longest first from earlier runs' test times, and
-# merged into one result that means what a single run's does. Each group uses its own run root, so its history is
-# its own.
-latest() { echo "$BOW_E2E_ROOT/latest/$1"; }
-shard_args() { cat "$(latest "shard-$1/args")" 2>/dev/null; }
-shard_dirs() { find "$BOW_E2E_ROOT/latest/" -mindepth 1 -maxdepth 1 -name 'shard-*' | wc -l | tr -d ' '; }
-retry_args() { cat "$(latest retry/args)" 2>/dev/null; }
+group_shards() {
 rroot shard1
 run shard
 check "shards unset: the fake runner's single run" is "$last" "E2E: PASS 5/5"
@@ -722,6 +829,9 @@ for n in 2 3; do
 done
 check "E2E_SHARDS=3: each shard is a run of its own" is "$(field "$(latest shard-2/results.json)" status)" pass
 check "a person sees each shard's output" says "e2e: shard 2/3 output:"
+}
+
+group_shard_plan() {
 # Planning: test order with no history, then the newest time of each test, longest first onto the least loaded.
 rroot plan
 E2E_SHARDS=2 run shard
@@ -784,6 +894,9 @@ check "check_plan: refuses a test in two shards" not check_plan "$tmp/names" 2 "
 check "check_plan: refuses a test not selected" not check_plan "$tmp/names" 2 "$(plan '1|a.one|1' '2|a.two|1' '1|a.three|1' '2|z.gone|1')"
 check "check_plan: refuses an empty shard" not check_plan "$tmp/names" 3 "$(plan '1|a.one|1' '2|a.two|1' '1|a.three|1')"
 
+}
+
+group_shard_outcomes() {
 # The outcomes: the same summary lines and exit codes as a single run.
 rroot shardfail
 for n in 1 2; do
@@ -808,6 +921,9 @@ done
 check "a failed chromium.errors in one shard: the line fails and names each shard" \
   has "$(latest report.txt)" "^FAIL chromium.errors: shard 1/2: unexpected=0; shard 2/2: 1 unexpected"
 # No history from here on, so the shards are a.one,a.three and a.two.
+}
+
+group_shard_timeouts() {
 rroot shardtimeout
 E2E_RETRY=0 FAKE_TIMEOUT=a.one E2E_SHARDS=2 run shard
 check "a timeout in one shard: exit 2 with its TIMEOUT line" is "$code/$last" "2/E2E: TIMEOUT a.one: open window (main thread stuck)"
@@ -852,32 +968,9 @@ check "shards with repeats: each test's passes" says "REPEAT a.three 2/2"
 check "shards with repeats: one run per repeat" is "$(runs_in)" 2
 check "shards: the flake count counts a sharded run once" \
   is "$(./scripts/e2e-flakes.sh "$BOW_E2E_ROOT" | awk '$1 == "a.two" { print $2, $3 }')" "2 2"
-# The checks after these use the quarantine group's run root.
-rroot qmain
-
-# interrupt <signal> [mode] [tenths]: runs the wrapper on an app that never ends (FAKE_MODE hang), sends the signal
-# once the app runs, and sets stopped (yes when the wrapper ended within tenths of a second, default 100), code, last,
-# res and iroot.
-interrupt() {
-  local sig=$1 mode=${2:-hang} limit=${3:-100} ready=${4:-latest/report.txt} i wpid
-  iroot="$tmp/int-$sig-$mode"
-  # perl gives the wrapper a default INT, as a terminal does: a background job of a script starts with INT ignored.
-  BOW_E2E_ROOT=$iroot FAKE_MODE=$mode PATH="${ipath:-$PATH}" perl -e '$SIG{INT} = "DEFAULT"; exec @ARGV' ./scripts/e2e.sh "$app" \
-    > "$tmp/int-$sig.out" 2>&1 &
-  wpid=$!
-  for i in $(seq 300); do [ -s "$iroot/$ready" ] && break; sleep 0.1; done
-  kill -"$sig" "$wpid"
-  stopped=no
-  for i in $(seq "$limit"); do kill -0 "$wpid" 2>/dev/null || { stopped=yes; break; }; sleep 0.1; done
-  if [ "$stopped" = no ]; then
-    kill -KILL "$wpid" 2>/dev/null
-    pkill -KILL -f "$app/Contents/" 2>/dev/null
-  fi
-  wait "$wpid" 2>/dev/null
-  code=$?
-  last=$(tail -n 1 "$tmp/int-$sig.out")
-  res="$iroot/latest/results.json"
 }
+
+group_signals() {
 for sig in TERM INT; do
   interrupt "$sig"
   check "$sig: the wrapper stops at once" is "$stopped" yes
@@ -902,6 +995,9 @@ for quiet in 0 1; do
   check "TERM during a repeat (quiet=$quiet): no file of its own left" is "$(find "$iroot" -name '.repeat.*' -o -name .output | wc -l | tr -d ' ')" 0
   rm -rf "$iroot"
 done
+}
+
+group_signals_shards() {
 # A signal while shards run stops every shard, its app and its helper, in both output modes.
 for case in TERM:0 TERM:1 INT:0; do
   sig=${case%:*} quiet=${case#*:}
@@ -916,6 +1012,9 @@ for case in TERM:0 TERM:1 INT:0; do
   check "$sig during shards (quiet=$quiet): no file of its own left" is "$(find "$iroot" -name '.shard-*' -o -name .output | wc -l | tr -d ' ')" 0
   rm -rf "$iroot"
 done
+}
+
+group_signals_stuck() {
 # An app that ignores TERM is swept after 5 seconds, so the build lock still ends and gives back its slot.
 interrupt TERM hangterm 200
 check "an app that ignores TERM: the wrapper stops" is "$stopped" yes
@@ -940,7 +1039,9 @@ ipath="$tmp/slowps:$PATH" interrupt TERM pass 30 ../ps-mark
 check "a signal while sweeping: the wrapper stops at once" is "$stopped" yes
 check "a signal while sweeping: exit 130" is "$code" 130
 check "a signal while sweeping: the summary is the last terminal line" is "$last" "E2E: ERROR interrupted"
+}
 
+group_locks() {
 # is_build_lock refuses a process that is not exactly this run's build lock: one for the same repo whose run folder
 # differs only by a suffix ($run against $run/retry), and one from another repo path. The function is taken from the
 # wrapper as written.
@@ -985,7 +1086,9 @@ for i in $(seq 200); do kill -0 "$kpid" 2>/dev/null || { stopped=yes; break; }; 
 wait "$kpid" 2>/dev/null
 check "a build lock that ignores TERM: the wrapper stops" is "$stopped" yes
 check "a build lock that ignores TERM: it is killed" is "$(ps -axo command= | grep -F -- "$kl/scripts/build-lock.sh" | grep -vc grep)" 0
+}
 
+group_make_package() {
 # The Makefile keeps E2E out of every recipe's environment (xcodebuild takes environment variables as build
 # settings), and e2e and e2e-run hand it to the wrapper whole.
 nomake() { env -u MAKEFLAGS -u MAKELEVEL -u MFLAGS "$@"; }
@@ -1037,6 +1140,10 @@ echo two >> "$pc/real/target.dylib"
 check "package-cef: a changed symlink target is copied again" not skips
 
 # A test killed while a folder of its run was locked: pruning unlocks it rather than keep the run forever.
+rroot prune
+run pass
+run pass
+run pass
 oldest=$(cd "$BOW_E2E_ROOT" && ls -1t | grep -v '^latest$' | tail -n 1)
 mkdir -p "$BOW_E2E_ROOT/$oldest/profile/locked" && touch "$BOW_E2E_ROOT/$oldest/profile/locked/file"
 chmod 000 "$BOW_E2E_ROOT/$oldest/profile/locked"
@@ -1048,22 +1155,12 @@ check "keeps the newest E2E_KEEP runs" is "$(find "$BOW_E2E_ROOT" -mindepth 1 -m
 check "list: passes the TEST lines through" is "$(FAKE_MODE=pass ./scripts/e2e.sh "$app" list | head -n 1)" "TEST a.one area=a tags=- checks=a.one"
 
 check "no build: exit 64" is "$(./scripts/e2e.sh "$tmp/none.app" >/dev/null 2>&1; echo $?)" 64
+}
 
+group_ledger() {
 # The ledger (BOW_E2E_LEDGER): every run appends one line per test, from any worktree. Two throwaway git repositories
 # with their own copy of the scripts, branch and tree stand in for two worktrees.
 : > "$quarantine"
-fakewt() {
-  local d="$tmp/wt-$1"
-  mkdir -p "$d"
-  cp -R scripts "$d/scripts"
-  git -C "$d" init -q
-  git -C "$d" checkout -q -b "$1"
-  echo "$1" > "$d/marker"
-  git -C "$d" add -A
-  git -C "$d" -c user.name=t -c user.email=t@t commit -q -m t
-}
-# wtrun <worktree> <fake mode>: a run (after stamping a build of that tree) of that worktree's wrapper, its run folders outside the worktree.
-wtrun() { (cd "$tmp/wt-$1" && ./scripts/stamp-tree.sh "$tmp/.bow-tree-key" true && FAKE_MODE=$2 BOW_E2E_ROOT="$tmp/wt-$1-runs" ./scripts/e2e.sh "$app" a.one > "$tmp/wt-$1.out" 2>&1; echo $?); }
 fakewt one
 fakewt two
 rm -f "$BOW_E2E_LEDGER"
@@ -1108,6 +1205,12 @@ wait
 check "ledger: parallel runs write whole lines" \
   is "$(awk -F '\t' 'NR > 1 && NF != 8 { bad++ } END { print bad + 0 "/" NR - 1 "/" (NR - 1) / 2 }' "$BOW_E2E_LEDGER")" "0/12/6"
 check "ledger: parallel runs write one header" is "$(grep -c '^date' "$BOW_E2E_LEDGER")" 1
+}
+
+group_ledger_stale() {
+: > "$quarantine"
+fakewt three
+rm -f "$BOW_E2E_LEDGER"
 # The tree key is the one stamped when the app was built, not the tree checked out when the run happens (make
 # e2e-run reruns an older build). Stamped on tree A, then the tree changes to B: a run without a build logs A.
 fakewt stale
@@ -1143,6 +1246,10 @@ res=$(cd "$tmp/wt-three" && FAKE_MODE=flakyresult BOW_E2E_LEDGER="$tmp/notafolde
 check "ledger: an unwritable ledger leaves the summary alone" is "$(printf '%s\n' "$res" | head -n 1)" "E2E: FLAKY 1/1 after retrying a.one"
 check "ledger: an unwritable ledger leaves the exit code alone" is "$(printf '%s\n' "$res" | tail -n 1)" 3
 check "ledger: an unwritable ledger warns on stderr" has "$tmp/ledger-stderr" "^e2e: warning: could not write the e2e ledger"
+}
+
+group_threshold() {
+: > "$quarantine"
 # The threshold: a FLAKY, or a FAIL or TIMEOUT on a tree that the same test later passed, twice or more in 7 days.
 now=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 old=$(date -u -v-10d +%Y-%m-%dT%H:%M:%SZ)
@@ -1178,7 +1285,9 @@ wtrun four loudpass > /dev/null
 check "ledger: an untracked file changes the tree key" \
   is "$(tail -n 2 "$BOW_E2E_LEDGER" | cut -f 5 | sort -u | wc -l | tr -d ' ')" 2
 check "threshold: a bad --days exits 64" is "$(./scripts/e2e-flakes.sh --days x > /dev/null 2>&1; echo $?)" 64
+}
 
+group_crash_reports() {
 # Crash reports: copied into the run folder, named before the summary, in results.json, outcome unchanged.
 run crashdump
 runf="$BOW_E2E_ROOT/latest"
@@ -1204,6 +1313,7 @@ E2E_SHARDS=2 FAKE_DUMP=1 run shard
 check "crash reports: sharded, each shard's report is named once" is "$(grep -c '^CRASH REPORT ' "$BOW_E2E_ROOT/latest/report.txt")" 2
 check "crash reports: sharded, copied into the shard's folder" is "$(ls "$BOW_E2E_ROOT"/latest/shard-*/crash-reports/*.dmp | wc -l | tr -d ' ')" 2
 check "crash reports: sharded, results.json lists both" is "$(plutil -extract crashReports raw -o - "$res")" 2
+}
 
-[ "$failed" = 0 ] && echo "e2e wrapper: all checks passed" || echo "e2e wrapper: some checks failed"
+"group_${group//-/_}"
 exit "$failed"

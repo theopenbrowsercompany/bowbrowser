@@ -11,7 +11,7 @@ E2E ?= all
 # scripts/e2e.sh alone, quoted for the shell.
 unexport E2E
 
-.PHONY: bootstrap hooks project build test test-lock test-e2e-wrapper test-prune test-affected test-scripts run smoke e2e e2e-run format lint guards release verify check done test-done test-refcount test-private-paths test-bootstrap-cef test-check-lists test-e2e-bisect clean
+.PHONY: bootstrap hooks project build test test-lock test-e2e-wrapper test-prune test-affected test-scripts run smoke e2e e2e-run format lint guards release verify check done test-done test-refcount test-private-paths test-bootstrap-cef test-check-lists test-e2e-bisect test-verify-plan clean
 
 bootstrap: hooks
 	./scripts/bootstrap-cef.sh
@@ -35,11 +35,12 @@ build: project
 test:
 	swift test --package-path BowCore --quiet
 
-# Tests the build lock with fake builds (about 50 seconds). Not part of verify.
+# Tests the build lock with fake builds (about 65 seconds). Not part of verify.
 test-lock:
 	./scripts/test-build-lock.sh
 
-# Tests scripts/e2e.sh with a fake app (about 35 seconds; launches no real app).
+# Tests scripts/e2e.sh with a fake app (30 to 45 seconds under load; its checks run in groups side by side, as one
+# sequence they took 150 to 165 seconds; launches no real app).
 test-e2e-wrapper:
 	./scripts/test-e2e-wrapper.sh
 
@@ -51,8 +52,9 @@ test-prune:
 test-affected:
 	./scripts/test-e2e-affected.sh
 
-# The script self tests verify runs when scripts/ or the Makefile differ from origin/main.
-test-scripts: test-e2e-wrapper test-prune test-affected test-done test-refcount test-private-paths test-bootstrap-cef test-check-lists test-e2e-bisect
+# Every script self test, one after another (about 70 seconds). make verify runs each one side by side, and only when a
+# script it covers (the table in scripts/verify.sh) or the Makefile differs from origin/main.
+test-scripts: test-e2e-wrapper test-prune test-affected test-done test-refcount test-private-paths test-bootstrap-cef test-check-lists test-e2e-bisect test-verify-plan
 
 run: build
 	open $(APP)
@@ -89,8 +91,8 @@ guards:
 release: project
 	./scripts/check-release.sh
 
-# lint, guards, test, build and test-scripts side by side, with seconds per part. test-scripts runs only when
-# scripts/ or the Makefile differ from origin/main; VERIFY_ALL=1 runs it always. scripts/verify.sh says how.
+# lint, guards, test, build and the script self tests side by side, with seconds per part. Each self test runs only
+# when a script it covers or the Makefile differs from origin/main; VERIFY_ALL=1 runs them all. scripts/verify.sh says how.
 verify:
 	@./scripts/verify.sh
 
@@ -132,6 +134,10 @@ test-check-lists:
 # culprit (a few seconds; no build, no app).
 test-e2e-bisect:
 	./scripts/test-e2e-bisect.sh
+
+# Tests which self tests scripts/verify.sh runs for a change (under a second; a throwaway repository).
+test-verify-plan:
+	./scripts/test-verify-plan.sh
 
 clean:
 	rm -rf $(BUILD_DIR) Bow.xcodeproj Generated
