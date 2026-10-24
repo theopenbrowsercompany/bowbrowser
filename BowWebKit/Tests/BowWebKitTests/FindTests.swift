@@ -196,6 +196,37 @@ import WebKit
         try await rig.finish()
     }
 
+    /// A page with more matches than WebKit counts shows the cap, and stepping back from 1 wraps to it.
+    @Test func moreMatchesThanTheCapShowTheCap() async throws {
+        let rig = try TabRig()
+        let words = Array(repeating: "quokka", count: Int(TabFinder.maxCount) + 200).joined(separator: " ")
+        rig.server.route("/many") { _ in .html("<!doctype html><title>Many</title><p>\(words)</p>") }
+        let tab = rig.tab("/many")
+        try await rig.waitFor("finish \(rig.url("/many"))")
+        let delegate = SPIFindDelegate()
+        var raw: [UInt] = []
+        delegate.onCount = { count, _ in raw.append(count) }
+        tab.find("quokka", forward: true, matchCase: false)
+        let cap = Int(TabFinder.maxCount)
+        #expect(
+            try await nextResult(after: 0, rig, "many") == FindResult(matchCount: cap, activeMatch: 1, isFinal: true))
+        tab.find("quokka", forward: false, matchCase: false)
+        #expect(results(rig.delegate).last == FindResult(matchCount: cap, activeMatch: cap, isFinal: true))
+
+        // What WebKit itself reports past the cap, read from a second delegate.
+        do {
+            let webView = try #require(tab.webView)
+            WebKitSPI.setFindDelegate(webView, delegate)
+            WebKitSPI.countMatches(webView, "quokka", options: [.caseInsensitive], maxCount: TabFinder.maxCount)
+            try await waitUntil("the raw count", timeout: 5) { !raw.isEmpty }
+            print("find: WebKit reported \(raw) for \(cap + 200) matches with maxCount \(cap)")
+            #expect(raw.allSatisfy { $0 >= TabFinder.maxCount })
+        }
+        #expect(TabFinder.capped(UInt.max) == cap && TabFinder.capped(UInt(UInt32.max)) == cap)
+        #expect(TabFinder.capped(3) == 3)
+        try await rig.finish()
+    }
+
     @Test func aClosedTabFindsNothing() async throws {
         let rig = try TabRig()
         let tab = rig.tab("/find/plain.html")

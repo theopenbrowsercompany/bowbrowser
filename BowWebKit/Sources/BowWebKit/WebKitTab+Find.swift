@@ -33,7 +33,12 @@ final class TabFinder {
 
     init(tab: WebKitTab) {
         self.tab = tab
-        spiDelegate.onCount = { [weak self] count, text in self?.counted(text, Int(count)) }
+        spiDelegate.onCount = { [weak self] count, text in self?.counted(text, Self.capped(count)) }
+    }
+
+    /// WebKit reports more than `maxCount` matches as a sentinel (an all ones count), which shows as `maxCount`.
+    static func capped(_ count: UInt) -> Int {
+        Int(min(count, maxCount))
     }
 
     /// `EngineTab.find(_:forward:matchCase:)`.
