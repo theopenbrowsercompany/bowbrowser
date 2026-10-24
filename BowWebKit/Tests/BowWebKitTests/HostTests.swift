@@ -76,7 +76,7 @@ import WebKit
         expectIsolated()
     }
 
-    @Test func syntheticClickReachesPageAsTrustedEvent() async throws {
+    @Test func syntheticClickAndKeysReachPageAsTrustedEvents() async throws {
         let server = try FixtureServer.started()
         defer { server.stop() }
         let (window, webView) = try TestHost.webView()
@@ -97,6 +97,16 @@ import WebKit
         }
         #expect(clicks == [true], "the page saw \(clicks); true is a trusted click")
         #expect(webView.mouseDowns == 1)
+        // Keys reach the focused field as trusted events too.
+        try await driver.click("#field")
+        try driver.type("Ab")
+        let value = try await waitFor("the field got the typed text", timeout: 5) { () -> String? in
+            let text = try await driver.string("return document.getElementById('field').value")
+            return text == "Ab" ? text : nil
+        }
+        #expect(value == "Ab")
+        let keys = try await driver.string("return document.getElementById('keys').textContent")
+        #expect(keys == "[true,true]", "the field saw keydowns \(keys); true is a trusted key")
         expectIsolated()
     }
 
@@ -136,15 +146,20 @@ import WebKit
             .html("<!doctype html><title>Set</title>", headers: ["Set-Cookie: host_check=1; Path=/; Max-Age=600"])
         }
         let stores = TestStores()
-        let id: UUID
-        // The web view, its configuration and the store live only in this block, so they can be released.
-        let box: WeakBox
+        let id = UUID()
+        // The web view, its configuration and the store live only in this block, so they can be released; the
+        // block's window is closed and its store removed even when the block throws, so no store outlives the test.
+        var box: WeakBox?
+        var failure: (any Error)?
         do {
-            let store = stores.make()
-            id = stores.ids[0]
+            let store = stores.make(id: id)
             let configuration = WKWebViewConfiguration()
             configuration.websiteDataStore = store
             let (window, webView) = try TestHost.webView(configuration)
+            defer {
+                box = webView.dispose()
+                TestHost.close(window)
+            }
             let driver = PageDriver(webView)
             try await driver.load(server.url("/set"))
             #expect(store.isPersistent)
@@ -152,13 +167,18 @@ import WebKit
             let names = await store.httpCookieStore.allCookies().map(\.name)
             #expect(names.contains("host_check"))
             #expect(await WKWebsiteDataStore.allDataStoreIdentifiers.contains(id))
-            box = webView.dispose()
-            TestHost.close(window)
+        } catch {
+            failure = error
         }
-        try await waitUntil("the web view is released", timeout: 5) { box.object == nil }
+        do {
+            try await waitUntil("the web view is released", timeout: 5) { box?.object == nil }
+        } catch {
+            failure = failure ?? error
+        }
         let left = await stores.removeAll()
         #expect(left.isEmpty, "stores still listed: \(left)")
         #expect(!(await WKWebsiteDataStore.allDataStoreIdentifiers.contains(id)))
+        if let failure { throw failure }
         expectIsolated()
     }
 }

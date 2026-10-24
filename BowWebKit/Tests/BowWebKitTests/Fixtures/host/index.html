@@ -6,6 +6,7 @@
 <style>
   body { margin: 0; font: 16px -apple-system, sans-serif; }
   #target { position: absolute; left: 100px; top: 120px; width: 200px; height: 80px; }
+  #field { position: absolute; left: 100px; top: 240px; width: 200px; height: 30px; }
 </style>
 </head>
 <body>
@@ -14,11 +15,19 @@
 <!-- Every click the button got, as JSON: true for a trusted one (a real input event, not a script one). It lives in
      the DOM because the tests read the page from their own script world, which shares the DOM, not globals. -->
 <output id="clicks">[]</output>
+<!-- The keys the field got: true for each trusted keydown, mirrored into the DOM for the same reason. -->
+<input id="field">
+<output id="keys">[]</output>
 <script>
   const clicks = [];
   document.getElementById("target").addEventListener("click", (event) => {
     clicks.push(event.isTrusted);
     document.getElementById("clicks").textContent = JSON.stringify(clicks);
+  });
+  const keys = [];
+  document.getElementById("field").addEventListener("keydown", (event) => {
+    keys.push(event.isTrusted);
+    document.getElementById("keys").textContent = JSON.stringify(keys);
   });
 </script>
 </body>
