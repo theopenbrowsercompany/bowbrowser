@@ -102,7 +102,7 @@ struct DownloadsTabClosedTest: E2ETest {
             let tab = try run.app.openTab(
                 at: E2EFixture.heldDownload(key: Self.closedKey, bytes: Self.size, fileName: "tab-closed.bin"),
                 besides: page, select: false)
-            let row = try await waitFor(run) {
+            let row = try await waitFor(run, "the held download ran") {
                 $0.first {
                     !earlier.contains($0.id) && $0.fileName == "tab-closed.bin" && $0.state == "inProgress"
                         && $0.receivedBytes > 0
@@ -124,45 +124,60 @@ struct DownloadsTabClosedTest: E2ETest {
         }
 
         do {
-            try await run.step("follow the download to its end and clear it", timeout: E2ETimeouts.step) {
-                // While the closed tab's download runs, it holds its name: the same file again is numbered.
+            // While the closed tab's download runs, it holds its name: the same file again is numbered.
+            let next = try await run.step("a second download of the same name is numbered", timeout: E2ETimeouts.step) {
                 let again = try run.app.openTab(
                     at: E2EFixture.heldDownload(key: Self.againKey, bytes: Self.size, fileName: "tab-closed.bin"),
                     besides: page, select: false)
-                let next = try await waitFor(run) {
+                let next = try await waitFor(run, "the second download ran with a path") {
                     $0.first {
                         !earlier.contains($0.id) && $0.id != atClose.id && $0.state == "inProgress"
                             && $0.path?.lastPathComponent.hasPrefix("tab-closed") == true
                     }
                 }
                 try await run.app.press(.cancelOrClear, of: next)
-                _ = try await waitFor(run) { [id = next.id] in $0.first { $0.id == id && $0.state == "cancelled" } }
+                _ = try await waitFor(run, "the second download was cancelled") { [id = next.id] in
+                    $0.first { $0.id == id && $0.state == "cancelled" }
+                }
                 _ = try await run.app.closeTab(again)
+                return next
+            }
 
-                // Only now may the closed tab's download finish. It outlives its tab and completes; any other end
-                // means its browser was destroyed.
+            // Only now may the closed tab's download finish. It outlives its tab and completes; any other end means
+            // its browser was destroyed. Its end has a step of its own: the first download to complete in an app
+            // process waits on Chromium's one-time cost in its final stage (after the last byte, before
+            // the end), which takes over a second and under load several, and must not share a step with the second download above.
+            let (done, size) = try await run.step(
+                "release the download and wait for its end", timeout: E2ETimeouts.step
+            ) {
                 E2EFixture.releaseHeld(Self.closedKey)
-                let done = try await waitFor(run) { [id = atClose.id] rows -> E2EDownload? in
+                let done = try await waitFor(run, "the released download ended") {
+                    [id = atClose.id] rows -> E2EDownload? in
                     guard let row = rows.first(where: { $0.id == id }) else { return nil }
                     return row.state == "inProgress" || row.state == "paused" ? nil : row
                 }
                 let size = done.path.flatMap {
                     ((try? FileManager.default.attributesOfItem(atPath: $0.path))?[.size] as? NSNumber)?.int64Value
                 }
-                try await run.app.press(.cancelOrClear, of: done)
-                _ = try await waitFor(run) { rows in rows.contains { $0.id == done.id } ? nil : rows }
-
-                let passed =
-                    done.state == "complete" && done.status.hasPrefix("Complete") && size == Self.size
-                    && done.fileName == "tab-closed.bin" && next.fileName == "tab-closed (1).bin"
-                run.check(
-                    name,
-                    passed: passed,
-                    passed
-                        ? "state=\(done.state) row=updated closed-while=\(stateAfterClose)"
-                        : "state=\(done.state) row=updated status=\"\(done.status)\" size=\(size.map(String.init) ?? "none") file=\(done.fileName) next=\(next.fileName)"
-                )
+                return (done, size)
             }
+            try await run.step("clear the ended download", timeout: E2ETimeouts.step) {
+                try await run.app.press(.cancelOrClear, of: done)
+                _ = try await waitFor(run, "the ended download was cleared") { rows in
+                    rows.contains { $0.id == done.id } ? nil : rows
+                }
+            }
+
+            let passed =
+                done.state == "complete" && done.status.hasPrefix("Complete") && size == Self.size
+                && done.fileName == "tab-closed.bin" && next.fileName == "tab-closed (1).bin"
+            run.check(
+                name,
+                passed: passed,
+                passed
+                    ? "state=\(done.state) row=updated closed-while=\(stateAfterClose)"
+                    : "state=\(done.state) row=updated status=\"\(done.status)\" size=\(size.map(String.init) ?? "none") file=\(done.fileName) next=\(next.fileName)"
+            )
         } catch {
             if error is CancellationError { throw error }
             if let error = error as? E2EError, error.reason == .testEnded { throw error }
@@ -171,8 +186,8 @@ struct DownloadsTabClosedTest: E2ETest {
         }
     }
 
-    private func waitFor<T>(_ run: E2ERun, _ match: ([E2EDownload]) -> T?) async throws -> T {
-        try await DownloadRows.waitFor(run, match)
+    private func waitFor<T>(_ run: E2ERun, _ what: String, _ match: ([E2EDownload]) -> T?) async throws -> T {
+        try await DownloadRows.waitFor(run, what, match)
     }
 }
 
@@ -197,12 +212,25 @@ enum DownloadRows {
         }
     }
 
-    /// Reads the downloads window until `match` returns a value, checking every 20 ms; the step's timeout bounds it.
-    static func waitFor<T>(_ run: E2ERun, _ match: ([E2EDownload]) -> T?) async throws -> T {
+    /// Reads the downloads window until `match` returns a value, checking every 20 ms, and gives up shortly before
+    /// the step's limit with an error naming `what` and the rows it saw last, so a wait that never ends says which.
+    static func waitFor<T>(_ run: E2ERun, _ what: String, _ match: ([E2EDownload]) -> T?) async throws -> T {
+        let deadline = Date().addingTimeInterval(E2EWaits.budget())
         while true {
-            if let value = match(try await run.app.downloads()) { return value }
+            let rows = try await run.app.downloads()
+            if let value = match(rows) { return value }
+            guard Date() < deadline else { throw E2EError("gave up waiting until \(what); rows: \(describe(rows))") }
             try await Task.sleep(nanoseconds: 20_000_000)
         }
+    }
+
+    /// The rows as `name state received "status"`, for a wait's error.
+    static func describe(_ rows: [E2EDownload]) -> String {
+        rows.isEmpty
+            ? "none"
+            : rows.map {
+                "\($0.fileName) \($0.state) \($0.receivedBytes) \"\($0.status)\""
+            }.joined(separator: ", ")
     }
 
     /// Starts a slow download from `path` in a new background tab beside `page`, and returns the tab and its row
@@ -211,7 +239,7 @@ enum DownloadRows {
         _ run: E2ERun, _ path: String, fileName: String, besides page: any E2EPage, except earlier: Set<String>
     ) async throws -> (any E2EPage, E2EDownload) {
         let tab = try run.app.openTab(at: E2EFixture.url(path), besides: page, select: false)
-        let row = try await waitFor(run) {
+        let row = try await waitFor(run, "\(fileName) ran") {
             $0.first {
                 !earlier.contains($0.id) && $0.fileName == fileName && $0.state == "inProgress" && $0.receivedBytes > 0
             }
@@ -233,11 +261,13 @@ enum DownloadRows {
     /// Cancels the download `row` and clears it, waiting for each.
     static func cancelAndClear(_ run: E2ERun, _ row: E2EDownload) async throws {
         try await run.app.press(.cancelOrClear, of: row)
-        let ended = try await waitFor(run) { rows in
+        let ended = try await waitFor(run, "\(row.fileName) ended") { rows in
             rows.first { $0.id == row.id && $0.state != "inProgress" && $0.state != "paused" }
         }
         try await run.app.press(.cancelOrClear, of: ended)
-        _ = try await waitFor(run) { rows in rows.contains { $0.id == row.id } ? nil : rows }
+        _ = try await waitFor(run, "\(row.fileName) was cleared") { rows in
+            rows.contains { $0.id == row.id } ? nil : rows
+        }
     }
 }
 
