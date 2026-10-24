@@ -49,13 +49,21 @@ final class WebKitProfile: EngineProfile {
 
     func createTab(url: URL) -> any EngineTab {
         let tab = WebKitTab(profile: self)
-        register(tab)
         tab.load(url)
         return tab
     }
 
-    /// Records `tab` as one of the profile's, so quitting closes it. Every way of making a tab on the profile calls
-    /// this once the tab exists (restoring an unloaded tab and opening a popup too); a second call does nothing.
+    /// True once the engine began quitting. The profile then refuses new tabs: `createTab` returns a tab that is
+    /// already closed with `.quit`, so a delegate that opens a tab on every close cannot keep quitting going.
+    private(set) var isQuitting = false
+
+    /// Begins quitting: from now on every new tab is refused (see `isQuitting`).
+    func beginQuit() {
+        isQuitting = true
+    }
+
+    /// Records `tab` as one of the profile's, so quitting closes it. A tab calls this as it is made, whichever way it
+    /// is made (restoring an unloaded tab and opening a popup too); a second call does nothing.
     func register(_ tab: WebKitTab) {
         registered.removeAll { $0.tab == nil || $0.tab?.isClosed == true }
         guard !registered.contains(where: { $0.tab === tab }) else { return }

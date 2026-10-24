@@ -10,6 +10,8 @@ import WebKit
 public final class WebKitEngine: BrowserEngine {
     /// The profiles in the order they were made, the default first.
     private var profiles: [WebKitProfile]
+    /// True once `quit()` began; a profile made after that refuses tabs as the others do.
+    private var isQuitting = false
 
     /// An engine whose default profile is `defaultProfile`: the app's default profile record's `ref`, so its storage
     /// UUID names the default profile's store as it names every other's. The default profile never goes through
@@ -33,6 +35,7 @@ public final class WebKitEngine: BrowserEngine {
         guard !ref.isPersistent || !profiles.contains(where: { $0.isPersistent && $0.storeID == ref.storeID })
         else { throw EngineError.profileExists(id) }
         let profile = WebKitProfile(ref)
+        if isQuitting { profile.beginQuit() }
         profiles.append(profile)
         return profile
     }
@@ -42,12 +45,16 @@ public final class WebKitEngine: BrowserEngine {
         profiles.first { $0.profileID == id }
     }
 
-    /// Closes every open tab of every profile, then returns. A tab made while it runs (a tab delegate answering a
-    /// close with a new tab) is closed too, so none is open when it returns. WebKit has no engine to stop: each web
-    /// view's web content process ends once its web view is gone. Calling it again closes any tab made since.
+    /// Closes every open tab of every profile with `TabCloseReason.quit`, then returns. Every profile refuses new
+    /// tabs from the start (`WebKitProfile.isQuitting`), for good: `createTab` then returns a tab already closed with
+    /// `.quit`, never loaded, so a tab delegate answering a close with a new tab cannot keep this going, and none is
+    /// open when it returns. WebKit has no engine to stop: each web view's web content process ends once its web
+    /// view is gone.
     public func quit() async {
+        isQuitting = true
+        for profile in profiles { profile.beginQuit() }
         while let tab = profiles.lazy.flatMap(\.openTabs).first {
-            _ = await tab.close()
+            _ = await tab.close(reason: .quit)
             // A WebKit tab always closes; never spin on one that did not.
             guard tab.isClosed else { return }
         }
