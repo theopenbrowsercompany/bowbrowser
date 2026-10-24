@@ -18,7 +18,7 @@ import WebKit
         return try Data(contentsOf: root.appendingPathComponent(name))
     }
 
-    /// The pixel size of `image`'s bitmap, or nil for none.
+    /// The pixel size of `image`'s bitmap, or "nil" for none.
     private func pixels(_ image: NSImage?) -> String {
         guard let image, let rep = image.representations.first else { return "nil" }
         return "\(rep.pixelsWide)x\(rep.pixelsHigh)"
