@@ -61,6 +61,8 @@ enum NavigationResponders {
             FindResponder(),
             // HTTP sign in and server trust, which only this responder answers.
             ChallengeResponder(),
+            // A new document clears the edited form signal before the app hears of the commit.
+            PageSignalsResponder(),
             // Last, so the other responders have seen a callback before the app hears of it.
             NavigationEventResponder(),
         ]
