@@ -75,11 +75,6 @@ import WebKit
         try await rig.finish()
     }
 
-    /// The copies of the hover script on `content` (other areas add scripts of their own).
-    private func hoverScripts(_ content: WKUserContentController) -> Int {
-        content.userScripts.filter { $0.source == WebKitTab.hoverScript }.count
-    }
-
     /// A web view on a content controller that already has the script (WebKit shares one with a popup) installs
     /// without raising for the handler name and without a second copy of the script.
     private func reinstallOnSharedController(_ tab: WebKitTab, _ rig: TabRig) {
