@@ -34,6 +34,7 @@ cp scripts/done.sh scripts/e2e-affected.sh scripts/tree-key.sh "$repo/scripts/"
 cat > "$tmp/bin/swift" << 'EOF'
 #!/bin/bash
 echo "swift: $*" >> "$FAKE_LOG"
+cat > /dev/null # a real swift test may read its stdin; it must not be the suite list
 suite=${!#}
 suite=${suite#\\.}
 suite=${suite%/}
@@ -758,6 +759,9 @@ check "a FLAKY check run runs the full e2e" "1" "$(full_ran)"
 stamp "$key" all "E2E: FAIL 100/128" 20260101-9
 out=$(run 0 0)
 check "a failed check run runs the full e2e" "1" "$(full_ran)"
+stamp "$key" all "E2E: PASS 128/128; quarantined flaky tests passed on the retry: a.b" 20260101-9
+out=$(run 0 0)
+check "a pass that leaned on the quarantine list runs the full e2e" "1" "$(full_ran)"
 stamp "$key" all "E2E: PASS 128/128" 20260101-gone
 out=$(run 0 0)
 check "a missing run folder runs the full e2e" "1" "$(full_ran)"
