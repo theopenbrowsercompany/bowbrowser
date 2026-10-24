@@ -98,7 +98,8 @@ final class PopupRecordingDelegate: EngineTabDelegate {
         let decisions: [PopupDecision] = [.foregroundTab, .backgroundTab, .popupPanel, .peek, .window]
         for (index, decision) in decisions.enumerated() {
             delegate.decision = decision
-            try await PageDriver(opener.webView!).eval("document.title = 'Popup opener'; document.body.dataset.opened = ''")
+            try await PageDriver(opener.webView!).eval(
+                "document.title = 'Popup opener'; document.body.dataset.opened = ''")
             try await click("#tab", in: opener)
             let (popup, request) = try await delegate.waitForPopup(index + 1)
             #expect(delegate.requests.count == index + 1, "\(decision): asked once")

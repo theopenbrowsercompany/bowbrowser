@@ -64,7 +64,8 @@ extension PopupWindowFeatures {
     /// does): no features at all is a tab; otherwise a bar or resizing the page left out counts as off, and any bar or
     /// resizing off makes a popup. So a size alone (`width=480,height=560`) is a popup, and only features that turn
     /// every bar and resizing on are a tab. WebKit gives nil for each feature the page did not pass.
-    static func isPopup(hasGeometry: Bool, menuBar: Bool?, statusBar: Bool?, toolbars: Bool?, resizable: Bool?) -> Bool {
+    static func isPopup(hasGeometry: Bool, menuBar: Bool?, statusBar: Bool?, toolbars: Bool?, resizable: Bool?) -> Bool
+    {
         let bars = [menuBar, statusBar, toolbars, resizable]
         guard hasGeometry || bars.contains(where: { $0 != nil }) else { return false }
         return bars.contains { $0 != true }
