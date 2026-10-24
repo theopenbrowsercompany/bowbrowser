@@ -73,6 +73,8 @@ extension WebKitTab {
         case .window: return false
         case .foregroundTab, .backgroundTab, .popupPanel, .peek: break
         }
+        // An opener the app closed or unloaded while deciding opens nothing, so no tab outlives it unowned.
+        guard !isClosed, webView != nil, self.delegate === delegate else { return true }
         let tab = WebKitTab(profile: profile)
         guard !tab.isClosed else { return true }
         delegate.tab(self, didOpenPopup: tab, request: request)
