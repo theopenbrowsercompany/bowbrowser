@@ -50,6 +50,15 @@ final class WebKitTab: SPIDelegateBase, EngineTab, WKNavigationDelegate, WKUIDel
         state = EngineTabState(tabID: tabID)
         super.init(privateCallbacks: Self.privateCallbacks)
         install(WebKitWebView(frame: .zero, configuration: profile.makeConfiguration()))
+        // Every tab registers with its profile as it is made, however it is made (a new tab, a restored one, a
+        // popup). A profile that is quitting refuses the tab: it is born closed with `.quit`, its page never loaded,
+        // and no delegate has been set to hear of it.
+        if profile.isQuitting {
+            releaseWebView()
+            end(.closed(.quit))
+        } else {
+            profile.register(self)
+        }
     }
 
     // MARK: The web view
@@ -108,9 +117,14 @@ final class WebKitTab: SPIDelegateBase, EngineTab, WKNavigationDelegate, WKUIDel
     /// Releases the page; WebKit has no public way to run its beforeunload handler first, so it never keeps the
     /// tab open.
     func close() async -> Bool {
+        await close(reason: .app)
+    }
+
+    /// `close()` for a reason: the seam quitting closes tabs through with `.quit`.
+    func close(reason: TabCloseReason) async -> Bool {
         guard !isClosed else { return true }
         releaseWebView()
-        end(.closed(.app))
+        end(.closed(reason))
         return true
     }
 
