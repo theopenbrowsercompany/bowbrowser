@@ -4,6 +4,8 @@
 # repository path, and a repository with no origin/main. Takes about a second. The home directory prefix is built at
 # run time so this file holds no such path itself.
 set -u
+# The base settings come from each case alone (make done exports them to the self tests it runs).
+unset CHECK_BASE VERIFY_BASE PRIVATE_PATHS_BASE BOW_BASE DONE_BASE
 cd "$(dirname "$0")/.." || exit 1
 
 tmp=$(mktemp -d)
