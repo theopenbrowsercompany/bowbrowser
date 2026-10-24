@@ -13,14 +13,14 @@
 # interleave. Every part prints one "verify: <part> ok|FAIL <seconds>s" line, and the last line is
 # "verify: PASS <n> parts in <seconds>s" or "verify: FAIL <parts> (<seconds>s)".
 #
-# Each self test runs only when a script it covers (the table below, plain data) differs from origin/main, committed
+# Each self test runs only when a script it covers (the table below, plain data) differs from the base (scripts/base-ref.sh), committed
 # or not, and the whole set runs when the Makefile differs. A change to a script no self test covers (verify.sh
 # itself, check-release.sh, check-e2e-seams.sh and the like) runs none, and so does a docs or app only change.
 # Measured at a load average of 10 to 17 (other worktrees building): test-e2e-wrapper 30 to 45 s with its groups side
 # by side (150 to 165 s as one sequence), test-done 8 s, test-affected 5 s, test-private-paths and test-e2e-bisect
 # 4 s, the rest 2 s or less. The self tests run beside lint, guards, test and build, so the longest part sets the
 # time: a change to scripts/e2e.sh, which only the wrapper test covers, ends with it.
-# Without an origin/main ref every self test runs. VERIFY_ALL=1 runs every part regardless, for a full backstop run.
+# Without a base ref every self test runs. VERIFY_ALL=1 runs every part regardless, for a full backstop run.
 # VERIFY_BASE=<ref> compares with another ref. make test-scripts runs every self test one after another.
 set -u
 cd "$(dirname "$0")/.."
@@ -29,8 +29,8 @@ cd "$(dirname "$0")/.."
 self_tests=(
   "test-e2e-wrapper scripts/e2e.sh scripts/e2e-flakes.sh scripts/stamp-tree.sh scripts/tree-key.sh scripts/package-cef.sh scripts/build-lock.sh scripts/e2e-quarantine.txt scripts/test-e2e-wrapper.sh"
   "test-prune scripts/prune-compile-cache.sh scripts/test-prune-compile-cache.sh"
-  "test-affected scripts/e2e-affected.sh scripts/check.sh scripts/test-e2e-affected.sh"
-  "test-done scripts/done.sh scripts/e2e-affected.sh scripts/test-done.sh"
+  "test-affected scripts/base-ref.sh scripts/e2e-affected.sh scripts/check.sh scripts/test-e2e-affected.sh"
+  "test-done scripts/base-ref.sh scripts/done.sh scripts/e2e-affected.sh scripts/test-done.sh"
   "test-refcount scripts/check-cef-refcount.sh scripts/test-check-cef-refcount.sh"
   "test-private-paths scripts/check-private-paths.sh .githooks/pre-push scripts/test-check-private-paths.sh"
   "test-bootstrap-cef scripts/bootstrap-cef.sh scripts/xcodebuild.sh scripts/test-bootstrap-cef.sh"
@@ -38,10 +38,11 @@ self_tests=(
   "test-e2e-bisect scripts/e2e-bisect.sh scripts/test-e2e-bisect.sh"
   "test-verify-plan scripts/verify.sh scripts/test-verify-plan.sh"
   "test-e2e-flakes scripts/e2e-flakes.sh scripts/test-e2e-flakes.sh"
-  "test-webkit-imports scripts/check-webkit-imports.sh scripts/test-check-webkit-imports.sh"
+  "test-base-ref scripts/base-ref.sh scripts/test-base-ref.sh"
+  "test-webkit-importsscripts/check-webkit-imports.sh scripts/test-check-webkit-imports.sh"
 )
 script_inputs=(scripts Makefile .githooks)
-base=${VERIFY_BASE:-origin/main}
+base=${VERIFY_BASE:-$(scripts/base-ref.sh 2> /dev/null || echo origin/main)}
 
 parts=(lint guards test build)
 if [ "${VERIFY_ALL:-0}" = 1 ]; then

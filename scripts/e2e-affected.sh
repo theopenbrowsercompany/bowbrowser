@@ -10,11 +10,11 @@
 # the fallback added, `fallback 0 <test>`; stderr says (lines starting `callers:`) which symbols were changed and which
 # were too common to search. make done repeats them. The rules are above callers_main below.
 #
-# The changed files are those that differ from where the branch left origin/main (its merge base), committed,
-# staged, unstaged or untracked, so a branch behind origin/main does not count main's newer commits. Renames count
+# The changed files are those that differ from where the branch left its base (scripts/base-ref.sh) (its merge base), committed,
+# staged, unstaged or untracked, so a branch behind its base does not count main's newer commits. Renames count
 # as the old path deleted and the new one added. --stdin reads the changed paths from stdin instead, one per line
 # (the self test uses it). --changed prints the changed paths, one per line, and maps nothing; it exits 3 when they
-# cannot be listed. --why prints each path's mapping to stderr. CHECK_BASE=<ref> compares with another ref.
+# cannot be listed. --why prints each path's mapping to stderr. CHECK_BASE=<ref> compares with another ref (the default is scripts/base-ref.sh).
 # Without the ref or a merge base, the selection is all.
 #
 # The mapping, kept simple: when unsure, all.
@@ -476,7 +476,7 @@ if [ "$stdin" = 1 ]; then
   fork=""
   changed=$(cat)
 else
-  base=${CHECK_BASE:-origin/main}
+  base=${CHECK_BASE:-$(scripts/base-ref.sh 2> /dev/null || echo origin/main)}
   git rev-parse -q --verify "$base^{commit}" > /dev/null 2>&1 || unknown "no $base ref"
   fork=$(git merge-base "$base" HEAD 2> /dev/null) || unknown "no merge base with $base"
   committed=$(git diff --name-only --no-renames "$fork" --) || unknown "git diff failed"

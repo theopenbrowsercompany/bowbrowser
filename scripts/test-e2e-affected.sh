@@ -166,6 +166,21 @@ check "a detached HEAD: its changes against the merge base" "tabs,smoke" "$(run)
 check "CHECK_BASE compares with another ref" "" "$(CHECK_BASE=work run)"
 check "an unknown CHECK_BASE: all" "all" "$(CHECK_BASE=nope run)"
 check "an unknown argument: exit 64" "64" "$(run --nope > /dev/null; echo $?)"
+# A branch off origin/webkit (scripts/base-ref.sh) is compared with origin/webkit, not main.
+g checkout -q work
+cp scripts/base-ref.sh "$repo/scripts/"
+g add -A
+g commit -q -m "base-ref"
+g update-ref refs/remotes/origin/webkit work
+check "off webkit: nothing changed against origin/webkit" "" "$(run)"
+g checkout -q -b slice work
+echo z >> "$repo/E2E/Tests/Navigation.swift"
+g commit -q -am slice
+check "off webkit: only the slice's own change" "$(CHECK_BASE=work run)" "$(run)"
+check "off webkit: the slice's change is not empty" "1" "$(test -n "$(run)" && echo 1)"
+check "off webkit: BOW_BASE picks main again" "$(CHECK_BASE=origin/main run)" "$(BOW_BASE=origin/main run)"
+g update-ref -d refs/remotes/origin/webkit
+g checkout -q --detach work
 
 # 2b. --callers: the tests that reach a symbol the branch changes under E2E/Harness/ or E2E/Engine/, in a fake
 # repository that mimics the page driver change (an E2EPage extension with press(_:) and press(letter:)).

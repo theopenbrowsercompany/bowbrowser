@@ -11,7 +11,7 @@ E2E ?= all
 # scripts/e2e.sh alone, quoted for the shell.
 unexport E2E
 
-.PHONY: bootstrap hooks project build test test-lock test-e2e-wrapper test-prune test-affected test-scripts run smoke e2e e2e-run format lint guards release verify check done test-done test-refcount test-private-paths test-bootstrap-cef test-check-lists test-e2e-bisect test-verify-plan test-e2e-flakes test-webkit-imports clean
+.PHONY: bootstrap hooks project build test test-lock test-e2e-wrapper test-prune test-affected test-scripts run smoke e2e e2e-run format lint guards release verify check done test-done test-refcount test-private-paths test-bootstrap-cef test-check-lists test-e2e-bisect test-verify-plan test-e2e-flakes test-webkit-imports test-base-ref clean
 
 bootstrap: hooks
 	./scripts/bootstrap-cef.sh
@@ -58,7 +58,7 @@ test-affected:
 
 # Every script self test, one after another (about 70 seconds). make verify runs each one side by side, and only when a
 # script it covers (the table in scripts/verify.sh) or the Makefile differs from origin/main.
-test-scripts: test-e2e-wrapper test-prune test-affected test-done test-refcount test-private-paths test-bootstrap-cef test-check-lists test-e2e-bisect test-verify-plan test-e2e-flakes test-webkit-imports
+test-scripts: test-e2e-wrapper test-prune test-affected test-done test-refcount test-private-paths test-bootstrap-cef test-check-lists test-e2e-bisect test-verify-plan test-e2e-flakes test-webkit-imports test-base-ref
 
 run: build
 	open $(APP)
@@ -154,6 +154,11 @@ test-e2e-flakes:
 # in WebKitSPI.swift, on fixture trees (under a second).
 test-webkit-imports:
 	./scripts/test-check-webkit-imports.sh
+
+# Tests scripts/base-ref.sh, the base every check compares a branch with (main or webkit), on a throwaway repository
+# (under a second).
+test-base-ref:
+	./scripts/test-base-ref.sh
 
 clean:
 	rm -rf $(BUILD_DIR) Bow.xcodeproj Generated

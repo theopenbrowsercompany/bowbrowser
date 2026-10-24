@@ -3,10 +3,10 @@
 #
 #   scripts/done.sh
 #
-# 1. Fetches origin (git fetch -q origin); offline, it says so and checks against the origin/main it has.
-# 2. When the branch does not contain origin/main, merges the two in memory (git merge-tree --write-tree, which
-#    touches no file or ref): no conflict prints "done: behind origin/main by N commits with no conflict; the landing
-#    rebases and reruns the checks" and goes on; a conflict refuses, naming the files. No origin/main also refuses.
+# 1. Fetches origin (git fetch -q origin); offline, it says so and checks against the base it has.
+# 2. When the branch does not contain the base (scripts/base-ref.sh: origin/main, or origin/webkit for a webkit slice), merges the two in memory (git merge-tree --write-tree, which
+#    touches no file or ref): no conflict prints "done: behind the base by N commits with no conflict; the landing
+#    rebases and reruns the checks" and goes on; a conflict refuses, naming the files. No base ref also refuses.
 # 3. Runs make bootstrap when Vendor/cef is missing (a fresh worktree).
 # 4. Runs make verify, then the full make e2e (E2E=all), as separate commands. A failed verify skips the e2e and the
 #    release build. A full e2e that ends `E2E: FLAKY` (failed, then passed on the retry) does not fail the branch
@@ -58,11 +58,11 @@
 #    A different key, a record of another selection or one whose run folder is gone, no record (a partial, failed,
 #    FLAKY or interrupted check) all run the e2e as usual. DONE_REUSE=0 never reuses.
 # Then it prints the block: each step's result line, the e2e summary line and run folder, the path to final.png,
-# the diff stat against the merge base with origin/main (origin/main itself unless the branch is behind), the tree
+# the diff stat against the merge base with the base (the base itself unless the branch is behind), the tree
 # hash and whether the worktree is dirty (a dirty tree is not what was checked). It exits 1 when any step failed
 # (a failed release build too), 2 when it refused.
 #
-# DONE_BASE=<ref> compares with another ref than origin/main and DONE_FETCH=0 skips the fetch (the self test,
+# DONE_BASE=<ref> compares with another ref than the base and DONE_FETCH=0 skips the fetch (the self test,
 # scripts/test-done.sh, uses both). The steps' own output streams as they run; the block is the last thing printed.
 #
 # The sizes, all whole numbers: DONE_REPEAT (2 or more, default 20) and DONE_REPEAT_SHARDS (1 or more, default 3) for
@@ -73,12 +73,16 @@ set -u
 export DEVELOPER_DIR=${DEVELOPER_DIR:-/Applications/Xcode.app/Contents/Developer}
 cd "$(dirname "$0")/.." || exit 1
 
-base=${DONE_BASE:-origin/main}
-if [ "${DONE_FETCH:-1}" != 0 ] && ! git fetch -q origin; then
-  echo "done: could not fetch origin (offline?); checking against the $base this checkout has"
-fi
+# The base is picked after the fetch, because the fetch can bring in origin/webkit (scripts/base-ref.sh).
+fetch_failed=0
+if [ "${DONE_FETCH:-1}" != 0 ] && ! git fetch -q origin; then fetch_failed=1; fi
+base=${DONE_BASE:-$(scripts/base-ref.sh 2> /dev/null || echo origin/main)}
+echo "done: base $base (scripts/base-ref.sh)"
+[ "$fetch_failed" = 0 ] || echo "done: could not fetch origin (offline?); checking against the $base this checkout has"
+# Every step compares with this base, not with its own default.
+export CHECK_BASE=$base VERIFY_BASE=$base PRIVATE_PATHS_BASE=$base
 if ! git rev-parse -q --verify "$base^{commit}" > /dev/null 2>&1; then
-  echo "done: no $base ref. Run git fetch origin. Rebase onto origin/main first."
+  echo "done: no $base ref. Run git fetch origin. Rebase onto $base first."
   exit 2
 fi
 behind_line=""
@@ -90,11 +94,11 @@ if ! git merge-base --is-ancestor "$base" HEAD; then
   if [ "$merge_status" = 1 ]; then
     echo "done: this branch conflicts with $base in:"
     echo "$merged" | sed -n '2,/^$/p' | grep -v '^$' | sort -u | sed 's/^/  /'
-    echo "done: rebase onto origin/main first."
+    echo "done: rebase onto $base first."
     exit 2
   elif [ "$merge_status" != 0 ]; then
     echo "done: this branch cannot be merged with $base: $merged"
-    echo "done: rebase onto origin/main first."
+    echo "done: rebase onto $base first."
     exit 2
   fi
   behind=$(git rev-list --count "HEAD..$base")
