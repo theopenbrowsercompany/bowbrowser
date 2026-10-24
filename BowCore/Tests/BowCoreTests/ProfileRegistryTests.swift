@@ -21,7 +21,8 @@ import Testing
         try withTemporaryFolder { folder in
             let registry = try open(folder)
             #expect(registry.profiles.map(\.id) == [.default])
-            #expect(registry.ref(for: .default) == .persistent(.default))
+            #expect(registry.ref(for: .default)?.engineID == .default)
+            #expect(registry.ref(for: .default)?.isPersistent == true)
             #expect(registry.folderName(for: .default) == "Default")
             #expect(registry.openReport.origin == .freshBecauseMissing)
             #expect(registry.profile(for: "nope") == nil)
@@ -37,8 +38,11 @@ import Testing
             let reopened = try open(folder)
             #expect(reopened.profiles.map(\.id.rawValue) == ["default", "work", "guest"])
             #expect(reopened.profile(for: work.id)?.name == "Job")
-            #expect(reopened.ref(for: work.id) == .persistent("work"))
-            #expect(reopened.ref(for: guest.id) == .ephemeral("guest"))
+            #expect(
+                reopened.ref(for: work.id) == ProfileRef(engineID: "work", storeID: work.storeID, isPersistent: true))
+            #expect(
+                reopened.ref(for: guest.id)
+                    == ProfileRef(engineID: "guest", storeID: guest.storeID, isPersistent: false))
             #expect(reopened.folderName(for: guest.id) == nil)
             #expect(reopened.folderName(for: work.id) == "Profile-work")
             #expect(reopened.openReport.origin == .loaded)
@@ -265,7 +269,9 @@ import Testing
                     let record = try registry.adopt(
                         id: id, name: name.trimmingCharacters(in: .whitespaces).isEmpty ? "Arc" : name)
                     #expect(record.id == id, "pass \(pass): \(name)")
-                    #expect(registry.ref(for: id) == .persistent(ProfileID(id.rawValue)))
+                    #expect(registry.ref(for: id)?.engineID == ProfileID(id.rawValue))
+                    #expect(registry.ref(for: id)?.isPersistent == true)
+                    #expect(registry.ref(for: id)?.storeID == record.storeID)
                 }
             }
             #expect(registry.profiles.count == Set(ids).count + 1)
@@ -462,9 +468,11 @@ import Testing
             let migrate = ProfileFileFormat.Migration(from: 0) { object in
                 object["profiles"] = [["id": "old", "name": "Old", "isPersistent": true]]
             }
-            // The store reads up to ProfileFileFormat.currentVersion, so a version 0 file needs the migration to 1.
+            // The store reads up to ProfileFileFormat.currentVersion, so a version 0 file needs the migration to 1
+            // and then this build's from 1.
             let registry = try ProfileRegistry(
-                fileURL: url, dataRoot: root(folder), migrations: [migrate], writer: AtomicFileWriter())
+                fileURL: url, dataRoot: root(folder), migrations: [migrate] + ProfileFileFormat.migrations,
+                writer: AtomicFileWriter())
             #expect(registry.openReport.origin == .loaded)
             #expect(registry.openReport.migratedFrom == 0)
             #expect(registry.profile(for: "old")?.name == "Old")

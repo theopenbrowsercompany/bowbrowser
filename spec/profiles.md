@@ -22,6 +22,11 @@ Every Space shows exactly one profile, and several Spaces may show the same one,
   Two IDs never differ only in letter case, and `default` is taken, so a clash gets a number added: `work`, `work-2`.
   The number never pushes an ID past 48 characters.
   An ID chosen elsewhere, such as an imported Arc profile's (`arc-<name>-<hash>`, up to 47 characters), is kept exactly as given when it is valid; if a different profile already has it in another letter case it is refused, and asking for the same ID again returns the profile that has it.
+- Beside its ID, every profile (the default and temporary ones too) has a storage identity: a UUID given once, when the profile is made, and never changed, not by a rename and not by a relaunch.
+  No two profiles share one.
+  It names the profile's storage and, once Bow has them, its extensions, which belong to the profile like its logins, cookies and history, so every Space on the profile shares them, as in Arc.
+  A profile registered again under a deleted profile's ID gets a new one.
+  Profiles saved by a Bow from before storage identities get theirs the first time a newer Bow opens the profiles file, which it saves at once, so each profile gets its identity only once.
 - A Space chooses its profile in the Space menu (the context menu of the Space's name), as Arc sets one per Space from the Space's menu ([Arc Help: Profiles](https://resources.arc.net/hc/en-us/articles/19227964556183-Profiles-Separate-Work-Personal-Browsing)).
   "Profile" lists every profile, the default first, with a check by the one the Space shows, then "New Profile…".
   "New Profile…" asks for a name in a sheet, creates a persistent profile with that name and puts the Space on it; an empty name or Cancel changes nothing.
@@ -61,7 +66,7 @@ Every Space shows exactly one profile, and several Spaces may show the same one,
   At the next launch a folder whose profile a Space shows again is not deleted, and stays on the list until that profile is registered again.
   A folder that cannot be removed is tried again at the following launch.
   A temporary profile has no folder, so deleting it is immediate.
-- The list of profiles, the folders waiting for deletion and the retired IDs are saved together in `Profiles.json` in Bow's Application Support folder, apart from the sidebar file.
+- The list of profiles with their storage identities, the folders waiting for deletion and the retired IDs are saved together in `Profiles.json` in Bow's Application Support folder, apart from the sidebar file.
   Every change is written at once.
 
 ## Edge cases
@@ -73,6 +78,7 @@ Every Space shows exactly one profile, and several Spaces may show the same one,
   The list of folders waiting for deletion is lost with it, so those folders stay on disk until the person removes them.
   Their IDs are still not reused while their folders are on disk; the IDs of profiles whose folders were already gone (and of temporary profiles) are forgotten with the file.
 - A hand edited file is cleaned when read: entries with an invalid ID, an empty name or an ID matching another in letter case are dropped, the default profile is restored, and folders to delete must look like `Profile-<id>`, so no other path is ever removed.
+  A profile in it with no storage identity, one that is not a UUID, or one an earlier profile in the file already has gets a new one (the earlier profile keeps it), and the file is saved at once.
 - A folder to delete that is already gone is simply forgotten.
 - Moving a tab within one Space never reloads it.
 

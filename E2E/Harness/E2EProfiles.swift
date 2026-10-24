@@ -10,6 +10,9 @@ protocol E2EProfilesApp: E2ESpaceThemeApp, E2EStoreApp, E2EWindowEdgesApp {
     func shownPage(besides page: any E2EPage) throws -> (any E2EPage)?
     /// The app's registered profiles in order, as "<id>:<name>".
     func registeredProfiles() throws -> [String]
+    /// Every registered profile's storage UUID text by profile ID, as the app's registry holds them now (opening it
+    /// if no one has yet).
+    func registeredStoreIDs() throws -> [String: String]
     /// How many Chromium renderer processes the app runs now.
     func rendererProcessCount() throws -> Int
     /// Chooses the item at `path` (for example ["Move to Space", "Home"]) in the context menu of `page`'s tab row,

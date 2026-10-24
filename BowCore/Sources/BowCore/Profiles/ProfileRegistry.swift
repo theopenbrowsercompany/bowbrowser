@@ -44,6 +44,10 @@ public enum ProfileRegistryError: Error, Equatable, CustomStringConvertible {
 /// only `[A-Za-z0-9._-]`, and no two IDs that differ only in case. The app creates each engine profile once, from
 /// `ref(for:)`, and reuses it for every Space that shows the profile.
 ///
+/// Beside its text ID each profile has one storage UUID (`ProfileRecord.storeID`), given once and unique among the
+/// profiles, which names its engine storage and its extensions; the registry repairs a missing or shared one when it
+/// reads the file, and `OpenReport.needsSaveAtOpen` asks the app to save then, so the UUID it gave is the one kept.
+///
 /// It is saved to its own `Profiles.json`; every change is written at once, since changes are rare.
 public final class ProfileRegistry {
     /// The name of the profiles file inside the app's Application Support folder.
@@ -66,6 +70,13 @@ public final class ProfileRegistry {
         public var migratedFrom: Int?
         /// Entries that were dropped while reading: unreadable, invalid ID, or an ID matching another in case.
         public var droppedEntryCount: Int
+        /// Profiles given a new storage UUID while reading: the default of a fresh registry, every profile of a
+        /// version 1 file, and any entry whose UUID was missing, not a UUID, or already another profile's.
+        public var assignedStoreIDCount: Int
+
+        /// Whether the app must save the registry as soon as it opens: a storage UUID given while reading is kept
+        /// only once written, and otherwise the next launch would give the profile another one.
+        public var needsSaveAtOpen: Bool { assignedStoreIDCount > 0 }
     }
 
     /// How one pending deletion went.
@@ -100,6 +111,8 @@ public final class ProfileRegistry {
     /// when choosing an ID, so a lost or unreadable file cannot hand a deleted login to a new profile.
     public let dataRoot: URL
     private let writer: AtomicFileWriter
+    /// Makes candidate storage UUIDs; `newStoreID` skips any a profile already has.
+    private let makeStoreID: () -> UUID
 
     /// Opens the registry stored at `fileURL`, creating nothing on disk until the first save. A missing file starts
     /// with the default profile. A file written by a newer Bow is left where it is and this throws
@@ -116,11 +129,13 @@ public final class ProfileRegistry {
     }
 
     init(
-        fileURL: URL, dataRoot: URL, migrations: [ProfileFileFormat.Migration], writer: AtomicFileWriter
+        fileURL: URL, dataRoot: URL, migrations: [ProfileFileFormat.Migration], writer: AtomicFileWriter,
+        makeStoreID: @escaping () -> UUID = { UUID() }
     ) throws {
         self.fileURL = fileURL
         self.dataRoot = dataRoot
         self.writer = writer
+        self.makeStoreID = makeStoreID
 
         var origin = Origin.loaded
         var state = ProfileFileFormat.State(profiles: [], pendingDeletions: [], retiredIDs: [])
@@ -149,16 +164,22 @@ public final class ProfileRegistry {
 
         // Only once the file is known to be this build's: a newer Bow's save in progress is not this build's to clear.
         AtomicFileWriter.removeLeftovers(for: fileURL)
-        let cleaned = Self.cleaned(state)
+        let cleaned = Self.cleaned(state, makeStoreID: makeStoreID)
         profiles = cleaned.profiles
         pendingDeletions = cleaned.pendingDeletions
         retiredIDs = cleaned.retiredIDs
         hasUnsavedChanges = origin != .loaded || state.migratedFrom != nil || cleaned.changed
         openReport = OpenReport(
-            origin: origin, migratedFrom: state.migratedFrom, droppedEntryCount: state.skippedCount + cleaned.dropped)
+            origin: origin, migratedFrom: state.migratedFrom, droppedEntryCount: state.skippedCount + cleaned.dropped,
+            assignedStoreIDCount: cleaned.assigned)
     }
 
     // MARK: Reading
+
+    /// The profile whose storage UUID is `storeID`, or nil.
+    public func profile(withStoreID storeID: UUID) -> ProfileRecord? {
+        profiles.first { $0.storeID == storeID }
+    }
 
     /// The profile with this ID, or nil. A Space whose profile is unknown (for example after the file was set
     /// aside) has no storage to show; the app picks a profile for it instead of guessing one.
@@ -198,7 +219,7 @@ public final class ProfileRegistry {
         guard !trimmed.isEmpty else { throw .emptyName }
         let record = ProfileRecord(
             id: SidebarProfileID(availableID(basedOn: preferredID ?? trimmed)), name: trimmed,
-            isPersistent: isPersistent)
+            isPersistent: isPersistent, storeID: newStoreID())
         profiles.append(record)
         try commit()
         return record
@@ -222,7 +243,9 @@ public final class ProfileRegistry {
         let key = id.rawValue.lowercased()
         retiredIDs.removeAll { $0 == key }
         pendingDeletions.removeAll { Self.id(ofFolder: $0) == key }
-        let record = ProfileRecord(id: id, name: trimmed, isPersistent: isPersistent)
+        // A profile registered again under a retired ID gets a new storage UUID, since the registry keeps no UUID of a
+        // deleted profile (its folder, named by the ID, is what is kept today).
+        let record = ProfileRecord(id: id, name: trimmed, isPersistent: isPersistent, storeID: newStoreID())
         profiles.append(record)
         try commit()
         return record
@@ -375,6 +398,18 @@ public final class ProfileRegistry {
         return candidate
     }
 
+    /// A storage UUID no profile has.
+    private func newStoreID() -> UUID {
+        Self.unusedStoreID(taken: Set(profiles.map(\.storeID)), makeStoreID: makeStoreID)
+    }
+
+    private static func unusedStoreID(taken: Set<UUID>, makeStoreID: () -> UUID) -> UUID {
+        while true {
+            let candidate = makeStoreID()
+            if !taken.contains(candidate) { return candidate }
+        }
+    }
+
     private static func isPendingFolderName(_ folder: String) -> Bool {
         folder.hasPrefix(folderPrefix) && isValidID(String(folder.dropFirst(folderPrefix.count)))
     }
@@ -382,20 +417,25 @@ public final class ProfileRegistry {
     // MARK: Reading the file
 
     /// Makes what was read safe to use: the default profile is first and persistent, IDs are valid and unique
-    /// ignoring case, and pending deletions are well formed, not used by a live profile, and listed once.
+    /// ignoring case, every kept profile has a storage UUID no other has (the first in file order keeps a shared one,
+    /// and a missing or shared one is replaced by a new UUID from `makeStoreID`), and pending deletions are well
+    /// formed, not used by a live profile, and listed once.
     private static func cleaned(
-        _ state: ProfileFileFormat.State
-    ) -> (profiles: [ProfileRecord], pendingDeletions: [String], retiredIDs: [String], dropped: Int, changed: Bool) {
+        _ state: ProfileFileFormat.State, makeStoreID: () -> UUID
+    ) -> (
+        profiles: [ProfileRecord], pendingDeletions: [String], retiredIDs: [String], dropped: Int, assigned: Int,
+        changed: Bool
+    ) {
         var dropped = 0
         var seen = Set<String>()
-        var profiles: [ProfileRecord] = []
+        var kept: [ProfileFileFormat.Entry] = []
         let defaultKey = SidebarProfileID.default.rawValue.lowercased()
         let storedDefault = state.profiles.first { $0.id == .default }
-        profiles.append(
-            ProfileRecord(
+        kept.append(
+            ProfileFileFormat.Entry(
                 id: .default,
                 name: storedDefault.map { $0.name.trimmingCharacters(in: .whitespacesAndNewlines) }
-                    ?? defaultProfileName, isPersistent: true))
+                    ?? defaultProfileName, isPersistent: true, storeID: storedDefault?.storeID))
         seen.insert(defaultKey)
         for record in state.profiles where record.id != .default {
             let key = record.id.rawValue.lowercased()
@@ -404,7 +444,27 @@ public final class ProfileRegistry {
                 dropped += 1
                 continue
             }
-            profiles.append(ProfileRecord(id: record.id, name: name, isPersistent: record.isPersistent))
+            kept.append(
+                ProfileFileFormat.Entry(
+                    id: record.id, name: name, isPersistent: record.isPersistent, storeID: record.storeID))
+        }
+        // Every UUID read counts as taken, so a replacement never takes one a later entry still holds.
+        var taken = Set(kept.compactMap(\.storeID))
+        var owned = Set<UUID>()
+        var assigned = 0
+        var profiles: [ProfileRecord] = []
+        for entry in kept {
+            var storeID: UUID
+            if let read = entry.storeID, owned.insert(read).inserted {
+                storeID = read
+            } else {
+                storeID = unusedStoreID(taken: taken, makeStoreID: makeStoreID)
+                taken.insert(storeID)
+                owned.insert(storeID)
+                assigned += 1
+            }
+            profiles.append(
+                ProfileRecord(id: entry.id, name: entry.name, isPersistent: entry.isPersistent, storeID: storeID))
         }
         if let stored = storedDefault, stored.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             profiles[0].name = defaultProfileName
@@ -436,8 +496,9 @@ public final class ProfileRegistry {
             if retiredSeen.insert(id).inserted { retired.append(id) }
         }
         let changed =
-            profiles != state.profiles || pending != state.pendingDeletions || retired != state.retiredIDs
-        return (profiles, pending, retired, dropped, changed)
+            profiles.map(ProfileFileFormat.Entry.init) != state.profiles || pending != state.pendingDeletions
+            || retired != state.retiredIDs
+        return (profiles, pending, retired, dropped, assigned, changed)
     }
 
     // MARK: File handling
