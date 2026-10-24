@@ -20,6 +20,9 @@ protocol E2ELinksApp: E2EApp {
     func helperLinkSource() throws -> (helper: String, app: String?)?
     /// The bundle identifier of this app, which links the harness sends with a sender come from.
     var appBundleID: String { get }
+    /// The status text `page`'s tab reported last through the engine (`TabEvent.statusTextChanged`): the address of
+    /// the link under the pointer, or "" when none is (or before any report).
+    func statusText(of page: any E2EPage) throws -> String
 }
 
 /// A link to deliver as a GetURL Apple Event. With `sender`, the event is sent through the system's Apple Event

@@ -19,6 +19,7 @@ enum LinksTests {
 struct LinksIntakeTest: E2EEarlyLinksTest {
     let name = "links.intake"
     let tags = ["smoke"]
+    let checks = ["links.status", "links.intake"]
 
     var earlyLinks: [E2ELink] {
         [
@@ -47,7 +48,7 @@ struct LinksIntakeTest: E2EEarlyLinksTest {
             _ = try await page.waitForLoad(after: 0)
             return page
         }
-        _ = window
+        try await checkStatusText(run, app: app, page: window)
         let kept = try await run.step("open the kept links", timeout: E2ETimeouts.step) { try app.openKeptLinks() }
         let late = try await run.step("deliver links after start", timeout: E2ETimeouts.step) {
             try app.deliverLinks(lateLinks)
@@ -91,5 +92,22 @@ struct LinksIntakeTest: E2EEarlyLinksTest {
                 "\(earlyDetail) titles=\(titles) in_space=\(opened.map(\.inSpaceOnScreen)) senders=\(senders) pids=\(opened.map { $0.senderProcessID.map(String.init) ?? "none" }) "
                     + "helper=\(helperDetail)")
         }
+    }
+
+    /// links.status: the pointer over a link makes the link's address the tab's status text, reported by the engine
+    /// through the tab's UI delegate, and leaving it makes the status empty again.
+    private func checkStatusText(_ run: E2ERun, app: any E2ELinksApp, page: any E2EPage) async throws {
+        let link = LinksTests.address("hovered")
+        let over = try await run.step("hover a link", timeout: E2ETimeouts.step) {
+            try await page.movePointer(to: "#status-link")
+            return try await E2EWaits.value({ try app.statusText(of: page) }, until: { $0 == link })
+        }
+        let left = try await run.step("leave the link", timeout: E2ETimeouts.step) {
+            try await page.movePointer(to: "h1")
+            return try await E2EWaits.value({ try app.statusText(of: page) }, until: { $0.isEmpty })
+        }
+        run.check(
+            "links.status", passed: over == link && left.isEmpty,
+            over == link && left.isEmpty ? "over=link left=empty" : "over=\"\(over)\" left=\"\(left)\"")
     }
 }
