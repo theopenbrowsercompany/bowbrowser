@@ -14,7 +14,10 @@ let package = Package(
         .package(path: "../BowCore")
     ],
     targets: [
-        .target(name: "BowWebKit", dependencies: [.product(name: "BowCore", package: "BowCore")]),
+        .target(
+            name: "BowWebKit", dependencies: [.product(name: "BowCore", package: "BowCore")],
+            // The scripts tabs add to their pages, read with Bundle.module from the Scripts subdirectory.
+            resources: [.copy("Scripts")]),
         .testTarget(
             name: "BowWebKitTests",
             dependencies: ["BowWebKit", .product(name: "BowCore", package: "BowCore")],
