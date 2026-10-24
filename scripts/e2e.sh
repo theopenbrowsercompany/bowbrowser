@@ -69,7 +69,7 @@
 # e2e.isolation or quit check, a runner without RESULT lines). FLAKY therefore never hides a check the retry did
 # not run again. A retry that cannot start (exit 64) leaves the first attempt's outcome in place.
 #
-# A crash report a Debug build's Crashpad kept (<folder>/profile/Crashpad, or already in <folder>/crash-reports) is
+# A crash report a Debug build's Crashpad kept (<folder>/profile/{new,pending,completed}, or already in <folder>/crash-reports) is
 # copied into <folder>/crash-reports/ (with their .meta files) and named by a `CRASH REPORT <path>` line printed
 # before the summary (report.txt gets it after the app's own lines), in short output too, and in results.json's
 # "crashReports" (an interrupted run has none). Nothing is uploaded, and a report never changes the outcome.
@@ -1010,7 +1010,7 @@ fi
 load_end=$(load)
 
 # Crash reports (a Debug build's Crashpad keeps them on disk, never uploads them). Each attempt's folder is looked
-# at once, after the run: reports the engine's throwaway root (<folder>/profile/Crashpad/{new,pending,completed})
+# at once, after the run: reports the engine's throwaway root (<folder>/profile/{new,pending,completed})
 # holds are copied into <folder>/crash-reports/, unless one of that name is already there (a report moves from
 # pending to completed), and every .dmp in a crash-reports folder is named by one `CRASH REPORT <path>` line in the
 # run's report.txt (short output keeps it) and in results.json's crashReports. A shard's own run leaves it to the
@@ -1022,7 +1022,7 @@ collect_crash_reports() {
   for dir in "$run" "$run"/shard-* "$run/retry"; do
     [ -d "$dir" ] || continue
     for sub in new pending completed; do
-      for src in "$dir/profile/Crashpad/$sub"/*.dmp; do
+      for src in "$dir/profile/$sub"/*.dmp; do
         [ -f "$src" ] || continue
         mkdir -p "$dir/crash-reports" || continue
         [ -e "$dir/crash-reports/$(basename "$src")" ] || cp -p "$src" "$dir/crash-reports/" 2>/dev/null

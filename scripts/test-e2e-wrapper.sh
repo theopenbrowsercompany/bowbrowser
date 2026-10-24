@@ -62,7 +62,7 @@ shardrun() {
   for t in "${tests[@]}"; do [ "$t" != a.three ] || ordered+=("$t"); done
   line() { echo "$1" | tee -a "$r"; }
   # FAKE_DUMP=1: every app leaves a Crashpad report of its own name in its folder.
-  [ "${FAKE_DUMP:-0}" != 1 ] || { mkdir -p "$out/profile/Crashpad/pending"; echo dump > "$out/profile/Crashpad/pending/s$$.dmp"; }
+  [ "${FAKE_DUMP:-0}" != 1 ] || { mkdir -p "$out/profile/pending"; echo dump > "$out/profile/pending/s$$.dmp"; }
   if [ "$first" = 1 ]; then
     for t in "${ordered[@]}"; do [ "$t" != "${FAKE_USAGE:-}" ] || { echo "bow: --e2e=$sel is not a test" >&2; exit 64; }; done
     if [ -n "${FAKE_BARRIER:-}" ]; then
@@ -162,10 +162,10 @@ case $FAKE_MODE in
   # Crashpad keeps a report (pending, then the same name in completed) and a second one in another state, and
   # another sits already in crash-reports; a retry's own crash lands in its folder.
   crashdump)
-    mkdir -p "$out/profile/Crashpad/pending" "$out/profile/Crashpad/completed" "$out/crash-reports"
-    echo dump1 > "$out/profile/Crashpad/pending/aaa.dmp"; echo dump1 > "$out/profile/Crashpad/completed/aaa.dmp"
-    echo dump2 > "$out/profile/Crashpad/completed/bbb.dmp"; echo dump3 > "$out/crash-reports/ccc.dmp"
-    echo "not a report" > "$out/profile/Crashpad/pending/note.txt"; echo meta1 > "$out/profile/Crashpad/pending/aaa.meta"
+    mkdir -p "$out/profile/pending" "$out/profile/completed" "$out/crash-reports"
+    echo dump1 > "$out/profile/pending/aaa.dmp"; echo dump1 > "$out/profile/completed/aaa.dmp"
+    echo dump2 > "$out/profile/completed/bbb.dmp"; echo dump3 > "$out/crash-reports/ccc.dmp"
+    echo "not a report" > "$out/profile/pending/note.txt"; echo meta1 > "$out/profile/pending/aaa.meta"
     case $out in
       */retry) { echo "PASS a.one: ok"; echo "E2E: PASS 1/1"; } > "$r"; exit 0 ;;
       *) { echo "FAIL a.one: slow"; echo "E2E: FAIL 0/1"; } > "$r"; exit 1 ;;
