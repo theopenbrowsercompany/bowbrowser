@@ -135,9 +135,11 @@ final class E2EAppAdapter {
         testControllers.append(controller)
     }
 
+    /// A test's profile is not in the registry, so it gets a storage UUID of its own each time.
     private func createProfile(id: String, isPersistent: Bool) throws -> any EngineProfile {
         do {
-            return try delegate.engine.createProfile(id: ProfileID(id), isPersistent: isPersistent)
+            return try delegate.engine.createProfile(
+                ProfileRef(engineID: ProfileID(id), storeID: UUID(), isPersistent: isPersistent))
         } catch EngineError.profileExists(let existing) {
             throw E2EError("the profile ID \(id) is taken by \(existing.rawValue)", reason: .profileTaken)
         } catch {

@@ -18,9 +18,11 @@ final class CEFEngine: BrowserEngine {
 
     private var bridge: BowEngine { .shared }
 
-    func createProfile(id: ProfileID, isPersistent: Bool) throws -> any EngineProfile {
+    /// Chromium names a profile's storage by folder (the engine ID), so the ref's storage UUID goes unused here.
+    func createProfile(_ ref: ProfileRef) throws -> any EngineProfile {
+        let id = ref.engineID
         do {
-            return adapter(for: try bridge.createProfile(id: id.rawValue, persistent: isPersistent))
+            return adapter(for: try bridge.createProfile(id: id.rawValue, persistent: ref.isPersistent))
         } catch let error as BowEngineError {
             switch error.code {
             case .profileExists: throw EngineError.profileExists(id)

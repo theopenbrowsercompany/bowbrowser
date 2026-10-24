@@ -69,7 +69,7 @@ final class ProfileRegistryStore: AppFeature {
             return nil
         }
         do {
-            return try engine.createProfile(id: record.engineID, isPersistent: record.isPersistent)
+            return try engine.createProfile(record.ref)
         } catch {
             setupFailed(record, "\(error)")
             return nil
