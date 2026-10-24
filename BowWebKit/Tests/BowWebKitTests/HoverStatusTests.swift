@@ -12,6 +12,11 @@ import WebKit
         TestHost.start()
     }
 
+    /// The copies of the hover script on `content` (other areas add scripts of their own).
+    private func hoverScripts(_ content: WKUserContentController) -> Int {
+        content.userScripts.filter { $0.source == WebKitTab.hoverScript }.count
+    }
+
     private func statusTexts(_ delegate: RecordingTabDelegate) -> [String] {
         delegate.events.compactMap { if case .statusTextChanged(let text) = $0 { text } else { nil } }
     }
@@ -80,7 +85,7 @@ import WebKit
         tab.releaseWebView()
         tab.install(WebKitWebView(frame: .zero, configuration: shared))
         #expect(tab.webView?.configuration.userContentController === content)
-        #expect(content.userScripts.count == 1, "scripts on the shared controller: \(content.userScripts.count)")
+        #expect(hoverScripts(content) == 1, "hover scripts on the shared controller: \(hoverScripts(content))")
     }
 
     /// The walk itself, holding the web view only while it runs, so `finish()` can check it is released.
@@ -120,10 +125,10 @@ import WebKit
             // WebKit really calls the private callback (moves it coalesces under load share one call), and the tab
             // added no script.
             #expect(tab.hover.callbackCount >= expected.count, "hover callbacks: \(tab.hover.callbackCount)")
-            #expect(webView.configuration.userContentController.userScripts.isEmpty)
+            #expect(hoverScripts(webView.configuration.userContentController) == 0)
         case .script:
             #expect(tab.hover.callbackCount == 0)
-            #expect(webView.configuration.userContentController.userScripts.count == 1)
+            #expect(hoverScripts(webView.configuration.userContentController) == 1)
             // Neither the page nor another world sees the script's message handler.
             let pageSees = try await webView.evaluateJavaScript(
                 "typeof window.webkit?.messageHandlers?.bowHoverStatus")

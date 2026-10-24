@@ -10,7 +10,9 @@ import WebKit
 final class WebKitTab: SPIDelegateBase, EngineTab, WKNavigationDelegate, WKUIDelegate {
     /// The private delegate callbacks a tab answers, chosen before its web view takes it as a delegate (see
     /// `SPIDelegateBase`).
-    static let privateCallbacks: Set<WebKitSPI.Callback> = [.mouseDidMoveOverElement, .processTerminated]
+    static let privateCallbacks: Set<WebKitSPI.Callback> = [
+        .mouseDidMoveOverElement, .processTerminated, .getContextMenu,
+    ]
 
     /// Tab IDs are unique for the life of the process, so for the life of any engine in it.
     private static var lastTabID: UInt64 = 0
@@ -73,6 +75,7 @@ final class WebKitTab: SPIDelegateBase, EngineTab, WKNavigationDelegate, WKUIDel
         observeState(of: webView)
         observeHover(of: webView)
         observeProcessGone()
+        observeContextMenu(of: webView)
         committedURL = webView.url
         refreshState()
     }
