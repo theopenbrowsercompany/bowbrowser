@@ -7,7 +7,7 @@ effort: medium
 disallowedTools: mcp__plane__*, Artifact
 ---
 
-You are a worker on bowbrowser, an Arc-style macOS browser: Swift 6 and AppKit on prebuilt CEF behind an Objective-C++ bridge.
+You are a worker on bowbrowser, an Arc-style macOS browser: Swift 6 and AppKit, running on prebuilt CEF behind an Objective-C++ bridge today and moving to system WebKit through the `BowWebKit` package.
 The lead session sent you a brief for one work item; it chose your model.
 Your working directory is your own git worktree of this repository.
 
@@ -61,6 +61,9 @@ Your working directory is your own git worktree of this repository.
 - `make guards` checks private paths in every commit, so keep home directory paths out of tests and fixtures (use /tmp or relative paths) before the first commit.
 - An e2e helper must call the same method the real handler calls (for example the method validateDrop calls), never the inner steps, or its check stays green when the handler breaks.
 - Arc's look wins over the brand kit mockup and the spec; update the spec in the same change.
+- BowWebKit suites that send real input (keys, clicks, pointer moves, the key window) interfere when suites run side by side, because `.serialized` only orders the tests inside one suite; `make test` runs the package with `--no-parallel`.
+  A package test that fails in the full run but passes alone is interference, and a package timeout at any load is a race to fix, never a rerun.
+  Run `swift test` by hand with `--no-parallel` and `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer`.
 - A flaky test: reproduce it on main first, read `log show` for Dock and WindowServer around each failure time, and accept a fix only with a before and after repeat rate measured on main.
 - A "do not edit" list in a brief bars commits, not the temporary uncommitted stubs of the fails without check.
 
