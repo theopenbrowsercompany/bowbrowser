@@ -555,7 +555,13 @@ struct UnloadPlaceholderTest: E2ETest {
         defer { app.resetUnloader() }
         let page = try await UnloadTests.openWindow(run, "home")
         let (held, key) = try await run.step("open the held page", timeout: E2ETimeouts.firstLoad) {
-            let held = try run.app.openTab(at: E2EFixture.url("unload/held.html"), besides: page, select: false)
+            let url = E2EFixture.url("unload/held.html")
+            let held = try run.app.openTab(at: url, besides: page, select: false)
+            // The new tab starts on a blank document whose context ends when held.html commits, so a page wait sent
+            // before the commit can run in the blank document and fail with "Execution context was destroyed". The
+            // load itself is held until the test releases it, so wait for the tab's own commit, not its load.
+            guard try await E2EWaits.until({ held.navigationEvents.contains { $0.kind == .commit && $0.url == url } })
+            else { throw E2EError("held.html never committed; events=\(held.navigationEvents)") }
             _ = try await E2EWaits.until(held, "typeof window.heldKey === 'string'")
             let key = try await held.string("window.heldKey")
             E2EFixture.releaseHeld(key)
@@ -608,6 +614,7 @@ struct UnloadPlaceholderTest: E2ETest {
             passed: unloaded == 1 && card.0.title == "Unload held" && card.1.isShown && shownAt >= 0
                 && hiddenAt > shownAt && afterState.isShown && afterState.isLoaded,
             "unloaded=\(unloaded) card=\"\(card.0.title)\" page=\(afterState.isShown ? "shown" : "hidden")"
-                + " order=\(shownAt >= 0 && hiddenAt > shownAt ? "card,page" : after.log.joined(separator: ","))")
+                + " order=\(shownAt >= 0 && hiddenAt > shownAt ? "card,page" : after.log.joined(separator: ","))"
+                + " events=\(held.navigationEvents.map(\.description).joined(separator: ","))")
     }
 }
