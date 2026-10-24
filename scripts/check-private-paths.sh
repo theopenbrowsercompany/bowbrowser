@@ -6,7 +6,7 @@
 #
 # The patterns and the excluded paths are read from .githooks/pre-push (content_pattern, file_pattern and its
 # ':(exclude)' pathspecs), never copied here. The lines checked are those the branch adds against where it left
-# origin/main (the merge base): committed, staged, unstaged and untracked changes. With no origin/main ref (or no
+# the base (scripts/base-ref.sh; the merge base): committed, staged, unstaged and untracked changes. With no base ref (or no
 # merge base) it checks the working tree changes against HEAD only. PRIVATE_PATHS_BASE=<ref> compares with another
 # ref than origin/main (the self test, scripts/test-check-private-paths.sh, uses it).
 # It also checks each commit in <merge base>..HEAD on its own, as the hook does, and names the commit (short hash and
@@ -28,7 +28,7 @@ while IFS= read -r spec; do
   [ -n "$spec" ] && excludes+=("$spec")
 done < <(grep -o "':(exclude)[^']*'" "$hook" | tr -d "'")
 
-base=${PRIVATE_PATHS_BASE:-origin/main}
+base=${PRIVATE_PATHS_BASE:-$(scripts/base-ref.sh 2> /dev/null || echo origin/main)}
 from=HEAD
 if git rev-parse -q --verify "$base^{commit}" > /dev/null 2>&1; then
   from=$(git merge-base "$base" HEAD 2> /dev/null) || from=HEAD

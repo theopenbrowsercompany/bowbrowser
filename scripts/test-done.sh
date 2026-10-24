@@ -6,7 +6,7 @@
 # change, skipped otherwise, failing the run when it fails). Takes a few seconds and runs no build or app.
 set -u
 # The settings done.sh and e2e-affected.sh read come from each case alone, never from the caller's environment.
-unset DONE_BASE DONE_FETCH CHECK_BASE
+unset DONE_BASE DONE_FETCH CHECK_BASE VERIFY_BASE PRIVATE_PATHS_BASE BOW_BASE
 cd "$(dirname "$0")/.." || exit 1
 
 tmp=$(mktemp -d)
@@ -68,6 +68,7 @@ case "$*" in
     echo "ran: bootstrap" >> "$FAKE_LOG"
     ;;
   *verify*)
+    echo "bases: verify VERIFY_BASE=${VERIFY_BASE:-} PRIVATE_PATHS_BASE=${PRIVATE_PATHS_BASE:-} CHECK_BASE=${CHECK_BASE:-}" >> "$FAKE_LOG"
     echo "verify: lint ok 1s"
     if [ "${FAKE_VERIFY:-0}" = 0 ]; then echo "verify: PASS 4 parts in 1s"; else
       echo "verify: FAIL lint (1s)"
@@ -777,6 +778,51 @@ out=$(run 0 0)
 check "no record runs the full e2e" "1" "$(full_ran)"
 has "a run without a record says plain ok" "$out" "make e2e: ok"
 rm -rf "$repo/build/e2e/20260101-9"
+
+# A branch off origin/webkit (scripts/base-ref.sh): done compares, repeats and checks against origin/webkit, not main.
+# origin/webkit has a test file of its own (w.one) and changes b; origin/main then moves on and changes b too, which
+# would conflict with the webkit branch if main were the base. The slice adds y.one only.
+cp scripts/base-ref.sh "$repo/scripts/"
+g checkout -q -f "$head_two"
+g update-ref refs/remotes/origin/main HEAD
+g checkout -q -b webkit-line
+mkdir -p "$repo/E2E/Tests"
+echo webkit > "$repo/b"
+printf 'let name = "w.one"\n' > "$repo/E2E/Tests/W.swift"
+g add -A
+g commit -qm "webkit work"
+g update-ref refs/remotes/origin/webkit HEAD
+g checkout -q -b main-moves "$head_two"
+echo main > "$repo/b"
+g commit -qam "main changes b"
+g update-ref refs/remotes/origin/main HEAD
+g checkout -q -b webkit-slice webkit-line
+printf 'let name = "y.one"\n' > "$repo/E2E/Tests/Y.swift"
+g add -A
+g commit -qm "a slice"
+out=$(run 0 0)
+has "off webkit, the first line names the base" "$(echo "$out" | head -1)" "done: base origin/webkit (scripts/base-ref.sh)"
+has "off webkit, a main that conflicts is no reason to refuse" "$out" "done: PASS"
+check "off webkit, no behind warning for main's commits" "" "$(echo "$out" | grep 'behind')"
+has "off webkit, the diff stat is against origin/webkit" "$out" "git diff origin/webkit --stat:"
+has "off webkit, the diff stat has the slice's file" "$out" "E2E/Tests/Y.swift"
+check "off webkit, the diff stat leaves out webkit's own files" "" "$(echo "$out" | grep 'W.swift')"
+has "off webkit, only the slice's tests repeat" "$out" "20 repeats in 3 shards of y.one)"
+has "off webkit, the release build follows the slice's changes" "$out" "make release: ok (E2E/Tests/Y.swift)"
+has "off webkit, verify and guards read the webkit base" "$(cat "$tmp/log")" "bases: verify VERIFY_BASE=origin/webkit PRIVATE_PATHS_BASE=origin/webkit CHECK_BASE=origin/webkit"
+g checkout -q webkit-line
+out=$(run 0 0)
+has "the webkit branch itself is based on origin/webkit" "$out" "done: base origin/webkit (scripts/base-ref.sh)"
+g checkout -q webkit-slice
+out=$(DONE_BASE=origin/main run 0 0)
+has "DONE_BASE still wins over base-ref.sh" "$out" "done: this branch conflicts with origin/main in:"
+out=$(BOW_BASE=origin/main run 0 0)
+has "BOW_BASE makes done use that base" "$out" "done: this branch conflicts with origin/main in:"
+g checkout -q -f "$head_two"
+g update-ref refs/remotes/origin/main HEAD
+g update-ref -d refs/remotes/origin/webkit
+out=$(run 0 0)
+has "with no origin/webkit the base is origin/main" "$out" "done: base origin/main (scripts/base-ref.sh)"
 
 if [ "$failed" = 0 ]; then echo "done self test: ok"; else
   echo "done self test: FAIL"

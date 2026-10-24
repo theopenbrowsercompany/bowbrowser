@@ -22,7 +22,7 @@
 # line at or after its date; tree "unknown", a build with no stamp, never matches). FILING says FILE when a test has 2 or more events in the window: the lead files a flake
 # item for it (E2E/README.md, Flake history). Most events first, then most failures, then newest failure, then name.
 # ON MAIN counts the FLAKY, FAIL and TIMEOUT lines whose tree (the part of the ledger's tree before a dash) equals the
-# tree of a commit on origin/main (git log --format=%T origin/main; --main-trees FILE reads one tree per line instead,
+# tree of a commit on the base (scripts/base-ref.sh; origin/main unless the branch is a webkit slice) (git log --format=%T origin/main; --main-trees FILE reads one tree per line instead,
 # which the self test uses): such a failure happened on main's own code, whatever branch ran it. Under each FILE test
 # the output adds one "  <outcome> <date> <branch> tree <8 hex>" line per failure line (ending in " ON MAIN" when it
 # is), then "  window <first> to <last>: <branch> n/N runs, ..." with each branch's share of the test's runs (every
@@ -231,7 +231,9 @@ case $mode in
     if [ -n "${main_trees_file:-}" ]; then
       main_trees=$(cat "$main_trees_file" 2> /dev/null) || { echo "e2e-flakes: cannot read $main_trees_file" >&2; exit 1; }
     else
-      main_trees=$(git -C "$repo" log --format=%T origin/main 2> /dev/null) || main_trees=""
+      # The trees of the base (scripts/base-ref.sh: origin/main, or origin/webkit for a webkit slice).
+      flakes_base=$(cd "$repo" && scripts/base-ref.sh 2> /dev/null) || flakes_base=origin/main
+      main_trees=$(git -C "$repo" log --format=%T "$flakes_base" 2> /dev/null) || main_trees=""
     fi
     FLAKES_MAIN_TREES=$main_trees FLAKES_DAYS=$days FLAKES_LEDGER=$ledger perl -MJSON::PP -e "$prog" ledger
     code=$?

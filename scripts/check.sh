@@ -2,8 +2,9 @@
 # make check: the quick check while building and fixing, running only what the change touches. It never replaces
 # make verify and the full make e2e, which run once at the end and again when the branch lands.
 #
-# The changed files are those scripts/e2e-affected.sh lists (against the merge base with origin/main, committed or
-# not; CHECK_BASE=<ref> compares with another ref). The parts run one after another:
+# The changed files are those scripts/e2e-affected.sh lists (against the merge base with the base, committed or
+# not: origin/main, or origin/webkit for a webkit slice, see scripts/base-ref.sh; CHECK_BASE=<ref> compares with another
+# ref). The first line names the base. The parts run one after another:
 #   lint    swift format --in-place on exactly the changed Swift files under App/UI, E2E, BowCore and BowWebKit (a
 #           line says which it rewrote), then swift format lint --strict on them (skip when none; lint only, on
 #           every file, when the changes cannot be listed: nothing is formatted then);
@@ -24,6 +25,11 @@ set -u
 cd "$(dirname "$0")/.." || exit 1
 
 start=$SECONDS
+# The base this branch is checked against (scripts/base-ref.sh): the first line, and the same base for every part
+# (e2e-affected.sh, guards and the rest read these variables, each already overridable).
+base=${CHECK_BASE:-$(scripts/base-ref.sh 2> /dev/null || echo origin/main)}
+echo "check: base $base (scripts/base-ref.sh)"
+export CHECK_BASE=$base VERIFY_BASE=${VERIFY_BASE:-$base} PRIVATE_PATHS_BASE=${PRIVATE_PATHS_BASE:-$base}
 ran=() failed=()
 # The record of a full e2e pass (4 lines: tree key, selection, summary line, run folder) for scripts/done.sh to reuse.
 # Every check run drops the previous one first, so a partial, failed, flaky or interrupted run leaves none.
