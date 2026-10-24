@@ -475,6 +475,8 @@ final class E2ETabPage: E2EPage {
     private(set) var leavePrompts = 0
     /// The last find result the tab reported.
     private(set) var lastFindResult: E2EFindResult?
+    /// The status text the tab reported last (the link under the pointer), "" before any.
+    private(set) var statusText = ""
 
     /// Counts a leave prompt the page's tab asked and returns its answer.
     func answerLeavePrompt() -> Bool {
@@ -542,6 +544,8 @@ final class E2ETabPage: E2EPage {
         case .findResult(let result):
             lastFindResult = E2EFindResult(
                 matches: result.matchCount, active: result.activeMatch, isFinal: result.isFinal)
+        case .statusTextChanged(let text):
+            statusText = text
         case .closed:
             // Let go of a tab that closes during the run. At quit this comes too late (it runs after the engine
             // may have shut down), so quit() also drops every page, and with it the session, before quitting.

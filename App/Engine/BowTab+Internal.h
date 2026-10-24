@@ -95,6 +95,8 @@ class BowTabClient;
   // The frames reporting sound now, and those whose form the person edited, by the engine's frame identifier.
   NSMutableSet<NSString*>* _audibleFrames;
   NSMutableSet<NSString*>* _editedFrames;
+  // The status text last reported to the UI delegate (the link under the pointer); nil until the first one.
+  NSString* _statusText;
 }
 /// A tab whose browser is created next with its client: by `initWithProfile:url:`, or by CEF for a popup the app
 /// takes as a tab, in the opener's profile. The engine keeps it alive from now on; its browser arrives in
@@ -146,6 +148,9 @@ class BowTabClient;
 - (void)failNavigation:(NSInteger)errorCode text:(NSString*)errorText;
 - (void)loadingStopped;
 - (void)fullscreenChanged:(BOOL)isFullscreen;
+/// The page's status text is now `text` (empty once the pointer left every link); tells the UI delegate when it
+/// changed and the tab is open.
+- (void)statusTextChanged:(NSString*)text;
 /// YES when the UI delegate takes the request `selector` asks for, so the engine's default must not run. Asked
 /// before building the request, so requests nobody takes cost nothing.
 - (BOOL)takesUIRequest:(SEL)selector;
@@ -276,6 +281,7 @@ class BowTabClient : public CefClient,
   void OnTitleChange(CefRefPtr<CefBrowser> browser, const CefString& title) override;
   void OnAddressChange(CefRefPtr<CefBrowser> browser, CefRefPtr<CefFrame> frame, const CefString& url) override;
   void OnFaviconURLChange(CefRefPtr<CefBrowser> browser, const std::vector<CefString>& iconURLs) override;
+  void OnStatusMessage(CefRefPtr<CefBrowser> browser, const CefString& value) override;
   void OnFullscreenModeChange(CefRefPtr<CefBrowser> browser, bool fullscreen) override;
   void OnMediaAccessChange(CefRefPtr<CefBrowser> browser, bool hasVideoAccess, bool hasAudioAccess) override;
 

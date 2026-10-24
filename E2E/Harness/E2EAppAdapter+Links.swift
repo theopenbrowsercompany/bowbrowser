@@ -100,6 +100,11 @@ extension E2ETestApp: E2ELinksApp {
 
     var appBundleID: String { Bundle.main.bundleIdentifier ?? "" }
 
+    func statusText(of page: any E2EPage) throws -> String {
+        guard let page = page as? E2ETabPage else { throw E2EError("the page is not a tab") }
+        return page.statusText
+    }
+
     func openKeptLinks() throws -> [E2EOpenedLink] {
         try adapter.requireActive(token, "open the kept links")
         let delegate = adapter.delegate

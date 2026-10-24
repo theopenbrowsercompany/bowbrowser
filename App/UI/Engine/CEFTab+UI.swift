@@ -1,7 +1,8 @@
 import AppKit
 import BowCore
 
-// The bridge tab's UI delegate calls: state, close, popups, fullscreen, render process exits, find and permissions.
+// The bridge tab's UI delegate calls: state, close, popups, fullscreen, render process exits, find, status text and
+// permissions.
 
 extension CEFTab: BowTabUIDelegate {
     func tab(_ tab: BowTab, didChangeState state: BowTabState) {
@@ -33,6 +34,10 @@ extension CEFTab: BowTabUIDelegate {
             .findResult(
                 FindResult(
                     matchCount: result.matchCount, activeMatch: result.activeMatch, isFinal: result.isFinalUpdate)))
+    }
+
+    func tab(_ tab: BowTab, statusTextChanged text: String) {
+        send(.statusTextChanged(text))
     }
 
     func tab(

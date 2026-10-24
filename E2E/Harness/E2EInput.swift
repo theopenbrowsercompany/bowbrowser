@@ -161,6 +161,34 @@ extension E2EPage {
         }
     }
 
+    /// Moves the pointer, with no button held, to the center of the first element matching `selector`, scrolling it
+    /// into view first, as a person hovering it does. Confirmed like a press: a `mousemove` listener records that
+    /// the move reached the page, and a move the page never saw is sent again, a short moment later, until it lands
+    /// or the step's wait budget runs out (each resend logged to stderr). A move into a frame is sent once. Throws as
+    /// `pressTarget(_:verb:)` does.
+    func movePointer(to selector: String) async throws {
+        let target = try await pressTarget(selector, verb: "move the pointer to")
+        let arm = Self.armPressRecord(arriving: ["mousemove"])
+        let deadline = Date().addingTimeInterval(E2EWaits.budget())
+        var resends = 0
+        while true {
+            if target.confirms { _ = try await evaluate(arm) }
+            _ = try await devTools(
+                "Input.dispatchMouseEvent",
+                ["type": "mouseMoved", "x": target.x, "y": target.y, "button": "none", "buttons": 0]
+            )
+            guard target.confirms, try await evaluate("window.\(Self.pressRecord)?.arrived") as? Bool == false
+            else { return }
+            resends += 1
+            let note = "E2E \(target.verb) \(selector): the page missed the move, resend \(resends)\n"
+            FileHandle.standardError.write(Data(note.utf8))
+            guard Date() < deadline else {
+                throw E2EError("cannot \(target.verb) \(selector): the page missed the move \(resends) times")
+            }
+            try await Task.sleep(nanoseconds: 50_000_000)
+        }
+    }
+
     /// The page global in which `confirmedPress` records whether the press and the event it waits for reached the
     /// page.
     private static var pressRecord: String { "__bowE2EPress" }

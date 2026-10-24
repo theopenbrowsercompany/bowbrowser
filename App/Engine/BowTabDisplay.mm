@@ -1,4 +1,4 @@
-// The tab's CefDisplayHandler: title, address, favicon, fullscreen and camera and microphone use.
+// The tab's CefDisplayHandler: title, address, favicon, status text, fullscreen and camera and microphone use.
 #import "BowTab+Internal.h"
 
 void BowTabClient::OnTitleChange(CefRefPtr<CefBrowser> browser, const CefString& title) {
@@ -32,6 +32,11 @@ void BowTabClient::OnFullscreenModeChange(CefRefPtr<CefBrowser> browser, bool fu
   [tab_ fullscreenChanged:fullscreen];
 }
 
+void BowTabClient::OnStatusMessage(CefRefPtr<CefBrowser> browser, const CefString& value) {
+  if (!IsOwn(browser)) return;
+  [tab_ statusTextChanged:BowToNSString(value)];
+}
+
 void BowTabClient::OnMediaAccessChange(CefRefPtr<CefBrowser> browser, bool hasVideoAccess, bool hasAudioAccess) {
   if (!IsOwn(browser)) return;
   [tab_ mediaCaptureChangedVideo:hasVideoAccess audio:hasAudioAccess];
@@ -43,6 +48,16 @@ void BowTabClient::OnMediaAccessChange(CefRefPtr<CefBrowser> browser, bool hasVi
   id<BowTabUIDelegate> delegate = self.uiDelegate;
   if ([delegate respondsToSelector:@selector(tab:fullscreenDidChange:)]) {
     [delegate tab:self fullscreenDidChange:isFullscreen];
+  }
+}
+
+- (void)statusTextChanged:(NSString*)text {
+  // Only a change reaches the delegate; the text starts empty.
+  if (self.closed || [(_statusText ?: @"") isEqualToString:text]) return;
+  _statusText = [text copy];
+  id<BowTabUIDelegate> delegate = self.uiDelegate;
+  if ([delegate respondsToSelector:@selector(tab:statusTextDidChange:)]) {
+    [delegate tab:self statusTextDidChange:_statusText];
   }
 }
 
