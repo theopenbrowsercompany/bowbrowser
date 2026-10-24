@@ -29,12 +29,54 @@ import WebKit
         delegate.events.compactMap { if case .findResult(let r) = $0 { r } else { nil } }
     }
 
-    /// Loads `path` in `tab` and waits until its main frame finished, which waits for its frames too.
-    private func load(_ path: String, in tab: WebKitTab, _ rig: TabRig) async throws {
+    /// Hears every frame's document end, from the test world, so a test waits for a frame by its address: the main
+    /// frame's finish can come before a cross origin frame's document is in.
+    final class FrameWatcher: NSObject, WKScriptMessageHandler {
+        static let name = "bowFindFrameLoaded"
+        var urls: [String] = []
+
+        nonisolated func userContentController(
+            _ controller: WKUserContentController, didReceive message: WKScriptMessage
+        ) {
+            MainActor.assumeIsolated {
+                if let url = message.body as? String { urls.append(url) }
+            }
+        }
+
+        /// Starts hearing `tab`'s frames, from its next load on.
+        static func watching(_ tab: WebKitTab) throws -> FrameWatcher {
+            let watcher = FrameWatcher()
+            let controller = try #require(tab.webView).configuration.userContentController
+            controller.addUserScript(
+                WKUserScript(
+                    source: "window.webkit.messageHandlers.\(name).postMessage(location.href);",
+                    injectionTime: .atDocumentEnd, forMainFrameOnly: false, in: PageDriver.world))
+            controller.add(watcher, contentWorld: PageDriver.world, name: name)
+            return watcher
+        }
+    }
+
+    /// The frame each fixture holds, on the server's main origin or its other one.
+    private func frameURL(of name: String, _ rig: TabRig) -> String? {
+        switch name {
+        case "iframe-same.html": rig.server.base + "/find/frame.html"
+        case "iframe-cross.html": rig.server.otherBase + "/find/frame.html"
+        default: nil
+        }
+    }
+
+    /// Loads `path` in `tab` and waits until its main frame finished and the document of its frame (if any) is in.
+    private func load(_ path: String, in tab: WebKitTab, _ rig: TabRig, _ watcher: FrameWatcher) async throws {
         let url = rig.url(path)
         rig.delegate.reset()
+        watcher.urls = []
         tab.load(url)
         try await rig.waitFor("finish \(url)")
+        let name = String(path.split(separator: "/").last ?? "")
+        let frame = frameURL(of: name, rig)
+        try await waitUntil("the documents of \(path); saw \(watcher.urls)", timeout: 10) {
+            watcher.urls.contains(url.absoluteString) && (frame.map(watcher.urls.contains) ?? true)
+        }
     }
 
     /// Waits for the first find result after `index` results and returns it.
@@ -50,9 +92,10 @@ import WebKit
         let rig = try TabRig()
         let tab = rig.tab("/navigation/start.html")
         try await rig.waitFor("finish \(rig.url("/navigation/start.html"))")
+        let watcher = try FrameWatcher.watching(tab)
         for name in Self.fixtures {
             let want = try #require(expected.counts[name])
-            try await load("/find/\(name)", in: tab, rig)
+            try await load("/find/\(name)", in: tab, rig, watcher)
             tab.find(expected.query, forward: true, matchCase: false)
             let first = try await nextResult(after: 0, rig, "\(name) count")
             #expect(first == FindResult(matchCount: want, activeMatch: 1, isFinal: true), "\(name)")
@@ -131,7 +174,7 @@ import WebKit
         tab.find("quokka", forward: true, matchCase: false)
         #expect(results(rig.delegate).last?.activeMatch == 2)
 
-        try await load("/find/iframe-same.html", in: tab, rig)
+        try await load("/find/iframe-same.html", in: tab, rig, try FrameWatcher.watching(tab))
         tab.find("quokka", forward: true, matchCase: false)
         #expect(
             try await nextResult(after: 0, rig, "iframe-same")
