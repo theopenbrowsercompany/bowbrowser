@@ -15,7 +15,14 @@ symbols_only=no
 [ "${1:-}" = "--symbols" ] && symbols_only=yes
 
 swift_files=$(find E2E -name '*.swift' | sort)
-headers="$(find E2E -name '*.h' | sort) App/Engine/BowE2EHooks.h"
+hooks=App/Engine/BowE2EHooks.h
+headers=$(find E2E -name '*.h' | sort)
+# The seam header goes away with the CEF bridge: without it there are no hooks to list, and the note names it.
+if [ -f "$hooks" ]; then
+  headers="$headers $hooks"
+else
+  echo "e2e-names: no seam header $hooks, listing nothing for it" >&2
+fi
 
 # Strips attributes and modifiers, then prints "<keyword> <name>" for a declaration line, or nothing.
 declaration='
@@ -60,7 +67,8 @@ types=$(awk "$declaration"'
   ' $swift_files
   # Headers: classes and protocols, then C functions and extern constants outside @interface blocks.
   # Comment lines are skipped so names mentioned in documentation do not count.
-  awk '
+  # No header at all: awk would wait on stdin.
+  [ -z "$headers" ] || awk '
     /^[[:space:]]*\/\// { next }
     /^@(interface|protocol)[[:space:]]/ { split($0, p, /[^A-Za-z0-9_@]+/); print p[2]; inside = ($0 !~ /;[[:space:]]*$/); next }
     /^@end/ { inside = 0; next }
@@ -71,5 +79,5 @@ types=$(awk "$declaration"'
       line = $0; sub(/\(.*/, "", line); n = split(line, p, /[^A-Za-z0-9_]+/); print p[n]
     }
   ' $headers
-  echo BowE2EHooks
+  [ ! -f "$hooks" ] || echo BowE2EHooks
 } | grep -v '^$' | grep -vE '^[A-Z0-9_]+$' | sort -u

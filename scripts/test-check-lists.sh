@@ -78,4 +78,19 @@ fixture '        Rea.self,
 ' ''
 check "a name that is only a prefix of a declared type fails" 1 "$(run)"
 
+fixture '        SpacesAreaTests.self,
+' ''
+check "the ok line names the bridging header when it exists" "yes" "$(run > /dev/null; grep -qF 'Swift lists, the bridging header, e2e' "$tmp/out" && echo yes)"
+printf '#import "A.h"\n#import "A.h"\n' > "$tmp/t/App/Engine/Bow-Bridging-Header.h"
+check "a duplicate import in an existing bridging header still fails" 1 "$(run)"
+printf '#import <A.h>\n' > "$tmp/t/App/Engine/Bow-Bridging-Header.h"
+check "a malformed import in an existing bridging header still fails" 1 "$(run)"
+
+fixture '        SpacesAreaTests.self,
+' ''
+rm "$tmp/t/App/Engine/Bow-Bridging-Header.h"
+check "a missing bridging header passes" 0 "$(run)"
+check "the ok line names the missing bridging header" "yes" \
+  "$(grep -qF 'lists: ok (7 Swift lists, no bridging header App/Engine/Bow-Bridging-Header.h, e2e test names)' "$tmp/out" && echo yes)"
+
 [ "$failed" -eq 0 ] && echo "test-check-lists: ok" || { echo "test-check-lists: FAIL"; exit 1; }
