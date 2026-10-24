@@ -159,7 +159,8 @@ import WebKit
             delegate.waiting == 1 && delegate.personAsks.count == 1
         }
 
-        // The page is released while its request still waits, and the late answer grants nothing to anyone.
+        // The page is released while its request still waits, and the late answer finds no page to reach (WebKit
+        // would raise were its handler called twice or never). What the handler then gets is not observable here.
         try await close(tab)
         #expect(delegate.waiting == 1)
         delegate.answerWaiting(.allow)
