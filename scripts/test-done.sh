@@ -31,6 +31,16 @@ cp scripts/done.sh scripts/e2e-affected.sh "$repo/scripts/"
 cat > "$tmp/bin/make" << 'EOF'
 #!/bin/bash
 case "$*" in
+  *lint*)
+    echo "ran: lint" >> "$FAKE_LOG"
+    [ "${FAKE_LINT:-0}" = 0 ] || exit 2
+    ;;
+  *guards*)
+    echo "ran: guards" >> "$FAKE_LOG"
+    ;;
+  *bootstrap*)
+    echo "ran: bootstrap" >> "$FAKE_LOG"
+    ;;
   *verify*)
     echo "verify: lint ok 1s"
     if [ "${FAKE_VERIFY:-0}" = 0 ]; then echo "verify: PASS 4 parts in 1s"; else
@@ -329,6 +339,53 @@ echo x > "$repo/BowCore/Tests/T.swift"
 out=$(run 0 0)
 has "a BowCore test change alone skips the release build" "$out" "make release: skip"
 rm -rf "$repo/BowCore"
+
+# Docs only: a branch that changes only *.md files and spec/ runs lint and guards, and no bootstrap, verify, e2e,
+# release build or repeat; anything else keeps the full run.
+g checkout -q -f "$head_two"
+g update-ref refs/remotes/origin/main HEAD
+mkdir -p "$repo/spec/area" "$repo/docs"
+echo x > "$repo/spec/area/spec.txt"
+echo x > "$repo/docs/note.md"
+g add -A
+g commit -qm "docs"
+rmdir "$repo/Vendor/cef"
+rmdir "$repo/Vendor"
+out=$(run 0 0)
+log=$(cat "$tmp/log")
+has "docs only: the block says so" "$out" "docs only: the branch changes only *.md files and spec/"
+has "docs only: lint ran" "$out" "make lint: ok"
+has "docs only: guards ran" "$out" "make guards: ok"
+check "docs only: only lint and guards ran" "ran: lint|ran: guards" "$(echo "$log" | paste -sd'|' -)"
+has "docs only: bootstrap says skip" "$out" "bootstrap: skip (docs only)"
+has "docs only: verify says skip" "$out" "make verify: skip (docs only)"
+has "docs only: e2e says skip" "$out" "make e2e: skip (docs only)"
+has "docs only: release says skip" "$out" "make release: skip (docs only)"
+has "docs only: repeat says skip" "$out" "changed tests, repeated: skip (docs only)"
+has "docs only: passes" "$out" "done: PASS"
+has "docs only: exits 0" "$out" "exit=0"
+out=$(FAKE_LINT=1 run 0 0)
+has "docs only: a failing lint fails the run" "$out" "make lint: FAIL (exit 2)"
+has "docs only: a failing lint exits 1" "$out" "exit=1"
+has "docs only: a failing lint still runs guards" "$(cat "$tmp/log")" "ran: guards"
+mkdir -p "$repo/Vendor/cef"
+echo x > "$repo/README.md"
+out=$(run 0 0)
+has "docs only: an uncommitted *.md file is docs too" "$out" "make e2e: skip (docs only)"
+echo x > "$repo/scripts/tool.sh" 2> /dev/null
+out=$(run 0 0)
+has "an uncommitted script change keeps the full run" "$out" "make e2e: ok"
+has "an uncommitted script change runs verify" "$out" "make verify: ok"
+check "an uncommitted script change is not docs only" "" "$(echo "$out" | grep '^docs only:')"
+rm -f "$repo/scripts/tool.sh" "$repo/README.md"
+mkdir -p "$repo/E2E/Fixtures/app"
+echo x > "$repo/E2E/Fixtures/app/page.html"
+out=$(run 0 0)
+has "a fixture change next to docs keeps the full run" "$out" "make e2e: ok"
+rm -rf "$repo/E2E"
+
+# The ledger reader's self test (scripts/test-e2e-flakes.sh) has no make target of its own; it runs here.
+bash scripts/test-e2e-flakes.sh || failed=1
 
 if [ "$failed" = 0 ]; then echo "done self test: ok"; else
   echo "done self test: FAIL"
