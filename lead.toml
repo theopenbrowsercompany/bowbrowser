@@ -1,7 +1,7 @@
 name = "bowbrowser"
 repo = "theopenbrowsercompany/bowbrowser"
 done = "make done"
-pass_line = "E2E: PASS"
+pass_line = "done: PASS"
 worker = "bow-worker"
 reviewer = "bow-reviewer"
 github_account = "WesleyBLDC"
