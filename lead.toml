@@ -1,0 +1,8 @@
+name = "bowbrowser"
+repo = "theopenbrowsercompany/bowbrowser"
+done = "make done"
+pass_line = "E2E: PASS"
+worker = "bow-worker"
+reviewer = "bow-reviewer"
+github_account = "WesleyBLDC"
+include = "~/code/GitHub/bowbrowser-private"
