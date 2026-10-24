@@ -30,11 +30,13 @@ enum WebKitSPI {
         case webView = "WKWebView"
         case preferences = "WKPreferences"
         case inspector = "_WKInspector"
+        case navigationAction = "WKNavigationAction"
 
         var type: AnyClass? {
             switch self {
             case .webView: WKWebView.self
             case .preferences: WKPreferences.self
+            case .navigationAction: WKNavigationAction.self
             case .inspector: NSClassFromString(rawValue)
             }
         }
@@ -83,6 +85,7 @@ enum WebKitSPI {
     static let webProcessIdentifier = Selector(("_webProcessIdentifier"))
     static let tryClose = Selector(("_tryClose"))
     static let sessionStateData = Selector(("_sessionStateData"))
+    static let actionIsRedirect = Selector(("_isRedirect"))
 
     nonisolated static let methods: [Entry] = [
         Entry(
@@ -147,6 +150,10 @@ enum WebKitSPI {
         Entry(
             name: "_sessionStateData", kind: .method, owner: Owner.webView.rawValue,
             use: "information: beside interactionState", fallback: "public interactionState", required: false),
+        Entry(
+            name: "_isRedirect", kind: .method, owner: Owner.navigationAction.rawValue,
+            use: "a policy ask for a server redirect (EngineNavigation.isRedirect)",
+            fallback: "a redirect asks the policy as a new navigation"),
     ]
 
     // MARK: Private delegate callbacks
@@ -432,6 +439,13 @@ enum WebKitSPI {
         typealias Fn = @convention(c) (AnyObject, Selector) -> Bool
         _ = unsafeBitCast(webView.method(for: tryClose), to: Fn.self)(webView, tryClose)
         return true
+    }
+
+    /// Whether WebKit asks about `action` for a server redirect of a navigation under way, or nil when absent.
+    static func isRedirect(_ action: WKNavigationAction) -> Bool? {
+        guard action.responds(to: actionIsRedirect) else { return nil }
+        typealias Fn = @convention(c) (AnyObject, Selector) -> Bool
+        return unsafeBitCast(action.method(for: actionIsRedirect), to: Fn.self)(action, actionIsRedirect)
     }
 
     /// WebKit's private session state, beside the public `interactionState`. Nil when absent.
