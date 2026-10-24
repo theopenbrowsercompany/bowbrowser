@@ -292,6 +292,35 @@ check "callers: an app file changes no harness symbol" "" "$(echo App/UI/A.swift
 check "callers: --stdin counts every line of a listed file as changed" \
   "direct 1 forms.submit direct 1 links.click direct 3 page.zoom direct 1 tabs.enter" \
   "$(echo E2E/Harness/E2EInput.swift | (cd "$hrepo" && scripts/e2e-affected.sh --stdin --callers 2> /dev/null) | paste -sd' ' -)"
+# A test type built once per name (the popups tests), a deleted line, and code the parser cannot place.
+h checkout -q -f work
+printf 'extension E2EPage {\n    func zoomIt() {\n        print("z")\n        print("zz")\n    }\n}\n' > "$hrepo/E2E/Harness/Zoom.swift"
+printf 'print("a")\n' > "$hrepo/E2E/Harness/Weird.swift"
+cat > "$hrepo/E2E/Tests/Popups.swift" << 'EOF'
+struct PopupsLinkTest: E2ETest {
+    let name: String
+    func run() { page.zoomIt() }
+}
+let all = [PopupsLinkTest(name: "popups.a"), PopupsLinkTest(name: "popups.b")]
+struct PopupsOtherTest: E2ETest {
+    let name = "popups.other"
+}
+EOF
+h add -A
+hb "zoomIt"
+sed -i '' '/print("zz")/d' "$hrepo/E2E/Harness/Zoom.swift"
+check "callers: a test type constructed once per name reaches every name" "direct 1 popups.a direct 1 popups.b" \
+  "$(hc env | paste -sd' ' -)"
+hb "delete a line"
+sed -i '' '/print(selector, 1)/d' "$hrepo/E2E/Harness/E2EInput.swift"
+check "callers: a deleted line changes the member that held it" "direct 1 forms.submit direct 1 links.click" \
+  "$(hc env | paste -sd' ' -)"
+hb "delete clickLink body"
+sed -i '' 's/print("a")/print("b")/' "$hrepo/E2E/Harness/Weird.swift"
+check "callers: code that sits in no symbol falls back to the smoke tests and says so" "fallback 0 other.smoke" \
+  "$(hc env | paste -sd' ' -)"
+check "callers: the fallback names the file it could not read" "callers: too common to search by name: E2E/Harness/Weird.swift (changed lines in no symbol it can read); added the smoke tests and every test in the areas that call the changed files:" \
+  "$(grep '^callers: too common' "$tmp/callers.err" | sed 's/ *$//')"
 check "callers: no origin/main ref exits 3" "3" "$(cd "$hrepo" && CHECK_BASE=nope scripts/e2e-affected.sh --callers > /dev/null 2>&1; echo $?)"
 
 # 3. scripts/check.sh with a fake e2e-affected.sh and a fake make that only logs what it is asked to run.

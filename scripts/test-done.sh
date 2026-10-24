@@ -432,6 +432,17 @@ has "a by-name-only test with a computed name does not fail the run" "$out" "don
 out=$(FAKE_NAMES="ctor.one" run 0 flaky)
 has "a FLAKY test named through a constructor fails" "$out" "FLAKY test this branch changes: ctor.one"
 
+# A construction of a type that does not end in Test is not read by the list, so it counts as unreadable.
+g checkout -q -f "$head_two"
+g update-ref refs/remotes/origin/main HEAD
+mkdir -p "$repo/E2E/Tests"
+printf 'struct OddCase: E2ETest {\n    let name: String\n    init(name: String) { self.name = name }\n}\nlet odd = [OddCase(name: "odd.one")]\n' > "$repo/E2E/Tests/Odd.swift"
+g add -A
+g commit -qm "a test type constructed by a name the list does not read"
+out=$(run 0 0)
+has "a construction of a type not ending in Test fails the repeat" "$out" \
+  "a changed test file names its tests in a form the list cannot read: E2E/Tests/Odd.swift"
+
 # The changed files cannot be listed (scripts/e2e-affected.sh --changed exits 3): no FLAKY test is known to be outside
 # the branch, and the repeat cannot tell its tests.
 g checkout -q -f "$head_two"
