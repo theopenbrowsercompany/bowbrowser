@@ -59,7 +59,7 @@ if [ "${1:-}" != --group ]; then
     if [ "$status" != 0 ]; then
       failed=1
       # A group that ends early (a syntax error, an unset variable) shows here even when no FAIL line says so.
-      grep -q '^FAIL ' "$out/$g.log" || echo "FAIL group $g ended with exit $status before its checks were done"
+      echo "FAIL group $g ended with exit $status (a group that stopped early shows no 'ok' line for its last checks)"
     fi
   done
   for g in "${groups[@]}"; do echo "e2e wrapper: group $g $(cat "$out/$g.secs" 2> /dev/null || echo "?")s"; done
