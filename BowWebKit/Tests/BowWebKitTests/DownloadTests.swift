@@ -9,12 +9,16 @@ import WebKit
 /// A tab rig with downloads: a delegate that saves every download in a folder of its own under the temporary folder
 /// (never ~/Downloads), and two download routes on the local fixture server, `/fast.bin` sent at once and
 /// `/slow.bin` sent 16 KiB every 50 ms, both attachments of the same 1 MiB that answer `Range` requests, so a paused
-/// download can resume. `finish()` cancels what is still running, closes the tabs and removes the folder.
+/// download can resume. A whole `/slow.bin` holds after its first `slowHeldAfter` bytes until the test opens
+/// `slowGate`, so it cannot finish before the test acts on it; its `Range` answers are never held.
+/// `finish()` cancels what is still running, closes the tabs and removes the folder.
 @MainActor
 final class DownloadRig {
     let tabs: TabRig
     let folder: URL
     let delegate: RecordingDownloadsDelegate
+    let slowGate = FixtureServer.Gate()
+    nonisolated static let slowHeldAfter = 192 * 1024
     var downloads: WebKitDownloads { tabs.profile.webKitDownloads }
 
     /// The file both routes send: bytes from a fixed pseudo random sequence, so a resume from a wrong offset shows.
@@ -35,15 +39,18 @@ final class DownloadRig {
         delegate = RecordingDownloadsDelegate(folder: folder)
         tabs.profile.webKitDownloads.delegate = delegate
         tabs.server.route("/fast.bin") { Self.answer($0, name: "fast.bin", pace: nil) }
+        let gate = slowGate
         tabs.server.route("/slow.bin") {
-            Self.answer($0, name: "slow.bin", pace: .init(bytes: 16 * 1024, interval: 0.05))
+            Self.answer(
+                $0, name: "slow.bin",
+                pace: .init(bytes: 16 * 1024, interval: 0.05, gate: gate, heldAfter: Self.slowHeldAfter))
         }
         tabs.server.route("/link.html") { _ in
             .html("<!doctype html><title>link</title><a id=get href=\"/fast.bin\" download>get</a>")
         }
     }
 
-    /// The download route's answer: the whole body, or from the byte a `Range: bytes=<n>-` asks for.
+    /// The download route's answer: the whole body, or from the byte a `Range: bytes=<n>-` asks for, never held.
     nonisolated static func answer(
         _ request: FixtureServer.Request, name: String, pace: FixtureServer.Response.Pace?
     ) -> FixtureServer.Response {
@@ -56,7 +63,9 @@ final class DownloadRig {
             let start = Int(range.dropFirst("bytes=".count).split(separator: "-").first ?? ""), start < body.count
         {
             headers.append("Content-Range: bytes \(start)-\(body.count - 1)/\(body.count)")
-            return .init(status: 206, headers: headers, body: body.subdata(in: start..<body.count), pace: pace)
+            var unheld = pace
+            unheld?.gate = nil
+            return .init(status: 206, headers: headers, body: body.subdata(in: start..<body.count), pace: unheld)
         }
         return .init(status: 200, headers: headers, body: body, pace: pace)
     }
@@ -104,6 +113,8 @@ final class DownloadRig {
 
     func finish() async throws {
         downloads.cancelAll()
+        // Lets a held answer go on to its cancelled connection and end, so nothing waits on the gate.
+        slowGate.open()
         try await tabs.finish()
         try? FileManager.default.removeItem(at: folder)
     }
@@ -121,6 +132,12 @@ final class RecordingDownloadsDelegate: EngineDownloadsDelegate {
 
     init(folder: URL) {
         self.folder = folder
+    }
+
+    /// Forgets the events and the names asked so far.
+    func reset() {
+        events = []
+        asked = []
     }
 
     func downloads(_ downloads: any EngineDownloads, didReceive event: DownloadEvent) {
@@ -201,6 +218,9 @@ final class RecordingDownloadsDelegate: EngineDownloadsDelegate {
                 $0.state == .paused && $0.receivedBytes > 0 && $0.receivedBytes < Int64(DownloadRig.body.count)
             }
             let requestsBefore = rig.tabs.server.log().filter { $0.path == "/slow.bin" }.count
+            // The first answer was held partway; the resume's range answer is not, and the gate stays shut so the
+            // paused download cannot get bytes but through its resume.
+            #expect(paused.receivedBytes <= Int64(DownloadRig.slowHeldAfter))
 
             let pausedEvents = rig.delegate.events.count
             rig.downloads.resume(paused.id)
@@ -275,8 +295,11 @@ final class RecordingDownloadsDelegate: EngineDownloadsDelegate {
             try await waitUntil("the closed tab's web view released; saw \(String(describing: page.object))") {
                 page.object == nil
             }
+            // The server holds the rest of the body, so the download is still partway here however slow the
+            // machine; it gets the rest only now.
             let released = try #require(rig.item)
-            #expect(released.state == .inProgress)
+            #expect(released.state == .inProgress && released.receivedBytes < Int64(DownloadRig.body.count))
+            rig.slowGate.open()
             try await waitUntil("progress pushed past \(released.receivedBytes) bytes with the web view gone") {
                 rig.delegate.events.contains {
                     if case .updated(let item) = $0 {
@@ -297,24 +320,52 @@ final class RecordingDownloadsDelegate: EngineDownloadsDelegate {
 
     @Test func aRefusedDownloadSendsNoEventAndSavesNothing() async throws {
         try await withRig { rig in
-            let url = rig.tabs.url("/fast.bin")
             // The delegate says no.
             rig.delegate.allows = false
-            _ = rig.tabs.tab("/fast.bin")
-            _ = try await rig.tabs.delegate.wait(for: "the refused download's navigation failing") {
-                if case .didFail(let navigation, _) = $0 { navigation.url == url } else { false }
-            }
-            #expect(rig.downloads.items.isEmpty && rig.delegate.events.isEmpty && rig.folderContents.isEmpty)
+            let declined = rig.tabs.url("/fast.bin?declined")
+            _ = rig.tabs.tab("/fast.bin?declined")
+            try await expectOnlyAnAllowedDownload(rig, after: declined, "declined")
 
-            // No delegate at all.
+            // No delegate at all; the recording delegate is set again only after the navigation failed, so an
+            // undelegated download that started anyway shows as a second listed item.
+            rig.downloads.remove(try #require(rig.item).id)
+            try FileManager.default.removeItem(at: rig.folder.appendingPathComponent("fast.bin"))
+            rig.delegate.reset()
             rig.tabs.delegate.reset()
             rig.downloads.delegate = nil
-            _ = rig.tabs.tab("/fast.bin")
-            _ = try await rig.tabs.delegate.wait(for: "the undelegated download's navigation failing") {
-                if case .didFail(let navigation, _) = $0 { navigation.url == url } else { false }
-            }
-            #expect(rig.downloads.items.isEmpty && rig.delegate.events.isEmpty && rig.folderContents.isEmpty)
+            let undelegated = rig.tabs.url("/fast.bin?undelegated")
+            _ = rig.tabs.tab("/fast.bin?undelegated")
+            try await expectOnlyAnAllowedDownload(rig, after: undelegated, "undelegated")
         }
+    }
+
+    /// The navigation fails the same way whether its response was refused or became a download, so after the
+    /// refused navigation fails this gives the delegate back, allows downloads and downloads `/fast.bin`: WebKit
+    /// handles the two in order, so by the time the allowed one ends, a refused one that started anyway is listed,
+    /// asked a destination for, or saved.
+    private func expectOnlyAnAllowedDownload(_ rig: DownloadRig, after refused: URL, _ what: String) async throws {
+        _ = try await rig.tabs.delegate.wait(for: "the \(what) download's navigation failing") {
+            if case .didFail(let navigation, _) = $0 { navigation.url == refused } else { false }
+        }
+        rig.downloads.delegate = rig.delegate
+        rig.delegate.allows = true
+        let path = "/fast.bin?allowed-after-\(what)"
+        let allowed = rig.tabs.url(path)
+        _ = rig.tabs.tab(path)
+        let done = try await waitFor("the download allowed after the \(what) one ended", timeout: 30) {
+            rig.downloads.items.first { $0.url == allowed && ($0.state.isFinal || $0.state == .interrupted) }
+        }
+        #expect(done.state == .complete, "the \(what) download took the allowed one's file")
+        #expect(rig.downloads.items.map(\.url) == [allowed], "the \(what) download was listed")
+        #expect(rig.delegate.asked == ["fast.bin"], "the \(what) download was asked a destination for")
+        #expect(
+            rig.delegate.events.allSatisfy {
+                switch $0 {
+                case .created(let item), .updated(let item): item.id == done.id
+                case .removed(let id): id == done.id
+                }
+            }, "the \(what) download sent events")
+        #expect(rig.folderContents == ["fast.bin"], "the \(what) download saved a file")
     }
 
     @Test func quittingCancelsARunningDownloadAndRefusesNewOnes() async throws {

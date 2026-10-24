@@ -35,6 +35,10 @@ final class FixtureServer: @unchecked Sendable {
         struct Pace: Sendable {
             var bytes: Int
             var interval: Double
+            /// When set, the server sends the first `heldAfter` bytes of the body and holds the rest until the test
+            /// opens the gate, so a test acts on a download that cannot finish meanwhile, however loaded the machine.
+            var gate: Gate?
+            var heldAfter = 0
         }
 
         static func html(_ text: String, status: Int = 200, headers: [String] = []) -> Response {
@@ -48,6 +52,34 @@ final class FixtureServer: @unchecked Sendable {
 
         static let notFound = Response(
             status: 404, headers: ["Content-Type: text/plain"], body: Data("not found".utf8))
+    }
+
+    /// A gate the test owns: a paced answer that reached its `heldAfter` bytes waits here until `open()`.
+    final class Gate: @unchecked Sendable {
+        private let lock = NSLock()
+        private var isOpen = false
+        private var waiting: [@Sendable () -> Void] = []
+
+        /// Lets every held answer go on, and every later one pass.
+        func open() {
+            lock.lock()
+            isOpen = true
+            let waiting = self.waiting
+            self.waiting = []
+            lock.unlock()
+            for resume in waiting { resume() }
+        }
+
+        /// Runs `body` now when the gate is open, else once it opens.
+        fileprivate func pass(_ body: @escaping @Sendable () -> Void) {
+            lock.lock()
+            guard isOpen else {
+                waiting.append(body)
+                return lock.unlock()
+            }
+            lock.unlock()
+            body()
+        }
     }
 
     typealias Handler = @Sendable (Request) -> Response
@@ -182,12 +214,18 @@ final class FixtureServer: @unchecked Sendable {
         }
     }
 
-    /// Sends the head with the first piece of the body, then a piece every `pace.interval` seconds; stops when the
-    /// client went away or the server stopped.
+    /// Sends the head with the first piece of the body, then a piece every `pace.interval` seconds, holding at
+    /// `pace.heldAfter` body bytes until `pace.gate` opens; stops when the client went away or the server stopped.
     private func send(_ response: Response, at pace: Pace, on connection: NWConnection) {
         let data = Self.encode(response)
         let head = data.count - response.body.count
         @Sendable func piece(from start: Int) {
+            if let gate = pace.gate, start > 0, start >= head + pace.heldAfter {
+                return gate.pass { self.queue.async { send(from: start) } }
+            }
+            send(from: start)
+        }
+        @Sendable func send(from start: Int) {
             let end = min(data.count, (start == 0 ? head : start) + max(pace.bytes, 1))
             connection.send(
                 content: data.subdata(in: start..<end),
