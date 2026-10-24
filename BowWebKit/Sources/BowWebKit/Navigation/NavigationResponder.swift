@@ -42,6 +42,8 @@ enum NavigationResponders {
         [
             // The app's policy first: a navigation it cancels reaches no other responder.
             PolicyResponder(),
+            // A new document ends the find in progress before the app hears of the commit.
+            FindResponder(),
             // Last, so the other responders have seen a callback before the app hears of it.
             NavigationEventResponder(),
         ]
