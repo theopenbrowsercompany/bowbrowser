@@ -62,11 +62,25 @@ import WebKit
         #expect(tab.hover.source == source)
         do {
             try await walk(tab, rig, source)
+            if source == .script { reinstallOnSharedController(tab, rig) }
         } catch {
             try? await rig.finish()
             throw error
         }
         try await rig.finish()
+    }
+
+    /// A web view on a content controller that already has the script (WebKit shares one with a popup) installs
+    /// without raising for the handler name and without a second copy of the script.
+    private func reinstallOnSharedController(_ tab: WebKitTab, _ rig: TabRig) {
+        guard let content = tab.webView?.configuration.userContentController else { return }
+        let shared = WKWebViewConfiguration()
+        shared.websiteDataStore = rig.profile.store
+        shared.userContentController = content
+        tab.releaseWebView()
+        tab.install(WebKitWebView(frame: .zero, configuration: shared))
+        #expect(tab.webView?.configuration.userContentController === content)
+        #expect(content.userScripts.count == 1, "scripts on the shared controller: \(content.userScripts.count)")
     }
 
     /// The walk itself, holding the web view only while it runs, so `finish()` can check it is released.
@@ -103,8 +117,9 @@ import WebKit
         #expect(seen == expected)
         switch source {
         case .callback:
-            // WebKit really calls the private callback, once per move, and the tab added no script.
-            #expect(tab.hover.callbackCount > expected.count, "hover callbacks: \(tab.hover.callbackCount)")
+            // WebKit really calls the private callback (moves it coalesces under load share one call), and the tab
+            // added no script.
+            #expect(tab.hover.callbackCount >= expected.count,"hover callbacks: \(tab.hover.callbackCount)")
             #expect(webView.configuration.userContentController.userScripts.isEmpty)
         case .script:
             #expect(tab.hover.callbackCount == 0)
