@@ -73,7 +73,8 @@ enum WebKitSPI {
     static let inspector = Selector(("_inspector"))
     static let setInspectorAttachmentView = Selector(("_setInspectorAttachmentView:"))
     static let inspectorShow = Selector(("show"))
-    static let inspectorClose = Selector(("close"))
+    // From a string: a public `close` exists, so Selector(("close")) draws a #selector warning.
+    static let inspectorClose = NSSelectorFromString("close")
     static let setDeveloperExtras = Selector(("_setDeveloperExtrasEnabled:"))
     static let setMockCaptureDevices = Selector(("_setMockCaptureDevicesEnabled:"))
     static let setWindowOcclusionDetection = Selector(("_setWindowOcclusionDetectionEnabled:"))
@@ -381,24 +382,39 @@ enum WebKitSPI {
         return true
     }
 
-    /// Waits until WebKit has handled every mouse event sent so far; returns false at once when absent.
-    static func afterPendingMouseEvents(_ webView: WKWebView) async -> Bool {
-        await afterBlock(webView, afterMouseEvents)
+    /// Waits until WebKit has handled every mouse event sent so far. False at once when absent, and false after
+    /// `timeout` seconds when WebKit never calls back (its process ended, or the view left its window).
+    static func afterPendingMouseEvents(_ webView: WKWebView, timeout: TimeInterval = 5) async -> Bool {
+        await afterBlock(webView, afterMouseEvents, timeout: timeout)
     }
 
-    /// Waits for WebKit's next presentation update; returns false at once when absent.
-    static func afterNextPresentationUpdate(_ webView: WKWebView) async -> Bool {
-        await afterBlock(webView, afterPresentationUpdate)
+    /// Waits for WebKit's next presentation update. False at once when absent, and false after `timeout` seconds
+    /// when WebKit never calls back.
+    static func afterNextPresentationUpdate(_ webView: WKWebView, timeout: TimeInterval = 5) async -> Bool {
+        await afterBlock(webView, afterPresentationUpdate, timeout: timeout)
     }
 
-    private static func afterBlock(_ webView: WKWebView, _ selector: Selector) async -> Bool {
+    private static func afterBlock(_ webView: WKWebView, _ selector: Selector, timeout: TimeInterval) async -> Bool {
         guard webView.responds(to: selector) else { return false }
         typealias Fn = @convention(c) (AnyObject, Selector, @convention(block) @escaping () -> Void) -> Void
         let fn = unsafeBitCast(webView.method(for: selector), to: Fn.self)
-        await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in
-            fn(webView, selector) { done.resume() }
+        return await withCheckedContinuation { (done: CheckedContinuation<Bool, Never>) in
+            let once = ResumeOnce(done)
+            fn(webView, selector) { MainActor.assumeIsolated { once.resume(true) } }
+            DispatchQueue.main.asyncAfter(deadline: .now() + timeout) {
+                MainActor.assumeIsolated { once.resume(false) }
+            }
         }
-        return true
+    }
+
+    /// Resumes a continuation with the first answer only: WebKit's callback or the timeout, whichever comes first.
+    private final class ResumeOnce {
+        private var continuation: CheckedContinuation<Bool, Never>?
+        init(_ continuation: CheckedContinuation<Bool, Never>) { self.continuation = continuation }
+        func resume(_ value: Bool) {
+            continuation?.resume(returning: value)
+            continuation = nil
+        }
     }
 
     /// The page's web content process, or nil when absent or not running.
@@ -503,8 +519,10 @@ class SPIDelegateBase: NSObject {
         _ webView: WKWebView, mouseDidMoveOverElement element: NSObject, withFlags flags: NSEvent.ModifierFlags,
         userInfo: AnyObject?
     ) {
-        // `_WKHitTestResult.absoluteLinkURL`.
-        let link = element.value(forKey: "absoluteLinkURL") as? URL
+        // `_WKHitTestResult.absoluteLinkURL`, checked first: reading a key WebKit dropped would raise.
+        let link =
+            element.responds(to: NSSelectorFromString("absoluteLinkURL"))
+            ? element.value(forKey: "absoluteLinkURL") as? URL : nil
         MainActor.assumeIsolated { onHoverLink?(link, flags) }
     }
 
