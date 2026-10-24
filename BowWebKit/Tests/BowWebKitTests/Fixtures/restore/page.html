@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Restore</title>
+  <style>
+    body { margin: 0; font: 16px -apple-system, sans-serif; background: #fff; color: #111; }
+    #tall { height: 20000px; background: linear-gradient(#fff, #9cf); }
+    h1 { position: sticky; top: 0; margin: 0; padding: 12px; background: #2f6fde; color: #fff; }
+  </style>
+  <script>
+    // A page 20,000 px tall whose title names its tab and step. On the root element, which the tests' own script
+    // world can read: `data-load-id` changes on every real load, and `data-persisted` says whether the last
+    // pageshow came from the back/forward cache.
+    const params = new URLSearchParams(location.search);
+    document.title = "tab " + params.get("tab") + " step " + params.get("step");
+    document.documentElement.dataset.loadId = String(Math.random()).slice(2) + "-" + Date.now();
+    document.documentElement.dataset.persisted = "false";
+    addEventListener("pageshow", (event) => { document.documentElement.dataset.persisted = String(event.persisted); });
+  </script>
+</head>
+<body>
+  <div id="tall"><h1 id="name"></h1></div>
+  <script>document.getElementById("name").textContent = document.title;</script>
+</body>
+</html>
