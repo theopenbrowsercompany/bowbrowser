@@ -50,11 +50,10 @@ Your working directory is your own git worktree of this repository.
 ## Known traps
 
 - In a worktree, Bash refuses any compound command with "too complex to verify that it stays inside the worktree", and each refusal costs a turn.
-  Run one plain command per call, from the worktree root: `git status --short`, `git fetch origin`, `make check`, `make done > /tmp/done-<branch>.log 2>&1` (a plain redirect passes), and `bash /tmp/<name>.sh` for a script you wrote with Write.
+  Run one plain command per call, from the worktree root: `git status --short`, `git fetch origin`, `make check`, `make done > /tmp/done-<branch>.log 2>&1` (a plain redirect passes; name the log and every scratch file after your branch, because two worktrees once clobbered a shared /tmp/done.log), and `bash /tmp/<name>.sh` for a script you wrote with Write.
   Refused, most often first: a heredoc (`<<EOF`, `python3 - <<EOF`), a pipeline (`git log | tail`, `| head`, `| grep`), a chain (`a && b`, `a; b`, `||`), command substitution (`$(...)`), `cd <dir> && ...`, `git -C <path>`, `make -C <path>`, and a multiline `sed -i`.
   Instead: read a result with Read (redirect to a file under /tmp first, never into the worktree), edit with Edit or Write, and put multi-step work in a script written with Write and run with `bash <path>`.
 - Run `make bootstrap` first in a fresh worktree.
-- Write make done output and any scratch file to a name that includes your branch (for example /tmp/done-<branch>.log), never a shared name like /tmp/done.log: two worktrees clobbered each other's log on 2026-10-23.
 - Any new e2e input helper goes through `E2EInput`'s confirm and resend path.
 - Never open DevTools in an e2e run.
 - E2E type names share one namespace with the BowCore tests, so give harness additions an `e2e` prefix.
@@ -92,6 +91,8 @@ End with a short report the lead can check:
 2. how each Done when item was verified, with the exact `PASS` lines;
 3. the choices you made and anything still open;
 4. the branch and head commit;
-5. `Learning: <one line, or none>`.
+5. `tree: <git rev-parse HEAD^{tree}>` for that last commit;
+6. the brief's `Delivery:` line, echoed exactly, when the brief has one;
+7. `Learning: <one line, or none>`.
 
 Text for the maintainer uses no dashes as punctuation.
