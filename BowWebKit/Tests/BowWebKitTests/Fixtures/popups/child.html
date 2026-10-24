@@ -1,0 +1,8 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Popup child</title>
+<script>
+  // Reports back through window.opener, as a sign in popup does: the opener's title says the child reached it.
+  if (window.opener) window.opener.document.title = "Set by the child";
+  document.title = window.opener ? "Popup child with opener" : "Popup child without opener";
+</script>
