@@ -62,8 +62,11 @@ extension WebKitTab {
             assertionFailure("Scripts/HoverStatus.js is missing from the BowWebKit bundle")
             return
         }
+        // A content controller can be shared (WebKit gives a popup its opener's), and adding a handler name twice
+        // raises, so a controller gets the handler and the script once; the relay finds each message's tab itself.
         let content = webView.configuration.userContentController
-        content.add(HoverScriptRelay(tab: self), contentWorld: Self.hoverWorld, name: Self.hoverHandlerName)
+        guard !content.userScripts.contains(where: { $0.source == source }) else { return }
+        content.add(HoverScriptRelay(), contentWorld: Self.hoverWorld, name: Self.hoverHandlerName)
         content.addUserScript(
             WKUserScript(
                 source: source, injectionTime: .atDocumentStart, forMainFrameOnly: false, in: Self.hoverWorld))
@@ -77,19 +80,14 @@ extension WebKitTab {
     }
 }
 
-/// Hands the hover script's messages to its tab. The content controller keeps its handlers strongly, so the relay
-/// holds the tab weakly, and takes only messages from the tab's current web view.
+/// Hands the hover script's messages to the tab of the web view that sent them: the tab that is its UI delegate
+/// and has it installed now. It holds no tab, so the content controller, which keeps its handlers strongly, keeps
+/// no tab alive, and a controller shared by several web views reaches each one's tab.
 @MainActor
 final class HoverScriptRelay: NSObject, WKScriptMessageHandler {
-    private weak var tab: WebKitTab?
-
-    init(tab: WebKitTab) {
-        self.tab = tab
-    }
-
     func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage) {
-        guard let tab, tab.hover.source == .script, let webView = message.webView, webView === tab.webView,
-            let text = message.body as? String
+        guard let webView = message.webView, let tab = webView.uiDelegate as? WebKitTab, webView === tab.webView,
+            tab.hover.source == .script, let text = message.body as? String
         else { return }
         tab.hoverChanged(text)
     }
