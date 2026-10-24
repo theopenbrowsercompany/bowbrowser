@@ -40,8 +40,9 @@ public struct ContextMenuRequest: Equatable, Sendable {
     public var position: PagePoint
     /// The address of the page's main frame document. Nil only when the engine has no address for it.
     public var pageURL: URL?
-    /// The address of the subframe (an iframe) the pointer was in. Nil when the pointer was in the main frame, whose
-    /// address is `pageURL`, so `frameURL ?? pageURL` is always the frame's address.
+    /// The address of the frame the pointer was in: an iframe's own address, and the same as `pageURL` in the main
+    /// frame (the CEF engine fills it so). Nil only when the engine has no address for the frame; an engine that
+    /// cannot tell frames apart gives `pageURL`.
     public var frameURL: URL?
     /// The link under the pointer, nil when there is none.
     public var linkURL: URL?
