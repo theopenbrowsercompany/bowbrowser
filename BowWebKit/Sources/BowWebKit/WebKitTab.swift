@@ -42,14 +42,14 @@ final class WebKitTab: SPIDelegateBase, EngineTab, WKNavigationDelegate, WKUIDel
     /// Addresses the app loaded and WebKit has not asked about yet, which make their navigation `typed`.
     private var appLoads: [URL] = []
 
-    /// A tab on a fresh web view of `profile`, loading nothing yet.
-    init(profile: WebKitProfile) {
+    /// A tab on a fresh web view of `profile`, loading nothing yet, on `configuration` when given (a popup's).
+    init(profile: WebKitProfile, configuration: WKWebViewConfiguration? = nil) {
         Self.lastTabID += 1
         tabID = TabID(rawValue: Self.lastTabID)
         self.profile = profile
         state = EngineTabState(tabID: tabID)
         super.init(privateCallbacks: Self.privateCallbacks)
-        install(WebKitWebView(frame: .zero, configuration: profile.makeConfiguration()))
+        install(WebKitWebView(frame: .zero, configuration: configuration ?? profile.makeConfiguration()))
         // Every tab registers with its profile as it is made, however it is made (a new tab, a restored one, a
         // popup). A profile that is quitting refuses the tab: it is born closed with `.quit`, its page never loaded,
         // and no delegate has been set to hear of it.
