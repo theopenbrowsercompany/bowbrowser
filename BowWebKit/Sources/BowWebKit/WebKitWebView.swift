@@ -15,6 +15,13 @@ enum KeyBeforePageKind {
     case keyUp
 }
 
+/// Who a web view hands the context menu WebKit is about to open: its tab (WebKitTab+ContextMenu.swift), which
+/// rebuilds the menu in place from its delegate's answer.
+@MainActor
+protocol ContextMenuHandler: AnyObject {
+    func willOpenContextMenu(_ menu: NSMenu, with event: NSEvent, in webView: WebKitWebView)
+}
+
 /// The web view of every Bow tab.
 final class WebKitWebView: WKWebView {
     /// Key codes whose key down was claimed: their key up is the same press, so it never reaches a page either. Kept
@@ -26,6 +33,19 @@ final class WebKitWebView: WKWebView {
     private var lastAsked: (event: NSEvent, claimed: Bool)?
     /// The page's open alert, confirm and prompt panels, each answered exactly once (WebKitTab+Dialogs.swift).
     var openDialogs: [ObjectIdentifier: PageDialogReply] = [:]
+    /// What the context menu script reported from each frame since the mouse down that may open a menu, oldest
+    /// first (WebKitTab+ContextMenu.swift).
+    var contextMenuReports: [ContextMenuPageReport] = []
+    /// Where the mouse down that may open a menu was, in window coordinates: the event WebKit hands `willOpenMenu`
+    /// carries no location of the click.
+    private(set) var contextMenuClick: NSPoint?
+    /// True from the tab answering WebKit's private ask for a menu until that menu is about to open.
+    var contextMenuHandled = false
+    /// How many menus WebKit asked the tab for through its private callback, for the test that WebKit calls it.
+    var contextMenuCallbacks = 0
+    /// Test only: called with each context menu once the tab rebuilt it, before it opens; false keeps it from
+    /// opening where WebKit asked the tab for it (WebKit's private callback).
+    var onContextMenu: ((NSMenu) -> Bool)?
 
     /// A click into an inactive window reaches the page, not only the window: the W1 spike found WebKit otherwise
     /// drops the first click into an inactive app.
@@ -37,6 +57,44 @@ final class WebKitWebView: WKWebView {
         didSet {
             if uiDelegate == nil { cancelOpenDialogs() }
         }
+    }
+
+    // MARK: Context menu
+
+    /// A right click, or a Control click, may open a menu: the script's reports of earlier clicks are dropped first,
+    /// so only this click's reports reach the menu.
+    override func rightMouseDown(with event: NSEvent) {
+        startContextMenuClick(event)
+        super.rightMouseDown(with: event)
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        if event.modifierFlags.contains(.control) { startContextMenuClick(event) }
+        super.mouseDown(with: event)
+    }
+
+    private func startContextMenuClick(_ event: NSEvent) {
+        contextMenuReports = []
+        contextMenuClick = event.locationInWindow
+    }
+
+    /// The click's reports and place are used up once its menu is built.
+    func endContextMenuClick() {
+        contextMenuReports = []
+        contextMenuClick = nil
+    }
+
+    /// The menu about to open. When WebKit asked the tab for it first (its private callback, see
+    /// WebKitTab+ContextMenu.swift), it is already Bow's; otherwise the tab rebuilds it here, the public fallback.
+    override func willOpenMenu(_ menu: NSMenu, with event: NSEvent) {
+        super.willOpenMenu(menu, with: event)
+        if contextMenuHandled {
+            contextMenuHandled = false
+            return
+        }
+        (uiDelegate as? ContextMenuHandler)?.willOpenContextMenu(menu, with: event, in: self)
+        _ = onContextMenu?(menu)
+        endContextMenuClick()
     }
 
     // MARK: Keys before the page

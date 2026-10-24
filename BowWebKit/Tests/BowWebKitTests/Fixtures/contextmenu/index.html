@@ -1,0 +1,30 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Context menu</title>
+<style>
+  body { font: 16px -apple-system, sans-serif; margin: 20px; }
+  section { height: 90px; }
+  #frame { width: 400px; height: 160px; border: 0; }
+</style>
+</head>
+<body>
+<section><a id="link" href="target.html">Target link</a></section>
+<section><img id="image" src="image.svg" width="120" height="80" alt=""></section>
+<section><input id="field" type="text" value="Some field text"></section>
+<section><p id="para">A paragraph of plain text to select.</p></section>
+<section><a id="cancelled" href="target.html">A link whose page cancels its menu</a></section>
+<iframe id="frame"></iframe>
+<script>
+  // The frame is cross origin: the same server under its other name.
+  const frame = document.getElementById("frame");
+  frame.onload = () => { document.body.dataset.frameLoaded = "1"; };
+  frame.src = location.href.replace("127.0.0.1", "localhost").replace("index.html", "frame.html");
+  document.getElementById("cancelled").addEventListener("contextmenu", (e) => {
+    e.preventDefault();
+    document.body.dataset.cancelled = "1";
+  });
+</script>
+</body>
+</html>
