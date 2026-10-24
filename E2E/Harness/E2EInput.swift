@@ -59,6 +59,10 @@ enum E2EKeyRecord {
         "window.\(name) ? window.\(name).\(field) : true"
     }
 
+    /// Forgets a key up seen so far, before a key up is sent, so the stray key up of an attempt whose key down was
+    /// lost never confirms a later attempt's key up.
+    static let forgetUp = "if (window.\(name)) window.\(name).up = false;"
+
     /// Removes the record and its listeners once the press is confirmed.
     static let disarm = "window.\(name)?.listeners.abort(); delete window.\(name);"
 
@@ -89,6 +93,7 @@ enum E2EKeyRecord {
                 try await send(true)
                 downSeen = try await evaluate(seen("down")) as? Bool != false
             }
+            _ = try await evaluate(forgetUp)
             try await send(false)
             let upSeen = try await evaluate(seen("up")) as? Bool != false
             if downSeen && upSeen {
