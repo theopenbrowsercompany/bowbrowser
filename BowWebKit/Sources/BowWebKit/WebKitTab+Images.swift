@@ -59,7 +59,10 @@ private enum ImageBody: Sendable {
             guard let data = try? Data(contentsOf: file, options: .mappedIfSafe) else { return nil }
             return ImageDecoding.image(from: data, maxPixelSize: maxPixelSize).map(DecodedImage.init)
         case .dataURL(let url):
-            guard let data = try? Data(contentsOf: url) else { return nil }
+            // A data address longer than base64 of the largest body a fetch accepts is refused unread.
+            guard Int64(url.absoluteString.utf8.count) <= ImageFetch.maxBytes / 3 * 4 + 1024,
+                let data = try? Data(contentsOf: url)
+            else { return nil }
             return ImageDecoding.image(from: data, maxPixelSize: maxPixelSize).map(DecodedImage.init)
         }
     }
@@ -72,9 +75,13 @@ private struct DecodedImage: @unchecked Sendable {
 
 /// Decodes image bytes with ImageIO.
 enum ImageDecoding {
-    /// The most pixels a frame may have to be decoded (16384 on a side, the most Copy Image asks for), so a small
-    /// file that claims a huge image cannot take the memory to decode it.
-    static let maxFramePixels = 16384 * 16384
+    /// The most pixels a frame may have to be decoded: 4096 on a side for any request, up to the size asked for
+    /// above that, and never over 16384 on a side (the most Copy Image asks for), so a small file that claims a
+    /// huge image cannot take the memory to decode it, least of all for a site icon.
+    static func maxFramePixels(for maxPixelSize: Int) -> Int {
+        let side = min(max(4096, maxPixelSize), 16384)
+        return side * side
+    }
 
     /// The image in `data`, at most `maxPixelSize` pixels on a side, its aspect kept; nil when `data` holds no
     /// image ImageIO decodes. Of several frames it takes the largest whose longer side fits, else the smallest,
@@ -82,6 +89,7 @@ enum ImageDecoding {
     static func image(from data: Data, maxPixelSize: Int) -> CGImage? {
         let options = [kCGImageSourceShouldCache: false] as CFDictionary
         guard maxPixelSize > 0, let source = CGImageSourceCreateWithData(data as CFData, options) else { return nil }
+        let maxFramePixels = maxFramePixels(for: maxPixelSize)
         var fitting: (index: Int, side: Int)?
         var smallest: (index: Int, side: Int)?
         for index in 0..<CGImageSourceGetCount(source) {
@@ -145,9 +153,14 @@ final class ImageFetch: NSObject, WKDownloadDelegate {
         }
     }
 
-    /// Cancels the download and ends the fetch with nil; does nothing once it ended.
+    /// Cancels the download and ends the fetch with nil; does nothing once it ended. The folder is deleted now and
+    /// again once WebKit confirms the cancel, since WebKit may write to it until then and the fetch is gone by then.
     func cancel() {
-        download?.cancel(nil)
+        guard !isFinished else { return }
+        let folder = folder
+        download?.cancel { _ in
+            if let folder { try? FileManager.default.removeItem(at: folder) }
+        }
         finish(nil)
     }
 
