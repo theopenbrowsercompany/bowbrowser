@@ -73,11 +73,16 @@ final class DownloadRig {
         }
     }
 
-    /// Waits until the slow download receives bytes into its chosen file.
+    /// Waits until the slow download receives bytes into its chosen file, past its first pieces, with the progress
+    /// pushed to the delegate as it goes.
     func waitForSlowRunning() async throws -> DownloadItem {
-        try await waitForItem("slow.bin receiving bytes into its file") {
-            $0.state == .inProgress && $0.destination == self.folder.appendingPathComponent("slow.bin")
-                && $0.receivedBytes > 0 && $0.receivedBytes < Int64(Self.body.count)
+        let past = Int64(64 * 1024)
+        return try await waitForItem("slow.bin receiving bytes into its file, pushed past \(past) bytes") { item in
+            item.state == .inProgress && item.destination == self.folder.appendingPathComponent("slow.bin")
+                && item.receivedBytes >= past && item.receivedBytes < Int64(Self.body.count)
+                && self.delegate.events.contains {
+                    if case .updated(let pushed) = $0 { pushed.receivedBytes >= past } else { false }
+                }
         }
     }
 
@@ -197,7 +202,17 @@ final class RecordingDownloadsDelegate: EngineDownloadsDelegate {
             }
             let requestsBefore = rig.tabs.server.log().filter { $0.path == "/slow.bin" }.count
 
+            let pausedEvents = rig.delegate.events.count
             rig.downloads.resume(paused.id)
+            try await waitUntil("progress pushed past \(paused.receivedBytes) bytes after resuming") {
+                rig.delegate.events.dropFirst(pausedEvents).contains {
+                    if case .updated(let item) = $0 {
+                        item.state == .inProgress && item.receivedBytes > paused.receivedBytes
+                    } else {
+                        false
+                    }
+                }
+            }
             let done = try await rig.waitForItem("slow.bin complete after resuming", timeout: 60) {
                 $0.state == .complete && rig.fileExists($0.destination)
             }
@@ -245,7 +260,17 @@ final class RecordingDownloadsDelegate: EngineDownloadsDelegate {
             try await waitUntil("the closed tab's web view released; saw \(String(describing: page.object))") {
                 page.object == nil
             }
-            #expect(rig.item?.state == .inProgress)
+            let released = try #require(rig.item)
+            #expect(released.state == .inProgress)
+            try await waitUntil("progress pushed past \(released.receivedBytes) bytes with the web view gone") {
+                rig.delegate.events.contains {
+                    if case .updated(let item) = $0 {
+                        item.state == .inProgress && item.receivedBytes > released.receivedBytes
+                    } else {
+                        false
+                    }
+                }
+            }
 
             let done = try await rig.waitForItem("slow.bin complete with its web view gone", timeout: 60) {
                 $0.state == .complete && rig.fileExists($0.destination)
