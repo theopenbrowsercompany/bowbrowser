@@ -11,5 +11,11 @@
   function record(opened) {
     document.body.dataset.opened = opened === null ? "null" : "window";
   }
+  // ?timer also opens a page from a timer the page starts as it loads, with no click; data-timer says what it got.
+  if (location.search === "?timer") {
+    window.addEventListener("load", () => setTimeout(() => {
+      document.body.dataset.timer = window.open("child.html") === null ? "null" : "window";
+    }, 0));
+  }
 </script>
 </body>

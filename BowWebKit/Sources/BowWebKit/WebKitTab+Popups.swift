@@ -12,7 +12,7 @@ import WebKit
 // popup rules decide one a page opens on its own. Popups opened by a popup are asked about as Bow on CEF asks: a popup
 // the app took as a tab, panel or Peek is a tab like any other and asks its delegate; a popup opened as `.window` (on
 // CEF a window of the engine's own, which never asks) opens its own popups as `.window` too, handed to its delegate
-// through `didOpenPopup` without asking.
+// through `didOpenPopup` without asking, except one with no user gesture, which Bow's rules block.
 
 extension WebKitTab {
     nonisolated func webView(
@@ -44,7 +44,12 @@ extension WebKitTab {
     ) -> WKWebView? {
         guard webView === self.webView, !isClosed, let delegate else { return nil }
         let request = PopupRequest(action, features: features)
-        let decision = isPopupWindow ? .window : delegate.tab(self, decidePopup: request)
+        // A popup window's popups are not asked about, but one with no gesture is still blocked, as Bow's rules
+        // block it everywhere else.
+        let decision =
+            isPopupWindow
+            ? (request.isUserGesture ? .window : PopupPolicy.noGestureDecision)
+            : delegate.tab(self, decidePopup: request)
         guard decision != .block else { return nil }
         let popup = profile.createTab(configuration: configuration)
         guard !popup.isClosed else { return nil }
