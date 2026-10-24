@@ -179,18 +179,33 @@ import WebKit
         #expect(delegate.navigation == ["start \(a)", "commit \(a)", "finish \(a)"])
         #expect(await restored.close())
 
-        // Closing while an unload waits for a load to stop wins: the unload returns false and saves nothing.
+        // A close that comes while an unload waits for a load to stop ends the tab once. The unload stops the load
+        // (its failure is the sign it is under way) and the close follows at once, before WebKit has reported the
+        // stop, so the close wins and the unload returns false and saves nothing. Should WebKit report the stop
+        // first, the unload wins and the close changes nothing; either way the tab ends exactly once.
         let racing = rig.tab("/navigation/a.html", shown: false)
         try await waitUntil("the racing tab loaded") { racing.state.url == a && !racing.state.isLoading }
         let racingEvents = RecordingTabDelegate()
         racing.delegate = racingEvents
         racing.load(slow)
         try await waitUntil("the racing tab is loading") { racingEvents.navigation.contains("start \(slow)") }
-        async let unloaded = racing.unload()
+        let unloading = Task { await racing.unload() }
+        // Yields rather than polls on a timer, so the close is not held back while WebKit reports the stop.
+        var turns = 0
+        while !racingEvents.navigation.contains("fail \(slow)"), turns < 100_000 {
+            turns += 1
+            await Task.yield()
+        }
+        #expect(racingEvents.navigation.contains("fail \(slow)"))
         #expect(await racing.close())
-        #expect(await unloaded == false)
-        #expect(racing.sessionState == nil && racing.closeReason == .app)
-        #expect(racingEvents.events.last == .closed && !racingEvents.events.contains(.unloaded))
+        let unloaded = await unloading.value
+        let endings = racingEvents.events.filter { $0 == .closed || $0 == .unloaded }
+        if unloaded {
+            #expect(endings == [.unloaded] && racing.sessionState != nil && racing.closeReason == nil)
+        } else {
+            #expect(endings == [.closed] && racing.sessionState == nil && racing.closeReason == .app)
+        }
+        print("racing close and unload: \(unloaded ? "the unload" : "the close") ended the tab")
         try await rig.finish()
     }
 
@@ -267,8 +282,7 @@ import WebKit
         webView.load(URLRequest(url: b))
         try await driver.waitForLoad(of: b)
         try await waitUntil("loading stopped") { !webView.isLoading }
-        print("bare navigation callbacks: \(log.calls)")
-        #expect(!log.calls.contains { $0.hasSuffix(" nil") })
+        #expect(!log.calls.contains { $0.hasSuffix(" nil") }, "\(log.calls)")
         #expect(log.calls.filter { $0.hasPrefix("failProvisional") }.count == 2)
         _ = webView.dispose()
         server.stop()

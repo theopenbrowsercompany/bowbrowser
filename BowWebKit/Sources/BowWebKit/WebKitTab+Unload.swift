@@ -10,7 +10,8 @@ import WebKit
 /// come back at the position before it.
 extension WebKitTab {
     /// Saves the page's session, releases the web view (a navigation in progress fails as aborted first) and ends
-    /// the tab with `TabEvent.unloaded`. False, with nothing changed, once the tab is closed.
+    /// the tab with `TabEvent.unloaded`. False, with nothing changed, once the tab is closed, and false with the
+    /// load stopped when the page is still loading two seconds after the stop.
     ///
     /// The page's beforeunload handler does not run: WebKit has no public way to run it, as with `close()`, so a
     /// page never keeps the tab loaded.
@@ -21,8 +22,9 @@ extension WebKitTab {
             // rather than the entry the tab was on. Stop first and wait until WebKit has dropped it.
             stop()
             await Self.loadingStopped(webView, timeout: .seconds(2))
-            // The tab may have closed or unloaded meanwhile.
-            guard !isClosed, self.webView === webView else { return false }
+            // The tab may have closed or unloaded meanwhile; and a page still loading (WebKit was slow to stop, or
+            // the page went on to another address) stays loaded rather than saving a session that restores elsewhere.
+            guard !isClosed, self.webView === webView, !webView.isLoading else { return false }
         }
         let saved = webView.interactionState as? Data
         releaseWebView()
@@ -34,8 +36,8 @@ extension WebKitTab {
     private static func loadingStopped(_ webView: WKWebView, timeout: Duration) async {
         guard webView.isLoading else { return }
         let done = AsyncStream<Void>.makeStream()
-        let observation = webView.observe(\.isLoading) { webView, _ in
-            if !webView.isLoading { done.continuation.yield() }
+        let observation = webView.observe(\.isLoading, options: [.new]) { _, change in
+            if change.newValue == false { done.continuation.yield() }
         }
         let timer = Task {
             try? await Task.sleep(for: timeout)
