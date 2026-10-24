@@ -39,6 +39,9 @@ public final class WebKitSurfaceView: NSView {
         return tab.webView?.superview === self
     }
 
+    /// True while the view shows a tab's page.
+    public var showsTab: Bool { shownTab?.webView?.superview === self }
+
     /// Takes the shown tab's page out of the view; the page stays alive.
     public func detach() {
         if let webView = shownTab?.webView, webView.superview === self { webView.removeFromSuperview() }

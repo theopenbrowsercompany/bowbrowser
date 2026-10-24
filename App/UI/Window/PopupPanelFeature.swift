@@ -68,7 +68,7 @@ final class PopupPanel: NSObject, NSWindowDelegate, EngineTabDelegate {
     /// The tab whose page opened this one. Weak: the window owns it.
     private(set) weak var opener: (any EngineTab)?
     let window: PopupPanelWindow
-    private let webView: BowWebView
+    private let webView: EngineSurfaceView
     /// The panel page's alert, confirm and prompt, as sheets on the panel under the same rules as a tab's. The panel
     /// always shows its page, so a dialog comes up at once.
     let dialogs: PageDialogSheets
@@ -98,7 +98,7 @@ final class PopupPanel: NSObject, NSWindowDelegate, EngineTabDelegate {
             styleMask: [.titled, .closable, .resizable],
             backing: .buffered,
             defer: false)
-        webView = BowWebView(frame: NSRect(origin: .zero, size: contentSize))
+        webView = EngineSurfaceView(frame: NSRect(origin: .zero, size: contentSize))
         dialogs = PageDialogSheets(window: window, shownTab: tab.tabID)
         signIn = SignInSheets(window: window, shownTab: tab.tabID)
         super.init()
@@ -121,7 +121,7 @@ final class PopupPanel: NSObject, NSWindowDelegate, EngineTabDelegate {
         webView.show(tab)
         if parent.isKeyWindow {
             window.makeKeyAndOrderFront(nil)
-            webView.focusAttachedTab()
+            webView.focusShownTab()
         }
     }
 

@@ -104,7 +104,7 @@ extension E2ETestApp: E2ELittleArcApp {
                 openEnabled: toolbar.openButton.isEnabled && toolbar.openButton.window === window,
                 moveSpaces: spaces.map { $0.isEnabled ? $0.title : "(\($0.title))" },
                 showsPage: panel.tab.map { tab in
-                    E2EAppAdapter.views(in: window.contentView ?? NSView(), BowWebView.self).contains {
+                    E2EAppAdapter.views(in: window.contentView ?? NSView(), EngineSurfaceView.self).contains {
                         $0.isShowing(tab)
                     }
                 } ?? false)

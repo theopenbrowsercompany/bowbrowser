@@ -99,9 +99,12 @@ import WebKit
         // Moving a page to another surface view takes it out of this one.
         let other = WebKitSurfaceView(frame: rig.surface.frame)
         rig.window.contentView?.addSubview(other)
+        #expect(!other.showsTab)
         other.show(second)
+        #expect(other.showsTab && !rig.surface.showsTab)
         #expect(other.isShowing(second) && !rig.surface.isShowing(second) && rig.surface.subviews.isEmpty)
         other.detach()
+        #expect(!other.showsTab)
         #expect(!other.isShowing(second) && second.webView?.superview == nil)
         try await rig.finish()
     }

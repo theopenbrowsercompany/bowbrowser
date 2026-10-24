@@ -128,6 +128,6 @@ final class FindFeature: NSResponder, BrowserWindowFeature {
         findBar.show(nil)
         let hadKeyboard = findBar.field.currentEditor() != nil
         findBar.isHidden = true
-        if hadKeyboard { window.webView.focusAttachedTab() }
+        if hadKeyboard { window.webView.focusShownTab() }
     }
 }

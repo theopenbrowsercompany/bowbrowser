@@ -17,6 +17,12 @@ extension BowWebView {
         guard let attachedTab, let tab = tab as? CEFTab else { return false }
         return attachedTab === tab.tab
     }
+
+    /// Gives the shown tab's page keyboard focus.
+    func focusShownTab() { focusAttachedTab() }
+
+    /// True while the view shows a tab's page.
+    var showsTab: Bool { attachedTab != nil }
 }
 
 /// Site icons, the other AppKit seam: BowCore carries a tab's icon address, and the image is loaded here.

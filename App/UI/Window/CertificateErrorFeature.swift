@@ -157,18 +157,18 @@ final class CertificateErrorFeature: NSResponder, BrowserWindowFeature {
     }
 
     /// Hides `view`; when it held the keyboard, the page of its pane gets it back (when that pane has focus).
-    private func hide(_ view: CertificateErrorView, pane: BowWebView?, focused: Bool) {
+    private func hide(_ view: CertificateErrorView, pane: EngineSurfaceView?, focused: Bool) {
         let hadKeyboard = !view.isHidden && view.window?.firstResponder === view
         view.show(nil)
         guard hadKeyboard, let nsWindow = window.window else { return }
         if let pane, focused {
-            pane.focusAttachedTab()
+            pane.focusShownTab()
         }
         if nsWindow.firstResponder === view { nsWindow.makeFirstResponder(nil) }
     }
 
     /// Gives `view`, coming up over the focused `pane`, the keyboard when it is in the page it covers or nowhere.
-    private func takeKeyboard(_ view: CertificateErrorView, over pane: BowWebView) {
+    private func takeKeyboard(_ view: CertificateErrorView, over pane: EngineSurfaceView) {
         guard let nsWindow = window.window, nsWindow.firstResponder !== view else { return }
         let holder: CertificateErrorPage.KeyboardHolder
         switch nsWindow.firstResponder {
@@ -191,13 +191,13 @@ final class CertificateErrorFeature: NSResponder, BrowserWindowFeature {
         }
     }
 
-    private func place(_ view: CertificateErrorView, over pane: BowWebView) {
+    private func place(_ view: CertificateErrorView, over pane: EngineSurfaceView) {
         let frame = pane.convert(pane.bounds, to: window.pageArea)
         if view.frame != frame { view.frame = frame }
     }
 
     /// Follows `pane`'s frame (a window resize, a divider moving, the panes changing), so its page stays over it.
-    private func observeFrame(of pane: BowWebView) {
+    private func observeFrame(of pane: EngineSurfaceView) {
         guard observedPanes.insert(ObjectIdentifier(pane)).inserted else { return }
         pane.postsFrameChangedNotifications = true
         NotificationCenter.default.addObserver(
