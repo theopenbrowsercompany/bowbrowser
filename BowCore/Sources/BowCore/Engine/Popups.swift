@@ -18,7 +18,9 @@ public enum PopupDecision: Equatable, Sendable {
     case peek
     /// A separate popup window, not a sidebar tab, connected to its opener (`window.opener`). The default. The window
     /// is the app's: the engine reports it with `TabEvent.popupRequested` and the app never opens the page again.
-    /// (The CEF engine still builds this window itself; an engine that hands pages to the app builds it as the app's.)
+    /// (The CEF engine still builds this window itself. An engine with no windows of its own hands the page to
+    /// `EngineTabDelegate.tab(_:didOpenPopup:request:)` as it does for `.foregroundTab`, and the app shows it in a
+    /// popup window of its own.)
     case window
     /// Nothing opens.
     case block

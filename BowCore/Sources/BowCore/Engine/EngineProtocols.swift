@@ -7,12 +7,14 @@ import Foundation
 
 /// The running browser engine: owns the profiles and shuts everything down.
 @MainActor public protocol BrowserEngine: AnyObject {
-    /// Creates a profile with its own isolated storage. Persistent profiles keep cookies, cache and
-    /// site data on disk; ephemeral ones keep them in memory and lose them when closed.
-    /// Throws `EngineError.invalidProfileID` when the ID cannot name a folder (see
+    /// Creates the profile `ref` names, with its own isolated storage, as `ref.engineID`. Persistent profiles keep
+    /// cookies, cache and site data on disk; ephemeral ones keep them in memory and lose them when closed. An engine
+    /// that names its storage by UUID uses `ref.storeID`, so the same profile reaches the same storage on every
+    /// launch; an engine that names it by folder uses the engine ID and may ignore the UUID.
+    /// Throws `EngineError.invalidProfileID` when the engine ID cannot name a folder (see
     /// `ProfileID.isValid`), and `EngineError.profileExists` when
     /// the ID is taken, ignoring case, since folder names on macOS volumes ignore case by default.
-    func createProfile(id: ProfileID, isPersistent: Bool) throws -> any EngineProfile
+    func createProfile(_ ref: ProfileRef) throws -> any EngineProfile
 
     /// Returns the profile with this ID, or nil. `ProfileID.default` always returns a profile.
     func profile(id: ProfileID) -> (any EngineProfile)?
@@ -44,6 +46,13 @@ extension BrowserEngine {
     /// and navigation events follow through the tab's delegate.
     func createTab(url: URL) -> any EngineTab
 
+    /// Creates a tab in this profile from the session state an unloaded tab of this engine kept
+    /// (`EngineTab.sessionState`), so the new tab gets the old one's back and forward history and loads the entry it
+    /// was on. `url` is the tab's address as the app kept it. With nil, or state the engine cannot read, it starts
+    /// loading `url` as `createTab(url:)` does. Defaults to `createTab(url:)`, dropping the state, for an engine that
+    /// keeps none.
+    func createTab(url: URL, restoring sessionState: Data?) -> any EngineTab
+
     /// Stores a remembered permission answer in the engine's own settings for this profile (its content
     /// settings), so the engine's permission checks agree with the app: a page querying its permission state sees
     /// it, and the engine does not ask again for a kind already answered. The app's `SitePermissionStore` stays the
@@ -52,6 +61,10 @@ extension BrowserEngine {
 
     /// The profile's downloads. Always the same object for one profile.
     var downloads: any EngineDownloads { get }
+}
+
+extension EngineProfile {
+    public func createTab(url: URL, restoring sessionState: Data?) -> any EngineTab { createTab(url: url) }
 }
 
 /// One profile's downloads: every download started in the profile's tabs since the engine started, in creation
@@ -138,6 +151,12 @@ extension EngineDownloadsDelegate {
     /// last event is `TabEvent.unloaded`, not `closed`. Defaults to false (the engine cannot unload).
     func unload() async -> Bool
 
+    /// The page's session (its back and forward history and the entry it was on), saved as the tab unloaded, to hand
+    /// to `EngineProfile.createTab(url:restoring:)` of the same engine when the tab loads again. Opaque to the app.
+    /// Set once `unload()` has returned true and readable from then on; nil before that, after `close()` or any other
+    /// close, and from an engine that keeps no session state. Defaults to nil.
+    var sessionState: Data? { get }
+
     /// The page's zoom factor, a multiplier of its size: 1 is 100%, 1.1 is 110% (`PageZoom`). An engine may hand
     /// back a factor a hair off the one it was given, so compare sizes with `PageZoom.percent(forFactor:)`. Zoom
     /// applies to the page's site: setting it changes every tab on the same site in the profile, now and later.
@@ -163,6 +182,7 @@ extension EngineDownloadsDelegate {
 extension EngineTab {
     public var closeReason: TabCloseReason? { nil }
     public func unload() async -> Bool { false }
+    public var sessionState: Data? { nil }
     public var zoomFactor: Double { PageZoom.actualSize }
     public func setZoomFactor(_ factor: Double) {}
     public func exitFullscreen() {}
@@ -192,6 +212,10 @@ extension EngineTab {
     /// connected to its opener (`window.opener`). The app owns it from now on. Asked at once, right after
     /// `decidePopup` and before the new tab's first navigation, so the app's navigation policy covers that too: take
     /// the tab, but show no modal UI and do not close the opener here. Defaults to closing it.
+    /// An engine with no windows of its own (one that hands every new page to the app) calls this for a popup
+    /// decided as `.window` too, and the app shows the new tab in a popup window of its own; the app knows which
+    /// decision it gave from the same request. The CEF engine builds `.window` popups itself and never calls this
+    /// for them.
     func tab(_ tab: any EngineTab, didOpenPopup newTab: any EngineTab, request: PopupRequest)
 
     /// A key event is about to reach the page; true claims it, so the page never sees it. Asked synchronously.

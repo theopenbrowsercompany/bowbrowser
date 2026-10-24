@@ -38,13 +38,16 @@ public struct ContextMenuRequest: Equatable, Sendable {
     public var profileID: ProfileID
     /// Where the menu was asked for.
     public var position: PagePoint
-    /// The page and the frame the pointer was in (the same for the main frame).
+    /// The address of the page's main frame document. Nil only when the engine has no address for it.
     public var pageURL: URL?
+    /// The address of the subframe (an iframe) the pointer was in. Nil when the pointer was in the main frame, whose
+    /// address is `pageURL`, so `frameURL ?? pageURL` is always the frame's address.
     public var frameURL: URL?
     /// The link under the pointer, nil when there is none.
     public var linkURL: URL?
-    /// The link's text. Nil when there is no link, and always nil with the engine version Bow uses, which does not
-    /// report it.
+    /// The text the link shows, as the person reads it (to name a bookmark or copy it). Never empty: nil when there is
+    /// no link, when the link shows no text (an image link, say), and from an engine that does not report it. The CEF
+    /// engine never reports it, so it is always nil there.
     public var linkText: String?
     /// The source of the image under the pointer, nil when there is none.
     public var imageURL: URL?
