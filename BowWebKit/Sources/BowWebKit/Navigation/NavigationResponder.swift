@@ -22,7 +22,18 @@ protocol NavigationResponder: AnyObject {
     func didFinish(_ key: NavigationKey?, in tab: WebKitTab)
     /// `isProvisional` is true for a failure before commit.
     func didFail(_ key: NavigationKey?, error: any Error, isProvisional: Bool, in tab: WebKitTab)
+
+    /// A sign in or server trust question of any load of the page. True takes it: the responder then calls
+    /// `completionHandler` exactly once, whatever happens to the tab meanwhile, and no later responder is asked.
+    /// When no responder takes it, WebKit handles it as it would with no delegate.
+    func didReceive(
+        _ challenge: URLAuthenticationChallenge, in tab: WebKitTab,
+        completionHandler: @escaping ChallengeHandler
+    ) -> Bool
 }
+
+/// WebKit's answer to an authentication challenge.
+typealias ChallengeHandler = @MainActor @Sendable (URLSession.AuthChallengeDisposition, URLCredential?) -> Void
 
 extension NavigationResponder {
     func decidePolicy(for action: WKNavigationAction, in tab: WebKitTab) -> WKNavigationActionPolicy? { nil }
@@ -32,6 +43,10 @@ extension NavigationResponder {
     func didCommit(_ key: NavigationKey?, url: URL, in tab: WebKitTab) {}
     func didFinish(_ key: NavigationKey?, in tab: WebKitTab) {}
     func didFail(_ key: NavigationKey?, error: any Error, isProvisional: Bool, in tab: WebKitTab) {}
+    func didReceive(
+        _ challenge: URLAuthenticationChallenge, in tab: WebKitTab,
+        completionHandler: @escaping ChallengeHandler
+    ) -> Bool { false }
 }
 
 /// The fixed, ordered list of a tab's navigation responders: the one place that says who is asked first. A new
@@ -44,6 +59,8 @@ enum NavigationResponders {
             PolicyResponder(),
             // A new document ends the find in progress before the app hears of the commit.
             FindResponder(),
+            // HTTP sign in and server trust, which only this responder answers.
+            ChallengeResponder(),
             // Last, so the other responders have seen a callback before the app hears of it.
             NavigationEventResponder(),
         ]
