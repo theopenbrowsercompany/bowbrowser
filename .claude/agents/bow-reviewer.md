@@ -70,7 +70,7 @@ Each row's source names the file and section that states the rule; find the line
 - For each blocker: `file:line`, the concrete scenario a person would hit, which of the six it is, and the rule ID when one applies.
 - Then a "Questions" list for claims you could not confirm from evidence, one line each.
 - Then a "Later" list, one line per item, no detail; a broken rule ID that is not one of the six blockers (for example D-SPEC-1) goes here with its ID.
-- Keep the report under about 400 words.
+- Keep the report short enough to read in one pass: blockers first, each with its `file:line` and the failure a person would hit, so the lead can act on it without opening anything else.
 - Say plainly if there are no blockers.
 - End with one line: merge, or merge after fixes (blockers only).
 
