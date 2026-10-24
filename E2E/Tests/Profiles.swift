@@ -272,15 +272,23 @@ struct ProfilesFavoritesRefuseTest: E2ETest {
 
 /// Deletes a profile from the Space menu: with "Used" (the Space's profile now) and "Old" (no Space) registered,
 /// Profile > Delete Profile… enables only Old; deleting it asks in a sheet, takes it out of the list and leaves its
-/// folder on disk, and the launch step then removes the folder while Used's stays.
+/// folder on disk, and the launch step then removes the folder while Used's stays. First it checks that the storage
+/// UUIDs the registry gave at open were saved to Profiles.json before any profile change.
 struct ProfilesDeleteNextLaunchTest: E2ETest {
     let name = "profiles.delete_next_launch"
+    let checks = ["profiles.store_ids", "profiles.delete_next_launch"]
 
     func run(_ run: E2ERun) async throws {
         let setup = try await E2EProfileMoves.open(run)
         let app = setup.app
         let page = setup.page
         let names = (old: "\(setup.testProfile) Old", used: "\(setup.testProfile) Used")
+        // Before this test changes a profile: the storage UUIDs the registry gave at open are already on disk.
+        let heldIDs = try app.registeredStoreIDs()
+        let savedIDs = Self.storedStoreIDs(in: run.dataDirectory)
+        run.check(
+            "profiles.store_ids", passed: !heldIDs.isEmpty && savedIDs == heldIDs,
+            "held=\(heldIDs.count) saved=\(savedIDs.count) same=\(savedIDs == heldIDs)")
         let ids = try await run.step("register Old and Used, put Work A on Used", timeout: E2ETimeouts.firstLoad) {
             let old = try app.createRegisteredProfile(named: names.old)
             let used = try app.createRegisteredProfile(named: names.used)
@@ -319,6 +327,19 @@ struct ProfilesDeleteNextLaunchTest: E2ETest {
                 + "menu_used=\(menu.contains("\(names.used)!") ? "disabled" : "enabled") "
                 + "unlisted=\(!deleted.listed.contains("\(ids.old):\(names.old)")) before_launch=\(kept ? "kept" : "gone") "
                 + "after_launch=\(gone ? "gone" : "kept") used=\(usedKept ? "kept" : "gone") outcomes=\(outcomes)")
+    }
+
+    /// Profiles.json's storage UUID text by profile ID, as the file in `folder` holds them; empty when it is missing.
+    static func storedStoreIDs(in folder: URL) -> [String: String] {
+        let url = folder.appendingPathComponent("Profiles.json")
+        guard let data = try? Data(contentsOf: url),
+            let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+        else { return [:] }
+        var ids: [String: String] = [:]
+        for profile in object["profiles"] as? [[String: Any]] ?? [] {
+            if let id = profile["id"] as? String, let storeID = profile["storeID"] as? String { ids[id] = storeID }
+        }
+        return ids
     }
 }
 

@@ -10,11 +10,17 @@ public struct ProfileRecord: Hashable, Sendable {
     public var name: String
     /// Persistent profiles keep their data in a folder; ephemeral ones live in memory and lose it on quit.
     public var isPersistent: Bool
+    /// The profile's storage identity: one UUID, given once when the profile is made and never changed (renaming
+    /// keeps it), unique among the registry's profiles. It names the profile's engine storage and, later, its
+    /// extensions, which belong to the profile rather than to a Space, so every Space that shows the profile shares
+    /// them. The default profile has one too.
+    public var storeID: UUID
 
-    public init(id: SidebarProfileID, name: String, isPersistent: Bool) {
+    public init(id: SidebarProfileID, name: String, isPersistent: Bool, storeID: UUID = UUID()) {
         self.id = id
         self.name = name
         self.isPersistent = isPersistent
+        self.storeID = storeID
     }
 
     public var isDefault: Bool { id == .default }
@@ -23,7 +29,7 @@ public struct ProfileRecord: Hashable, Sendable {
     public var engineID: ProfileID { isDefault ? .default : ProfileID(id.rawValue) }
 
     /// What the app hands the engine to create this profile's storage.
-    public var ref: ProfileRef { isPersistent ? .persistent(engineID) : .ephemeral(engineID) }
+    public var ref: ProfileRef { ProfileRef(engineID: engineID, storeID: storeID, isPersistent: isPersistent) }
 
     /// The folder name of a persistent profile inside the root data folder: `Default` or `Profile-<id>`. The engine
     /// uses exactly this, one level under the root, because a deeper cache path silently falls back to memory.
@@ -35,20 +41,17 @@ public struct ProfileRecord: Hashable, Sendable {
     }
 }
 
-/// How the engine should create a profile: with a folder on disk, or in memory only.
-public enum ProfileRef: Hashable, Sendable {
-    case persistent(ProfileID)
-    case ephemeral(ProfileID)
+/// How the engine should create a profile: its text ID, its storage UUID (`ProfileRecord.storeID`), and whether it
+/// keeps its data on disk or in memory only.
+public struct ProfileRef: Hashable, Sendable {
+    public var engineID: ProfileID
+    public var storeID: UUID
+    public var isPersistent: Bool
 
-    public var engineID: ProfileID {
-        switch self {
-        case .persistent(let id), .ephemeral(let id): return id
-        }
-    }
-
-    public var isPersistent: Bool {
-        if case .persistent = self { return true }
-        return false
+    public init(engineID: ProfileID, storeID: UUID, isPersistent: Bool) {
+        self.engineID = engineID
+        self.storeID = storeID
+        self.isPersistent = isPersistent
     }
 }
 

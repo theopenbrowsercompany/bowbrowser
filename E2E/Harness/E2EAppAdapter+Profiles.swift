@@ -18,6 +18,11 @@ extension E2EAppAdapter {
         return profiles.map { "\($0.id.rawValue):\($0.name)" }
     }
 
+    func registeredStoreIDs() -> [String: String] {
+        let profiles = delegate.appFeatures.require(ProfileRegistryStore.self).registry?.profiles ?? []
+        return Dictionary(uniqueKeysWithValues: profiles.map { ($0.id.rawValue, $0.storeID.uuidString) })
+    }
+
     /// Counts the app's child processes started as Chromium renderers, read from `ps`.
     func rendererProcessCount() throws -> Int {
         let process = Process()
@@ -120,6 +125,11 @@ extension E2ETestApp: E2EProfilesApp {
     func registeredProfiles() throws -> [String] {
         try adapter.requireActive(token, "read the registered profiles")
         return adapter.registeredProfiles()
+    }
+
+    func registeredStoreIDs() throws -> [String: String] {
+        try adapter.requireActive(token, "read the profiles' storage IDs")
+        return adapter.registeredStoreIDs()
     }
 
     func rendererProcessCount() throws -> Int {

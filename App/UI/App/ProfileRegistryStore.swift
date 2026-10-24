@@ -32,6 +32,14 @@ final class ProfileRegistryStore: AppFeature {
             if case .freshAfterSettingAside(let url, let reason) = registry.openReport.origin {
                 Self.report("the profiles file could not be read (\(reason)); it was moved to \(url.path)")
             }
+            if registry.openReport.needsSaveAtOpen {
+                // The storage UUIDs given while reading are kept only once written.
+                do {
+                    try registry.save()
+                } catch {
+                    Self.report("the profiles' new storage IDs could not be saved: \(error)")
+                }
+            }
             opened = registry
             return registry
         } catch {

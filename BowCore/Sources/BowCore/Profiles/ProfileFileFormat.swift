@@ -2,12 +2,14 @@ import Foundation
 
 /// The profiles file: versioned JSON holding the profile list and the folders waiting to be deleted.
 ///
-/// The top level object has `version`, `profiles` (in order; each has `id`, `name`, `isPersistent`) and
-/// `pendingDeletions` (folder names under the root data folder, such as `Profile-work`) and `retiredIDs` (lower case
-/// IDs of every deleted profile, which are never given to a new one; absent in older files).
+/// The top level object has `version`, `profiles` (in order; each has `id`, `name`, `isPersistent` and, from
+/// version 2, `storeID`, the profile's storage UUID in its upper case text form) and `pendingDeletions` (folder names
+/// under the root data folder, such as `Profile-work`) and `retiredIDs` (lower case IDs of every deleted profile,
+/// which are never given to a new one; absent in older files).
 public enum ProfileFileFormat {
     /// The version this build writes. Raise it whenever the format changes, and add a migration from the old version.
-    public static let currentVersion = 1
+    /// Version 2 added `storeID` to each profile.
+    public static let currentVersion = 2
 
     /// Upgrades the raw JSON object of a file at version `from` to version `from + 1`. The store sets `version`.
     public struct Migration: Sendable {
@@ -20,8 +22,33 @@ public enum ProfileFileFormat {
         }
     }
 
-    /// Every migration this build knows, one per older version. None yet.
-    public static let migrations: [Migration] = []
+    /// Every migration this build knows, one per older version.
+    public static let migrations: [Migration] = [giveEachProfileAStoreID]
+
+    /// Version 1 to 2: the contents stay as they are. A version 1 profile has no `storeID`, and the registry gives
+    /// each profile without one a fresh UUID while reading (`ProfileRegistry.OpenReport.assignedStoreIDCount`), as it
+    /// does for a hand edited entry; the app saves it at once, so each profile gets its UUID once.
+    static let giveEachProfileAStoreID = Migration(from: 1) { _ in }
+
+    /// One profile as the file holds it, before the registry cleans it: `storeID` is nil when the entry has none or
+    /// it is not a UUID, and the registry gives it one.
+    struct Entry: Equatable {
+        var id: SidebarProfileID
+        var name: String
+        var isPersistent: Bool
+        var storeID: UUID?
+
+        init(id: SidebarProfileID, name: String, isPersistent: Bool, storeID: UUID?) {
+            self.id = id
+            self.name = name
+            self.isPersistent = isPersistent
+            self.storeID = storeID
+        }
+
+        init(_ record: ProfileRecord) {
+            self.init(id: record.id, name: record.name, isPersistent: record.isPersistent, storeID: record.storeID)
+        }
+    }
 
     public enum ReadError: Error, Equatable, CustomStringConvertible {
         case notJSONObject
@@ -44,7 +71,7 @@ public enum ProfileFileFormat {
     }
 
     struct State: Equatable {
-        var profiles: [ProfileRecord]
+        var profiles: [Entry]
         var pendingDeletions: [String]
         var retiredIDs: [String] = []
         /// How many profile or deletion entries could not be read and were left out.
@@ -56,6 +83,8 @@ public enum ProfileFileFormat {
         var id: String
         var name: String
         var isPersistent: Bool
+        /// Optional when reading, so an entry without one (a hand edited file) is kept and given a new one.
+        var storeID: String?
     }
 
     private struct Stored: Encodable {
@@ -89,7 +118,10 @@ public enum ProfileFileFormat {
     static func encode(profiles: [ProfileRecord], pendingDeletions: [String], retiredIDs: [String]) throws -> Data {
         let stored = Stored(
             version: currentVersion,
-            profiles: profiles.map { StoredProfile(id: $0.id.rawValue, name: $0.name, isPersistent: $0.isPersistent) },
+            profiles: profiles.map {
+                StoredProfile(
+                    id: $0.id.rawValue, name: $0.name, isPersistent: $0.isPersistent, storeID: $0.storeID.uuidString)
+            },
             pendingDeletions: pendingDeletions, retiredIDs: retiredIDs)
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
@@ -136,7 +168,9 @@ public enum ProfileFileFormat {
             throw .invalidContents(String(describing: error))
         }
         let profiles = contents.profiles.compactMap(\.value).map {
-            ProfileRecord(id: SidebarProfileID($0.id), name: $0.name, isPersistent: $0.isPersistent)
+            Entry(
+                id: SidebarProfileID($0.id), name: $0.name, isPersistent: $0.isPersistent,
+                storeID: $0.storeID.flatMap(UUID.init(uuidString:)))
         }
         let pending = contents.pendingDeletions.compactMap(\.value)
         let retired = contents.retiredIDs.compactMap(\.value)
