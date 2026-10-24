@@ -16,7 +16,7 @@ public enum UnloadPlaceholder {
         switch event {
         case .didFinish, .didFail, .renderProcessGone, .unloaded, .closed: true
         case .stateChanged, .didStartNavigation, .didRedirect, .didCommit, .popupRequested, .fullscreenChanged,
-            .findResult:
+            .findResult, .statusTextChanged:
             false
         }
     }

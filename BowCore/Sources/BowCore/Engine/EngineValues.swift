@@ -258,6 +258,9 @@ public enum TabEvent: Equatable, Sendable {
     /// A search started by `EngineTab.find` found matches or moved the active one. One search can
     /// report several times as the engine counts; the last has `isFinal`.
     case findResult(FindResult)
+    /// The page's status text changed: the address of the link under the pointer, or "" once the pointer has left
+    /// every link. Sent only when the text changes.
+    case statusTextChanged(String)
     /// The page was unloaded by `EngineTab.unload()`: its browser is gone and the tab is closed, but the app keeps
     /// its model to load it again later. Sent once, as the tab's last event, instead of `closed`.
     case unloaded
