@@ -103,6 +103,12 @@ case "$*" in
         echo "E2E: FAIL $((n - 1))/$n repeats passed; failed: repeat 3"
         exit 2
         ;;
+      9) # a test a changed harness helper reaches fails once
+        echo "REPEAT c.call $((n - 1))/$n"
+        echo "FAIL c.call.check: it failed"
+        echo "E2E: FAIL $((n - 1))/$n repeats passed; failed: repeat 3"
+        exit 1
+        ;;
       7) # a filler test fails but make's summary is not a FAIL naming repeats
         echo "REPEAT smoke.a $((n - 1))/$n"
         echo "FAIL smoke.a.check: it failed"
@@ -366,6 +372,120 @@ out=$(FAKE_NAMES="y.other" FAKE_SUMMARY="E2E: FAIL 2/3" run 0 flaky)
 has "FLAKY lines under a FAIL summary still fail" "$out" "make e2e: FAIL (exit 2)"
 out=$(FAKE_NAMES="y.other" FAKE_SUMMARY="E2E: CRASH exit=139" run 0 flaky)
 has "FLAKY lines under a CRASH summary still fail" "$out" "make e2e: FAIL (exit 2)"
+
+# A changed test that extends an unchanged one: tabs.close is untouched, tabs.close.all is changed, and the FLAKY tests
+# are judged by the longest test name they continue. e2e.isolation and chromium.errors are run wide checks even when a
+# test file declares those names.
+g checkout -q -f "$head_two"
+g update-ref refs/remotes/origin/main HEAD
+mkdir -p "$repo/E2E/Tests"
+printf 'struct CloseTest: E2ETest {\n    let name = "tabs.close"\n}\nstruct IsoTest: E2ETest {\n    let name = "e2e.isolation"\n}\nstruct ErrTest: E2ETest {\n    let name = "chromium.errors"\n}\n' > "$repo/E2E/Tests/Close.swift"
+g add -A
+g commit -qm "an untouched tabs.close"
+g update-ref refs/remotes/origin/main HEAD
+printf 'struct CloseAllTest: E2ETest {\n    let name = "tabs.close.all"\n}\n' > "$repo/E2E/Tests/CloseAll.swift"
+g add -A
+g commit -qm "adds tabs.close.all"
+out=$(FAKE_NAMES="tabs.close.all.quit" run 0 flaky)
+has "a FLAKY check of a changed test that extends an unchanged one fails" "$out" \
+  "FLAKY test this branch changes: tabs.close.all.quit"
+out=$(FAKE_NAMES="tabs.close.all" run 0 flaky)
+has "a FLAKY changed test that extends an unchanged one fails" "$out" "FLAKY test this branch changes: tabs.close.all"
+out=$(FAKE_NAMES="tabs.close.quit" run 0 flaky)
+has "a FLAKY check of the unchanged test it extends passes" "$out" "reported: tabs.close.quit"
+has "a FLAKY check of the unchanged test it extends exits 0" "$out" "exit=0"
+out=$(FAKE_NAMES="tabs.close" run 0 flaky)
+has "the unchanged test itself passes too" "$out" "done: PASS"
+out=$(FAKE_NAMES="e2e.isolation" run 0 flaky)
+has "e2e.isolation fails even when a test file declares that name" "$out" "FLAKY check no test owns: e2e.isolation"
+out=$(FAKE_NAMES="chromium.errors" run 0 flaky)
+has "chromium.errors fails even when a test file declares that name" "$out" "FLAKY check no test owns: chromium.errors"
+
+# A changed test file that names a test any other way than `let name = "<literal>"` (a constructor, `var name`) fails
+# closed: the FLAKY tolerance and the repeat cannot tell its tests, so a plain pass fails on the repeat and a FLAKY run
+# fails.
+g checkout -q -f "$head_two"
+g update-ref refs/remotes/origin/main HEAD
+mkdir -p "$repo/E2E/Tests"
+printf 'struct NamedTest: E2ETest {\n    let name: String\n    init() { name = "n.one" }\n}\nstruct OkTest: E2ETest {\n    let name = "ok.one"\n}\n' > "$repo/E2E/Tests/Named.swift"
+g add -A
+g commit -qm "a test named through an initializer"
+out=$(FAKE_NAMES="y.other" run 0 flaky)
+has "a FLAKY run with a test named through an initializer fails" "$out" \
+  "make e2e: FAIL (exit 2): FLAKY run with a changed test file whose tests the list cannot read: E2E/Tests/Named.swift"
+out=$(run 0 0)
+has "a pass with a test named through an initializer fails the repeat" "$out" \
+  "changed tests, repeated: FAIL (a changed test file names its tests in a form the list cannot read: E2E/Tests/Named.swift)"
+has "a test named through an initializer exits 1" "$out" "exit=1"
+
+# The forms real tests use: one type constructed once per name (the popups tests) is read, and a name computed in code
+# belongs to a selectedByNameOnly test that the full run never runs, so neither fails closed.
+g checkout -q -f "$head_two"
+g update-ref refs/remotes/origin/main HEAD
+mkdir -p "$repo/E2E/Tests"
+printf 'struct CtorTest: E2ETest {\n    let name: String\n    init(name: String) { self.name = name }\n}\nstruct SlowTest: E2ETest {\n    var name: String { "slow." + "one" }\n    var selectedByNameOnly: Bool { true }\n}\nlet ctors = [CtorTest(name: "ctor.one"), CtorTest(name: "ctor.two")]\n' > "$repo/E2E/Tests/Ctor.swift"
+g add -A
+g commit -qm "tests named through a constructor and by name only"
+out=$(run 0 0)
+has "tests named through a constructor are repeated" "$(cat "$tmp/log")" "E2E=ctor.one,ctor.two,smoke"
+has "a by-name-only test with a computed name does not fail the run" "$out" "done: PASS"
+out=$(FAKE_NAMES="ctor.one" run 0 flaky)
+has "a FLAKY test named through a constructor fails" "$out" "FLAKY test this branch changes: ctor.one"
+
+# The changed files cannot be listed (scripts/e2e-affected.sh --changed exits 3): no FLAKY test is known to be outside
+# the branch, and the repeat cannot tell its tests.
+g checkout -q -f "$head_two"
+g update-ref refs/remotes/origin/main HEAD
+printf '#!/bin/bash\necho "e2e-affected: git diff failed" >&2\nexit 3\n' > "$repo/scripts/e2e-affected.sh"
+out=$(FAKE_NAMES="y.other" run 0 flaky)
+has "a FLAKY run fails when the changed files cannot be listed" "$out" \
+  "make e2e: FAIL (exit 2): FLAKY run with the changed files could not be listed"
+has "a FLAKY run with no file list exits 1" "$out" "exit=1"
+out=$(run 0 0)
+has "a pass fails the repeat when the changed files cannot be listed" "$out" \
+  "changed tests, repeated: FAIL (the changed files could not be listed"
+cp scripts/e2e-affected.sh "$repo/scripts/e2e-affected.sh"
+g checkout -q -f "$head_two"
+
+# A changed harness helper: the tests that reach a changed symbol are repeated, and a FLAKY one among them fails.
+mkdir -p "$repo/E2E/Harness" "$repo/E2E/Tests"
+printf 'enum Hlp {\n    static func tap(selector: String) {\n        print(selector)\n    }\n    static func other() {\n        print("o")\n    }\n}\n' > "$repo/E2E/Harness/Hlp.swift"
+printf 'struct CallsTapTest: E2ETest {\n    let name = "c.call"\n    func run() { Hlp.tap(selector: "a") }\n}\nstruct CallsTapAgainTest: E2ETest {\n    let name = "c.zzz"\n    func run() { Hlp.tap(selector: "b") }\n}\nstruct CallsOtherTest: E2ETest {\n    let name = "d.other"\n    let tags = ["smoke"]\n    func run() { Hlp.other() }\n}\nstruct NoCallTest: E2ETest {\n    let name = "e.none"\n}\n' > "$repo/E2E/Tests/Calls.swift"
+g add -A
+g commit -qm "a harness helper and its callers"
+g update-ref refs/remotes/origin/main HEAD
+sed -i '' 's/print(selector)/print(selector, 1)/' "$repo/E2E/Harness/Hlp.swift"
+g commit -qam "changes tap's body"
+out=$(run 0 0)
+has "a changed harness function repeats the tests that call it" "$(cat "$tmp/log")" "E2E=c.call,c.zzz,smoke"
+has "a changed harness function is reported with its callers" "$out" "callers: changed symbols: tap(selector:"
+has "the block says how many callers there are" "$out" "reached through changed harness symbols: 2 found"
+check "a changed harness function leaves out the tests that do not call it" "" "$(grep "e2e-run.*\(d.other\|e.none\)" "$tmp/log")"
+has "the repeat of a harness caller passes" "$out" "done: PASS"
+out=$(FAKE_NAMES="c.call.quit" run 0 flaky)
+has "a FLAKY test a changed harness function reaches fails" "$out" "FLAKY test this branch changes: c.call.quit"
+out=$(FAKE_NAMES="d.other" run 0 flaky)
+has "a FLAKY test no changed harness function reaches passes" "$out" "reported: d.other"
+out=$(run 0 0 9)
+has "a failing harness caller fails the run" "$out" "changed tests, repeated: FAIL (changed test c.call passed 19/20 repeats)"
+# A name searched in too many test files falls back to the smoke tests and the areas that call the changed file.
+out=$(CALLERS_COMMON=1 run 0 0)
+has "a too common name says so and names the fallback" "$out" "callers: too common to search by name: tap(selector: (1 test files)"
+has "a too common name adds the smoke tests" "$(cat "$tmp/log")" "d.other"
+has "a too common name adds the areas calling the changed file" "$(cat "$tmp/log")" "c.call"
+# More callers than the cap are sampled, and the block says so.
+out=$(DONE_REPEAT_CAP=1 run 0 0)
+has "callers over the cap are sampled and the block says so" "$out" "sampled: the best caller of each of 1 areas (of 2 tests"
+check "a sample repeats the best caller of an area, not its other callers" "ran: E2E_REPEAT=20 E2E_SHARDS=3 --no-print-directory e2e-run E2E=c.call,smoke" "$(grep e2e-run "$tmp/log")"
+sed -i '' 's/print("o")/print("o", 1)/' "$repo/E2E/Harness/Hlp.swift"
+g commit -qam "changes other too"
+out=$(run 0 0)
+has "two changed harness functions repeat both callers" "$(cat "$tmp/log")" "E2E=c.call,c.zzz,d.other"
+g update-ref refs/remotes/origin/main HEAD
+echo "// only a comment" >> "$repo/E2E/Harness/Hlp.swift"
+g commit -qam "a comment in the helper"
+out=$(run 0 0)
+has "a comment only change in the harness reaches no test" "$out" "changed tests, repeated: skip (no e2e test added or changed)"
 
 # The Release build: a branch touching App/ (or E2E/, BowCore/Sources/, project.yml) builds Release beside the e2e.
 g checkout -q -f "$head_two"

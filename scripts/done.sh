@@ -10,10 +10,13 @@
 # 3. Runs make bootstrap when Vendor/cef is missing (a fresh worktree).
 # 4. Runs make verify, then the full make e2e (E2E=all), as separate commands. A failed verify skips the e2e and the
 #    release build. A full e2e that ends `E2E: FLAKY` (failed, then passed on the retry) does not fail the branch
-#    when every `FLAKY <name>` line is a test it neither adds nor changes: the block reports the lines under the e2e
-#    line and the run goes on. A FLAKY test the branch adds or changes, a FLAKY check no test owns (e2e.isolation,
-#    chromium.errors), a FLAKY summary with no FLAKY lines and every FAIL, CRASH, TIMEOUT or ERROR still fail. The
-#    landing is unchanged: there FLAKY is not a pass unless quarantined.
+#    when every `FLAKY <name>` line is a test it neither adds nor changes and that no changed E2E/Harness or
+#    E2E/Engine symbol reaches (step 6 says how those are found): the block reports the lines under the e2e line and
+#    the run goes on. A FLAKY test the branch adds, changes or reaches that way, a FLAKY check no test owns
+#    (e2e.isolation, chromium.errors), a FLAKY summary with no FLAKY lines, a run where the changed files could not be
+#    listed (exit 3 of e2e-affected.sh --changed) or a changed test file that names its tests in a form the list
+#    cannot read (below), and every FAIL, CRASH, TIMEOUT or ERROR still fail. The landing is unchanged: there FLAKY is
+#    not a pass unless quarantined.
 # 5. Once verify passed, runs make release beside the full e2e when the branch (committed or not, against its merge
 #    base) touches App/, E2E/, BowCore/Sources/ or project.yml (App/ holds the bridging header), as the landing
 #    does. Release builds into its own derived data (build/release), and verify has already generated the project
@@ -23,7 +26,16 @@
 #    only, as the landing treats it: it runs make lint and make guards, skips bootstrap, verify, the e2e, the
 #    release build and the repeat (each says "skip (docs only)" in the block), and the block says so. Anything
 #    else, scripts and fixtures included, keeps the full run.
-# 6. Reruns the e2e tests the branch adds or changes (the names in each changed E2E/Tests file) DONE_REPEAT times
+# 6. Reruns the e2e tests the branch adds or changes (the names in each changed E2E/Tests file), and the tests that
+#    reach a symbol it changes or adds in E2E/Harness/ or E2E/Engine/ (scripts/e2e-affected.sh --callers: a plain text
+#    search for the changed functions, properties and types in E2E/Tests and one level up in the other harness files;
+#    a name found in 12 or more test files is too common to search, and then the smoke tests and every test in the
+#    areas that call the changed file are added, and the note says which names). More than DONE_REPEAT_CAP (default 40)
+#    such callers are sampled: the changed tests plus each area's best caller, and the block says so. A test is named
+#    by `let name = "<literal>"` or by `<Type>Test(name: "<literal>"` (the popups tests); a name computed in code
+#    (`var name: String { ... }`, a raw value) belongs to a `selectedByNameOnly` test, which the full run and the
+#    repeat never run. A changed test file with an E2ETest type that has none of those forms fails the FLAKY tolerance
+#    and the repeat instead of being missed (unreadable_test_files_of). The tests are rerun DONE_REPEAT times
 #    (default 20) in DONE_REPEAT_SHARDS shards (default 3, so the repeats also run under load, which exposes waits on
 #    time) with the retry off (E2E_REPEAT=<n> E2E_SHARDS=<k> make e2e-run), after the full e2e passed. A selection of
 #    fewer tests than shards gets the smoke tests as load filler. The gate reads the changed tests' own
@@ -169,14 +181,93 @@ repeat_gate() {
     }' "$log"
 }
 
+
+# test_names_in <E2E/Tests file>: the test names it declares, one per line: `let name = "<literal>"` (a stored name)
+# and `<Type>Test(name: "<literal>"` (one test type constructed once per name, as the popups tests do).
+test_names_in() {
+  awk '{
+    s = $0
+    if (match(s, /let name = "[^"]*"/)) print substr(s, RSTART + 12, RLENGTH - 13)
+    while (match(s, /Test\(name: "[^"]*"/)) { print substr(s, RSTART + 12, RLENGTH - 13); s = substr(s, RSTART + RLENGTH) }
+  }' "$1"
+}
+
 # changed_tests_of <changed files, one per line>: the e2e tests the branch adds or changes (the names in each changed
-# E2E/Tests file), as a comma list. The repeat step and the FLAKY tolerance both use it, so they never disagree.
+# E2E/Tests file, see test_names_in), as a comma list. The repeat step and the FLAKY tolerance both use it, so they
+# never disagree. A name computed in code (`var name: String { ... }`, a raw value) is not read; such a test is
+# `selectedByNameOnly` (the full run and the repeat never run it), and unreadable_test_files_of names a changed file
+# whose test types could be missed.
 changed_tests_of() {
   local f names=""
   while IFS= read -r f; do
-    case $f in E2E/Tests/*.swift) [ -f "$f" ] && names="$names"$'\n'"$(sed -n 's/.*let name = "\([^"]*\)".*/\1/p' "$f")" ;; esac
+    case $f in E2E/Tests/*.swift) [ -f "$f" ] && names="$names"$'\n'"$(test_names_in "$f")" ;; esac
   done <<< "$1"
   echo "$names" | grep -v '^$' | sort -u | paste -sd, -
+}
+
+# unreadable_test_files_of <changed files, one per line>: the changed E2E/Tests files with a test type (a struct,
+# class, enum or actor conforming to E2ETest) that changed_tests_of cannot name and that the full run would still run:
+# none of a stored `let name = "<literal>"`, a `<Type>(name: "<literal>"` construction anywhere in the file, and
+# `var selectedByNameOnly: Bool { true }` (a test the full run leaves out, so no FLAKY or repeat involves it). One file
+# per line. The FLAKY tolerance and the repeat fail closed on such a file instead of missing its tests.
+unreadable_test_files_of() {
+  local f
+  while IFS= read -r f; do
+    case $f in E2E/Tests/*.swift)
+      [ -f "$f" ] || continue
+      awk -v FILE="$f" '
+        { L[NR] = $0; ind[NR] = ($0 ~ /[^ \t]/) ? match($0, /[^ \t]/) - 1 : -1 }
+        END {
+          for (i = 1; i <= NR; i++) {
+            if (L[i] !~ /^[ \t]*((final|private|fileprivate|public|internal) +)*(struct|class|enum|actor) +[A-Za-z0-9_]+ *:[^{]*(^|[^A-Za-z0-9_])E2ETest([^A-Za-z0-9_]|$)/) continue
+            type = L[i]
+            sub(/^[ \t]*((final|private|fileprivate|public|internal) +)*(struct|class|enum|actor) +/, "", type)
+            sub(/[^A-Za-z0-9_].*$/, "", type)
+            e = NR
+            for (j = i + 1; j <= NR; j++) if (ind[j] >= 0 && ind[j] <= ind[i]) { e = j; break }
+            ok = 0
+            for (j = i; j <= e; j++) if (L[j] ~ /let name = "/ || L[j] ~ /selectedByNameOnly: Bool \{ true \}/) ok = 1
+            for (j = 1; !ok && j <= NR; j++) if (index(L[j], type "(name: \"")) ok = 1
+            if (!ok) { print FILE; exit }
+          }
+        }' "$f"
+      ;;
+    esac
+  done <<< "$1"
+}
+
+# union_of <comma list> <comma list>: both lists' names once each, sorted, as a comma list.
+union_of() {
+  printf '%s\n%s\n' "$(echo "$1" | tr ',' '\n')" "$(echo "$2" | tr ',' '\n')" | grep -v '^$' | sort -u | paste -sd, -
+}
+
+# callers_sample <changed tests, comma list> <cap>, rows `direct|fallback <symbols reached> <test>` on stdin (the output
+# of scripts/e2e-affected.sh --callers): prints a note line (empty unless it sampled), then the comma list of tests to
+# repeat. At most <cap> callers: all of them plus the changed tests. More: a stated sample, the changed tests (the
+# tests the branch's own files declare) and each area's best caller (the one reached by the most changed symbols, a
+# name-found one before a fallback one, ties by name; an area is the name before its first dot).
+callers_sample() {
+  local res
+  res=$(awk -v changed="$1" -v cap="$2" '
+    NF == 3 { n++; cls[n] = $1; cnt[n] = $2; nm[n] = $3 }
+    END {
+      k = split(changed, c, ",")
+      for (i = 1; i <= k; i++) if (c[i] != "") sel[c[i]] = 1
+      if (n <= cap) { for (i = 1; i <= n; i++) sel[nm[i]] = 1; print "" }
+      else {
+        for (i = 1; i <= n; i++) {
+          area = nm[i]; sub(/\..*$/, "", area)
+          rank = (cls[i] == "direct" ? 100000 : 0) + cnt[i]
+          if (!(area in best) || rank > brank[area] || (rank == brank[area] && nm[i] < best[area])) { best[area] = nm[i]; brank[area] = rank }
+        }
+        na = 0
+        for (a in best) { sel[best[a]] = 1; na++ }
+        print "sampled: the best caller of each of " na " areas (of " n " tests that reach a changed harness symbol, over the cap of " cap ") plus the tests of the changed test files"
+      }
+      for (t in sel) print t
+    }')
+  echo "$res" | sed -n 1p
+  echo "$res" | sed 1d | sort -u | paste -sd, -
 }
 
 # flaky_verdict <changed tests, comma list> <e2e log>: whether a FLAKY full e2e may be gone past, on one line:
@@ -186,7 +277,7 @@ changed_tests_of() {
 #                   FLAKY line to attribute: when in doubt, fail.
 flaky_verdict() {
   local changed=$1 log=$2 all_tests
-  all_tests=$(cat E2E/Tests/*.swift 2> /dev/null | sed -n 's/.*let name = "\([^"]*\)".*/\1/p' | paste -sd, -)
+  all_tests=$(for f in E2E/Tests/*.swift; do [ -f "$f" ] && test_names_in "$f"; done | paste -sd, -)
   awk -v changed="$changed" -v all="$all_tests" '
     BEGIN {
       k = split(changed, c, ","); for (i = 1; i <= k; i++) mine[c[i]] = 1
@@ -213,6 +304,7 @@ flaky_verdict() {
 # cannot be listed, it builds, to be safe.
 release_reason=""
 docs_only=0
+list_failed=""
 if changed=$(CHECK_BASE=$base ./scripts/e2e-affected.sh --changed 2> /dev/null); then
   release_reason=$(echo "$changed" | grep -m1 '^\(App/\|E2E/\|BowCore/Sources/\|project\.yml$\)')
   # Docs only: at least one changed file, and every one is a *.md file or under spec/ (the landing's policy, and
@@ -220,6 +312,35 @@ if changed=$(CHECK_BASE=$base ./scripts/e2e-affected.sh --changed 2> /dev/null);
   if [ -n "$changed" ] && [ -z "$(echo "$changed" | grep -v '\.md$' | grep -v '^spec/')" ]; then docs_only=1; fi
 else
   release_reason="the changed files could not be listed"
+  list_failed="the changed files could not be listed (scripts/e2e-affected.sh --changed failed)"
+  changed=""
+fi
+
+# The tests the branch adds or changes, the tests that reach a changed harness symbol, and the repeat set. Computed
+# before the e2e, because a FLAKY full run is judged against the same list the repeat step uses.
+changed_tests=""
+callers_rows=""
+callers_notes=""
+unreadable=""
+flaky_set=""
+repeat_set=""
+repeat_note=""
+if [ "$docs_only" != 1 ] && [ -z "$list_failed" ]; then
+  changed_tests=$(changed_tests_of "$changed")
+  unreadable=$(unreadable_test_files_of "$changed")
+  if echo "$changed" | grep -q '^E2E/\(Harness\|Engine\)/'; then
+    if callers_rows=$(CHECK_BASE=$base ./scripts/e2e-affected.sh --callers 2> "$out/callers.err"); then
+      callers_notes=$(cat "$out/callers.err")
+    else
+      callers_rows=""
+      list_failed="the tests reaching the changed harness symbols could not be found (scripts/e2e-affected.sh --callers failed)"
+    fi
+  fi
+  callers_all=$(echo "$callers_rows" | awk 'NF == 3 { print $3 }' | paste -sd, -)
+  flaky_set=$(union_of "$changed_tests" "$callers_all")
+  sampled=$(echo "$callers_rows" | callers_sample "$changed_tests" "${DONE_REPEAT_CAP:-40}")
+  repeat_set=$(echo "$sampled" | sed -n '2p')
+  repeat_note=$(echo "$sampled" | sed -n '1p')
 fi
 
 if [ "$docs_only" = 1 ]; then
@@ -271,14 +392,18 @@ elif [ "$failed" = 0 ]; then
     fi
     step e2e make --no-print-directory e2e E2E=all
     e2e_line=$(grep '^E2E: ' "$out/e2e.log" | tail -1)
-    changed_tests=$(changed_tests_of "${changed:-}")
     flaky_lines=""
     if [ "$step_status" = 0 ]; then e2e="ok"; else
       e2e="FAIL (exit $step_status)"
       failed=1
-      # A FLAKY run (failed, then passed on the retry) goes on when every flaky test is outside this branch.
+      # A FLAKY run (failed, then passed on the retry) goes on when every flaky test is outside this branch: not one
+      # it adds or changes, and not one that reaches a changed harness symbol. When the branch's tests cannot be
+      # told (the changed files cannot be listed, a changed test file names its tests in a form the list cannot
+      # read), no flaky test is outside it, so the run fails.
       case $e2e_line in "E2E: FLAKY"*)
-        flaky=$(flaky_verdict "$changed_tests" "$out/e2e.log")
+        if [ -n "$list_failed" ]; then flaky="fail FLAKY run with $list_failed"
+        elif [ -n "$unreadable" ]; then flaky="fail FLAKY run with a changed test file whose tests the list cannot read: $(echo "$unreadable" | paste -sd, -)"
+        else flaky=$(flaky_verdict "$flaky_set" "$out/e2e.log"); fi
         case $flaky in
           "ok "*)
             e2e="ok (FLAKY outside this branch, reported: ${flaky#ok })"
@@ -314,21 +439,31 @@ repeat_lines=""
 if [ "$docs_only" = 1 ]; then
   repeat="skip (docs only)"
 elif [ "$failed" = 0 ]; then
-  if [ -z "$changed_tests" ]; then
-    repeat="skip (no e2e test added or changed)"
+  if [ -n "$list_failed" ]; then
+    repeat="FAIL ($list_failed)"
+    failed=1
+  elif [ -n "$unreadable" ]; then
+    repeat="FAIL (a changed test file names its tests in a form the list cannot read: $(echo "$unreadable" | paste -sd, -))"
+    failed=1
+  elif [ -z "$repeat_set" ]; then
+    repeat="skip (no e2e test added or changed${callers_notes:+, and none reaches a changed harness symbol})"
   else
-    # Fewer changed tests than shards would run as one shard per test, so a lone test would get no load: the smoke
-    # tests pad the selection as filler (e2e.sh drops a name listed twice).
-    selection=$changed_tests
-    n_changed=$(echo "$changed_tests" | tr ',' '\n' | grep -c .)
-    [ "$n_changed" -ge "$repeat_shards" ] || selection="$changed_tests,smoke"
-    desc="$repeat_count repeats in $repeat_shards shards of $changed_tests"
+    # Fewer tests than shards would run as one shard per test, so a lone test would get no load: the smoke tests pad
+    # the selection as filler (e2e.sh drops a name listed twice).
+    selection=$repeat_set
+    n_repeat=$(echo "$repeat_set" | tr ',' '\n' | grep -c .)
+    [ "$n_repeat" -ge "$repeat_shards" ] || selection="$repeat_set,smoke"
+    if [ -z "$callers_rows" ]; then desc="$repeat_count repeats in $repeat_shards shards of $repeat_set"; else
+      n_callers=$(echo "$callers_rows" | awk 'NF == 3' | grep -c .)
+      desc="$repeat_count repeats in $repeat_shards shards of $n_repeat tests (changed: ${changed_tests:-none}; reached through changed harness symbols: $n_callers found${repeat_note:+; $repeat_note})"
+    fi
     step repeat env E2E_REPEAT="$repeat_count" E2E_SHARDS="$repeat_shards" make --no-print-directory e2e-run "E2E=$selection"
     repeat_lines=$(grep '^\(REPEAT \|E2E: \|note: \)' "$out/repeat.log")
+    [ -z "$callers_notes" ] || repeat_lines="$callers_notes"$'\n'"$repeat_lines"
     # make exits 2 for any failure, so the summary line decides: PASS is the only pass, and a failure counts only
     # when every failing check belongs to a filler test (see repeat_gate).
     summary=$(grep '^E2E: ' "$out/repeat.log" | tail -1)
-    verdict=$(repeat_gate "$changed_tests" "$repeat_count" "$summary" "$out/repeat.log")
+    verdict=$(repeat_gate "$repeat_set" "$repeat_count" "$summary" "$out/repeat.log")
     case $verdict in
       pass)
         if [ "$step_status" = 0 ]; then repeat="ok ($desc)"; else
