@@ -55,7 +55,10 @@ extension NavigationResponder {
 enum NavigationResponders {
     static func all() -> [any NavigationResponder] {
         [
-            // The app's policy first: a navigation it cancels reaches no other responder.
+            // A link that asks for a download downloads instead of navigating, so the app's policy, which is about
+            // navigations, is not asked; responses come after every navigation question.
+            DownloadResponder(),
+            // The app's policy before the rest: a navigation it cancels reaches no other responder.
             PolicyResponder(),
             // A new document ends the find in progress before the app hears of the commit.
             FindResponder(),

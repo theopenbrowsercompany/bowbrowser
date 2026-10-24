@@ -11,7 +11,9 @@ final class WebKitProfile: EngineProfile {
     let storeID: UUID
     let isPersistent: Bool
     let store: WKWebsiteDataStore
-    let downloads: any EngineDownloads
+    /// The profile's downloads, which hold every download its tabs began (see `WebKitDownloads`).
+    let webKitDownloads: WebKitDownloads
+    var downloads: any EngineDownloads { webKitDownloads }
     /// Every tab made on the profile, held weakly: whoever holds a tab keeps it, and quitting closes those still
     /// open (see `register(_:)`).
     private var registered: [WeakTab] = []
@@ -22,7 +24,7 @@ final class WebKitProfile: EngineProfile {
         self.storeID = storeID
         self.isPersistent = isPersistent
         self.store = store
-        downloads = WebKitDownloads(profileID: profileID)
+        webKitDownloads = WebKitDownloads(profileID: profileID, store: store)
     }
 
     /// The profile `ref` names, on its own store (see `store(for:)`).
@@ -75,9 +77,11 @@ final class WebKitProfile: EngineProfile {
     /// already closed with `.quit`, so a delegate that opens a tab on every close cannot keep quitting going.
     private(set) var isQuitting = false
 
-    /// Begins quitting: from now on every new tab is refused (see `isQuitting`).
+    /// Begins quitting: from now on every new tab and download is refused (see `isQuitting`), and every download
+    /// that has not ended is cancelled.
     func beginQuit() {
         isQuitting = true
+        webKitDownloads.cancelAll()
     }
 
     /// Records `tab` as one of the profile's, so quitting closes it. A tab calls this as it is made, whichever way it
