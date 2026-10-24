@@ -52,5 +52,5 @@ Each Favorite is its own tab: it opens in place, and there is never a copy of it
 
 - A "Back to saved address" control on a Favorite's tile, and a keyboard shortcut or command to favorite a tab.
 - Moving a tab to Favorites from its context menu ("Move To").
-- Keeping site icons for Favorites across relaunches and windows; until then a Favorite shows its letter tile after a relaunch.
+- Showing the saved icons in the app: the store and its rule (an icon per item, then its page, then its host) are in `sidebar-store.md`; a Favorite's tile keeps its saved icon across relaunches and windows, as Arc keeps a saved icon per tab, and shows its letter tile only when no icon was ever saved.
 - The sidebar's zones and drags between pinned and today, covered in `sidebar.md`; how Favorites are saved, in `sidebar-store.md`.

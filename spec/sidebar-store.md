@@ -41,7 +41,14 @@ Bow keeps it in one file of its own, separate from the engine's session data.
   A Favorite can also be deleted for good.
 - Archiving never touches Favorites.
 - The sidebar file lives in Bow's Application Support folder (`~/Library/Application Support/Bow/Sidebar.json`).
-  Browsing history and site icons are not stored in it.
+  Browsing history is not stored in it, and neither are site icons: they live in their own folder (below).
+- Site icons are kept per profile, one PNG per sidebar item ID, in an icons folder beside the sidebar file.
+  Arc keeps a saved icon with each tab, so an unloaded row, a Favorite or a command bar result still shows its icon after a relaunch instead of a globe or letter tile.
+  An item's icon is looked up in this order: the icon saved for the item, then the icon saved for its exact page address (fragment ignored), then the icon saved for its host, then none (the letter tile).
+  Saving an icon for an item on a web page also saves it under that page's address and host, so a row that never loaded can borrow a sibling's.
+  An icon that is not a whole PNG, or is over 256 KB, is refused and saves nothing.
+  A missing, empty or damaged icon file is read as no icon and the next source in the order is tried; it never fails the sidebar.
+  The folder is kept under 8 MB per profile: when a save pushes it over, icons of items that no longer exist go first, then page and host icons, each oldest first; the icon of an item that still exists is never evicted.
 
 ### Pinned tabs
 
