@@ -26,16 +26,7 @@
 #    only, as the landing treats it: it runs make lint and make guards, skips bootstrap, verify, the e2e, the
 #    release build and the repeat (each says "skip (docs only)" in the block), and the block says so. Anything
 #    else, scripts and fixtures included, keeps the full run.
-# 6. Reruns the e2e tests the branch adds or changes (the names in each changed E2E/Tests file), and the tests that
-#    reach a symbol it changes or adds in E2E/Harness/ or E2E/Engine/ (scripts/e2e-affected.sh --callers: a plain text
-#    search for the changed functions, properties and types in E2E/Tests and one level up in the other harness files;
-#    a name found in 12 or more test files is too common to search, and then the smoke tests and every test in the
-#    areas that call the changed file are added, and the note says which names). More than DONE_REPEAT_CAP (default 40)
-#    such callers are sampled: the changed tests plus each area's best caller, and the block says so. A test is named
-#    by `let name = "<literal>"` or by `<Type>Test(name: "<literal>"` (the popups tests); a name computed in code
-#    (`var name: String { ... }`, a raw value) belongs to a `selectedByNameOnly` test, which the full run and the
-#    repeat never run. A changed test file with an E2ETest type that has none of those forms fails the FLAKY tolerance
-#    and the repeat instead of being missed (unreadable_test_files_of). The tests are rerun DONE_REPEAT times
+# 6. Reruns the e2e tests the branch adds or changes (the names in each changed E2E/Tests file), DONE_REPEAT times
 #    (default 20) in DONE_REPEAT_SHARDS shards (default 3, so the repeats also run under load, which exposes waits on
 #    time) with the retry off (E2E_REPEAT=<n> E2E_SHARDS=<k> make e2e-run), after the full e2e passed. A selection of
 #    fewer tests than shards gets the smoke tests as load filler. The gate reads the changed tests' own
@@ -43,7 +34,29 @@
 #    no filler test owns (a check belongs to the test of the RESULT line after it, the name prefix only when no RESULT
 #    line follows) fails it; a filler test that fails under make's `E2E: FAIL ... repeats` summary prints a `note:`
 #    line and never fails make done. DONE_REPEAT must be 2 or more (1 would be a plain run with the retry on). No such
-#    tests, no step. The block says the count and shards used.
+#    tests, no step. The block says the count and shards used ("changed tests, repeated").
+# 7. Reruns, in a second and smaller run, the tests that reach a symbol the branch changes or adds in E2E/Harness/ or
+#    E2E/Engine/ without being changed themselves (scripts/e2e-affected.sh --callers: a plain text search for the
+#    changed functions, properties and types in E2E/Tests and one level up in the other harness files; a name found in
+#    12 or more test files is too common to search, and then the smoke tests and every test in the areas that call
+#    the changed file are added, and the note says which names). They have no change of their own, so they repeat
+#    DONE_REPEAT_CALLERS times (default 6) in the same shards, and a caller over the DONE_REPEAT_CAP (default 8) is
+#    sampled: each area's best caller, and the block says so. The same gate applies ("harness callers, repeated").
+#    A test is named by `let name = "<literal>"` or by `<Type>Test(name: "<literal>"` (the popups tests); a name
+#    computed in code (`var name: String { ... }`, a raw value) belongs to a `selectedByNameOnly` test, which the full
+#    run and the repeats never run. A changed test file with an E2ETest type that has none of those forms fails the
+#    FLAKY tolerance and the repeat instead of being missed (unreadable_test_files_of).
+# 8. Reruns the package test suites the branch adds or changes: for each changed file under BowCore/Tests/ or
+#    BowWebKit/Tests/, every top level suite it declares (a type with @Suite or @Test members, or an extension of one)
+#    runs DONE_PKG_REPEAT times (default 10) with `swift test --skip-build --package-path <package> --filter
+#    '\.<Suite>/'`, after the verify built both packages. A run that fails, or that runs no test (a filter that matches
+#    nothing, a file whose suite cannot be read), fails make done and names the package, the suite and the run
+#    ("package tests, repeated"). No such file, no step.
+# 4a. Reuse (instead of the full e2e of step 4): when make check ran the full e2e (selection all) and it passed on this very tree (scripts/tree-key.sh,
+#    uncommitted changes included; make check records it in build/check-e2e-pass and deletes the record at the start of
+#    every run), the full e2e is not run again: the block says "make e2e: ok (reused make check's pass on tree <key>)".
+#    A different key, a record of another selection or one whose run folder is gone, no record (a partial, failed,
+#    FLAKY or interrupted check) all run the e2e as usual. DONE_REUSE=0 never reuses.
 # Then it prints the block: each step's result line, the e2e summary line and run folder, the path to final.png,
 # the diff stat against the merge base with origin/main (origin/main itself unless the branch is behind), the tree
 # hash and whether the worktree is dirty (a dirty tree is not what was checked). It exits 1 when any step failed
@@ -51,7 +64,13 @@
 #
 # DONE_BASE=<ref> compares with another ref than origin/main and DONE_FETCH=0 skips the fetch (the self test,
 # scripts/test-done.sh, uses both). The steps' own output streams as they run; the block is the last thing printed.
+#
+# The sizes, all whole numbers: DONE_REPEAT (2 or more, default 20) and DONE_REPEAT_SHARDS (1 or more, default 3) for
+# the changed e2e tests; DONE_REPEAT_CALLERS (2 or more, default 6) and DONE_REPEAT_CAP (1 or more, default 8) for the
+# tests only a changed harness symbol reaches; DONE_PKG_REPEAT (2 or more, default 10) for the package suites;
+# DONE_REUSE=0 turns the reuse of make check's full e2e pass off.
 set -u
+export DEVELOPER_DIR=${DEVELOPER_DIR:-/Applications/Xcode.app/Contents/Developer}
 cd "$(dirname "$0")/.." || exit 1
 
 base=${DONE_BASE:-origin/main}
@@ -119,6 +138,9 @@ step_status=0
 # DONE_REPEAT_SHARDS a whole number of 1 or more.
 repeat_count=${DONE_REPEAT:-20}
 repeat_shards=${DONE_REPEAT_SHARDS:-3}
+callers_count=${DONE_REPEAT_CALLERS:-6}
+callers_cap=${DONE_REPEAT_CAP:-8}
+pkg_count=${DONE_PKG_REPEAT:-10}
 case $repeat_count$repeat_shards in *[!0-9]* | "")
   echo "done: DONE_REPEAT must be a whole number of 2 or more and DONE_REPEAT_SHARDS a whole number of 1 or more"
   exit 2
@@ -126,6 +148,15 @@ case $repeat_count$repeat_shards in *[!0-9]* | "")
 esac
 if [ "$repeat_count" -lt 2 ] || [ "$repeat_shards" -lt 1 ]; then
   echo "done: DONE_REPEAT must be a whole number of 2 or more and DONE_REPEAT_SHARDS a whole number of 1 or more"
+  exit 2
+fi
+case $callers_count$callers_cap$pkg_count in *[!0-9]* | "")
+  echo "done: DONE_REPEAT_CALLERS and DONE_PKG_REPEAT must be whole numbers of 2 or more and DONE_REPEAT_CAP a whole number of 1 or more"
+  exit 2
+  ;;
+esac
+if [ "$callers_count" -lt 2 ] || [ "$pkg_count" -lt 2 ] || [ "$callers_cap" -lt 1 ]; then
+  echo "done: DONE_REPEAT_CALLERS and DONE_PKG_REPEAT must be whole numbers of 2 or more and DONE_REPEAT_CAP a whole number of 1 or more"
   exit 2
 fi
 
@@ -263,7 +294,7 @@ callers_sample() {
         }
         na = 0
         for (a in best) { sel[best[a]] = 1; na++ }
-        print "sampled: the best caller of each of " na " areas (of " n " tests that reach a changed harness symbol, over the cap of " cap ") plus the tests of the changed test files"
+        print "sampled: the best caller of each of " na " areas (of " n " tests that reach a changed harness symbol, over the cap of " cap ")"
       }
       for (t in sel) print t
     }')
@@ -301,6 +332,40 @@ flaky_verdict() {
     }' "$log"
 }
 
+# minus_of <comma list> <comma list>: the names of the first list that the second does not hold, sorted, as a comma list.
+minus_of() {
+  awk -v a="$1" -v b="$2" 'BEGIN {
+    n = split(b, bb, ","); for (i = 1; i <= n; i++) skip[bb[i]] = 1
+    n = split(a, aa, ","); for (i = 1; i <= n; i++) if (aa[i] != "" && !(aa[i] in skip)) print aa[i]
+  }' | sort -u | paste -sd, -
+}
+
+# package_suites_of <changed files, one per line>: one row `<package> <suite>` for every top level suite of each changed
+# file under BowCore/Tests/ or BowWebKit/Tests/ that holds a test: a type or an extension declared at the left margin
+# whose body (up to the next such declaration) has an @Test, or a type marked @Suite. A changed file with an @Test and no
+# suite it can read prints `<package> ?<file>`, which the repeat fails on instead of missing it. Files with no @Test
+# (support code, fixtures) and deleted files print nothing.
+package_suites_of() {
+  local f pkg
+  while IFS= read -r f; do
+    case $f in BowCore/Tests/*.swift) pkg=BowCore ;; BowWebKit/Tests/*.swift) pkg=BowWebKit ;; *) continue ;; esac
+    [ -f "$f" ] || continue
+    awk -v pkg="$pkg" -v file="$f" '
+      function flush() { if (name != "" && (suite || test)) { if (!(name in seen)) { seen[name] = 1; print pkg " " name } found = 1 } name = ""; suite = 0; test = 0 }
+      /^(@[A-Za-z]+(\([^)]*\))? +)*((public|internal|final|private|fileprivate|open) +)*(struct|class|actor|enum|extension) +[A-Za-z0-9_]+/ {
+        flush()
+        line = $0
+        suite = (line ~ /@Suite/)
+        sub(/^(@[A-Za-z]+(\([^)]*\))? +)*((public|internal|final|private|fileprivate|open) +)*(struct|class|actor|enum|extension) +/, "", line)
+        sub(/[^A-Za-z0-9_].*$/, "", line)
+        name = line
+        next
+      }
+      /@Test/ { any = 1; if (name != "") test = 1 }
+      END { flush(); if (any && !found) print pkg " ?" file }' "$f"
+  done <<< "$1"
+}
+
 # Whether the branch needs a Release build: it touches what the Release app is built from. When the changed files
 # cannot be listed, it builds, to be safe.
 release_reason=""
@@ -325,7 +390,9 @@ callers_notes=""
 unreadable=""
 flaky_set=""
 repeat_set=""
+callers_set=""
 repeat_note=""
+package_rows=""
 if [ "$docs_only" != 1 ] && [ -z "$list_failed" ]; then
   changed_tests=$(changed_tests_of "$changed")
   unreadable=$(unreadable_test_files_of "$changed")
@@ -339,9 +406,13 @@ if [ "$docs_only" != 1 ] && [ -z "$list_failed" ]; then
   fi
   callers_all=$(echo "$callers_rows" | awk 'NF == 3 { print $3 }' | paste -sd, -)
   flaky_set=$(union_of "$changed_tests" "$callers_all")
-  sampled=$(echo "$callers_rows" | callers_sample "$changed_tests" "${DONE_REPEAT_CAP:-40}")
-  repeat_set=$(echo "$sampled" | sed -n '2p')
+  # The changed tests repeat on their own (the full count); the callers are the rest, sampled over the cap, and repeat
+  # fewer times because the branch did not touch them.
+  sampled=$(echo "$callers_rows" | callers_sample "" "$callers_cap")
+  repeat_set=$changed_tests
+  callers_set=$(minus_of "$(echo "$sampled" | sed -n '2p')" "$changed_tests")
   repeat_note=$(echo "$sampled" | sed -n '1p')
+  package_rows=$(package_suites_of "$changed")
 fi
 
 if [ "$docs_only" = 1 ]; then
@@ -355,6 +426,24 @@ else
     failed=1
   fi
 fi
+
+# The tree this run checks (scripts/tree-key.sh: the HEAD tree, plus a digest of any uncommitted change), taken before
+# verify so make check's record is compared with the source and not with what a build left behind.
+tree_key=$(scripts/tree-key.sh 2> /dev/null || echo unknown)
+reused_run=""
+
+# reusable_check_pass <tree key>: when make check recorded a passing full e2e (selection all) on this tree key and its
+# run folder is still there, prints the run's summary line and its folder (2 lines); prints nothing otherwise. The
+# record is build/check-e2e-pass: tree key, selection, summary line, run folder. When in doubt, it prints nothing.
+reusable_check_pass() {
+  local stamp=build/check-e2e-pass key sel summary run
+  [ -f "$stamp" ] && [ "$1" != unknown ] || return 0
+  { read -r key; read -r sel; read -r summary; read -r run; } < "$stamp"
+  [ "$key" = "$1" ] && [ "$sel" = all ] || return 0
+  case $summary in "E2E: PASS"*) ;; *) return 0 ;; esac
+  [ -n "$run" ] && [ -d "build/e2e/$run" ] || return 0
+  printf '%s\n%s\n' "$summary" "$run"
+}
 
 verify="skip (bootstrap failed)"
 e2e="skip (not run)"
@@ -391,10 +480,22 @@ elif [ "$failed" = 0 ]; then
     else
       release="skip (no change to App/, E2E/, BowCore/Sources/ or project.yml)"
     fi
-    step e2e make --no-print-directory e2e E2E=all
-    e2e_line=$(grep '^E2E: ' "$out/e2e.log" | tail -1)
+    # make check's pass of the full e2e on this very tree stands in for the run (see reusable_check_pass).
+    reused=""
+    [ "${DONE_REUSE:-1}" = 0 ] || reused=$(reusable_check_pass "$tree_key")
+    if [ -n "$reused" ]; then
+      echo "== done: e2e (reused make check's pass on tree $tree_key, not run again)"
+      e2e_line=$(echo "$reused" | sed -n 1p)
+      reused_run=$(echo "$reused" | sed -n 2p)
+      step_status=0
+    else
+      step e2e make --no-print-directory e2e E2E=all
+      e2e_line=$(grep '^E2E: ' "$out/e2e.log" | tail -1)
+    fi
     flaky_lines=""
-    if [ "$step_status" = 0 ]; then e2e="ok"; else
+    if [ "$step_status" = 0 ]; then
+      if [ -n "$reused" ]; then e2e="ok (reused make check's pass on tree $tree_key)"; else e2e=ok; fi
+    else
       e2e="FAIL (exit $step_status)"
       failed=1
       # A FLAKY run (failed, then passed on the retry) goes on when every flaky test is outside this branch: not one
@@ -433,54 +534,129 @@ elif [ "$failed" = 0 ]; then
 fi
 
 full_run=$(readlink build/e2e/latest 2> /dev/null || true) # the full run, before the repeats move latest
+[ -z "$reused_run" ] || full_run=$reused_run
+
+# repeat_run <log name> <tests, comma list> <repeats> <description>: reruns the tests <repeats> times in
+# DONE_REPEAT_SHARDS shards with the retry off, and sets run_result (the block's line) and run_lines (the REPEAT, E2E
+# and note lines under it); a failure also sets failed. Fewer tests than shards would run as one shard per test, so a
+# lone test would get no load: the smoke tests pad the selection as filler (e2e.sh drops a name listed twice).
+run_result=""
+run_lines=""
+repeat_run() {
+  local name=$1 tests=$2 n=$3 what=$4 selection n_tests desc summary verdict
+  selection=$tests
+  n_tests=$(echo "$tests" | tr ',' '\n' | grep -c .)
+  [ "$n_tests" -ge "$repeat_shards" ] || selection="$tests,smoke"
+  desc="$n repeats in $repeat_shards shards of $what"
+  step "$name" env E2E_REPEAT="$n" E2E_SHARDS="$repeat_shards" make --no-print-directory e2e-run "E2E=$selection"
+  run_lines=$(grep '^\(REPEAT \|E2E: \|note: \)' "$out/$name.log")
+  # make exits 2 for any failure, so the summary line decides: PASS is the only pass, and a failure counts only when
+  # every failing check belongs to a filler test (see repeat_gate).
+  summary=$(grep '^E2E: ' "$out/$name.log" | tail -1)
+  verdict=$(repeat_gate "$tests" "$n" "$summary" "$out/$name.log")
+  case $verdict in
+    pass)
+      if [ "$step_status" = 0 ]; then run_result="ok ($desc)"; else
+        run_result="FAIL (exit $step_status) ($desc)"
+        failed=1
+      fi
+      ;;
+    "filler "*)
+      run_result="ok ($desc)"
+      run_lines="$run_lines"$'\n'"note: ${verdict#filler }"
+      ;;
+    *)
+      run_result="FAIL (${verdict#fail }) ($desc)"
+      failed=1
+      ;;
+  esac
+}
+
+# package_repeat <rows `<package> <suite>`>: runs every suite DONE_PKG_REPEAT times, the build skipped (verify built the
+# packages), and sets package_result. A run that fails, or that runs no test (a filter that matches nothing; the
+# Swift Testing line `Test run with <n> tests` must say 1 or more), or a suite that cannot be read, fails and names
+# the package, the suite and the run.
+package_result=""
+package_repeat() {
+  local pkg suite run st ran_n what=""
+  while read -r pkg suite; do
+    [ -n "$pkg" ] || continue
+    case $suite in \?*)
+      package_result="FAIL ($pkg: cannot read the suites of ${suite#?}: an @Test outside a top level type or extension)"
+      failed=1
+      return
+      ;;
+    esac
+    what="$what${what:+; }$pkg $suite"
+    for run in $(seq 1 "$pkg_count"); do
+      st=0
+      swift test --skip-build --package-path "$pkg" --filter "\\.$suite/" > "$out/package.log" 2>&1 || st=$?
+      ran_n=$(sed -n 's/.*Test run with \([0-9][0-9]*\) tests\{0,1\}.*/\1/p' "$out/package.log" | tail -1)
+      if [ "$st" != 0 ] || [ "${ran_n:-0}" = 0 ]; then
+        echo "== done: package tests, $pkg $suite run $run"
+        tail -n 40 "$out/package.log"
+        if [ "$st" != 0 ]; then package_result="FAIL ($pkg suite $suite failed on run $run of $pkg_count (exit $st))"; else
+          package_result="FAIL ($pkg suite $suite ran no test on run $run of $pkg_count)"
+        fi
+        failed=1
+        return
+      fi
+    done
+  done <<< "$1"
+  package_result="ok ($pkg_count runs of each: $what)"
+}
+
 # The tests the branch adds or changes (the names in each changed E2E/Tests file, found with
-# scripts/e2e-affected.sh --changed), rerun DONE_REPEAT times in shards with the retry off: a new test that flakes shows here.
+# scripts/e2e-affected.sh --changed) rerun DONE_REPEAT times in shards with the retry off: a new test that flakes shows
+# here. The tests only a changed harness symbol reaches rerun DONE_REPEAT_CALLERS times, and the package suites the
+# branch adds or changes DONE_PKG_REPEAT times each.
 repeat="skip (the e2e did not pass)"
 repeat_lines=""
+callers_result="skip (the e2e did not pass)"
+callers_lines=""
+package="skip (the e2e did not pass)"
 if [ "$docs_only" = 1 ]; then
   repeat="skip (docs only)"
+  callers_result="skip (docs only)"
+  package="skip (docs only)"
 elif [ "$failed" = 0 ]; then
   if [ -n "$list_failed" ]; then
     repeat="FAIL ($list_failed)"
+    callers_result="skip (the changed files could not be listed)"
+    package="skip (the changed files could not be listed)"
     failed=1
   elif [ -n "$unreadable" ]; then
     repeat="FAIL (a changed test file names its tests in a form the list cannot read: $(echo "$unreadable" | paste -sd, -))"
+    callers_result="skip (a changed test file could not be read)"
+    package="skip (a changed test file could not be read)"
     failed=1
-  elif [ -z "$repeat_set" ]; then
-    repeat="skip (no e2e test added or changed${callers_notes:+, and none reaches a changed harness symbol})"
   else
-    # Fewer tests than shards would run as one shard per test, so a lone test would get no load: the smoke tests pad
-    # the selection as filler (e2e.sh drops a name listed twice).
-    selection=$repeat_set
-    n_repeat=$(echo "$repeat_set" | tr ',' '\n' | grep -c .)
-    [ "$n_repeat" -ge "$repeat_shards" ] || selection="$repeat_set,smoke"
-    if [ -z "$callers_rows" ]; then desc="$repeat_count repeats in $repeat_shards shards of $repeat_set"; else
-      n_callers=$(echo "$callers_rows" | awk 'NF == 3' | grep -c .)
-      desc="$repeat_count repeats in $repeat_shards shards of $n_repeat tests (changed: ${changed_tests:-none}; reached through changed harness symbols: $n_callers found${repeat_note:+; $repeat_note})"
+    if [ -z "$package_rows" ]; then package="skip (no package test added or changed)"; else
+      echo "== done: package tests"
+      package_repeat "$package_rows"
+      package=$package_result
     fi
-    step repeat env E2E_REPEAT="$repeat_count" E2E_SHARDS="$repeat_shards" make --no-print-directory e2e-run "E2E=$selection"
-    repeat_lines=$(grep '^\(REPEAT \|E2E: \|note: \)' "$out/repeat.log")
-    [ -z "$callers_notes" ] || repeat_lines="$callers_notes"$'\n'"$repeat_lines"
-    # make exits 2 for any failure, so the summary line decides: PASS is the only pass, and a failure counts only
-    # when every failing check belongs to a filler test (see repeat_gate).
-    summary=$(grep '^E2E: ' "$out/repeat.log" | tail -1)
-    verdict=$(repeat_gate "$repeat_set" "$repeat_count" "$summary" "$out/repeat.log")
-    case $verdict in
-      pass)
-        if [ "$step_status" = 0 ]; then repeat="ok ($desc)"; else
-          repeat="FAIL (exit $step_status) ($desc)"
-          failed=1
-        fi
-        ;;
-      "filler "*)
-        repeat="ok ($desc)"
-        repeat_lines="$repeat_lines"$'\n'"note: ${verdict#filler }"
-        ;;
-      *)
-        repeat="FAIL (${verdict#fail }) ($desc)"
-        failed=1
-        ;;
-    esac
+    if [ "$failed" != 0 ]; then
+      repeat="skip (the package test repeat failed)"
+      callers_result="skip (the package test repeat failed)"
+    elif [ -z "$repeat_set" ]; then
+      repeat="skip (no e2e test added or changed)"
+    else
+      repeat_run repeat "$repeat_set" "$repeat_count" "$repeat_set"
+      repeat=$run_result
+      repeat_lines=$run_lines
+    fi
+    if [ "$failed" != 0 ]; then
+      [ "$callers_result" != "skip (the e2e did not pass)" ] || callers_result="skip (a repeat failed)"
+    elif [ -z "$callers_set" ]; then
+      callers_result="skip (no changed harness symbol reaches a test the branch does not change itself)"
+    else
+      n_callers=$(echo "$callers_rows" | awk 'NF == 3' | grep -c .)
+      repeat_run callers "$callers_set" "$callers_count" "$(echo "$callers_set" | tr ',' '\n' | grep -c .) tests (reached through changed harness symbols: $n_callers found${repeat_note:+; $repeat_note}): $callers_set"
+      callers_result=$run_result
+      callers_lines=$run_lines
+      [ -z "$callers_notes" ] || callers_lines="$callers_notes"$'\n'"$callers_lines"
+    fi
   fi
 fi
 
@@ -497,8 +673,11 @@ echo "make e2e: $e2e"
 [ -z "${flaky_lines:-}" ] || echo "$flaky_lines" | sed 's/^/  /'
 echo "e2e summary: ${e2e_line:-none}"
 echo "make release: $release"
+echo "package tests, repeated: $package"
 echo "changed tests, repeated: $repeat"
 [ -z "$repeat_lines" ] || echo "$repeat_lines" | sed 's/^/  /'
+echo "harness callers, repeated: $callers_result"
+[ -z "$callers_lines" ] || echo "$callers_lines" | sed 's/^/  /'
 run=$full_run
 if [ -n "$run" ]; then echo "e2e run folder: build/e2e/$run"; else echo "e2e run folder: none"; fi
 if [ -n "$run" ] && [ -f "build/e2e/$run/final.png" ]; then
