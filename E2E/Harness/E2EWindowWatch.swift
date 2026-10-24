@@ -142,13 +142,13 @@ final class E2EWindowWatch {
 
     /// Where the window server has `window`, in AppKit's screen coordinates, or nil when it does not know it.
     private static func serverBounds(of window: NSWindow) -> NSRect? {
+        guard window.windowNumber > 0, let height = NSScreen.screens.first?.frame.height else { return nil }
         let list = CGWindowListCopyWindowInfo(.optionIncludingWindow, CGWindowID(window.windowNumber))
         guard let info = (list as? [[String: Any]])?.first,
             let dictionary = info[kCGWindowBounds as String] as? NSDictionary,
             let bounds = CGRect(dictionaryRepresentation: dictionary as CFDictionary)
         else { return nil }
         // The window server measures from the top left of the main display, AppKit from its bottom left.
-        let height = NSScreen.screens.first?.frame.height ?? 0
         return NSRect(x: bounds.minX, y: height - bounds.maxY, width: bounds.width, height: bounds.height)
     }
 }
