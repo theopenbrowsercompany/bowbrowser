@@ -167,6 +167,133 @@ check "CHECK_BASE compares with another ref" "" "$(CHECK_BASE=work run)"
 check "an unknown CHECK_BASE: all" "all" "$(CHECK_BASE=nope run)"
 check "an unknown argument: exit 64" "64" "$(run --nope > /dev/null; echo $?)"
 
+# 2b. --callers: the tests that reach a symbol the branch changes under E2E/Harness/ or E2E/Engine/, in a fake
+# repository that mimics the page driver change (an E2EPage extension with press(_:) and press(letter:)).
+hrepo=$tmp/harness
+mkdir -p "$hrepo/scripts" "$hrepo/E2E/Tests" "$hrepo/E2E/Harness" "$hrepo/E2E/Engine"
+cp scripts/e2e-affected.sh "$hrepo/scripts/"
+cat > "$hrepo/E2E/Harness/E2EInput.swift" << 'EOF'
+extension E2EPage {
+    func press(_ key: E2EKey) async throws {
+        try await emulateFocus()
+        print(key)
+    }
+
+    func press(letter: Character, macKeyCode: Int) async throws {
+        print(letter)
+    }
+
+    /// Clicks a link.
+    func clickLink(_ selector: String) {
+        print(selector)
+    }
+}
+EOF
+cat > "$hrepo/E2E/Harness/Helpers.swift" << 'EOF'
+enum FormHelpers {
+    static func submitForm(_ page: any E2EPage) {
+        page.clickLink("form")
+    }
+
+    static func openIt() {
+        BowThing.openThing()
+    }
+}
+EOF
+printf '@implementation BowThing\n+ (void)openThing {\n  NSLog(@"open");\n}\n@end\n' > "$hrepo/E2E/Engine/BowThing.mm"
+cat > "$hrepo/E2E/Tests/Page.swift" << 'EOF'
+struct PageZoomTest: E2ETest {
+    let name = "page.zoom"
+    func run() { page.press(letter: "=", macKeyCode: 24) }
+}
+EOF
+cat > "$hrepo/E2E/Tests/Tabs.swift" << 'EOF'
+struct TabsEnterTest: E2ETest {
+    let name = "tabs.enter"
+    func run() { page.press(.enter) }
+}
+enum TabsHelper {
+    static func again() { page.press(.tab) }
+}
+EOF
+cat > "$hrepo/E2E/Tests/Forms.swift" << 'EOF'
+struct FormsSubmitTest: E2ETest {
+    let name = "forms.submit"
+    func run() { FormHelpers.submitForm(page) }
+}
+struct FormsEngineTest: E2ETest {
+    let name = "forms.engine"
+    func run() { FormHelpers.openIt() }
+}
+EOF
+cat > "$hrepo/E2E/Tests/Links.swift" << 'EOF'
+struct LinksClickTest: E2ETest {
+    let name = "links.click"
+    func run() { page.clickLink("a") }
+}
+struct LinksOtherTest: E2ETest {
+    let name = "links.other"
+    func run() { page.open() }
+}
+EOF
+cat > "$hrepo/E2E/Tests/Other.swift" << 'EOF'
+struct OtherSmokeTest: E2ETest {
+    let name = "other.smoke"
+    let tags = ["smoke"]
+}
+EOF
+h() { git -C "$hrepo" -c user.name=t -c user.email=t@t -c commit.gpgsign=false "$@" > /dev/null 2>&1; }
+hb() { h commit -q -am "$1"; h update-ref refs/remotes/origin/main HEAD; }
+hc() { (cd "$hrepo" && "$@" scripts/e2e-affected.sh --callers 2> "$tmp/callers.err"); }
+h init -q -b main
+h add -A
+h commit -q -m base
+h update-ref refs/remotes/origin/main HEAD
+h checkout -q -b work
+check "callers: no change, no callers" "" "$(hc env)"
+sed -i '' 's/print(letter)/print(letter, 1)/' "$hrepo/E2E/Harness/E2EInput.swift"
+check "callers: a changed function body reaches the tests that call it by its label" "direct 1 page.zoom" "$(hc env)"
+check "callers: the note names the changed symbol" "callers: changed symbols: press(letter:" "$(cat "$tmp/callers.err")"
+hb "press(letter:)"
+sed -i '' 's/print(key)/print(key, 1)/' "$hrepo/E2E/Harness/E2EInput.swift"
+check "callers: a bare function name finds every caller of that name" \
+  "direct 2 page.zoom direct 1 tabs.enter" "$(hc env | paste -sd' ' -)"
+check "callers: a mention outside any test (a test file's helper) counts for that file's tests" "tabs.enter" \
+  "$(hc env | awk '$3 == "tabs.enter" { print $3 }')"
+check "callers: a name found in too many test files falls back to the smoke tests" "fallback 0 other.smoke" \
+  "$(hc env CALLERS_COMMON=2 | paste -sd' ' -)"
+check "callers: the fallback says which name was too common" "callers: too common to search by name: press (2 test files); added the smoke tests and every test in the areas that call the changed files:" \
+  "$(grep '^callers: too common' "$tmp/callers.err" | sed 's/ *$//')"
+hb "press(_:)"
+sed -i '' 's/print(selector)/print(selector, 1)/' "$hrepo/E2E/Harness/E2EInput.swift"
+check "callers: one level up, a harness member that mentions the symbol brings the tests that call that member" \
+  "direct 1 forms.submit direct 1 links.click" "$(hc env | paste -sd' ' -)"
+hb "clickLink"
+sed -i '' 's/NSLog(@"open")/NSLog(@"open!")/' "$hrepo/E2E/Engine/BowThing.mm"
+check "callers: a changed Objective-C method reaches the tests through the harness that mentions it" \
+  "direct 1 forms.engine" "$(hc env | paste -sd' ' -)"
+check "callers: the Objective-C method is the changed symbol" "callers: changed symbols: openThing" "$(cat "$tmp/callers.err")"
+hb "openThing"
+sed -i '' 's|/// Clicks a link.|/// Clicks a link, now with a longer comment.|' "$hrepo/E2E/Harness/E2EInput.swift"
+check "callers: a comment alone changes no symbol" "" "$(hc env)"
+hb "comment"
+echo "" >> "$hrepo/E2E/Harness/E2EInput.swift"
+check "callers: a blank line alone changes no symbol" "" "$(hc env)"
+git -C "$hrepo" checkout -q -- E2E/Harness/E2EInput.swift
+h rm -q E2E/Harness/Helpers.swift
+check "callers: a deleted harness file changes no symbol" "" "$(hc env)"
+h reset -q --hard
+printf 'struct Fresh {\n    func brandNew() {}\n}\n' > "$hrepo/E2E/Harness/Fresh.swift"
+printf 'struct FreshUseTest: E2ETest {\n    let name = "fresh.use"\n    func run() { Fresh().brandNew() }\n}\n' > "$hrepo/E2E/Tests/Fresh.swift"
+check "callers: a new untracked harness file counts as all changed (the new type's name)" "direct 1 fresh.use" \
+  "$(hc env | paste -sd' ' -)"
+rm "$hrepo/E2E/Harness/Fresh.swift" "$hrepo/E2E/Tests/Fresh.swift"
+check "callers: an app file changes no harness symbol" "" "$(echo App/UI/A.swift | (cd "$hrepo" && scripts/e2e-affected.sh --stdin --callers 2> /dev/null))"
+check "callers: --stdin counts every line of a listed file as changed" \
+  "direct 1 forms.submit direct 1 links.click direct 3 page.zoom direct 1 tabs.enter" \
+  "$(echo E2E/Harness/E2EInput.swift | (cd "$hrepo" && scripts/e2e-affected.sh --stdin --callers 2> /dev/null) | paste -sd' ' -)"
+check "callers: no origin/main ref exits 3" "3" "$(cd "$hrepo" && CHECK_BASE=nope scripts/e2e-affected.sh --callers > /dev/null 2>&1; echo $?)"
+
 # 3. scripts/check.sh with a fake e2e-affected.sh and a fake make that only logs what it is asked to run.
 crepo=$tmp/check
 mkdir -p "$crepo/scripts" "$tmp/bin"
