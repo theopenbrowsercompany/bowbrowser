@@ -75,6 +75,17 @@ A failure that is no test's (`chromium.errors`, `e2e.isolation`, a timeout betwe
 Every run names each expired entry with a `QUARANTINE EXPIRED <test>` line until it is removed or renewed, and a malformed list (a bad name or date, no reason, a duplicate, a run-wide check, a Plane ID) stops the run before it starts with `E2E: ERROR bad quarantine list: <file> line <n>: <why>` (exit 64).
 Keep entries few and short lived, each with a filed flake item: fix the test, then remove its entry.
 
+## Tests not ported yet
+
+While the app moves to another engine, the harness keeps every test but a test cannot run until the item that ports its harness hooks lands.
+`scripts/e2e-not-ported.txt` (`E2E_NOT_PORTED_LIST` overrides the path; a missing file is an empty list, and main has none) names them, one per line as `<selector> <the item that ports it, in plain words>` with `#` comments and no Plane IDs, where the selector is a test name, an area or a glob as `E2E=` takes them (no commas, no tags).
+The file is not union merged (it mostly loses lines, and a union merge would bring a removed line back), so a conflict in it is resolved by hand.
+Every selection (`all`, areas, names, globs, tags, repeats, shards and the retry) loses the listed tests before anything runs: the run prints a `NOT PORTED <test>` line each (short output prints one line with the count; `report.txt` has them all), the summary ends `; not ported N` (`E2E: PASS 12/12; not ported 202`), and `results.json` has a `notPorted` list.
+A selection that is left empty runs no app and ends `E2E: PASS 0/0; not ported N` (exit 0).
+`make done` takes the listed tests out of its changed test, harness caller and smoke padding repeats the same way, and its block shows the summary line with the count.
+An entry that matches no test, or a malformed list (no reason, a bad selector, a duplicate, a Plane ID), stops the run before it starts with `E2E: ERROR bad not-ported list: ...` (exit 64), so a stale entry cannot hide: delete a line as its item ports the area.
+`E2E_NOT_PORTED=run` runs the listed tests anyway and reads no list (for the items that port them); `E2E=list` lists every test as always.
+
 ## Run folders left behind and cleanup
 
 A failed run keeps its profile in the run folder.

@@ -19,7 +19,7 @@ self=$(cd "$(dirname "$0")" && pwd)/$(basename "$0")
 cd "$(dirname "$0")/.."
 
 groups=(basic repeat quarantine shards shard-plan shard-outcomes shard-timeouts signals signals-shards signals-stuck locks make-package
-  ledger ledger-stale threshold crash-reports)
+  ledger ledger-stale threshold crash-reports not-ported)
 
 if [ "${1:-}" != --group ]; then
   for g in "$@"; do
@@ -83,6 +83,10 @@ export E2E_QUARANTINE="$quarantine"
 export BOW_E2E_LEDGER="$tmp/ledger.tsv"
 # Nothing of the caller's environment reaches a check: each setting the wrapper or the fake app reads is cleared, and
 # the build lock's timings go to the throwaway folder, not the shared file.
+# The checks' own not-ported list, a file only the not-ported group writes.
+not_ported="$tmp/not-ported.txt"
+export E2E_NOT_PORTED_LIST="$not_ported"
+unset E2E_NOT_PORTED
 unset E2E_RETRY E2E_KEEP E2E_SHARDS E2E_SHARD_DIR BOW_E2E_SLOTS BOW_BUILD_SLOTS BOW_BUILD_JOBS
 for v in $(env | grep -o '^FAKE_[A-Z_]*'); do unset "$v"; done
 export BOW_TIMINGS_DIR="$tmp/timings"
@@ -1325,6 +1329,110 @@ E2E_SHARDS=2 FAKE_DUMP=1 run shard
 check "crash reports: sharded, each shard's report is named once" is "$(grep -c '^CRASH REPORT ' "$BOW_E2E_ROOT/latest/report.txt")" 2
 check "crash reports: sharded, copied into the shard's folder" is "$(ls "$BOW_E2E_ROOT"/latest/shard-*/crash-reports/*.dmp | wc -l | tr -d ' ')" 2
 check "crash reports: sharded, results.json lists both" is "$(plutil -extract crashReports raw -o - "$res")" 2
+}
+
+group_not_ported() {
+# The not-ported list: np writes it, one entry per argument.
+np() { printf '%s\n' "$@" > "$not_ported"; }
+rroot np
+np "# only a comment"
+run shard
+check "not ported: a list with no entry changes nothing" is "$last/$(cat "$(latest args)")" "E2E: PASS 5/5/e2e=all"
+check "not ported: a list with no entry prints no NOT PORTED line" not says_some "NOT PORTED"
+check "not ported: results.json has an empty notPorted list" is "$(plutil -extract notPorted raw -o - "$res")" 0
+rm -f "$not_ported"
+run shard
+check "not ported: a missing list changes nothing" is "$last/$(cat "$(latest args)")" "E2E: PASS 5/5/e2e=all"
+
+np "a.two the sidebar item"
+run shard
+check "not ported: a name entry exits 0" is "$code" 0
+check "not ported: a name entry is left out of the selection" is "$(cat "$(latest args)")" "e2e=a.one,a.three"
+check "not ported: a name entry prints a NOT PORTED line" says "NOT PORTED a.two"
+check "not ported: the summary ends with the count" is "$last" "E2E: PASS 4/4; not ported 1"
+check "not ported: report.txt names the test" has "$(latest report.txt)" "^NOT PORTED a.two\$"
+check "not ported: results.json is valid JSON" valid_json "$res"
+check "not ported: results.json lists the test" is "$(field "$res" notPorted.0)" a.two
+check "not ported: results.json keeps the summary" is "$(field "$res" summary)" "E2E: PASS 4/4; not ported 1"
+check "not ported: a.two did not run" not has "$(latest report.txt)" "^RESULT a.two"
+
+np "a.t* the glob item"
+run shard
+check "not ported: a glob entry leaves out what it matches" is "$(cat "$(latest args)")/$last" "e2e=a.one/E2E: PASS 3/3; not ported 2"
+check "not ported: a glob entry prints a line per test" is "$(echo "$out" | grep -c '^NOT PORTED ')" 2
+
+np "a the area item"
+run shard
+check "not ported: an area entry covering every test exits 0" is "$code" 0
+check "not ported: everything listed ends PASS 0/0" is "$last" "E2E: PASS 0/0; not ported 3"
+check "not ported: everything listed runs no app" not test -e "$(latest args)"
+check "not ported: everything listed still writes results.json" valid_json "$res"
+check "not ported: everything listed reports pass" is "$(field "$res" status)/$(field "$res" exitCode)" pass/0
+check "not ported: everything listed names every test" is "$(echo "$out" | grep -c '^NOT PORTED ')" 3
+
+np "a.two the sidebar item"
+run shard a.two
+check "not ported: a selection naming only a listed test runs no app" is "$last/$(test -e "$(latest args)" && echo ran || echo none)" "E2E: PASS 0/0; not ported 1/none"
+run shard "a.two,a.one"
+check "not ported: a named selection loses only the listed test" is "$(cat "$(latest args)")/$last" "e2e=a.one/E2E: PASS 3/3; not ported 1"
+run shard "smoke"
+check "not ported: a tag selection loses the listed test" is "$last/$(test -e "$(latest args)" && echo ran || echo none)" "E2E: PASS 0/0; not ported 1/none"
+
+np "a.nope the missing item"
+rroot np-stale
+run shard
+check "not ported: a stale entry exits 64" is "$code" 64
+check "not ported: a stale entry names itself" is "$last" "E2E: ERROR bad not-ported list: $not_ported matches no test: a.nope"
+check "not ported: a stale entry makes no run folder" not test -e "$BOW_E2E_ROOT/latest"
+np "a.one"
+run shard
+check "not ported: an entry with no reason exits 64" is "$code/$(echo "$last" | grep -c 'bad not-ported list')" 64/1
+np "a.one the item" "a.one again"
+run shard
+check "not ported: a duplicate entry exits 64" is "$code" 64
+np "smoke the item"
+run shard
+check "not ported: a tag is no selector (it matches no test)" is "$code" 64
+np "a.one,a.two the item"
+run shard
+check "not ported: a comma is no selector" is "$code" 64
+
+np "a.two the sidebar item"
+E2E_NOT_PORTED=run run shard
+check "not ported: E2E_NOT_PORTED=run runs the listed tests" is "$last/$(cat "$(latest args)")" "E2E: PASS 5/5/e2e=all"
+E2E_NOT_PORTED=run run shard
+check "not ported: E2E_NOT_PORTED=run prints no NOT PORTED line" not says_some "NOT PORTED"
+np "a.nope the stale item"
+E2E_NOT_PORTED=run run shard
+check "not ported: E2E_NOT_PORTED=run reads no list" is "$code" 0
+
+np "a.two the sidebar item"
+E2E_QUIET=1 run shard
+check "not ported: short output names the count" says_some "1 tests are not ported yet"
+check "not ported: short output has no NOT PORTED line" not says_some "NOT PORTED"
+check "not ported: short output ends with the count" is "$last" "E2E: PASS 4/4; not ported 1"
+
+FAKE_FAIL=a.one run shard
+check "not ported: the retry runs the reduced selection" is "$(retry_args)" "e2e=a.one"
+check "not ported: a FLAKY summary carries the count" is "$last" "E2E: FLAKY 4/4 after retrying a.one; not ported 1"
+
+rroot np-repeat
+E2E_REPEAT=2 run shard
+check "not ported: a repeat run exits 0" is "$code" 0
+check "not ported: a repeat run's summary carries the count" is "$last" "E2E: PASS 2/2 repeats; not ported 1"
+check "not ported: every repeat ran the reduced selection" is "$(cat "$BOW_E2E_ROOT"/*/args | sort -u)" "e2e=a.one,a.three"
+np "a the area item"
+rroot np-repeat-none
+E2E_REPEAT=3 run shard
+check "not ported: a repeat of nothing runs one pass of no app" is "$last/$(runs_in)" "E2E: PASS 0/0; not ported 3/1"
+
+np "a.two the sidebar item"
+rroot np-shards
+E2E_SHARDS=2 run shard
+check "not ported: a sharded run exits 0" is "$code" 0
+check "not ported: a sharded run's summary carries the count" is "$last" "E2E: PASS 4/4; not ported 1"
+check "not ported: the shards run only the reduced selection" is "$(printf '%s\n' "$(shard_args 1)" "$(shard_args 2)" | sort | paste -sd, -)" "e2e=a.one,e2e=a.three"
+check "not ported: a sharded run names the left out test" says "NOT PORTED a.two"
 }
 
 "group_${group//-/_}"

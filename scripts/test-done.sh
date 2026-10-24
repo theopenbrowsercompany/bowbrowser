@@ -175,7 +175,13 @@ case "$*" in
     mkdir -p build/e2e/20260101-1
     ln -sfn 20260101-1 build/e2e/latest
     echo png > build/e2e/20260101-1/final.png
-    if [ "${FAKE_E2E:-0}" = 0 ]; then echo "E2E: PASS 3/3"; else
+    if [ -n "${FAKE_NP:-}" ]; then
+      # Tests left out as not ported yet (a comma list): results.json's notPorted list and the summary's count.
+      printf '{"notPorted":["%s"]}\n' "$(echo "$FAKE_NP" | sed 's/,/","/g')" > build/e2e/20260101-1/results.json
+    else
+      rm -f build/e2e/20260101-1/results.json
+    fi
+    if [ "${FAKE_E2E:-0}" = 0 ]; then echo "E2E: PASS 3/3${FAKE_NP:+; not ported $(echo "$FAKE_NP" | tr ',' '\n' | grep -c .)}"; else
       echo "E2E: FAIL 2/3"
       echo "make: *** [e2e] Error 1"
       exit 2
@@ -346,6 +352,23 @@ has "as many changed tests as shards need no filler" "$(cat "$tmp/log")" \
 out=$(run 0 1)
 has "a failing e2e skips the repeat" "$out" "changed tests, repeated: skip (the e2e did not pass)"
 
+# Tests the e2e left out as not ported yet (results.json's notPorted list) are left out of the repeats and the padding.
+out=$(FAKE_NP=x.two run 0 0)
+has "not ported: the block shows the e2e summary with the count" "$out" "e2e summary: E2E: PASS 3/3; not ported 1"
+has "not ported: a listed changed test is not repeated" "$(cat "$tmp/log")" \
+  "E2E_REPEAT=20 E2E_SHARDS=3 --no-print-directory e2e-run E2E=x.one,x.three,smoke"
+has "not ported: the repeat line names the tests left" "$out" "changed tests, repeated: ok (20 repeats in 3 shards of x.one,x.three)"
+has "not ported: the block names the tests left out of the repeats" "$out" "not ported yet, left out of the repeats: x.two"
+has "not ported: the run passes" "$out" "done: PASS"
+out=$(FAKE_NP=x.one,x.two,x.three run 0 0)
+has "not ported: every changed test listed skips the repeat" "$out" "changed tests, repeated: skip (every changed test is not ported yet)"
+check "not ported: every changed test listed runs no repeat" "" "$(grep 'e2e-run' "$tmp/log")"
+has "not ported: every changed test listed still passes" "$out" "done: PASS"
+out=$(FAKE_NP=c.other run 0 0)
+check "not ported: a listed test the branch does not touch changes no repeat" "" "$(echo "$out" | grep 'left out of the repeats')"
+out=$(run 0 0)
+check "not ported: without a list the block has no such line" "" "$(echo "$out" | grep 'left out of the repeats')"
+
 # A FLAKY full e2e (failed, then passed on the retry): gone past only when every flaky test is outside the branch.
 g checkout -q -f "$head_two"
 g update-ref refs/remotes/origin/main HEAD
@@ -506,6 +529,12 @@ out=$(FAKE_NAMES="d.other" run 0 flaky)
 has "a FLAKY test no changed harness function reaches passes" "$out" "reported: d.other"
 out=$(run 0 0 9)
 has "a failing harness caller fails the run" "$out" "harness callers, repeated: FAIL (changed test c.call passed 5/6 repeats)"
+out=$(FAKE_NP=c.zzz run 0 0)
+has "not ported: a listed harness caller is not repeated" "$(cat "$tmp/log")" "E2E=c.call,smoke"
+check "not ported: the callers' repeat leaves out the listed caller" "" "$(grep 'e2e-run.*c.zzz' "$tmp/log")"
+out=$(FAKE_NP=c.call,c.zzz run 0 0)
+has "not ported: every harness caller listed skips their repeat" "$out" \
+  "harness callers, repeated: skip (every test a changed harness symbol reaches is not ported yet)"
 # A name searched in too many test files falls back to the smoke tests and the areas that call the changed file.
 out=$(CALLERS_COMMON=1 run 0 0)
 has "a too common name says so and names the fallback" "$out" "callers: too common to search by name: tap(selector: (1 test files)"

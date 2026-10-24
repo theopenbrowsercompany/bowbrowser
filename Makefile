@@ -57,7 +57,7 @@ test-affected:
 	./scripts/test-e2e-affected.sh
 
 # Every script self test, one after another (about 70 seconds). make verify runs each one side by side, and only when a
-# script it covers (the table in scripts/verify.sh) or the Makefile differs from origin/main.
+# script it covers (the table in scripts/verify.sh) or the Makefile differs from the branch's base (scripts/base-ref.sh).
 test-scripts: test-e2e-wrapper test-prune test-affected test-done test-refcount test-private-paths test-bootstrap-cef test-check-lists test-e2e-bisect test-verify-plan test-e2e-flakes test-webkit-imports test-base-ref
 
 run: build
@@ -98,7 +98,7 @@ release: project
 	./scripts/check-release.sh
 
 # lint, guards, test, build and the script self tests side by side, with seconds per part. Each self test runs only
-# when a script it covers or the Makefile differs from origin/main; VERIFY_ALL=1 runs them all. scripts/verify.sh says how.
+# when a script it covers or the Makefile differs from the branch's base (scripts/base-ref.sh); VERIFY_ALL=1 runs them all. scripts/verify.sh says how.
 verify:
 	@./scripts/verify.sh
 
@@ -108,11 +108,12 @@ verify:
 check:
 	@./scripts/check.sh
 
-# The final check of a branch: warns when it is behind origin/main (refuses on a conflict), then make verify and the
+# The final check of a branch: warns when it is behind its base (origin/main, or origin/webkit for a webkit slice, see
+# scripts/base-ref.sh; refuses on a conflict), then make verify and the
 # full make e2e with make release beside it when app sources changed, then one block for the report (result lines,
 # e2e summary and run folder, final.png, diff stat, tree hash).
 # A FLAKY test the branch does not add or change is reported and does not fail it.
-# Run it after the last commit and a rebase onto origin/main. scripts/done.sh says how.
+# Run it after the last commit and a rebase onto the base. scripts/done.sh says how.
 done:
 	@./scripts/done.sh
 

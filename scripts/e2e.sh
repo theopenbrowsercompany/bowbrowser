@@ -62,6 +62,18 @@
 #   once all have ended; short output is the same as a single run's. A signal stops every shard and its helpers.
 #   E2E_REPEAT shards each repeat, and list ignores E2E_SHARDS.
 #
+# E2E_NOT_PORTED_LIST  the not-ported list to read (default scripts/e2e-not-ported.txt; a missing file is an empty list,
+#   and main has none). One entry per line, `<selector> <the item that ports it, in plain words>`, where the selector is
+#   a test name, an area or a glob as E2E= takes them (no commas, no tags), and # comments. The tests the list names are
+#   subtracted from every selection (all, areas, names, globs, tags, the repeats, the shards and the retry) before
+#   anything runs: a `NOT PORTED <test>` line each (short output prints one line with the count; report.txt has them
+#   all), the summary line ends `; not ported N` (`E2E: PASS 12/12; not ported 202`), and results.json has a
+#   "notPorted" list. When nothing is left no app runs and the run ends `E2E: PASS 0/0; not ported N` (exit 0). An
+#   entry that matches no test, or a malformed list (no reason, a bad selector, a duplicate, a Plane ID), stops the run
+#   before it starts with `E2E: ERROR bad not-ported list: ...` (exit 64), so a stale entry cannot hide.
+#   E2E_NOT_PORTED=run runs the listed tests anyway and reads no list (for the items that port them); list lists
+#   every test as always.
+#
 # E2E_SHARD_DIR is set by this script for a shard's own run (its folder): it then neither prunes nor moves latest.
 #
 # Each run writes build/e2e/<time>-<pid>/: the app's report.txt, chromium.log and final.png, plus results.json
@@ -193,6 +205,155 @@ expired_lines() {
   done
 }
 
+# E2E_SHARDS and the not-ported list. resolve_selection <TEST lines file>: prints the selected test names in test
+# order, matching each comma separated part as the app does (a name, an area, a tag or a glob of names, and only the
+# exact name for a test whose line ends in by-name-only); fails when a part matches no test or nothing is selected,
+# so the app itself refuses the selection.
+resolve_selection() {
+  local kw name area tags rest i part matched parts
+  local names=() areas=() tagsets=() byname=() chosen=()
+  while read -r kw name area tags rest; do
+    [ "$kw" = TEST ] && [ -n "$name" ] || continue
+    names+=("$name")
+    areas+=("${area#area=}")
+    tags=${tags#tags=}
+    [ "$tags" != - ] || tags=""
+    tagsets+=(",$tags,")
+    case " $rest " in *" by-name-only "*) byname+=(1) ;; *) byname+=(0) ;; esac
+    chosen+=(0)
+  done < "$1"
+  [ "${#names[@]}" -gt 0 ] || return 1
+  if [ "$selection" = all ]; then
+    for i in "${!names[@]}"; do [ "${byname[i]}" = 1 ] || echo "${names[i]}"; done
+    return 0
+  fi
+  IFS=, read -ra parts <<< "$selection"
+  [ "${#parts[@]}" -gt 0 ] || return 1
+  for part in "${parts[@]}"; do
+    part="${part#"${part%%[![:blank:]]*}"}"
+    part="${part%"${part##*[![:blank:]]}"}"
+    [ -n "$part" ] || continue
+    matched=0
+    for i in "${!names[@]}"; do
+      # The last test is fnmatch with no flags, as the app's: an unquoted pattern.
+      if [ "${names[i]}" = "$part" ] || { [ "${byname[i]}" = 0 ] && { [ "${areas[i]}" = "$part" ] \
+        || [[ ${tagsets[i]} == *",$part,"* ]] || [[ ${names[i]} == $part ]]; }; }; then
+        chosen[i]=1 matched=1
+      fi
+    done
+    [ "$matched" = 1 ] || return 1
+  done
+  matched=0
+  for i in "${!names[@]}"; do [ "${chosen[i]}" = 0 ] || { echo "${names[i]}"; matched=1; }; done
+  [ "$matched" = 1 ]
+}
+
+# The not-ported list: tests the harness keeps but the engine cannot run yet. Every selection loses the listed tests
+# before anything runs. not_ported_tests holds the left out tests (one per line), not_ported_count their number, and
+# all_not_ported is 1 when nothing of the selection is left, which runs no app. The repeats, shards and the retry
+# below work on the reduced selection, and are told (E2E_NOT_PORTED=run) not to subtract again.
+not_ported_file=${E2E_NOT_PORTED_LIST:-$repo/scripts/e2e-not-ported.txt}
+not_ported_name=$not_ported_file
+[ -n "${E2E_NOT_PORTED_LIST:-}" ] || not_ported_name=scripts/e2e-not-ported.txt
+not_ported_tests="" not_ported_count=0 all_not_ported=0 np_note=""
+# np_match <TEST lines file> <selectors, one per line> <output file>: writes the names of the tests any selector
+# matches (a name, an area or a glob, as E2E= takes them) to the output file, and sets np_stale to the selectors that
+# match no test.
+np_stale=""
+np_match() {
+  local kw name area rest i sel found
+  local names=() areas=() hit=()
+  while read -r kw name area rest; do
+    [ "$kw" = TEST ] && [ -n "$name" ] || continue
+    names+=("$name")
+    areas+=("${area#area=}")
+    hit+=(0)
+  done < "$1"
+  np_stale=""
+  while IFS= read -r sel; do
+    [ -n "$sel" ] || continue
+    found=0
+    for i in "${!names[@]}"; do
+      if [ "${names[i]}" = "$sel" ] || [ "${areas[i]}" = "$sel" ] || [[ ${names[i]} == $sel ]]; then
+        hit[i]=1 found=1
+      fi
+    done
+    [ "$found" = 1 ] || np_stale="$np_stale${np_stale:+, }$sel"
+  done <<< "$2"
+  : > "$3"
+  for i in "${!names[@]}"; do [ "${hit[i]}" = 0 ] || echo "${names[i]}" >> "$3"; done
+}
+if [ "${E2E_NOT_PORTED:-}" != run ] && [ -e "$not_ported_file" ]; then
+  if ! selectors=$(perl -e '
+    my ($file) = @ARGV;
+    open(my $fh, "<", $file) or do { print "cannot be read: $!\n"; exit 1 };
+    my (%seen, @out);
+    while (my $line = <$fh>) {
+      $line =~ s/\r?\n\z//;
+      next if $line =~ /^\s*(#|\z)/;
+      my $at = "line $.";
+      my ($sel, $reason) = $line =~ /^\s*(\S+)\s+(.*\S)\s*\z/
+        or do { print "$at: want <selector> <the item that ports it>, got \"$line\"\n"; exit 1 };
+      $sel =~ /^[A-Za-z0-9_.*?\[\]-]+\z/
+        or do { print "$at: \"$sel\" is not a test name, an area or a glob (no commas, no tags)\n"; exit 1 };
+      $reason !~ /\bBOW-\d+/i
+        or do { print "$at: the reason names a Plane ID; say it in plain words\n"; exit 1 };
+      !$seen{$sel}++
+        or do { print "$at: $sel is listed twice\n"; exit 1 };
+      push @out, "$sel\n";
+    }
+    print @out;' "$not_ported_file"); then
+    echo "E2E: ERROR bad not-ported list: $not_ported_name ${selectors:-cannot be read}"
+    exit 64
+  fi
+  if [ -n "$selectors" ]; then
+    np_dir=$(mktemp -d "${TMPDIR:-/tmp}/bow-e2e-not-ported.XXXXXX") || exit 64
+    # list starts no engine.
+    perl -e 'alarm 30; exec @ARGV' "$binary" --e2e=list --e2e-out="$np_dir/out" > "$np_dir/tests.txt" 2> /dev/null
+    if ! grep -q '^TEST ' "$np_dir/tests.txt"; then
+      rm -rf "$np_dir"
+      echo "E2E: ERROR bad not-ported list: $not_ported_name cannot be checked, the app printed no test list"
+      exit 64
+    fi
+    np_match "$np_dir/tests.txt" "$selectors" "$np_dir/listed"
+    if [ -n "$np_stale" ]; then
+      rm -rf "$np_dir"
+      echo "E2E: ERROR bad not-ported list: $not_ported_name matches no test: $np_stale"
+      exit 64
+    fi
+    # A selection the app would refuse stays as it is, for the app to refuse.
+    if resolve_selection "$np_dir/tests.txt" > "$np_dir/selected" 2> /dev/null; then
+      # Per selected test: S when listed (left out), else K, with the name to select it by: a name that is also an
+      # area or a tag goes as a glob matching just that name (download[s]).
+      split=$(awk -v us="$us" -v tests="$np_dir/tests.txt" -v listed="$np_dir/listed" '
+        BEGIN {
+          while ((getline l < tests) > 0) {
+            if (split(l, f, " ") < 3 || f[1] != "TEST") continue
+            sub(/^area=/, "", f[3]); taken[f[3]]
+            if (f[4] != "") { sub(/^tags=/, "", f[4]); n = split(f[4], tags, ","); for (i = 1; i <= n; i++) taken[tags[i]] }
+          }
+          while ((getline l < listed) > 0) if (l != "") left[l]
+        }
+        $0 in left { print "S" us $0; next }
+        { print "K" us (($0 in taken) ? substr($0, 1, length($0) - 1) "[" substr($0, length($0)) "]" : $0) }
+      ' "$np_dir/selected")
+      not_ported_tests=$(printf '%s\n' "$split" | awk -F "$us" '$1 == "S" { print $2 }')
+      kept=$(printf '%s\n' "$split" | awk -F "$us" '$1 == "K" { print $2 }' | paste -sd, -)
+      if [ -n "$not_ported_tests" ]; then
+        not_ported_count=$(printf '%s\n' "$not_ported_tests" | grep -c .)
+        np_note="; not ported $not_ported_count"
+        if [ -n "$kept" ]; then selection=$kept; else all_not_ported=1 repeat=1; fi
+        # Short output names the count; the names are in report.txt and results.json.
+        if [ "$quiet" = 1 ]; then tell "$not_ported_count tests are not ported yet and left out of this run (names in report.txt)"
+        else printf '%s\n' "$not_ported_tests" | sed 's/^/NOT PORTED /'; fi
+      fi
+    fi
+    rm -rf "$np_dir"
+  fi
+fi
+# The repeats and shards each run this script on the reduced selection.
+export E2E_NOT_PORTED=run
+
 # E2E_REPEAT: runs this script N times (each a whole run in its own folder, retry off), tallies each test's passes
 # from the RESULT lines of each repeat's report.txt and prints one summary line. Short output keeps a passing
 # repeat's lines to itself and shows a failing one's.
@@ -292,10 +453,10 @@ if [ "$repeat" != 1 ]; then
   [ "$quiet" = 0 ] || expired_lines
   tell "repeat run folders in $root: $folders"
   if [ -z "$first_code" ]; then
-    echo "E2E: PASS $repeat/$repeat repeats"
+    echo "E2E: PASS $repeat/$repeat repeats$np_note"
     exit 0
   fi
-  echo "E2E: $first_kind $passed/$repeat repeats passed; failed: $failed"
+  echo "E2E: $first_kind $passed/$repeat repeats passed; failed: $failed$np_note"
   exit "$first_code"
 fi
 bundle=$(basename "$app")
@@ -580,49 +741,6 @@ analyze() {
       if (checks != "" || !results) print "W"
     }
   ' "$1/report.txt" 2>/dev/null
-}
-
-# E2E_SHARDS. resolve_selection <TEST lines file>: prints the selected test names in test order, matching each
-# comma separated part as the app does (a name, an area, a tag or a glob of names, and only the exact name for a
-# test whose line ends in by-name-only); fails when a part matches no test or nothing is selected, so the app
-# itself refuses the selection.
-resolve_selection() {
-  local kw name area tags rest i part matched parts
-  local names=() areas=() tagsets=() byname=() chosen=()
-  while read -r kw name area tags rest; do
-    [ "$kw" = TEST ] && [ -n "$name" ] || continue
-    names+=("$name")
-    areas+=("${area#area=}")
-    tags=${tags#tags=}
-    [ "$tags" != - ] || tags=""
-    tagsets+=(",$tags,")
-    case " $rest " in *" by-name-only "*) byname+=(1) ;; *) byname+=(0) ;; esac
-    chosen+=(0)
-  done < "$1"
-  [ "${#names[@]}" -gt 0 ] || return 1
-  if [ "$selection" = all ]; then
-    for i in "${!names[@]}"; do [ "${byname[i]}" = 1 ] || echo "${names[i]}"; done
-    return 0
-  fi
-  IFS=, read -ra parts <<< "$selection"
-  [ "${#parts[@]}" -gt 0 ] || return 1
-  for part in "${parts[@]}"; do
-    part="${part#"${part%%[![:blank:]]*}"}"
-    part="${part%"${part##*[![:blank:]]}"}"
-    [ -n "$part" ] || continue
-    matched=0
-    for i in "${!names[@]}"; do
-      # The last test is fnmatch with no flags, as the app's: an unquoted pattern.
-      if [ "${names[i]}" = "$part" ] || { [ "${byname[i]}" = 0 ] && { [ "${areas[i]}" = "$part" ] \
-        || [[ ${tagsets[i]} == *",$part,"* ]] || [[ ${names[i]} == $part ]]; }; }; then
-        chosen[i]=1 matched=1
-      fi
-    done
-    [ "$matched" = 1 ] || return 1
-  done
-  matched=0
-  for i in "${!names[@]}"; do [ "${chosen[i]}" = 0 ] || { echo "${names[i]}"; matched=1; }; done
-  [ "$matched" = 1 ]
 }
 
 # plan_shards <shards> <names file>: deals the tests in the names file onto the shards, longest first, each onto the
@@ -913,13 +1031,17 @@ args=("--e2e=$selection")
 load_start=$(load)
 sharded=0 shard_orphans=0 shards_json=""
 plan_code=1
-[ "$shards" = 1 ] || { plan_run; plan_code=$?; }
+[ "$shards" = 1 ] || [ "$all_not_ported" = 1 ] || { plan_run; plan_code=$?; }
 if [ "$plan_code" = 0 ]; then
   sharded=1
   run_shards
 elif [ "$plan_code" = 2 ]; then
   app_code=64 signal="" seconds=0
   echo "$summary" >> "$run/report.txt"
+elif [ "$all_not_ported" = 1 ]; then
+  # Every selected test is not ported yet: no app runs.
+  status=pass app_code=0 signal="" seconds=0 summary="E2E: PASS 0/0"
+  : > "$run/report.txt"
 else
   attempt "$run" "${args[@]}"
 fi
@@ -1016,6 +1138,12 @@ if [ "$retry" = 1 ] && { [ "$status" = fail ] || [ "$status" = timeout ]; }; the
 fi
 load_end=$(load)
 
+# The left out tests: one NOT PORTED line each in report.txt, and the count on the summary line.
+if [ "$not_ported_count" -gt 0 ]; then
+  printf '%s\n' "$not_ported_tests" | sed 's/^/NOT PORTED /' >> "$run/report.txt"
+  case $summary in "E2E: PASS "* | "E2E: FAIL "* | "E2E: FLAKY "*) summary="$summary$np_note" ;; esac
+fi
+
 # Crash reports (a Debug build's Crashpad keeps them on disk, never uploads them). Each attempt's folder is looked
 # at once, after the run: reports the engine's throwaway root (<folder>/profile/{new,pending,completed})
 # holds are copied into <folder>/crash-reports/, unless one of that name is already there (a report moves from
@@ -1083,6 +1211,8 @@ attempt_json() {
   printf '"load":{"start":%s,"end":%s,"cpus":%s},"orphansKilled":%s,"flaky":[' \
     "$load_start" "$load_end" "$(sysctl -n hw.ncpu)" "$((orphans_killed + shard_orphans))"
   printf '%s\n' "$flaky" | awk -F "$us" '{ print $1 }' | { sep=""; while IFS= read -r n; do [ -n "$n" ] && printf '%s%s' "$sep" "$(json "$n")" && sep=,; done; }
+  printf '],"notPorted":['
+  printf '%s\n' "$not_ported_tests" | { sep=""; while IFS= read -r n; do [ -n "$n" ] && printf '%s%s' "$sep" "$(json "$n")" && sep=,; done; }
   printf '],"quarantined":['
   printf '%s\n' "$quarantined" | { sep=""; while IFS="$us" read -r n d r; do
     [ -n "$n" ] && printf '%s{"name":%s,"expires":%s,"reason":%s}' "$sep" "$(json "$n")" "$(json "$d")" "$(json "$r")" && sep=,; done; }
