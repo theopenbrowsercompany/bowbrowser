@@ -2,9 +2,16 @@ import BowCore
 import Foundation
 import WebKit
 
-/// Which WebKit navigation a callback belongs to: the `WKNavigation` object's identity, or nil when WebKit passed
-/// none (it may, for a page restored from the back/forward cache).
-typealias NavigationKey = ObjectIdentifier
+/// Which WebKit navigation a callback belongs to: the `WKNavigation` object, compared by identity (nil where WebKit
+/// passed none, as it may for a page restored from the back/forward cache). Held strongly while it is in progress
+/// or recently ended, so a new navigation cannot reuse its address and be taken for it.
+struct NavigationKey: Equatable {
+    let object: AnyObject
+
+    init(_ object: AnyObject) { self.object = object }
+
+    static func == (a: NavigationKey, b: NavigationKey) -> Bool { a.object === b.object }
+}
 
 /// Turns WebKit's main frame navigation callbacks into Bow's navigation events, in the order `TabEvent` promises:
 /// start, then any redirects, then commit, then finish or fail, and every started navigation ends before the next
@@ -23,7 +30,17 @@ struct NavigationEvents {
         var httpStatus = 0
     }
 
-    private var active: Active?
+    private var active: Active? {
+        didSet {
+            // Remember the navigation that just ended, so WebKit's late callbacks for it (a commit or failure
+            // already under way when Bow stopped or replaced it) are dropped rather than taken for a new one.
+            guard let key = oldValue?.key, active?.key != key, !ended.contains(key) else { return }
+            ended.append(key)
+            if ended.count > 16 { ended.removeFirst() }
+        }
+    }
+    /// Navigations ended lately, newest last.
+    private var ended: [NavigationKey] = []
     /// The last main frame navigation the policy allowed, waiting for WebKit to start it; it gives the start its
     /// transition and gesture.
     private var allowed: EngineNavigation?
@@ -73,6 +90,7 @@ struct NavigationEvents {
     /// The navigation committed at `url`. A commit of no navigation in progress (one WebKit did not start, or one
     /// after the navigation in progress committed already) is a navigation of its own: its start comes first.
     mutating func committed(_ key: NavigationKey?, url: URL) -> [TabEvent] {
+        if isEnded(key) { return [] }
         var events: [TabEvent] = []
         if active == nil || !belongs(key) || active?.isCommitted == true {
             events += started(key, url: url)
@@ -108,8 +126,12 @@ struct NavigationEvents {
         return [.didFail(current.navigation, .abortedByBow)]
     }
 
+    private func isEnded(_ key: NavigationKey?) -> Bool {
+        key.map { ended.contains($0) } ?? false
+    }
+
     private func belongs(_ key: NavigationKey?) -> Bool {
-        guard let active else { return false }
+        guard let active, !isEnded(key) else { return false }
         guard let key, let own = active.key else { return true }
         return key == own
     }

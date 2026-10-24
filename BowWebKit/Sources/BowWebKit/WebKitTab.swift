@@ -137,7 +137,7 @@ final class WebKitTab: SPIDelegateBase, EngineTab, WKNavigationDelegate, WKUIDel
     // MARK: WKNavigationDelegate
 
     private func key(_ navigation: WKNavigation?) -> NavigationKey? {
-        navigation.map(ObjectIdentifier.init)
+        navigation.map(NavigationKey.init)
     }
 
     /// True when a callback comes from the tab's own web view (a released one has no delegate, but a callback may be

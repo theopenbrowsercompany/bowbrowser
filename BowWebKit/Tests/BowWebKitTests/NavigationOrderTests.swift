@@ -228,10 +228,8 @@ func closedLoopbackPort() throws -> UInt16 {
 
 /// The rules of `NavigationEvents` on their own, with WebKit's callbacks in the orders WebKit can make them.
 @Suite struct NavigationEventsTests {
-    // Kept alive, so their identities stay distinct.
-    private let objects = [NSObject(), NSObject()]
-    private var one: NavigationKey { ObjectIdentifier(objects[0]) }
-    private var two: NavigationKey { ObjectIdentifier(objects[1]) }
+    private let one = NavigationKey(NSObject())
+    private let two = NavigationKey(NSObject())
     private let a = URL(string: "http://h/a")!
     private let b = URL(string: "http://h/b")!
 
@@ -253,6 +251,21 @@ func closedLoopbackPort() throws -> UInt16 {
         var all = events.started(one, url: a)
         all += events.started(two, url: b)
         all += events.failed(one, error: NavigationError(reason: .aborted, description: ""))
+        all += events.committed(two, url: b)
+        all += events.finished(two)
+        #expect(names(all) == ["start /a", "fail /a aborted", "start /b", "commit /b", "finish /b 0"])
+    }
+
+    @Test func lateCallbacksOfAStoppedOrReplacedNavigationAreDropped() {
+        var events = NavigationEvents()
+        var all = events.started(one, url: a)
+        all += events.abort()
+        // The commit was already under way when the app stopped the navigation.
+        all += events.committed(one, url: a)
+        all += events.finished(one)
+        all += events.started(two, url: b)
+        all += events.committed(one, url: a)
+        all += events.failed(one, error: NavigationError(reason: .other, description: ""))
         all += events.committed(two, url: b)
         all += events.finished(two)
         #expect(names(all) == ["start /a", "fail /a aborted", "start /b", "commit /b", "finish /b 0"])
