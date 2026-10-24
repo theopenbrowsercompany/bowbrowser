@@ -91,6 +91,7 @@ An entry that matches no test, or a malformed list (no reason, a bad selector, a
 A failed run keeps its profile in the run folder.
 After each run the wrapper ends any process left running with the run folder in its arguments (Chromium's helpers carry it), and says how many it ended.
 A crash report a Debug build's Crashpad kept (nothing is ever uploaded) is copied into `<run>/crash-reports/` and named by a `CRASH REPORT <path>` line before the summary line, in short output too, and in `results.json`'s `crashReports`; it never changes the outcome.
+The dump `page.crash.report` makes on purpose (the one its passing check names) is printed as `CRASH REPORT (expected, page.crash.report) <path>` and is no cause for worry; a plain `CRASH REPORT <path>` line is any other dump and needs a look.
 
 ## Repeats
 

@@ -38,19 +38,21 @@ Your working directory is your own git worktree of this repository.
 ## Checks, once
 
 - While building and fixing, run `make check` (only what your change touches).
-- At the end, rebase onto `origin/main`, then run `make done` once and paste its block in your report.
+- Run `/code-review` in the foreground on the diff, and fix a finding only when it is one of the six blocker kinds in `.claude/agents/bow-reviewer.md` ("A blocker is one of these six"); every other finding goes under Later in your report.
+  Skip `/code-review` when the brief says the branch gets an independent review.
+- At the end, once the review is done and its fixes are committed, rebase onto `origin/main`, then run `make done` once and paste its block in your report.
+  `make done` never starts while a review may still change the code, because a fix throws its run away.
   It fetches origin, warns and goes on when the branch is behind `origin/main` with no conflict (refusing only on a conflict, naming the files), runs `make bootstrap` when needed, then `make verify` and the full `make e2e` with `make release` beside it when the branch touches app sources, and exits non zero when a step failed.
   Commit first: its block names the tree it checked, and a dirty worktree is flagged.
 - If main moves afterwards with no conflict, report anyway: the landing reruns everything.
 - A failure or FLAKY outside your area is reported, not rerun.
 - Never squash or reset onto `origin/main`.
-- Run `/code-review` in the foreground on the diff, and fix a finding only when it is one of the six blocker kinds in `.claude/agents/bow-reviewer.md` ("A blocker is one of these six"); every other finding goes under Later in your report.
-  Skip `/code-review` when the brief says the branch gets an independent review.
 
 ## Known traps
 
 - In a worktree, Bash refuses any compound command with "too complex to verify that it stays inside the worktree", and each refusal costs a turn.
   Run one plain command per call, from the worktree root: `git status --short`, `git fetch origin`, `make check`, `make done > /tmp/done-<branch>.log 2>&1` (a plain redirect passes; name the log and every scratch file after your branch, because two worktrees once clobbered a shared /tmp/done.log), and `bash /tmp/<name>.sh` for a script you wrote with Write.
+  Run `make check` and `make done` in the foreground with the Bash timeout at 600000, and in the background only when the last `make done` ran over 8 minutes, because a backgrounded check ends your turn and costs the lead a turn.
   Refused, most often first: a heredoc (`<<EOF`, `python3 - <<EOF`), a pipeline (`git log | tail`, `| head`, `| grep`), a chain (`a && b`, `a; b`, `||`), command substitution (`$(...)`), `cd <dir> && ...`, `git -C <path>`, `make -C <path>`, and a multiline `sed -i`.
   Instead: read a result with Read (redirect to a file under /tmp first, never into the worktree), edit with Edit or Write, and put multi-step work in a script written with Write and run with `bash <path>`.
 - Run `make bootstrap` first in a fresh worktree.

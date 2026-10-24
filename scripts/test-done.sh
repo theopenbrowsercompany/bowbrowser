@@ -156,6 +156,7 @@ case "$*" in
     ;;
   *e2e*)
     echo "ran: $*" >> "$FAKE_LOG"
+    echo "e2e shards: ${E2E_SHARDS:-unset}" >> "$FAKE_LOG"
     if [ "${FAKE_E2E:-0}" = flaky ]; then
       # A run that failed, then passed on the retry: the FLAKY lines FAKE_NAMES lists, then FAKE_SUMMARY, exit 2
       # (make exits 2 for any failure; e2e.sh itself exits 3).
@@ -221,6 +222,18 @@ has "the block has the diff stat" "$out" "b | 1 +"
 has "the block names a clean worktree" "$out" "worktree: clean"
 has "a passing run exits 0" "$out" "exit=0"
 has "the full e2e ran" "$(cat "$tmp/log")" "E2E=all"
+has "the full e2e runs in 3 shards" "$(cat "$tmp/log")" "e2e shards: 3"
+has "the log names the shards of the full e2e" "$out" "done: the full e2e runs in 3 shard(s) (DONE_E2E_SHARDS)"
+o2=$(DONE_E2E_SHARDS=1 run 0 0)
+has "DONE_E2E_SHARDS=1 runs the full e2e unsharded" "$(cat "$tmp/log")" "e2e shards: 1"
+has "DONE_E2E_SHARDS=1 says so" "$o2" "done: the full e2e runs in 1 shard(s) (DONE_E2E_SHARDS)"
+o2=$(DONE_E2E_SHARDS=5 run 0 0)
+has "DONE_E2E_SHARDS sets the shards of the full e2e" "$(cat "$tmp/log")" "e2e shards: 5"
+o2=$(DONE_E2E_SHARDS=0 run 0 0)
+has "a zero DONE_E2E_SHARDS is refused" "$o2" "DONE_E2E_SHARDS must be a whole number of 1 or more"
+has "a zero DONE_E2E_SHARDS exits 2" "$o2" "exit=2"
+o2=$(DONE_E2E_SHARDS=x run 0 0)
+has "a bad DONE_E2E_SHARDS is refused" "$o2" "exit=2"
 has "a branch touching no app source skips the release build" "$out" \
   "make release: skip (no change to App/, E2E/, BowCore/Sources/ or project.yml)"
 check "a skipped release build runs no make release" "" "$(grep release: "$tmp/log")"
@@ -373,13 +386,32 @@ check "not ported: without a list the block has no such line" "" "$(echo "$out" 
 g checkout -q -f "$head_two"
 g update-ref refs/remotes/origin/main HEAD
 mkdir -p "$repo/E2E/Tests"
-printf 'let name = "y.other"\nlet name = "y.other.deep"\n' > "$repo/E2E/Tests/Y.swift"
+printf 'let name = "y.other"\nlet name = "y.other.deep"\nlet name = "z.one"\nlet name = "z.two"\n' > "$repo/E2E/Tests/Y.swift"
+printf '# tests the engine cannot run yet\ny.other waits on the page port\nz the z area waits on its port\nq.none a stale entry\n' > "$repo/scripts/e2e-not-ported.txt"
 g add -A
 g commit -qm "an untouched test file"
 g update-ref refs/remotes/origin/main HEAD
 printf 'let name = "x.one"\nlet name = "x.two"\n' > "$repo/E2E/Tests/X.swift"
 g add -A
 g commit -qm "adds tests"
+
+# Tests a branch brings back by removing their not-ported entries are changed tests for the repeat.
+printf '# tests the engine cannot run yet\nz the z area waits on its port\nq.none a stale entry\n' > "$repo/scripts/e2e-not-ported.txt"
+out=$(run 0 0)
+has "a removed not-ported entry's test is repeated with the changed tests" "$out" \
+  "changed tests, repeated: ok (20 repeats in 3 shards of x.one,x.two,y.other)"
+printf '# tests the engine cannot run yet\ny.other waits on the page port\nq.none a stale entry\n' > "$repo/scripts/e2e-not-ported.txt"
+out=$(run 0 0)
+has "a removed area entry brings back every test of the area" "$out" \
+  "changed tests, repeated: ok (20 repeats in 3 shards of x.one,x.two,z.one,z.two)"
+printf '# tests the engine cannot run yet\ny.other because the page port is slow\nz the z area waits on its port\nq.none a stale entry\n' > "$repo/scripts/e2e-not-ported.txt"
+out=$(run 0 0)
+has "a reworded not-ported entry brings back nothing" "$out" "changed tests, repeated: ok (20 repeats in 3 shards of x.one,x.two)"
+rm "$repo/scripts/e2e-not-ported.txt"
+out=$(run 0 0)
+has "a deleted not-ported list brings back every test it named" "$out" \
+  "changed tests, repeated: ok (20 repeats in 3 shards of x.one,x.two,y.other,z.one,z.two)"
+g checkout -q -- scripts/e2e-not-ported.txt
 out=$(FAKE_NAMES="y.other" run 0 flaky)
 has "a FLAKY test the branch does not change passes" "$out" "done: PASS"
 has "a FLAKY test outside the branch is named in the e2e line" "$out" \
@@ -776,6 +808,21 @@ has "a reused pass reports check's run folder" "$out" "e2e run folder: build/e2e
 has "a reused pass reports its final.png" "$out" "/build/e2e/20260101-9/final.png"
 has "a reused pass still runs verify" "$out" "make verify: ok"
 has "a reused pass passes" "$out" "done: PASS"
+printf '{"notPorted":["a.one","a.two"]}\n' > "$repo/build/e2e/20260101-9/results.json"
+out=$(run 0 0)
+has "a reused pass keeps the not ported count of its run" "$out" "e2e summary: E2E: PASS 128/128; not ported 2"
+printf '{"notPorted":[]}\n' > "$repo/build/e2e/20260101-9/results.json"
+out=$(run 0 0)
+check "a reused pass with nothing left out adds no count" "1" "$(echo "$out" | grep -c 'e2e summary: E2E: PASS 128/128$')"
+check "a reused pass with nothing left out says no not ported" "" "$(echo "$out" | grep 'e2e summary.*not ported')"
+printf 'not json' > "$repo/build/e2e/20260101-9/results.json"
+out=$(run 0 0)
+check "a reused pass whose results.json cannot be read adds no count" "" "$(echo "$out" | grep 'e2e summary.*not ported')"
+stamp "$key" all "E2E: PASS 128/128; not ported 2" 20260101-9
+printf '{"notPorted":["a.one","a.two"]}\n' > "$repo/build/e2e/20260101-9/results.json"
+out=$(run 0 0)
+check "a reused summary that has the count already keeps it once" "1" "$(echo "$out" | grep -c 'e2e summary: E2E: PASS 128/128; not ported 2$')"
+rm -f "$repo/build/e2e/20260101-9/results.json"
 stamp "$key-12345678" all "E2E: PASS 128/128" 20260101-9
 out=$(run 0 0)
 check "a different tree key runs the full e2e" "1" "$(full_ran)"

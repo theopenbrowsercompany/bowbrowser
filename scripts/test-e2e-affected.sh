@@ -6,7 +6,7 @@
 # Takes about a second and launches no app.
 set -u
 # The base settings come from each case alone (make done exports them to the self tests it runs).
-unset CHECK_BASE VERIFY_BASE PRIVATE_PATHS_BASE BOW_BASE DONE_BASE
+unset CHECK_BASE VERIFY_BASE PRIVATE_PATHS_BASE BOW_BASE DONE_BASE E2E_SHARDS CHECK_E2E_SHARDS
 cd "$(dirname "$0")/.." || exit 1
 
 tmp=$(mktemp -d)
@@ -432,6 +432,7 @@ cat > "$tmp/bin/make" << 'EOF'
 echo "$*" >> "$FAKE_MAKE_LOG"
 case "$*" in
   *e2e-run*)
+    echo "${E2E_SHARDS:-unset}" >> "$FAKE_MAKE_LOG.shards"
     if [ -n "${FAKE_RUN_SUMMARY:-}" ]; then
       mkdir -p build/e2e/r1
       echo "$FAKE_RUN_SUMMARY" > build/e2e/r1/report.txt
@@ -471,6 +472,17 @@ check "check: an app change alone runs no package tests" "no" \
   "$(check_run App/UI/A.swift "tabs,smoke" 0 > /dev/null
     grep -qx -- '--no-print-directory test' "$tmp/make.log" && echo yes || echo no)"
 check "check: a selection runs it" $'e2e: tabs,smoke)\ne2e-run E2E=tabs,smoke' "$(check_run "$two" "tabs,smoke" 0)"
+
+# The full selection runs in 3 shards (CHECK_E2E_SHARDS overrides); a partial one leaves E2E_SHARDS alone.
+shards_run() {
+  rm -f "$tmp/make.log.shards"
+  FAKE_CHANGED=$'App/UI/A.swift\nREADME.md' FAKE_SELECTION=$1 FAKE_STATUS=0 FAKE_MAKE_LOG=$tmp/make.log \
+    PATH="$tmp/bin:$PATH" "$crepo/scripts/check.sh" > /dev/null 2>&1
+  cat "$tmp/make.log.shards"
+}
+check "check: the full selection runs in 3 shards" "3" "$(shards_run all)"
+check "check: CHECK_E2E_SHARDS overrides the shards" "1" "$(CHECK_E2E_SHARDS=1 shards_run all)"
+check "check: a partial selection sets no shards" "unset" "$(shards_run "tabs,smoke")"
 
 # check records a full e2e pass for make done to reuse (build/check-e2e-pass: key, selection, summary, run folder), only
 # for a selection of all that passed on a tree that did not change while it ran; every run deletes the old record.
