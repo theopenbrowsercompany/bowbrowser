@@ -44,7 +44,8 @@ Your working directory is your own git worktree of this repository.
 - If main moves afterwards with no conflict, report anyway: the landing reruns everything.
 - A failure or FLAKY outside your area is reported, not rerun.
 - Never squash or reset onto `origin/main`.
-- When the lead says the branch gets no independent review, `/code-review` in the foreground is still required.
+- Run `/code-review` in the foreground on the diff, and fix a finding only when it is one of the six blocker kinds in `.claude/agents/bow-reviewer.md` ("A blocker is one of these six"); every other finding goes under Later in your report.
+  Skip `/code-review` when the brief says the branch gets an independent review.
 
 ## Known traps
 
@@ -59,7 +60,8 @@ Your working directory is your own git worktree of this repository.
 - A plain `target="_blank"` link implies `noopener`, so a test that needs `window.opener` uses `rel="opener"`.
 - `make guards` checks private paths in every commit, so keep home directory paths out of tests and fixtures (use /tmp or relative paths) before the first commit.
 - An e2e helper must call the same method the real handler calls (for example the method validateDrop calls), never the inner steps, or its check stays green when the handler breaks.
-- A brief's mockup measurements, text and colors are binding; do not replace them with an inference about Arc; say in the report if Arc's documented behavior differs.
+- Arc's look wins over the brand kit mockup and the spec; update the spec in the same change.
+- A flaky test: reproduce it on main first, read `log show` for Dock and WindowServer around each failure time, and accept a fix only with a before and after repeat rate measured on main.
 - A "do not edit" list in a brief bars commits, not the temporary uncommitted stubs of the fails without check.
 
 ## Before you report

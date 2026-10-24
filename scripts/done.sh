@@ -15,6 +15,10 @@
 #    does. Release builds into its own derived data (build/release), and verify has already generated the project
 #    and built Debug, so the two share nothing; its output is printed after the e2e's, so the two never interleave.
 #    Any other branch skips it.
+# 0. A branch that changes only *.md files and spec/ (at least one file, nothing else, committed or not) is docs
+#    only, as the landing treats it: it runs make lint and make guards, skips bootstrap, verify, the e2e, the
+#    release build and the repeat (each says "skip (docs only)" in the block), and the block says so. Anything
+#    else, scripts and fixtures included, keeps the full run.
 # 6. Reruns the e2e tests the branch adds or changes (the names in each changed E2E/Tests file) DONE_REPEAT times
 #    (default 20) in DONE_REPEAT_SHARDS shards (default 3, so the repeats also run under load, which exposes waits on
 #    time) with the retry off (E2E_REPEAT=<n> E2E_SHARDS=<k> make e2e-run), after the full e2e passed. A selection of
@@ -161,7 +165,22 @@ repeat_gate() {
     }' "$log"
 }
 
-if [ -e Vendor/cef ]; then
+# Whether the branch needs a Release build: it touches what the Release app is built from. When the changed files
+# cannot be listed, it builds, to be safe.
+release_reason=""
+docs_only=0
+if changed=$(CHECK_BASE=$base ./scripts/e2e-affected.sh --changed 2> /dev/null); then
+  release_reason=$(echo "$changed" | grep -m1 '^\(App/\|E2E/\|BowCore/Sources/\|project\.yml$\)')
+  # Docs only: at least one changed file, and every one is a *.md file or under spec/ (the landing's policy, and
+  # e2e-affected.sh's "docs" mapping). Anything else, or no change at all, keeps the full run.
+  if [ -n "$changed" ] && [ -z "$(echo "$changed" | grep -v '\.md$' | grep -v '^spec/')" ]; then docs_only=1; fi
+else
+  release_reason="the changed files could not be listed"
+fi
+
+if [ "$docs_only" = 1 ]; then
+  bootstrap="skip (docs only)"
+elif [ -e Vendor/cef ]; then
   bootstrap="skip (Vendor/cef is there)"
 else
   step bootstrap make --no-print-directory bootstrap
@@ -171,19 +190,27 @@ else
   fi
 fi
 
-# Whether the branch needs a Release build: it touches what the Release app is built from. When the changed files
-# cannot be listed, it builds, to be safe.
-release_reason=""
-if changed=$(CHECK_BASE=$base ./scripts/e2e-affected.sh --changed 2> /dev/null); then
-  release_reason=$(echo "$changed" | grep -m1 '^\(App/\|E2E/\|BowCore/Sources/\|project\.yml$\)')
-else
-  release_reason="the changed files could not be listed"
-fi
-
 verify="skip (bootstrap failed)"
 e2e="skip (not run)"
 release="skip (verify did not pass)"
-if [ "$failed" = 0 ]; then
+lint_line=""
+guards_line=""
+if [ "$docs_only" = 1 ]; then
+  # Only *.md and spec/ changed: lint and guards, no build, e2e or release.
+  verify="skip (docs only)"
+  e2e="skip (docs only)"
+  release="skip (docs only)"
+  step lint make --no-print-directory lint
+  if [ "$step_status" = 0 ]; then lint_line=ok; else
+    lint_line="FAIL (exit $step_status)"
+    failed=1
+  fi
+  step guards make --no-print-directory guards
+  if [ "$step_status" = 0 ]; then guards_line=ok; else
+    guards_line="FAIL (exit $step_status)"
+    failed=1
+  fi
+elif [ "$failed" = 0 ]; then
   step verify make --no-print-directory verify
   verify_line=$(grep '^verify: \(PASS\|FAIL\)' "$out/verify.log" | tail -1)
   if [ "$step_status" = 0 ]; then verify="ok: ${verify_line:-no summary line}"; else
@@ -225,7 +252,9 @@ full_run=$(readlink build/e2e/latest 2> /dev/null || true) # the full run, befor
 # scripts/e2e-affected.sh --changed), rerun DONE_REPEAT times in shards with the retry off: a new test that flakes shows here.
 repeat="skip (the e2e did not pass)"
 repeat_lines=""
-if [ "$failed" = 0 ]; then
+if [ "$docs_only" = 1 ]; then
+  repeat="skip (docs only)"
+elif [ "$failed" = 0 ]; then
   changed_tests=""
   changed_files=${changed:-}
   while IFS= read -r f; do
@@ -269,6 +298,11 @@ fi
 echo
 echo "===== done: report block ====="
 echo "bootstrap: $bootstrap"
+if [ "$docs_only" = 1 ]; then
+  echo "docs only: the branch changes only *.md files and spec/, so it ran lint and guards and no build, e2e or release, as the landing does"
+  echo "make lint: $lint_line"
+  echo "make guards: $guards_line"
+fi
 echo "make verify: $verify"
 echo "make e2e: $e2e"
 echo "e2e summary: ${e2e_line:-none}"

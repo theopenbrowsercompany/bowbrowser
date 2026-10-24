@@ -1,7 +1,7 @@
 #!/bin/bash
 # Counts e2e outcomes per test, so a flaky test shows as a rate rather than a single run.
 #
-#   scripts/e2e-flakes.sh [--days N] [--ledger FILE]      the shared ledger (default)
+#   scripts/e2e-flakes.sh [--days N] [--ledger FILE] [--main-trees FILE]   the shared ledger (default)
 #   scripts/e2e-flakes.sh --local [run root or run folder ...]   the results.json files of this checkout
 #   scripts/e2e-flakes.sh <run root or run folder ...>    the same, naming them
 #   scripts/e2e-flakes.sh --emit <results.json>           what scripts/e2e.sh appends to the ledger (below)
@@ -21,6 +21,13 @@
 # on a tree that the same test later passed (an earlier line of the same test and tree that is not a PASS, with a PASS
 # line at or after its date; tree "unknown", a build with no stamp, never matches). FILING says FILE when a test has 2 or more events in the window: the lead files a flake
 # item for it (E2E/README.md, Flake history). Most events first, then most failures, then newest failure, then name.
+# ON MAIN counts the FLAKY, FAIL and TIMEOUT lines whose tree (the part of the ledger's tree before a dash) equals the
+# tree of a commit on origin/main (git log --format=%T origin/main; --main-trees FILE reads one tree per line instead,
+# which the self test uses): such a failure happened on main's own code, whatever branch ran it. Under each FILE test
+# the output adds one "  <outcome> <date> <branch> tree <8 hex>" line per failure line (ending in " ON MAIN" when it
+# is), then "  window <first> to <last>: <branch> n/N runs, ..." with each branch's share of the test's runs (every
+# outcome) between its first and last failure line, most runs first. A branch with a big share is a suspect only when
+# the failures were not on main's tree.
 # Exits 1 when the ledger has no line in the window.
 #
 # Local mode reads <root>/*/results.json under each argument (default build/e2e, or BOW_E2E_ROOT), and a run folder
@@ -50,6 +57,7 @@ while [ $# -gt 0 ]; do
       [[ ${1:-} =~ ^0*[1-9][0-9]*$ ]] || { echo "e2e-flakes: --days wants a whole number of 1 or more" >&2; exit 64; }
       days=$((10#$1)); ledger_opts=1 ;;
     --ledger) shift; ledger=${1:?e2e-flakes: --ledger wants a file}; ledger_opts=1 ;;
+    --main-trees) shift; main_trees_file=${1:?e2e-flakes: --main-trees wants a file}; ledger_opts=1 ;;
     --local) mode=local ;;
     --emit) mode=emit ;;
     -*) echo "e2e-flakes: unknown option $1" >&2; exit 64 ;;
@@ -67,6 +75,7 @@ fi
 prog='
   my $mode = shift @ARGV;
   my ($days, $ledger) = ($ENV{FLAKES_DAYS}, $ENV{FLAKES_LEDGER});
+  my %main = map { $_ => 1 } grep { length } split /\s+/, ($ENV{FLAKES_MAIN_TREES} // "");
   sub run_outcomes {
     my $doc = shift;
     # A run that could not start (status error) or was interrupted ran nothing to count.
@@ -161,7 +170,7 @@ prog='
     my ($date, $test, $outcome, $branch, $tree, $load, $shard, $run) = split /\t/, $l;
     next unless defined $run && $date =~ /^\d{4}-\d\d-\d\dT/ && $date ge $cutoff;
     next unless $outcome =~ /^(PASS|FLAKY|QUARANTINED-FLAKY|FAIL|TIMEOUT)\z/;
-    push @{$lines{$test}}, { date => $date, outcome => $outcome, tree => $tree };
+    push @{$lines{$test}}, { date => $date, outcome => $outcome, tree => $tree, branch => $branch };
     $runs{"$date $branch $run"} = 1;
     $branches{$branch} = 1;
     $total++;
@@ -169,7 +178,7 @@ prog='
   exit 3 unless $total;
   my %row;
   for my $test (keys %lines) {
-    my $r = $row{$test} = { runs => 0, pass => 0, flaky => 0, fail => 0, timeout => 0, events => 0, last => "" };
+    my $r = $row{$test} = { runs => 0, pass => 0, flaky => 0, fail => 0, timeout => 0, events => 0, onmain => 0, last => "" };
     my @all = @{$lines{$test}};
     for my $e (@all) {
       $r->{runs}++;
@@ -177,19 +186,33 @@ prog='
       if ($o eq "PASS") { $r->{pass}++; next }
       if ($o eq "FAIL") { $r->{fail}++ } elsif ($o eq "TIMEOUT") { $r->{timeout}++ } else { $r->{flaky}++ }
       $r->{last} = $e->{date} if $e->{date} gt $r->{last};
+      (my $base = $e->{tree}) =~ s/-.*//;
+      $e->{onmain} = $base ne "unknown" && $main{$base} ? 1 : 0;
+      $r->{onmain}++ if $e->{onmain};
       # A FLAKY outcome passed on the retry of its own tree; a FAIL or TIMEOUT is an event when the same tree passed later.
       my $event = $o !~ /^(FAIL|TIMEOUT)\z/ || grep { $_->{outcome} eq "PASS" && $e->{tree} ne "unknown" && $_->{tree} eq $e->{tree} && $_->{date} ge $e->{date} } @all;
       $r->{events}++ if $event;
     }
   }
   my $bad = sub { $row{$_[0]}{flaky} + $row{$_[0]}{fail} + $row{$_[0]}{timeout} };
-  printf "%-40s %5s %6s %6s %5s %8s %6s %-7s  %s\n", "TEST", "RUNS", "PASSES", "FLAKY", "FAIL", "TIMEOUT", "EVENTS", "FILING", "LAST FAILED";
+  printf "%-40s %5s %6s %6s %5s %8s %6s %-7s %7s  %s\n", "TEST", "RUNS", "PASSES", "FLAKY", "FAIL", "TIMEOUT", "EVENTS", "FILING", "ON MAIN", "LAST FAILED";
   my $file = 0;
   for my $name (sort { $row{$b}{events} <=> $row{$a}{events} || $bad->($b) <=> $bad->($a) || $row{$b}{last} cmp $row{$a}{last} || $a cmp $b } keys %row) {
     my $r = $row{$name};
     my $filing = $r->{events} >= 2 ? "FILE" : "-";
     $file++ if $filing eq "FILE";
-    printf "%-40s %5d %6d %6d %5d %8d %6d %-7s  %s\n", $name, @$r{qw(runs pass flaky fail timeout events)}, $filing, $r->{last} || "-";
+    printf "%-40s %5d %6d %6d %5d %8d %6d %-7s %7d  %s\n", $name, @$r{qw(runs pass flaky fail timeout events)}, $filing, $r->{onmain}, $r->{last} || "-";
+    next unless $filing eq "FILE";
+    my @all = sort { $a->{date} cmp $b->{date} } @{$lines{$name}};
+    my @bad = grep { $_->{outcome} ne "PASS" } @all;
+    for my $e (@bad) {
+      (my $short = $e->{tree}) =~ s/-.*//;
+      printf "  %s %s %s tree %s%s\n", $e->{outcome}, $e->{date}, $e->{branch}, substr($short, 0, 8), $e->{onmain} ? " ON MAIN" : "";
+    }
+    my ($from, $to) = ($bad[0]{date}, $bad[-1]{date});
+    my (%share, $n);
+    for my $e (grep { $_->{date} ge $from && $_->{date} le $to } @all) { $share{$e->{branch}}++; $n++ }
+    printf "  window %s to %s: %s\n", $from, $to, join ", ", map { "$_ $share{$_}/$n runs" } sort { $share{$b} <=> $share{$a} || $a cmp $b } keys %share;
   }
   printf "e2e-flakes: %d runs on %d branches in the last %d days; %d to file\n", scalar keys %runs, scalar keys %branches, $days, $file;
 '
@@ -203,7 +226,12 @@ case $mode in
       echo "e2e-flakes: no ledger at $ledger (scripts/e2e.sh writes it); --local reads this checkout's build/e2e" >&2
       exit 1
     fi
-    FLAKES_DAYS=$days FLAKES_LEDGER=$ledger perl -MJSON::PP -e "$prog" ledger
+    if [ -n "${main_trees_file:-}" ]; then
+      main_trees=$(cat "$main_trees_file" 2> /dev/null) || { echo "e2e-flakes: cannot read $main_trees_file" >&2; exit 1; }
+    else
+      main_trees=$(git -C "$repo" log --format=%T origin/main 2> /dev/null) || main_trees=""
+    fi
+    FLAKES_MAIN_TREES=$main_trees FLAKES_DAYS=$days FLAKES_LEDGER=$ledger perl -MJSON::PP -e "$prog" ledger
     code=$?
     case $code in
       2) echo "e2e-flakes: cannot read $ledger" >&2; exit 1 ;;
