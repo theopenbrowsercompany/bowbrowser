@@ -79,13 +79,18 @@ for file in $swift_lists; do
   if [ -s "$tmp/undeclared" ]; then cat "$tmp/undeclared" >&2; failed=1; fi
 done
 
-bad_imports=$(grep -n '#import' "$header" | grep -Ev '^[0-9]+:#import "[A-Za-z0-9_+]+\.h"( +//.*)?$' || true)
-[ -z "$bad_imports" ] || fail "$header: not one #import per line: $bad_imports"
-duplicates=$(sed -n 's/^#import "\([^"]*\)".*/\1/p' "$header" | sort | uniq -d)
-for entry in $duplicates; do fail "$header imports $entry twice"; done
+if [ -f "$header" ]; then
+  bad_imports=$(grep -n '#import' "$header" | grep -Ev '^[0-9]+:#import "[A-Za-z0-9_+]+\.h"( +//.*)?$' || true)
+  [ -z "$bad_imports" ] || fail "$header: not one #import per line: $bad_imports"
+  duplicates=$(sed -n 's/^#import "\([^"]*\)".*/\1/p' "$header" | sort | uniq -d)
+  for entry in $duplicates; do fail "$header imports $entry twice"; done
+  header_note="the bridging header"
+else
+  header_note="no bridging header $header"
+fi
 
 duplicates=$(grep -ho 'let name = "[^"]*"' E2E/Tests/*.swift | sort | uniq -d | sed 's/let name = //')
 for entry in $duplicates; do fail "two e2e tests are named $entry"; done
 
 [ "$failed" -eq 0 ] || exit 1
-echo "lists: ok ($(echo "$swift_lists" | wc -w | tr -d ' ') Swift lists, the bridging header, e2e test names)"
+echo "lists: ok ($(echo "$swift_lists" | wc -w | tr -d ' ') Swift lists, $header_note, e2e test names)"

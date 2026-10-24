@@ -50,4 +50,8 @@ if [ -n "$violations" ]; then
   echo "$violations" >&2
   exit 1
 fi
-echo "e2e seams: ok"
+if [ -f "$hooks" ]; then
+  echo "e2e seams: ok"
+else
+  echo "e2e seams: ok (no seam header $hooks, nothing exempt)"
+fi

@@ -10,7 +10,15 @@ set -eu
 
 cd "$(dirname "$0")/.."
 
-exec perl -w - App/Engine/Bow-Bridging-Header.h <<'PERL'
+bridging_header=App/Engine/Bow-Bridging-Header.h
+# Without the bridging header Swift sees no C family header at all (the WebKit app has none), so there is nothing
+# to check; the ok line names the missing file so a wrong path never passes in silence.
+if [ ! -f "$bridging_header" ]; then
+  echo "swift headers: ok (no bridging header $bridging_header, nothing to check)"
+  exit 0
+fi
+
+exec perl -w - "$bridging_header" <<'PERL'
 use strict;
 
 my $root = shift @ARGV;
