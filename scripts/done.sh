@@ -35,6 +35,9 @@
 #    line follows) fails it; a filler test that fails under make's `E2E: FAIL ... repeats` summary prints a `note:`
 #    line and never fails make done. DONE_REPEAT must be 2 or more (1 would be a plain run with the retry on). No such
 #    tests, no step. The block says the count and shards used ("changed tests, repeated").
+#    Tests the full e2e left out as not ported yet (the "notPorted" list in its results.json, from
+#    scripts/e2e-not-ported.txt) are taken out of this repeat, the callers' repeat and the smoke padding by name; the
+#    block shows the e2e summary line, whose `; not ported N` ends it, and names the tests left out of the repeats.
 # 7. Reruns, in a second and smaller run, the tests that reach a symbol the branch changes or adds in E2E/Harness/ or
 #    E2E/Engine/ without being changed themselves (scripts/e2e-affected.sh --callers: a plain text search for the
 #    changed functions, properties and types in E2E/Tests and one level up in the other harness files; a name found in
@@ -540,6 +543,24 @@ fi
 full_run=$(readlink build/e2e/latest 2> /dev/null || true) # the full run, before the repeats move latest
 [ -z "$reused_run" ] || full_run=$reused_run
 
+# The tests the e2e left out as not ported yet (scripts/e2e-not-ported.txt, none on main) are in the full run's
+# results.json. The repeats skip them by name, and their smoke padding counts only the tests left.
+not_ported_set=""
+not_ported_skipped=""
+repeat_all_skipped=0
+callers_all_skipped=0
+if [ -n "$full_run" ] && [ -f "build/e2e/$full_run/results.json" ]; then
+  not_ported_set=$(perl -MJSON::PP -e 'local $/; my $d = eval { decode_json(<STDIN>) }; print join(",", sort @{ref $d eq "HASH" && ref $d->{notPorted} eq "ARRAY" ? $d->{notPorted} : []})' \
+    < "build/e2e/$full_run/results.json" 2> /dev/null)
+fi
+if [ -n "$not_ported_set" ]; then
+  not_ported_skipped=$(minus_of "$(union_of "$repeat_set" "$callers_set")" "$(minus_of "$(union_of "$repeat_set" "$callers_set")" "$not_ported_set")")
+  [ -z "$repeat_set" ] || [ -n "$(minus_of "$repeat_set" "$not_ported_set")" ] || repeat_all_skipped=1
+  [ -z "$callers_set" ] || [ -n "$(minus_of "$callers_set" "$not_ported_set")" ] || callers_all_skipped=1
+  repeat_set=$(minus_of "$repeat_set" "$not_ported_set")
+  callers_set=$(minus_of "$callers_set" "$not_ported_set")
+fi
+
 # repeat_run <log name> <tests, comma list> <repeats> <description>: reruns the tests <repeats> times in
 # DONE_REPEAT_SHARDS shards with the retry off, and sets run_result (the block's line) and run_lines (the REPEAT, E2E
 # and note lines under it); a failure also sets failed. Fewer tests than shards would run as one shard per test, so a
@@ -644,7 +665,9 @@ elif [ "$failed" = 0 ]; then
       repeat="skip (the package test repeat failed)"
       callers_result="skip (the package test repeat failed)"
     elif [ -z "$repeat_set" ]; then
-      repeat="skip (no e2e test added or changed)"
+      if [ "$repeat_all_skipped" = 1 ]; then repeat="skip (every changed test is not ported yet)"; else
+        repeat="skip (no e2e test added or changed)"
+      fi
     else
       repeat_run repeat "$repeat_set" "$repeat_count" "$repeat_set"
       repeat=$run_result
@@ -653,7 +676,9 @@ elif [ "$failed" = 0 ]; then
     if [ "$failed" != 0 ]; then
       [ "$callers_result" != "skip (the e2e did not pass)" ] || callers_result="skip (a repeat failed)"
     elif [ -z "$callers_set" ]; then
-      callers_result="skip (no changed harness symbol reaches a test the branch does not change itself)"
+      if [ "$callers_all_skipped" = 1 ]; then callers_result="skip (every test a changed harness symbol reaches is not ported yet)"; else
+        callers_result="skip (no changed harness symbol reaches a test the branch does not change itself)"
+      fi
     else
       n_callers=$(echo "$callers_rows" | awk 'NF == 3' | grep -c .)
       repeat_run callers "$callers_set" "$callers_count" "$(echo "$callers_set" | tr ',' '\n' | grep -c .) tests (reached through changed harness symbols: $n_callers found${repeat_note:+; $repeat_note}): $callers_set"
@@ -676,6 +701,7 @@ echo "make verify: $verify"
 echo "make e2e: $e2e"
 [ -z "${flaky_lines:-}" ] || echo "$flaky_lines" | sed 's/^/  /'
 echo "e2e summary: ${e2e_line:-none}"
+[ -z "$not_ported_skipped" ] || echo "not ported yet, left out of the repeats: $not_ported_skipped"
 echo "make release: $release"
 echo "package tests, repeated: $package"
 echo "changed tests, repeated: $repeat"
