@@ -87,6 +87,8 @@ struct DownloadsTabClosedTest: E2ETest {
     /// The held download whose tab closes, and the second one of the same name that shows its name is taken.
     static let closedKey = "tab-closed"
     static let againKey = "tab-closed-again"
+    /// The download completed first, in an open tab.
+    static let firstKey = "tab-closed-first"
 
     func run(_ run: E2ERun) async throws {
         let page = try await run.step("open window", timeout: E2ETimeouts.step) {
@@ -95,6 +97,31 @@ struct DownloadsTabClosedTest: E2ETest {
         try await run.step("load the fixture", timeout: E2ETimeouts.firstLoad) {
             let status = try await page.waitForLoad(after: 0)
             guard status == 200 else { throw E2EError("the fixture loaded with status \(status)") }
+        }
+        // The first download to complete in an app process waits on a one-time cost in Chromium's final stage
+        // (after the last byte, before the end): over a second, and several under load. A first download in an
+        // open tab pays it here, with the time a first load gets, so the closed tab's download below ends at its
+        // usual pace and a slow end there still fails.
+        try await run.step("complete a first download", timeout: E2ETimeouts.firstLoad) {
+            let earlier = Set(try await run.app.downloads().map(\.id))
+            let tab = try run.app.openTab(
+                at: E2EFixture.heldDownload(key: Self.firstKey, bytes: 2048, fileName: "tab-closed-first.bin"),
+                besides: page, select: false)
+            let row = try await waitFor(run, "the first download ran") {
+                $0.first {
+                    !earlier.contains($0.id) && $0.fileName == "tab-closed-first.bin" && $0.state == "inProgress"
+                }
+            }
+            E2EFixture.releaseHeld(Self.firstKey)
+            let done = try await waitFor(run, "the first download ended") { [id = row.id] in
+                $0.first { $0.id == id && $0.state != "inProgress" && $0.state != "paused" }
+            }
+            guard done.state == "complete" else { throw E2EError("the first download ended \(done.state)") }
+            try await run.app.press(.cancelOrClear, of: done)
+            _ = try await waitFor(run, "the first download was cleared") { [id = row.id] rows in
+                rows.contains { $0.id == id } ? nil : rows
+            }
+            _ = try await run.app.closeTab(tab)
         }
 
         let earlier = Set(try await run.app.downloads().map(\.id))
@@ -144,9 +171,7 @@ struct DownloadsTabClosedTest: E2ETest {
             }
 
             // Only now may the closed tab's download finish. It outlives its tab and completes; any other end means
-            // its browser was destroyed. Its end has a step of its own: the first download to complete in an app
-            // process waits on Chromium's one-time cost in its final stage (after the last byte, before
-            // the end), which takes over a second and under load several, and must not share a step with the second download above.
+            // its browser was destroyed. Its end waits in a step of its own, not after the second download's.
             let (done, size) = try await run.step(
                 "release the download and wait for its end", timeout: E2ETimeouts.step
             ) {
