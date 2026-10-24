@@ -223,7 +223,9 @@ private struct OpenedMenu {
             && linkMenu.titles == ContextMenuPolicy.items(for: link).filter { !$0.isSeparator }.map(\.title)
             && linkMenu.titles.first == "Open Link in New Tab"
         #expect(linkOK, "link request \(link), menu \(linkMenu.titles)")
-        report("link", linkOK, "link \(link.linkURL?.absoluteString ?? "nil") text \(link.linkText ?? "nil") menu \(linkMenu.titles)")
+        report(
+            "link", linkOK,
+            "link \(link.linkURL?.absoluteString ?? "nil") text \(link.linkText ?? "nil") menu \(linkMenu.titles)")
 
         // Image: its source.
         let (image, _, _) = try await open("image", "#image")
@@ -233,10 +235,12 @@ private struct OpenedMenu {
 
         // Field: editable, with no selection text.
         let (field, fieldMenu, _) = try await open("field", "#field")
-        let fieldOK = field.isEditable && field.linkURL == nil && field.selectionText.isEmpty
+        let fieldOK =
+            field.isEditable && field.linkURL == nil && field.selectionText.isEmpty
             && fieldMenu.titles.contains("Paste")
         #expect(fieldOK, "field request \(field), menu \(fieldMenu.titles)")
-        report("field", fieldOK, "editable \(field.isEditable) flags \(field.editFlags.rawValue) menu \(fieldMenu.titles)")
+        report(
+            "field", fieldOK, "editable \(field.isEditable) flags \(field.editFlags.rawValue) menu \(fieldMenu.titles)")
 
         // Selection: focus leaves the field first, or the selection stays in it.
         _ = try await PageDriver(webView).eval(
@@ -254,7 +258,9 @@ private struct OpenedMenu {
         let (frame, _, _) = try await open("iframe", "#frame")
         let frameOK = frame.frameURL == frameURL && frame.pageURL == page && frame.linkURL == nil && !frame.isEditable
         #expect(frameOK, "iframe request \(frame)")
-        report("iframe", frameOK, "frame \(frame.frameURL?.absoluteString ?? "nil") page \(frame.pageURL?.absoluteString ?? "nil")")
+        report(
+            "iframe", frameOK,
+            "frame \(frame.frameURL?.absoluteString ?? "nil") page \(frame.pageURL?.absoluteString ?? "nil")")
 
         // Commands: the app runs Open Link in New Tab and Inspect itself; Copy Link Address it leaves to the engine,
         // which puts the address on the pasteboard.
