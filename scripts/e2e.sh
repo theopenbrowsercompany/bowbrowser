@@ -86,6 +86,8 @@
 # copied into <folder>/crash-reports/ (with their .meta files) and named by a `CRASH REPORT <path>` line printed
 # before the summary (report.txt gets it after the app's own lines), in short output too, and in results.json's
 # "crashReports" (an interrupted run has none). Nothing is uploaded, and a report never changes the outcome.
+# The dump that a passing page.crash.report check names (the one that test makes on purpose) is printed as
+# `CRASH REPORT (expected, page.crash.report) <path>`; any other dump keeps the plain `CRASH REPORT <path>` line.
 #
 # The last line printed is always the summary:
 #   E2E: PASS n/n               exit 0
@@ -1171,7 +1173,18 @@ collect_crash_reports() {
     done
   done
   [ -n "$crash_reports" ] || return 0
-  printf '%s\n' "$crash_reports" | while IFS= read -r file; do echo "CRASH REPORT $file"; done \
+  # The dump page.crash.report made on purpose (its passing check names it: `PASS page.crash.report: report=<path>
+  # bytes=...`) is labelled expected; any other dump keeps the plain line, which stays the one to look at.
+  local expected
+  expected=$(cat "$run/report.txt" "$run"/shard-*/report.txt "$run/retry/report.txt" 2> /dev/null \
+    | sed -n 's/^PASS page\.crash\.report: report=\(.*\.dmp\) bytes=.*$/\1/p')
+  printf '%s\n' "$crash_reports" | while IFS= read -r file; do
+    if [ -n "$expected" ] && printf '%s\n' "$expected" | grep -qxF -- "$file"; then
+      echo "CRASH REPORT (expected, page.crash.report) $file"
+    else
+      echo "CRASH REPORT $file"
+    fi
+  done \
     | if [ "$quiet" = 1 ]; then cat >> "$run/report.txt"; else tee -a "$run/report.txt"; fi
 }
 collect_crash_reports

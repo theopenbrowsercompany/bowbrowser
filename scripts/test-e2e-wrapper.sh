@@ -243,6 +243,16 @@ case $FAKE_MODE in
       */retry) { echo "PASS a.one: ok"; echo "E2E: PASS 1/1"; } > "$r"; exit 0 ;;
       *) { echo "FAIL a.one: slow"; echo "E2E: FAIL 0/1"; } > "$r"; exit 1 ;;
     esac ;;
+  # page.crash.report passes and names its own dump (expected); crashother has a dump that no check names, crashboth both.
+  crashexpected|crashother|crashboth)
+    mkdir -p "$out/crash-reports"
+    case $FAKE_MODE in crashexpected|crashboth) echo dump1 > "$out/crash-reports/exp.dmp" ;; esac
+    case $FAKE_MODE in crashother|crashboth) echo dump2 > "$out/crash-reports/other.dmp" ;; esac
+    case $FAKE_MODE in
+      crashother) echo "PASS a.one: ok" > "$r" ;;
+      *) echo "PASS page.crash.report: report=$out/crash-reports/exp.dmp bytes=5 minidump=true" > "$r" ;;
+    esac
+    echo "E2E: PASS 1/1" >> "$r"; exit 0 ;;
   fail) echo "FAIL a.one: broken" > "$r"; echo "E2E: FAIL 0/1" >> "$r"; exit 1 ;;
   timeout) echo "E2E: TIMEOUT a.one: open window" > "$r"; exit 2 ;;
   usage) echo "bow: --e2e=nope is not a test" >&2; exit 64 ;;
@@ -1325,6 +1335,24 @@ check "crash reports: short output keeps the lines" is "$(echo "$out" | grep -c 
 run pass
 check "crash reports: none, no line" not has "$BOW_E2E_ROOT/latest/report.txt" "^CRASH REPORT"
 check "crash reports: none, an empty list" is "$(plutil -extract crashReports raw -o - "$res" 2>/dev/null)" 0
+run crashexpected
+runf="$BOW_E2E_ROOT/latest"
+check "crash reports: the dump page.crash.report made is labelled expected" \
+  has "$runf/report.txt" "^CRASH REPORT (expected, page.crash.report) $(field "$res" run)/crash-reports/exp.dmp\$"
+check "crash reports: an expected dump has no plain line" is "$(grep -c '^CRASH REPORT /' "$runf/report.txt")" 0
+check "crash reports: the expected label is printed too" is "$(echo "$out" | grep -c '^CRASH REPORT (expected, page.crash.report) ')" 1
+check "crash reports: the expected dump is still listed in results.json" is "$(plutil -extract crashReports raw -o - "$res")" 1
+run crashother
+runf="$BOW_E2E_ROOT/latest"
+check "crash reports: a dump no check names stays a plain line" \
+  has "$runf/report.txt" "^CRASH REPORT $(field "$res" run)/crash-reports/other.dmp\$"
+check "crash reports: an unexpected dump is not labelled" not has "$runf/report.txt" "expected"
+run crashboth
+runf="$BOW_E2E_ROOT/latest"
+check "crash reports: both at once, the expected one labelled" \
+  has "$runf/report.txt" "^CRASH REPORT (expected, page.crash.report) $(field "$res" run)/crash-reports/exp.dmp\$"
+check "crash reports: both at once, the other plain" \
+  has "$runf/report.txt" "^CRASH REPORT $(field "$res" run)/crash-reports/other.dmp\$"
 E2E_SHARDS=2 FAKE_DUMP=1 run shard
 check "crash reports: sharded, each shard's report is named once" is "$(grep -c '^CRASH REPORT ' "$BOW_E2E_ROOT/latest/report.txt")" 2
 check "crash reports: sharded, copied into the shard's folder" is "$(ls "$BOW_E2E_ROOT"/latest/shard-*/crash-reports/*.dmp | wc -l | tr -d ' ')" 2

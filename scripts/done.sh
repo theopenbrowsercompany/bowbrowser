@@ -8,7 +8,8 @@
 #    touches no file or ref): no conflict prints "done: behind the base by N commits with no conflict; the landing
 #    rebases and reruns the checks" and goes on; a conflict refuses, naming the files. No base ref also refuses.
 # 3. Runs make bootstrap when Vendor/cef is missing (a fresh worktree).
-# 4. Runs make verify, then the full make e2e (E2E=all), as separate commands. A failed verify skips the e2e and the
+# 4. Runs make verify, then the full make e2e (E2E=all) in DONE_E2E_SHARDS shards (default 3, as the landing runs it;
+#    1 runs it in one app), as separate commands. A failed verify skips the e2e and the
 #    release build. A full e2e that ends `E2E: FLAKY` (failed, then passed on the retry) does not fail the branch
 #    when every `FLAKY <name>` line is a test it neither adds nor changes and that no changed E2E/Harness or
 #    E2E/Engine symbol reaches (step 6 says how those are found): the block reports the lines under the e2e line and
@@ -26,7 +27,8 @@
 #    only, as the landing treats it: it runs make lint and make guards, skips bootstrap, verify, the e2e, the
 #    release build and the repeat (each says "skip (docs only)" in the block), and the block says so. Anything
 #    else, scripts and fixtures included, keeps the full run.
-# 6. Reruns the e2e tests the branch adds or changes (the names in each changed E2E/Tests file), DONE_REPEAT times
+# 6. Reruns the e2e tests the branch adds or changes (the names in each changed E2E/Tests file, and the tests it
+#    brings back by removing their entries from scripts/e2e-not-ported.txt), DONE_REPEAT times
 #    (default 20) in DONE_REPEAT_SHARDS shards (default 3, so the repeats also run under load, which exposes waits on
 #    time) with the retry off (E2E_REPEAT=<n> E2E_SHARDS=<k> make e2e-run), after the full e2e passed. A selection of
 #    fewer tests than shards gets the smoke tests as load filler. The gate reads the changed tests' own
@@ -57,7 +59,8 @@
 #    ("package tests, repeated"). No such file, no step.
 # 4a. Reuse (instead of the full e2e of step 4): when make check ran the full e2e (selection all) and it passed on this very tree (scripts/tree-key.sh,
 #    uncommitted changes included; make check records it in build/check-e2e-pass and deletes the record at the start of
-#    every run), the full e2e is not run again: the block says "make e2e: ok (reused make check's pass on tree <key>)".
+#    every run), the full e2e is not run again: the block says "make e2e: ok (reused make check's pass on tree <key>)",
+#    and its summary line still ends `; not ported N` when that run left tests out (the count is read from its results.json).
 #    A different key, a record of another selection or one whose run folder is gone, no record (a partial, failed,
 #    FLAKY or interrupted check) all run the e2e as usual. DONE_REUSE=0 never reuses.
 # Then it prints the block: each step's result line, the e2e summary line and run folder, the path to final.png,
@@ -71,7 +74,8 @@
 # The sizes, all whole numbers: DONE_REPEAT (2 or more, default 20) and DONE_REPEAT_SHARDS (1 or more, default 3) for
 # the changed e2e tests; DONE_REPEAT_CALLERS (2 or more, default 6) and DONE_REPEAT_CAP (1 or more, default 8) for the
 # tests only a changed harness symbol reaches; DONE_PKG_REPEAT (2 or more, default 10) for the package suites;
-# DONE_REUSE=0 turns the reuse of make check's full e2e pass off.
+# DONE_REUSE=0 turns the reuse of make check's full e2e pass off; DONE_E2E_SHARDS (1 or more, default 3) sets the shards
+# of the full e2e.
 set -u
 export DEVELOPER_DIR=${DEVELOPER_DIR:-/Applications/Xcode.app/Contents/Developer}
 cd "$(dirname "$0")/.." || exit 1
@@ -145,6 +149,12 @@ step_status=0
 # DONE_REPEAT_SHARDS a whole number of 1 or more.
 repeat_count=${DONE_REPEAT:-20}
 repeat_shards=${DONE_REPEAT_SHARDS:-3}
+e2e_shards=${DONE_E2E_SHARDS:-3}
+case $e2e_shards in *[!0-9]* | "" | 0)
+  echo "done: DONE_E2E_SHARDS must be a whole number of 1 or more"
+  exit 2
+  ;;
+esac
 callers_count=${DONE_REPEAT_CALLERS:-6}
 callers_cap=${DONE_REPEAT_CAP:-8}
 pkg_count=${DONE_PKG_REPEAT:-10}
@@ -241,6 +251,31 @@ changed_tests_of() {
     case $f in E2E/Tests/*.swift) [ -f "$f" ] && names="$names"$'\n'"$(test_names_in "$f")" ;; esac
   done <<< "$1"
   echo "$names" | grep -v '^$' | sort -u | paste -sd, -
+}
+
+# ported_tests_of: the tests the branch brings back by removing their entries from scripts/e2e-not-ported.txt (against
+# the merge base with the base, committed or not), as a comma list. An entry is a test name, an area (the name up to its
+# first dot) or a glob of names, as E2E= takes them; each removed entry that the list does not still hold is matched
+# against every test name the E2E/Tests files declare. A porting branch repeats what it brings back like a changed test.
+ported_tests_of() {
+  local list=scripts/e2e-not-ported.txt sel name f names=""
+  local removed kept
+  removed=$(git diff "$fork" -- "$list" 2> /dev/null | sed -n 's/^-\([^-#[:space:]][^[:space:]]*\)[[:space:]].*$/\1/p')
+  [ -n "$removed" ] || return 0
+  kept=""
+  [ ! -f "$list" ] || kept=$(sed -n 's/^[[:space:]]*\([^#[:space:]][^[:space:]]*\)[[:space:]].*$/\1/p' "$list")
+  for f in E2E/Tests/*.swift; do [ -f "$f" ] && names="$names"$'\n'"$(test_names_in "$f")"; done
+  while IFS= read -r sel; do
+    [ -n "$sel" ] || continue
+    printf '%s\n' "$kept" | grep -qxF -- "$sel" && continue
+    while IFS= read -r name; do
+      [ -n "$name" ] || continue
+      # shellcheck disable=SC2254
+      if [ "$name" = "$sel" ] || [ "${name%%.*}" = "$sel" ]; then echo "$name"; else
+        case $name in $sel) echo "$name" ;; esac
+      fi
+    done <<< "$names"
+  done <<< "$removed" | sort -u | paste -sd, -
 }
 
 # unreadable_test_files_of <changed files, one per line>: the changed E2E/Tests files with a test type (a struct,
@@ -401,7 +436,7 @@ callers_set=""
 repeat_note=""
 package_rows=""
 if [ "$docs_only" != 1 ] && [ -z "$list_failed" ]; then
-  changed_tests=$(changed_tests_of "$changed")
+  changed_tests=$(union_of "$(changed_tests_of "$changed")" "$(ported_tests_of)")
   unreadable=$(unreadable_test_files_of "$changed")
   if echo "$changed" | grep -q '^E2E/\(Harness\|Engine\)/'; then
     if callers_rows=$(CHECK_BASE=$base ./scripts/e2e-affected.sh --callers 2> "$out/callers.err"); then
@@ -494,9 +529,19 @@ elif [ "$failed" = 0 ]; then
       echo "== done: e2e (reused make check's pass on tree $tree_key, not run again)"
       e2e_line=$(echo "$reused" | sed -n 1p)
       reused_run=$(echo "$reused" | sed -n 2p)
+      # check's record holds the app's summary line, which has no "; not ported N" (the wrapper adds that to the line
+      # it prints and to results.json); the count comes from that run's results.json, as the block of a fresh run shows.
+      case $e2e_line in *"; not ported "*) ;; *)
+        reused_np=$(perl -MJSON::PP -e 'local $/; my $d = eval { decode_json(<STDIN>) }; my $n = ref $d eq "HASH" && ref $d->{notPorted} eq "ARRAY" ? scalar @{$d->{notPorted}} : 0; print $n' \
+          < "build/e2e/$reused_run/results.json" 2> /dev/null)
+        case $e2e_line in "E2E: PASS "*) [ "${reused_np:-0}" = 0 ] || e2e_line="$e2e_line; not ported $reused_np" ;; esac
+        ;;
+      esac
       step_status=0
     else
-      step e2e make --no-print-directory e2e E2E=all
+      echo "done: the full e2e runs in $e2e_shards shard(s) (DONE_E2E_SHARDS)"
+      # In DONE_E2E_SHARDS shards (default 3), as the landing runs it; 1 runs it in one app.
+      step e2e env E2E_SHARDS="$e2e_shards" make --no-print-directory e2e E2E=all
       e2e_line=$(grep '^E2E: ' "$out/e2e.log" | tail -1)
     fi
     flaky_lines=""

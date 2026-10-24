@@ -14,7 +14,8 @@
 #   build   make build, when the e2e selection is not empty (the selection is all when scripts/e2e-affected.sh
 #           fails, or prints nothing while a changed file is neither docs nor under BowWebKit/, which the app does
 #           not link yet);
-#   e2e     make e2e-run with the selection scripts/e2e-affected.sh prints, when it is not empty and the build passed.
+#   e2e     make e2e-run with the selection scripts/e2e-affected.sh prints, when it is not empty and the build passed;
+#           the selection all runs in CHECK_E2E_SHARDS shards (default 3), as the landing does, a smaller one in one app.
 # When the e2e selection is all and that run passes (not FLAKY) on a tree that did not change since the build (the key
 # of scripts/tree-key.sh, uncommitted changes included), check records it in build/check-e2e-pass and prints a line
 # saying so; scripts/done.sh reuses it instead of running the full e2e again. Every run deletes the old record first.
@@ -131,7 +132,10 @@ else
   # The tree the build and the e2e run see: lint's formatting is done, so this is the source they are built from.
   key_before=$(scripts/tree-key.sh)
   if part build make --no-print-directory build; then
-    if part e2e make --no-print-directory e2e-run E2E="$selection"; then
+    # The full selection runs in CHECK_E2E_SHARDS shards (default 3), as the landing does; a smaller one in one app.
+    e2e_env=(env)
+    [ "$selection" != all ] || e2e_env=(env "E2E_SHARDS=${CHECK_E2E_SHARDS:-3}")
+    if part e2e "${e2e_env[@]}" make --no-print-directory e2e-run E2E="$selection"; then
       # A passing full e2e on a tree that did not change while it ran: leave the pass for make done to reuse.
       key_after=$(scripts/tree-key.sh)
       latest=$(readlink build/e2e/latest 2> /dev/null || true)
