@@ -339,23 +339,48 @@ import Testing
         let store = try Self.store()
         let visits = (0..<6).map { Self.visit("p\($0)", Double($0)) }
         let live = URL(string: "https://example.com/live")!
-        var liveRecordedMidImport = false
+        let pageLoad = LivePageLoad()
+        var lockWasFreeBetweenChunks = false
         let record = try store.importVisits(visits, chunkSize: 3) { done in
             guard done == 3 else { return }
-            // A page load on another thread while the import is between chunks. It runs at once when the lock is
-            // free; with the lock held for the whole import it could only run after the import, so the wait fails.
-            let finished = DispatchSemaphore(value: 0)
-            DispatchQueue.global().async {
-                try? store.recordVisit(url: live, title: "Live")
-                finished.signal()
-            }
-            liveRecordedMidImport = finished.wait(timeout: .now() + 5) == .success
+            // A page load on its own thread while the import waits between chunks. The import cannot go on until the
+            // page load has finished, so the page load either got the lock (it is free) or waits for the import to
+            // let it go (it is held). Its own thread starts at once, unlike a shared queue that a busy test process
+            // can keep from starting it. The bounded wait only keeps a held lock from hanging the test: it is far
+            // above how long one insert takes, even on a loaded machine.
+            pageLoad.start { try store.recordVisit(url: live, title: "Live") }
+            lockWasFreeBetweenChunks = pageLoad.waitUntilFinished(seconds: 60)
         }
-        #expect(liveRecordedMidImport)
+        #expect(lockWasFreeBetweenChunks, "the page load waited 60 s for the lock: the import held it between chunks")
+        // A held lock lets the page load through once the import is over; wait for it so the checks below see it.
+        let pageLoadFinished = lockWasFreeBetweenChunks || pageLoad.waitUntilFinished(seconds: 60)
+        if pageLoadFinished {
+            #expect(pageLoad.error == nil, "recording the page load failed: \(String(describing: pageLoad.error))")
+        }
         #expect(record.addedCount == 6)
         // The live visit is not the import's: undo leaves it.
         #expect(try store.removeImported(record) == 6)
         #expect(try store.entry(for: live)?.visitCount == 1)
+    }
+
+    /// Runs one store call on a thread of its own and lets the test wait for it to finish.
+    final class LivePageLoad: @unchecked Sendable {
+        private let finished = DispatchSemaphore(value: 0)
+        /// The error the call threw; read it only after `waitUntilFinished` returned true.
+        private(set) var error: Error?
+
+        func start(_ body: @escaping @Sendable () throws -> Void) {
+            let thread = Thread { [self] in
+                do { try body() } catch { self.error = error }
+                finished.signal()
+            }
+            thread.start()
+        }
+
+        /// Whether the call finished within `seconds`.
+        func waitUntilFinished(seconds: Double) -> Bool {
+            finished.wait(timeout: .now() + seconds) == .success
+        }
     }
 
     // MARK: Import scratch folder
