@@ -13,7 +13,13 @@ import Testing
     }
 
     private func secureServer() throws -> TLSListener {
-        try TLSListener.started { _ in .html("<!doctype html><title>Secure</title>") }
+        try TLSListener.started { path in
+            path == "/image.svg"
+                ? FixtureServer.Response(
+                    status: 200, headers: ["Content-Type: image/svg+xml"],
+                    body: Data("<svg xmlns='http://www.w3.org/2000/svg' width='4' height='4'/>".utf8))
+                : .html("<!doctype html><title>Secure</title>")
+        }
     }
 
     private func failReasons(_ rig: TabRig) -> [NavigationError.Reason] {
@@ -36,6 +42,38 @@ import Testing
         #expect(rig.delegate.navigation == ["start \(url)", "commit \(url)", "finish \(url)"])
         #expect(server.requests == ["/secure"])
         #expect(try await pageTitle(tab) == "Secure")
+
+        // The page's own later loads from the same server and certificate go through without a new question.
+        let text =
+            try await tab.webView?.callAsyncJavaScript(
+                "const r = await fetch('/later'); return r.ok ? await r.text() : 'failed ' + r.status",
+                contentWorld: .page) as? String
+        #expect(text?.contains("Secure") == true)
+        #expect(server.requests == ["/secure", "/later"])
+        #expect(delegate.certificateErrors.count == 1)
+        try await rig.finish()
+    }
+
+    @Test func anotherLoadsCertificateIsRefusedWithoutAsking() async throws {
+        let rig = try TabRig()
+        let server = try secureServer()
+        defer { server.stop() }
+        let image = server.url("/image.svg")
+        rig.server.route("/mixed") { _ in
+            .html(
+                "<!doctype html><title>Mixed</title><img id=i src=\"\(image)\" onerror=\"document.title='Refused'\" onload=\"document.title='Loaded'\">"
+            )
+        }
+        let delegate = ChallengeDelegate(recorder: rig.delegate)
+        delegate.certificateDecision = { _ in .proceed }
+        let tab = try await delegate.tab(in: rig)
+        let url = rig.url("/mixed")
+        tab.load(url)
+        try await waitUntil("the page finished with its image refused") {
+            finishStatus(rig, url) == 200 && tab.state.title == "Refused"
+        }
+        #expect(delegate.certificateErrors.isEmpty)
+        #expect(server.requests.isEmpty)
         try await rig.finish()
     }
 

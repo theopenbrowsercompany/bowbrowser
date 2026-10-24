@@ -10,7 +10,9 @@ import WebKit
 ///
 /// Nothing is ever trusted or sent by default: a certificate that verifies is left to WebKit, one that does not
 /// loads only when the app says `.proceed`, and credentials go only to the server that asked, only when the app
-/// gives them. A tab that closed, or replaced its page, while the app was deciding gets a cancel instead.
+/// gives them. A tab that closed, or replaced its page, while the app was deciding gets a cancel instead. As in
+/// Chromium, only the main frame's certificate is the app's question: another load whose certificate fails is
+/// refused unasked, unless the page's main frame went past the same certificate.
 @MainActor
 final class ChallengeResponder: NavigationResponder {
     func didReceive(
@@ -69,25 +71,55 @@ final class ChallengeResponder: NavigationResponder {
         var certificate: Data
     }
 
-    /// The challenges of each certificate whose question is open, answered together when it is decided: the page's
-    /// loads of one server (and WebKit's early connection to it) ask the person once.
-    private var waiting: [TrustKey: [(trust: SecTrust, completionHandler: ChallengeHandler)]] = [:]
-    /// The app's answers (true to proceed) since the last main frame navigation ended: WebKit verifies each new
-    /// connection, and tries a refused one again, and those take the answer given without asking again. Forgotten
-    /// when the navigation ends, so a later load asks again; what the person allowed is the app's to remember
+    /// A certificate question open with the app for one page, and the challenges waiting for its answer: the
+    /// main frame's connections to one server (WebKit's early connection, a retry) ask the person once.
+    private final class TrustQuestion {
+        let key: TrustKey
+        weak var page: WebKitWebView?
+        var waiters: [(trust: SecTrust, completionHandler: ChallengeHandler)]
+
+        init(key: TrustKey, page: WebKitWebView?, trust: SecTrust, completionHandler: @escaping ChallengeHandler) {
+            self.key = key
+            self.page = page
+            waiters = [(trust, completionHandler)]
+        }
+    }
+
+    private var questions: [TrustQuestion] = []
+    /// The page the answers below were given for; any other page starts with none.
+    private weak var answeredPage: WebKitWebView?
+    /// The app's answers (true to proceed) during the main frame navigation in progress, which its later
+    /// connections to the same server and certificate take without asking again. Forgotten when the navigation
+    /// ends, so the next one asks again: what the person allowed is the app's to remember
     /// (`CertificateAllowances`), never the engine's.
-    private var decided: [TrustKey: Bool] = [:]
+    private var navigationAnswers: [TrustKey: Bool] = [:]
+    /// The certificates the app let this page's main frame load past: the page's other loads from the same server
+    /// and certificate (images, requests after it finished) are trusted with it, as Chromium trusts a page's
+    /// subresources once a person went on. Every other load with a certificate that fails is refused unasked.
+    private var pageAllowances: Set<TrustKey> = []
 
     func didFinish(_ key: NavigationKey?, in tab: WebKitTab) {
-        decided = [:]
+        navigationAnswers = [:]
     }
 
     func didFail(_ key: NavigationKey?, error: any Error, isProvisional: Bool, in tab: WebKitTab) {
-        decided = [:]
+        navigationAnswers = [:]
     }
 
-    /// Verifies the server's certificate off the main thread; one that verifies is left to WebKit, one that does
-    /// not is the app's question, with the reason the verification gave.
+    /// The main frame's address, when the challenge comes from its navigation to that server: a navigation is
+    /// provisional, or the page is loading one that has not started yet. Nil for every other load.
+    private static func mainFrameURL(of tab: WebKitTab, for space: URLProtectionSpace) -> URL? {
+        let events = tab.navigationEvents
+        guard events.isProvisional || (!events.isActive && tab.webView?.isLoading == true),
+            let url = navigationURL(of: tab), url.scheme == "https",
+            url.host?.lowercased() == space.host.lowercased(), (url.port ?? 443) == space.port
+        else { return nil }
+        return url
+    }
+
+    /// Verifies the main frame's server certificate off the main thread; one that verifies is left to WebKit, one
+    /// that does not is the app's question, with the reason the verification gave. Other loads are WebKit's to
+    /// verify, unless the page's main frame already went past the same certificate.
     private func decideTrust(
         _ trust: SecTrust, of challenge: URLAuthenticationChallenge, in tab: WebKitTab,
         completionHandler: @escaping ChallengeHandler
@@ -95,58 +127,74 @@ final class ChallengeResponder: NavigationResponder {
         let space = challenge.protectionSpace
         let leaf = (SecTrustCopyCertificateChain(trust) as? [SecCertificate])?.first
         let key = TrustKey(
-            host: space.host, port: space.port, certificate: leaf.map { SecCertificateCopyData($0) as Data } ?? Data())
-        if let proceed = decided[key] {
+            host: space.host.lowercased(), port: space.port,
+            certificate: leaf.map { SecCertificateCopyData($0) as Data } ?? Data())
+        let page = tab.webView
+        if answeredPage !== page {
+            answeredPage = page
+            navigationAnswers = [:]
+            pageAllowances = []
+        }
+        guard let url = Self.mainFrameURL(of: tab, for: space) else {
+            return pageAllowances.contains(key)
+                ? completionHandler(.useCredential, URLCredential(trust: trust))
+                : completionHandler(.performDefaultHandling, nil)
+        }
+        if let proceed = navigationAnswers[key] {
             // Refused: WebKit verifies it itself and fails the load with its certificate error.
             return proceed
                 ? completionHandler(.useCredential, URLCredential(trust: trust))
                 : completionHandler(.performDefaultHandling, nil)
         }
-        guard waiting[key] == nil else { return waiting[key]?.append((trust, completionHandler)) ?? () }
-        waiting[key] = [(trust, completionHandler)]
-
-        let url = AuthChallenge.address(of: space, navigationURL: Self.navigationURL(of: tab))
-        let page = tab.webView
+        if let open = questions.first(where: { $0.key == key && $0.page != nil && $0.page === page }) {
+            return open.waiters.append((trust, completionHandler))
+        }
+        let question = TrustQuestion(key: key, page: page, trust: trust, completionHandler: completionHandler)
+        questions.append(question)
         // The responder lives until every waiting challenge is answered, even when its tab is gone, so WebKit's
         // completion handlers are always called.
         let status = SecTrustEvaluateAsyncWithError(trust, DispatchQueue.main) { trust, trusted, error in
             MainActor.assumeIsolated {
-                if trusted { return self.answer(key) { _ in (.performDefaultHandling, nil) } }
+                if trusted { return self.resolve(question) { _ in (.performDefaultHandling, nil) } }
                 var result = SecTrustResultType.invalid
                 SecTrustGetTrustResult(trust, &result)
                 let code = error.map { OSStatus(CFErrorGetCode($0)) } ?? errSecNotTrusted
-                let question = CertificateError(url: url, reason: .init(trustResult: result, status: code))
-                self.ask(question, key: key, in: tab, page: page)
+                let error = CertificateError(url: url, reason: .init(trustResult: result, status: code))
+                self.ask(error, question: question, in: tab)
             }
         }
         // Not started: WebKit verifies it itself and fails the load if it does not verify.
-        if status != errSecSuccess { answer(key) { _ in (.performDefaultHandling, nil) } }
+        if status != errSecSuccess { resolve(question) { _ in (.performDefaultHandling, nil) } }
     }
 
-    private func ask(_ question: CertificateError, key: TrustKey, in tab: WebKitTab?, page: WebKitWebView?) {
-        Task { @MainActor [weak tab, weak page] in
+    private func ask(_ error: CertificateError, question: TrustQuestion, in tab: WebKitTab?) {
+        Task { @MainActor [weak tab] in
             var decision = CertificateErrorDecision.cancel
             if let tab, let delegate = tab.delegate {
-                decision = await delegate.tab(tab, decideCertificateError: question)
+                decision = await delegate.tab(tab, decideCertificateError: error)
             }
-            guard let tab, let page, tab.webView === page else {
+            guard let tab, let page = question.page, tab.webView === page else {
                 // The tab closed or replaced its page meanwhile: its loads are over, and nothing is trusted.
-                return self.answer(key) { _ in (.cancelAuthenticationChallenge, nil) }
+                return self.resolve(question) { _ in (.cancelAuthenticationChallenge, nil) }
             }
-            guard decision == .proceed else {
-                self.decided[key] = false
-                return self.answer(key) { _ in (.performDefaultHandling, nil) }
+            let proceed = decision == .proceed
+            if answeredPage === page {
+                navigationAnswers[question.key] = proceed
+                if proceed { pageAllowances.insert(question.key) }
             }
-            self.decided[key] = true
-            self.answer(key) { trust in (.useCredential, URLCredential(trust: trust)) }
+            guard proceed else { return self.resolve(question) { _ in (.performDefaultHandling, nil) } }
+            self.resolve(question) { trust in (.useCredential, URLCredential(trust: trust)) }
         }
     }
 
-    /// Answers every challenge waiting on `key`, each with `disposition` of its own trust.
-    private func answer(
-        _ key: TrustKey, _ disposition: (SecTrust) -> (URLSession.AuthChallengeDisposition, URLCredential?)
+    /// Answers every challenge waiting on `question`, each with `disposition` of its own trust.
+    private func resolve(
+        _ question: TrustQuestion, _ disposition: (SecTrust) -> (URLSession.AuthChallengeDisposition, URLCredential?)
     ) {
-        for waiter in waiting.removeValue(forKey: key) ?? [] {
+        questions.removeAll { $0 === question }
+        let waiters = question.waiters
+        question.waiters = []
+        for waiter in waiters {
             let (answer, credential) = disposition(waiter.trust)
             waiter.completionHandler(answer, credential)
         }
