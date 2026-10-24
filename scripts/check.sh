@@ -4,13 +4,15 @@
 #
 # The changed files are those scripts/e2e-affected.sh lists (against the merge base with origin/main, committed or
 # not; CHECK_BASE=<ref> compares with another ref). The parts run one after another:
-#   lint    swift format --in-place on exactly the changed Swift files under App/UI, E2E and BowCore (a line says
-#           which it rewrote), then swift format lint --strict on them (skip when none; lint only, on every file,
-#           when the changes cannot be listed: nothing is formatted then);
+#   lint    swift format --in-place on exactly the changed Swift files under App/UI, E2E, BowCore and BowWebKit (a
+#           line says which it rewrote), then swift format lint --strict on them (skip when none; lint only, on
+#           every file, when the changes cannot be listed: nothing is formatted then);
 #   guards  make guards, always;
-#   test    the BowCore unit tests, when BowCore/ changed (or the changes cannot be listed);
+#   test    make test (the BowCore and BowWebKit tests), when BowCore/ or BowWebKit/ changed (or the changes cannot
+#           be listed);
 #   build   make build, when the e2e selection is not empty (the selection is all when scripts/e2e-affected.sh
-#           fails, or prints nothing while a changed file is not docs);
+#           fails, or prints nothing while a changed file is neither docs nor under BowWebKit/, which the app does
+#           not link yet);
 #   e2e     make e2e-run with the selection scripts/e2e-affected.sh prints, when it is not empty and the build passed.
 # Each part prints one "check: <part> ok|FAIL|skip ..." line with its seconds, and the last line is
 # "check: PASS <parts> in <seconds>s (e2e: <selection>)" or "check: FAIL <parts> (<seconds>s)".
@@ -62,12 +64,12 @@ else
   echo "check: the changed files cannot be listed, so check runs everything"
 fi
 # A selection that cannot be computed runs everything, and so does an empty one unless every changed file is docs
-# (*.md or spec/), the only changes e2e-affected.sh maps to nothing.
+# (*.md or spec/) or under BowWebKit/, the only changes e2e-affected.sh maps to nothing.
 if ! selection=$(scripts/e2e-affected.sh --why); then
   echo "check: the e2e selection cannot be computed, so check runs everything"
   selection=all
-elif [ -z "$selection" ] && echo "$changed" | grep -v '^$' | grep -qvE '(\.md$|^spec/)'; then
-  echo "check: the e2e selection is empty but not every changed file is docs, so check runs everything"
+elif [ -z "$selection" ] && echo "$changed" | grep -v '^$' | grep -qvE '(\.md$|^spec/|^BowWebKit/)'; then
+  echo "check: the e2e selection is empty but not every changed file is docs or BowWebKit, so check runs everything"
   selection=all
 fi
 echo "check: $(echo "$changed" | grep -c .) changed files, e2e selection: ${selection:-none}"
@@ -77,7 +79,7 @@ if [ "$listed" = 0 ]; then
 else
   swift_files=()
   while IFS= read -r f; do
-    case $f in App/UI/*.swift | E2E/*.swift | BowCore/*.swift) [ -f "$f" ] && swift_files+=("$f") ;; esac
+    case $f in App/UI/*.swift | E2E/*.swift | BowCore/*.swift | BowWebKit/*.swift) [ -f "$f" ] && swift_files+=("$f") ;; esac
   done <<< "$changed"
   if [ ${#swift_files[@]} -eq 0 ]; then
     skip lint "no changed Swift files"
@@ -103,10 +105,10 @@ fi
 
 part guards make --no-print-directory guards
 
-if [ "$listed" = 0 ] || echo "$changed" | grep -q '^BowCore/'; then
+if [ "$listed" = 0 ] || echo "$changed" | grep -qE '^(BowCore|BowWebKit)/'; then
   part test make --no-print-directory test
 else
-  skip test "BowCore/ unchanged"
+  skip test "BowCore/ and BowWebKit/ unchanged"
 fi
 
 if [ -z "$selection" ]; then

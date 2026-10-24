@@ -7,7 +7,8 @@
 #
 # The parts are make targets: lint, guards, test, build and the script self tests (make test-e2e-wrapper and the
 # other test-* targets that make test-scripts runs). They share no output folder (lint and guards only read, test
-# builds BowCore/.build, the self tests use throwaway folders, build uses build/), so they run at once. Each part's
+# builds BowCore/.build and BowWebKit/.build, the self tests use throwaway folders, build uses build/), so they run at
+# once. Each part's
 # output is kept in a file and printed whole, under a "== <part>" header, when the part ends, so the parts never
 # interleave. Every part prints one "verify: <part> ok|FAIL <seconds>s" line, and the last line is
 # "verify: PASS <n> parts in <seconds>s" or "verify: FAIL <parts> (<seconds>s)".
@@ -37,6 +38,7 @@ self_tests=(
   "test-e2e-bisect scripts/e2e-bisect.sh scripts/test-e2e-bisect.sh"
   "test-verify-plan scripts/verify.sh scripts/test-verify-plan.sh"
   "test-e2e-flakes scripts/e2e-flakes.sh scripts/test-e2e-flakes.sh"
+  "test-webkit-imports scripts/check-webkit-imports.sh scripts/test-check-webkit-imports.sh"
 )
 script_inputs=(scripts Makefile .githooks)
 base=${VERIFY_BASE:-origin/main}
