@@ -6,10 +6,13 @@ struct E2ESeed {
     var spaces: [E2ESeedSpace]
     /// The name of the Space the window shows; nil shows the first.
     var activeSpace: String?
+    /// The name of the tab the window shows, a tab or Favorite of the active Space; nil leaves the store's choice.
+    var activeTab: String?
 
-    init(spaces: [E2ESeedSpace], activeSpace: String? = nil) {
+    init(spaces: [E2ESeedSpace], activeSpace: String? = nil, activeTab: String? = nil) {
         self.spaces = spaces
         self.activeSpace = activeSpace
+        self.activeTab = activeTab
     }
 }
 
@@ -23,10 +26,22 @@ struct E2ESeedSpace {
     var profile: E2EWindowProfile
     var pinned: [E2ESeedItem]
     var today: [E2ESeedItem]
+    /// The Space's icon, one emoji; nil leaves it without one.
+    var icon: String?
+    /// The name of the Space menu's theme preset the Space takes (for example "Blue"); nil keeps the default theme.
+    var theme: String?
+    /// Tabs added to the Favorites of the Space's profile, after any an earlier Space of the same profile added.
+    var favorites: [E2ESeedItem]
 
-    init(_ name: String, profile: E2EWindowProfile = .test, pinned: [E2ESeedItem] = [], today: [E2ESeedItem] = []) {
+    init(
+        _ name: String, profile: E2EWindowProfile = .test, icon: String? = nil, theme: String? = nil,
+        favorites: [E2ESeedItem] = [], pinned: [E2ESeedItem] = [], today: [E2ESeedItem] = []
+    ) {
         self.name = name
         self.profile = profile
+        self.icon = icon
+        self.theme = theme
+        self.favorites = favorites
         self.pinned = pinned
         self.today = today
     }
@@ -65,7 +80,8 @@ struct E2ESeededWindow {
 protocol E2EStoreSeedApp: E2EApp {
     /// Builds `seed` in a new sidebar of the test's own, then opens an off-screen window on it the way the app opens
     /// a saved sidebar at launch, and returns the window's page with every created ID. Throws when a name repeats, two
-    /// Spaces disagree on whether one new profile is persistent, or the store refuses an item (for example a folder in a place that cannot hold one).
+    /// Spaces disagree on whether one new profile is persistent, a theme names no preset, a Favorite is a folder, or
+    /// the store refuses an item (for example a folder in a place that cannot hold one) or an icon.
     func openWindow(seeded seed: E2ESeed) async throws -> E2ESeededWindow
     /// The ID of the running test's own profile (`E2EWindowProfile.test`), so a seed can name a new profile after
     /// its test (for example `testProfileID() + "-home"`) and no two tests share one. Throws once the test ended.

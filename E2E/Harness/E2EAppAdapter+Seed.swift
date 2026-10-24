@@ -8,7 +8,7 @@ extension E2EAppAdapter {
     func openWindow(seeded seed: E2ESeed, token: Int) async throws -> E2ESeededWindow {
         guard !seed.spaces.isEmpty else { throw E2EError("a seed needs at least one Space") }
         // Spaces and items are named apart (spaceIDs, itemIDs), so a Space and an item may share a name.
-        let itemNames = seed.spaces.flatMap { Self.names(in: $0.pinned + $0.today) }
+        let itemNames = seed.spaces.flatMap { Self.names(in: $0.favorites + $0.pinned + $0.today) }
         for (kind, names) in [("Space", seed.spaces.map(\.name)), ("item", itemNames)] {
             if let repeated = Dictionary(grouping: names, by: { $0 }).first(where: { $0.value.count > 1 })?.key {
                 throw E2EError("the seed names more than one \(kind) \"\(repeated)\"")
@@ -58,6 +58,20 @@ extension E2EAppAdapter {
                     activate: false)
                 spaceIDs[space.name] = id.rawValue
                 guard let created = store.graph.space(id) else { throw E2EError("Space \(space.name) was not created") }
+                if let icon = space.icon { try store.setSpaceIcon(id, emoji: icon) }
+                if let name = space.theme {
+                    guard let preset = SpaceTint.presets.first(where: { $0.name == name }) else {
+                        throw E2EError("the seed names no theme preset \"\(name)\" for Space \(space.name)")
+                    }
+                    try store.setSpaceTheme(id, to: preset.theme)
+                }
+                for favorite in space.favorites {
+                    guard case .tab(let name, let url) = favorite else {
+                        throw E2EError("the seed's Favorite \"\(favorite.name)\" is a folder; Favorites hold tabs")
+                    }
+                    itemIDs[name] =
+                        try store.addFavorite(url: url.absoluteString, title: name, profile: created.profileID).rawValue
+                }
                 try Self.insert(space.pinned, into: created.pinnedContainerID, of: store, recording: &itemIDs)
                 try Self.insert(space.today, into: created.unpinnedContainerID, of: store, recording: &itemIDs)
             }
@@ -65,6 +79,13 @@ extension E2EAppAdapter {
             let active = seed.activeSpace ?? seed.spaces[0].name
             guard let activeID = spaceIDs[active] else { throw E2EError("the seed has no Space named \(active)") }
             try store.switchToSpace(SidebarSpaceID(activeID))
+            if let tab = seed.activeTab {
+                guard let tabID = itemIDs[tab] else { throw E2EError("the seed has no tab named \(tab)") }
+                try store.selectTab(SidebarItemID(tabID))
+                guard store.graph.activeSpaceID?.rawValue == activeID else {
+                    throw E2EError("the seed's active tab \(tab) is not in its active Space \(active)")
+                }
+            }
         } catch let error as E2EError {
             throw error
         } catch {
