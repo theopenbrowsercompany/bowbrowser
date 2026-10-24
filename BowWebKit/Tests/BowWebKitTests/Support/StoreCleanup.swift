@@ -45,6 +45,7 @@ final class TestStores {
             guard left.isEmpty else { continue }
             left = Set(await listed())
             if left.isEmpty { break }
+            try? await Task.sleep(for: .milliseconds(100))
         }
         return await listed()
     }
