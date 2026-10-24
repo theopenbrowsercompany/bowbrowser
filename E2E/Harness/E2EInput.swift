@@ -21,6 +21,90 @@ enum E2EKey {
         case .escape: ("Escape", "Escape", 53, nil)
         }
     }
+
+    /// Whether the page is meant to see the key, so `E2EPage.press(_:)` confirms it: every key but Escape, which
+    /// the app claims before the page whenever something it shows over the page (a peek, the command bar, page
+    /// full screen) is open.
+    fileprivate var reachesPage: Bool { self != .escape }
+}
+
+/// What a confirmed key press records in the page: capturing `keydown` and `keyup` listeners on the page's window
+/// note whether the press's key down and key up arrived. Shared by `E2EPage` and `E2EEngineProbe`.
+@MainActor
+enum E2EKeyRecord {
+    /// The page global the record lives in.
+    static let name = "__bowE2EKey"
+
+    /// Starts a fresh record for one press of the key whose DOM `code` is `code`, removing the previous record's
+    /// listeners. Evaluates to false when the focused element is a frame, whose own document receives the key, so
+    /// the press cannot be confirmed.
+    static func arm(code: String) -> String {
+        """
+        (() => {
+          window.\(name)?.listeners.abort();
+          const record = window.\(name) = { down: false, up: false, listeners: new AbortController() };
+          const options = { capture: true, signal: record.listeners.signal };
+          const code = \(E2ETabPage.jsString(code));
+          addEventListener('keydown', (event) => { if (event.code === code) record.down = true; }, options);
+          addEventListener('keyup', (event) => { if (event.code === code) record.up = true; }, options);
+          return !['IFRAME', 'FRAME', 'EMBED', 'OBJECT'].includes(document.activeElement?.tagName);
+        })()
+        """
+    }
+
+    /// Evaluates to false when the page has not seen the press's key down (`field` "down") or key up ("up") since
+    /// the record was armed. No record at all means a new document replaced the page, which only a key that landed
+    /// can do (Enter submitting a form), so that counts as seen.
+    static func seen(_ field: String) -> String {
+        "window.\(name) ? window.\(name).\(field) : true"
+    }
+
+    /// Removes the record and its listeners once the press is confirmed.
+    static let disarm = "window.\(name)?.listeners.abort(); delete window.\(name);"
+
+    /// Presses and releases the key whose DOM `code` is `code`, through `send` (true sends the key down, false the
+    /// key up), and confirms each half by the page's own `keydown` and `keyup` events, read with `evaluate`.
+    ///
+    /// The renderer can drop a key the browser handed on: the app was offered the key down and the driver's call
+    /// returned, yet the page never saw it (engine.key's probe loses the first key down after its focus changes in
+    /// every run, often while the same press's key up arrives, and page.zoom lost its J that way). So a key down
+    /// the page missed is sent again with its key up, and a key up it missed is sent again alone, a short moment
+    /// later, until both landed or the step's wait budget runs out. Each resend is logged to stderr (chromium.log)
+    /// as `E2E key <label>: the page missed the key down|key up, resend <n>`. Every key down is followed by a key
+    /// up, so no key stays held. A press into a frame cannot be confirmed and is sent once.
+    static func press(
+        _ label: String, code: String, evaluate: (String) async throws -> Any?,
+        send: (_ down: Bool) async throws -> Void
+    ) async throws {
+        guard try await evaluate(arm(code: code)) as? Bool == true else {
+            try await send(true)
+            try await send(false)
+            return
+        }
+        let deadline = Date().addingTimeInterval(E2EWaits.budget())
+        var downSeen = false
+        var resends = 0
+        while true {
+            if !downSeen {
+                try await send(true)
+                downSeen = try await evaluate(seen("down")) as? Bool != false
+            }
+            try await send(false)
+            let upSeen = try await evaluate(seen("up")) as? Bool != false
+            if downSeen && upSeen {
+                _ = try await evaluate(disarm)
+                return
+            }
+            let lost = downSeen ? "key up" : "key down"
+            resends += 1
+            let note = "E2E key \(label): the page missed the \(lost), resend \(resends)\n"
+            FileHandle.standardError.write(Data(note.utf8))
+            guard Date() < deadline else {
+                throw E2EError("cannot press \(label): the page missed the \(lost) \(resends) times")
+            }
+            try await Task.sleep(nanoseconds: 50_000_000)
+        }
+    }
 }
 
 /// A mouse button a page press can use: `E2EPage.click(_:button:modifiers:)` presses the left or middle one, and
@@ -228,7 +312,9 @@ extension E2EPage {
         try await insertText(text)
     }
 
-    /// Presses and releases `key` in the focused element.
+    /// Presses and releases `key` in the focused element. A key the page is meant to see (every one but Escape,
+    /// which the app may claim) is confirmed by the page's `keydown` and `keyup` and resent when missed
+    /// (`E2EKeyRecord.press`); Escape is sent once, and the test checks what it did.
     func press(_ key: E2EKey) async throws {
         try await emulateFocus()
         let event = key.event
@@ -237,13 +323,28 @@ extension E2EPage {
         var up = down
         up.isDown = false
         up.text = nil
-        try await dispatchKey(down)
-        try await dispatchKey(up)
+        try await sendKey(down: down, up: up, confirmed: key.reachesPage)
+    }
+
+    /// Sends `down` then `up`, confirmed and resent through `E2EKeyRecord.press` when `confirmed`, once otherwise.
+    private func sendKey(down: E2EKeyEvent, up: E2EKeyEvent, confirmed: Bool) async throws {
+        guard confirmed else {
+            try await dispatchKey(down)
+            try await dispatchKey(up)
+            return
+        }
+        try await E2EKeyRecord.press(down.key, code: down.code) { expression in
+            try await evaluate(expression)
+        } send: { isDown in
+            try await dispatchKey(isDown ? down : up)
+        }
     }
 
     /// Presses and releases the letter key `letter` with `modifiers` held, as a keyboard shortcut arrives at the
     /// page. The app claims its own shortcuts before the page sees them; this sends one to check that it does.
-    /// `macKeyCode` is the letter's macOS virtual key code (kVK_ANSI_*).
+    /// `macKeyCode` is the letter's macOS virtual key code (kVK_ANSI_*). A key that types text (no modifiers, or
+    /// Shift alone), which no app shortcut claims, is confirmed by the page's `keydown` and `keyup` and resent when
+    /// missed (`E2EKeyRecord.press`); a shortcut is sent once, and the test checks what it did.
     func press(letter: Character, macKeyCode: Int, modifiers: E2EKeyModifiers) async throws {
         try await emulateFocus()
         let key = String(letter).lowercased()
@@ -258,11 +359,11 @@ extension E2EPage {
             modifiers: held)
         var up = down
         up.isDown = false
-        if modifiers.isEmpty || modifiers == .shift {
+        let typesText = modifiers.isEmpty || modifiers == .shift
+        if typesText {
             down.text = modifiers == .shift ? key.uppercased() : key
         }
-        try await dispatchKey(down)
-        try await dispatchKey(up)
+        try await sendKey(down: down, up: up, confirmed: typesText)
     }
 
     /// `values` as a JavaScript array of string literals.
