@@ -77,6 +77,7 @@ enum WebKitSPI {
     static let inspectorShow = Selector(("show"))
     // From a string: a public `close` exists, so Selector(("close")) draws a #selector warning.
     static let inspectorClose = NSSelectorFromString("close")
+    static let inspectorIsVisible = Selector(("isVisible"))
     static let setDeveloperExtras = Selector(("_setDeveloperExtrasEnabled:"))
     static let setMockCaptureDevices = Selector(("_setMockCaptureDevicesEnabled:"))
     static let setWindowOcclusionDetection = Selector(("_setWindowOcclusionDetectionEnabled:"))
@@ -124,6 +125,10 @@ enum WebKitSPI {
         Entry(
             name: "close", kind: .method, owner: Owner.inspector.rawValue, use: "close Web Inspector",
             fallback: "the person closes it"),
+        Entry(
+            name: "isVisible", kind: .method, owner: Owner.inspector.rawValue,
+            use: "whether Web Inspector is open, closed by Bow or by its own close button",
+            fallback: "the inspector reads as closed"),
         Entry(
             name: "_setDeveloperExtrasEnabled:", kind: .method, owner: Owner.preferences.rawValue,
             use: "Inspect Element in the context menu", fallback: "isInspectable"),
@@ -353,6 +358,13 @@ enum WebKitSPI {
         guard let object = inspectorObject(webView), object.responds(to: selector) else { return false }
         object.perform(selector)
         return true
+    }
+
+    /// Whether Web Inspector is open, or nil when absent.
+    static func inspectorVisible(_ webView: WKWebView) -> Bool? {
+        guard let object = inspectorObject(webView), object.responds(to: inspectorIsVisible) else { return nil }
+        typealias Fn = @convention(c) (AnyObject, Selector) -> Bool
+        return unsafeBitCast(object.method(for: inspectorIsVisible), to: Fn.self)(object, inspectorIsVisible)
     }
 
     /// Docks Web Inspector in `view` (nil for its default place). False when absent.
