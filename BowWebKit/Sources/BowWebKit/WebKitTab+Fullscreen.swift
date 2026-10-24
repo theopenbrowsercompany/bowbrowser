@@ -3,13 +3,15 @@ import WebKit
 
 // Page fullscreen (the Fullscreen API's element fullscreen): `TabEvent.fullscreenChanged` from WebKit's public
 // `fullscreenState`, read by key value observation, and `exitFullscreen()` through `closeAllMediaPresentations`.
-// WebKit shows a fullscreen element in a window of its own; it does so only when the web view's configuration turns
-// element fullscreen on (`WKPreferences.isElementFullscreenEnabled`), which is the profile's to choose.
+// WebKit shows a fullscreen element in a window of its own, and only with element fullscreen turned on
+// (`WKPreferences.isElementFullscreenEnabled`, off by default), which every tab's page has, as in Arc.
 
 extension WebKitTab {
-    /// Observes the page entering and leaving fullscreen. Each web view gets its own tracker, so a replaced page
-    /// starts out of fullscreen.
+    /// Lets the page go fullscreen and observes it entering and leaving. Each web view gets its own tracker, so a
+    /// replaced page starts out of fullscreen.
     func observeFullscreen(of webView: WKWebView) {
+        // The web view's configuration is a copy, but it shares the page's live preferences object.
+        webView.configuration.preferences.isElementFullscreenEnabled = true
         let tracker = FullscreenTracker()
         observations.append(
             webView.observe(\.fullscreenState) { [weak self] webView, _ in
