@@ -60,9 +60,14 @@ Each Space has its own pinned tabs and tabs, and one window shows one Space at a
 - The theme of the Space on screen decides the tint of the sidebar and window background.
   Switching Spaces switches the tint, and a Space with no theme tints with the default one.
   Setting an icon or theme changes nothing else about the Space.
-- The sidebar and the frame around the page are one surface, the window's Frame color, and a theme lays a light wash of its color over it: 12 percent of the theme color over the Frame color, in light and dark appearance alike.
-  The default theme lays none, so an unthemed Space shows exactly the Frame color.
-  Switching between light and dark keeps the theme and redraws its wash over that appearance's Frame color.
+- A Space's theme gives the whole chrome a palette, as Arc derives one from a theme color (the roles are named at https://arc.net/colors.html: background, backgroundExtra, foregroundPrimary, foregroundSecondary, foregroundTertiary, focus, hover, title and subtitle).
+  `SpacePalette` gives, for a theme and light or dark appearance, background, backgroundExtra, title, subtitle, foregroundPrimary, foregroundSecondary, foregroundTertiary, hover, selectedFill, tileFill, fieldFill, divider and focus, plus a backdrop opacity.
+  The sidebar and the frame around the page are the background; rows, tiles, the address field and dividers take their fills from the same palette, so none of them stays cream in a themed Space.
+  Every neutral keeps the theme's hue.
+- The palette keeps text readable in every Space and appearance: primary text and the title are at least 7:1 against the background, secondary text and the subtitle at least 4.5:1, and the focus color at least 3:1.
+- The default theme returns the brand kit colors exactly: background `#FFF3E6` in light and `#2A1710` in dark, title `#3A1F14` in light and `#FFF3E6` in dark, and no backdrop, so an unthemed Space looks as it always did.
+  Switching between light and dark keeps the theme and takes that appearance's palette.
+- Until the sidebar, tiles and field read their fills from the palette, the app still draws the earlier wash (12 percent of the theme color over the Frame color, `#E7E1E5` light and `#2C1F28` dark for Blue); the palette is the rule and the wash is replaced as each surface moves over.
 - When the tint changes (another Space comes on screen, or the Space on screen gets another theme) it fades to the new one in a fifth of a second.
   A change during a fade fades on from the color shown then, so quick switches end on the right tint.
   With Reduce Motion on, it changes at once.
