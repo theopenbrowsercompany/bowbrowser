@@ -498,6 +498,38 @@ g commit -qam "a comment in the helper"
 out=$(run 0 0)
 has "a comment only change in the harness reaches no test" "$out" "changed tests, repeated: skip (no e2e test added or changed)"
 
+# A changed harness symbol whose search finds no test never gives an empty repeat. Scenario A: the only harness caller
+# is private and no test names it, the test calls the public member two levels up. Scenario B: the only caller is a
+# member no test calls, so the smoke tests are the fallback. The ResultObserver case: a change in C++ code after an
+# @end is not credited to the Objective-C method before it.
+mkdir -p "$repo/E2E/Engine"
+printf 'extension Hlp {\n    static func dispatchDeep() {\n        print("d")\n    }\n    private static func sendDeep() {\n        dispatchDeep()\n    }\n    static func pressDeep() {\n        sendDeep()\n    }\n}\n' > "$repo/E2E/Harness/Chain.swift"
+printf 'struct DeepTest: E2ETest {\n    let name = "f.deep"\n    func run() { Hlp.pressDeep() }\n}\n' > "$repo/E2E/Tests/Deep.swift"
+printf '@implementation Session\n- (void)callThing:(id)x {\n  NSLog(@"c");\n}\n@end\n' > "$repo/E2E/Engine/Session.mm"
+printf 'enum Probe {\n    static func devThing() {\n        Session.callThing(1)\n    }\n}\n' > "$repo/E2E/Harness/Probe.swift"
+printf '@interface Obs\n- (void)detached;\n@end\n\nnamespace {\nclass ResultObserver {\n public:\n  void run() {\n    int x = 1;\n  }\n};\n}\n\n@implementation Obs\n- (void)detached {\n  NSLog(@"d");\n}\n@end\n' > "$repo/E2E/Engine/Observer.mm"
+printf 'struct ObsTest: E2ETest {\n    let name = "g.obs"\n    func run() { obs.detached() }\n}\n' > "$repo/E2E/Tests/Obs.swift"
+g add -A
+g commit -qm "private chains and an Objective-C++ file"
+g update-ref refs/remotes/origin/main HEAD
+sed -i '' 's/print("d")/print("dd")/' "$repo/E2E/Harness/Chain.swift"
+g commit -qam "changes dispatchDeep's body"
+out=$(run 0 0)
+has "a change whose callers are private repeats the test two levels up" "$(cat "$tmp/log")" "E2E=f.deep,smoke"
+has "the block counts the test two levels up" "$out" "reached through changed harness symbols: 1 found"
+g update-ref refs/remotes/origin/main HEAD
+sed -i '' 's/NSLog(@"c")/NSLog(@"cc")/' "$repo/E2E/Engine/Session.mm"
+g commit -qam "changes callThing"
+out=$(run 0 0)
+has "a changed symbol no test reaches repeats the smoke tests, not nothing" "$(cat "$tmp/log")" "E2E=d.other,smoke"
+has "the block says the symbol reaches no test" "$out" "callThing (no test reaches it within 4 levels of callers)"
+g update-ref refs/remotes/origin/main HEAD
+sed -i '' 's/int x = 1;/int x = 2;/' "$repo/E2E/Engine/Observer.mm"
+g commit -qam "changes C++ code after an @end"
+out=$(run 0 0)
+check "a change in C++ code is not credited to the method before it" "" "$(grep "e2e-run.*g.obs" "$tmp/log")"
+has "a change in C++ code takes the fallback" "$out" "changed lines outside any Objective-C method body"
+
 # The Release build: a branch touching App/ (or E2E/, BowCore/Sources/, project.yml) builds Release beside the e2e.
 g checkout -q -f "$head_two"
 g update-ref refs/remotes/origin/main HEAD

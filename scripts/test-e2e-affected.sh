@@ -321,6 +321,73 @@ check "callers: code that sits in no symbol falls back to the smoke tests and sa
   "$(hc env | paste -sd' ' -)"
 check "callers: the fallback names the file it could not read" "callers: too common to search by name: E2E/Harness/Weird.swift (changed lines in no symbol it can read); added the smoke tests and every test in the areas that call the changed files:" \
   "$(grep '^callers: too common' "$tmp/callers.err" | sed 's/ *$//')"
+hb "weird"
+# Scenario A: the only harness caller of the changed function is private and no test names it; the test calls the
+# public member two levels up. Scenario B: the only harness caller is a member no test calls: the named fallback.
+cat > "$hrepo/E2E/Harness/Chain.swift" << 'EOF'
+extension E2EPage {
+    func dispatchDeep() {
+        print("d")
+    }
+
+    private func sendDeep() {
+        dispatchDeep()
+    }
+
+    func pressDeep() {
+        sendDeep()
+    }
+}
+EOF
+printf 'struct DeepPressTest: E2ETest {\n    let name = "deep.press"\n    func run() { page.pressDeep() }\n}\n' > "$hrepo/E2E/Tests/Deep.swift"
+cat > "$hrepo/E2E/Engine/Session.mm" << 'EOF'
+@implementation Session
+- (void)callThing:(id)x {
+  NSLog(@"c");
+}
+@end
+EOF
+printf 'enum Probe {\n    static func devThing() {\n        Session.callThing(1)\n    }\n}\n' > "$hrepo/E2E/Harness/Probe.swift"
+cat > "$hrepo/E2E/Engine/Observer.mm" << 'EOF'
+@interface Obs
+- (void)detached;
+@end
+
+namespace {
+class ResultObserver {
+ public:
+  void run() {
+    int x = 1;
+  }
+};
+}
+
+@implementation Obs
+- (void)detached {
+  NSLog(@"d");
+}
+@end
+EOF
+printf 'struct ObsDetachedTest: E2ETest {\n    let name = "obs.detached"\n    func run() { obs.detached() }\n}\n' > "$hrepo/E2E/Tests/Obs.swift"
+h add -A
+hb "chains"
+sed -i '' 's/print("d")/print("dd")/' "$hrepo/E2E/Harness/Chain.swift"
+check "callers: a changed function whose callers are private reaches the tests two levels up" "direct 1 deep.press" \
+  "$(hc env | paste -sd' ' -)"
+hb "dispatchDeep"
+sed -i '' 's/NSLog(@"c")/NSLog(@"cc")/' "$hrepo/E2E/Engine/Session.mm"
+check "callers: a changed symbol that reaches no test within the climb takes the smoke fallback" "fallback 0 other.smoke" \
+  "$(hc env | paste -sd' ' -)"
+check "callers: the fallback says the symbol reaches no test" "callers: too common to search by name: callThing (no test reaches it within 4 levels of callers);" \
+  "$(grep '^callers: too common' "$tmp/callers.err" | sed 's/ added the smoke.*//')"
+hb "callThing"
+sed -i '' 's/int x = 1;/int x = 2;/' "$hrepo/E2E/Engine/Observer.mm"
+check "callers: a change in C++ code after an @end is not credited to the method before it" "fallback 0 other.smoke" \
+  "$(hc env | paste -sd' ' -)"
+sed -i '' 's/NSLog(@"d")/NSLog(@"dd")/' "$hrepo/E2E/Engine/Observer.mm"
+check "callers: one unreadable changed line takes the fallback beside the readable one in the same file" \
+  "direct 1 obs.detached fallback 0 other.smoke" "$(hc env | paste -sd' ' -)"
+h reset -q --hard
 check "callers: no origin/main ref exits 3" "3" "$(cd "$hrepo" && CHECK_BASE=nope scripts/e2e-affected.sh --callers > /dev/null 2>&1; echo $?)"
 
 # 3. scripts/check.sh with a fake e2e-affected.sh and a fake make that only logs what it is asked to run.

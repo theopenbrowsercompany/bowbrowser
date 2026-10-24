@@ -136,6 +136,10 @@ unknown() {
 #      mention outside any test (a helper of the test file) counts for every test of that file;
 #   2. one level up: the members of other E2E/Harness/*.swift files that mention the symbol are symbols too, and the
 #      tests that mention those count. A symbol that is itself too common to search stops there.
+#   3. while no test is found, the climb goes on level by level (members that mention those members), to 4 levels
+#      up. A symbol that still reaches no test takes the fallback below, noted as "no test reaches it".
+# A changed line of an Objective-C++ file counts for a method only inside its body (never across `@end` or in C or C++
+# code); a changed line in no method body makes the file take the fallback, whatever its other lines hold.
 # A symbol is too common when its text matches CALLERS_COMMON (default 12) or more test files. A too common symbol
 # falls back to the named smoke set (every test tagged smoke) plus every test in the areas (the name before the first
 # dot) of the test files that name a top level declaration of the changed file; the stderr note says which symbols.
@@ -312,16 +316,26 @@ objc_symbols() {
     n = split(ls, a, ",")
     for (i = 1; i <= n; i++) {
       name = ""
+      # Scan back from the line. The line belongs to a method only inside its body: the scan stops (the line is
+      # unreadable) at a closing brace in column 0, an @end, or a column 0 line of C or C++ code (a class, a
+      # namespace, a static). A method declaration in an @interface (ending in `;`) has no body to sit in.
       for (j = a[i]; j >= 1; j--) {
         l = lines[j]
-        if (l ~ /^[-+] *\(/) { name = sel(substr(l, 2)); break }
+        if (j < a[i] && l ~ /^}/) break
+        if (l ~ /^@end/) break
+        if (l ~ /^[-+] *\(/) {
+          if (j == a[i] || l !~ /;[ \t]*(\/\/.*)?$/) { name = sel(substr(l, 2)); break }
+          continue
+        }
         if (l ~ /^@(interface|implementation|protocol) /) {
           sub(/^@[a-z]+ +/, "", l)
           if (match(l, /^[A-Za-z_][A-Za-z0-9_]*/)) name = substr(l, 1, RLENGTH)
           break
         }
+        if (l ~ /^[A-Za-z_]/) break
       }
-      if (name != "" && !(name in seen)) { seen[name] = 1; print name "\t" word(name) }
+      if (name == "") { if (!unread) { unread = 1; print "?\t?" } }
+      else if (!(name in seen)) { seen[name] = 1; print name "\t" word(name) }
     }
   }' "$1"
 }
@@ -352,11 +366,19 @@ callers_main() {
         syms=$(swift_symbols "$f" "$lines")
         declared_in "$f" >> "$tmp/declared"
         ;;
-      *) syms=$(objc_symbols "$f" "$lines") ;;
+      *)
+        syms=$(objc_symbols "$f" "$lines")
+        # A changed line in no method body (C++ code, between an @end and the next method) takes the fallback, even
+        # when other changed lines of the file are readable.
+        if printf '%s\n' "$syms" | grep -qxF "$(printf '?\t?')"; then
+          echo "$f (changed lines outside any Objective-C method body)" >> "$tmp/common"
+          syms=$(printf '%s\n' "$syms" | grep -vxF "$(printf '?\t?')" || true)
+        fi
+        ;;
     esac
     # Code changed but no symbol could be read from the lines (a construct the parser does not follow): the
     # fallback applies, so the change is never reported as reaching nothing.
-    if [ -n "$syms" ]; then echo "$syms" >> "$tmp/primary"; else echo "$f (changed lines in no symbol it can read)" >> "$tmp/common"; fi
+    if [ -n "$syms" ]; then echo "$syms" >> "$tmp/primary"; elif ! grep -qF -- "$f (" "$tmp/common"; then echo "$f (changed lines in no symbol it can read)" >> "$tmp/common"; fi
   done <<< "$harness_files"
   sort -u "$tmp/primary" -o "$tmp/primary"
   [ -s "$tmp/primary" ] || [ -s "$tmp/common" ] || return 0
@@ -381,23 +403,51 @@ callers_main() {
         if (!found) for (b = 1; b <= n; b++) if (bf[b] == $1) print bn[b] }' "$tmp/blocks" "$tmp/hits" | sort -u >> "$tmp/found"
   }
 
+  # Per changed symbol, the search climbs the harness members that mention it, level by level: level 0 is the symbol,
+  # level 1 the members of E2E/Harness/*.swift that mention it, level 2 the members that mention those, and so on.
+  # Levels 0 and 1 are always searched; the climb goes on past them only while no test has been found, up to
+  # MAX_LEVELS (4: a helper called by a private helper called by a public one called by a test is level 3, and one
+  # more covers the engine seam in front of it). A symbol that reaches no test within the limit is reported with
+  # the too common ones and takes the named fallback, so a changed symbol never yields an empty repeat.
+  local max_levels=4 level before after toocommon
   while IFS=$'\t' read -r disp re; do
     echo "$disp" >> "$tmp/symbols"
-    resolve "$re" "$disp" || continue
-    # One level up: the members of harness files that mention the symbol.
-    grep -nHE -- "$re" E2E/Harness/*.swift 2> /dev/null | awk -F: '{
-      t = substr($0, length($1) + length($2) + 3)
-      if (t !~ /^[ \t]*\/\//) printf "%s\t%s\n", $1, $2
-    }' | sort -u > "$tmp/hh"
-    while IFS=$'\t' read -r hf hl; do
-      mf=$tmp/members.$(echo "$hf" | tr '/' '_')
-      [ -f "$mf" ] || members_of "$hf" > "$mf"
-      awk -F'\t' -v l="$hl" '$3 == "M" && l >= $1 && l <= $2 { print $4 "\t" $5 }' "$mf"
-    done < "$tmp/hh" | sort -u > "$tmp/secondary"
-    while IFS=$'\t' read -r qdisp qre; do
-      [ "$qdisp" != "$disp" ] || continue
-      resolve "$qre" "$qdisp" || true
-    done < "$tmp/secondary"
+    before=$(grep -c . "$tmp/found")
+    printf '%s\t%s\n' "$disp" "$re" > "$tmp/frontier"
+    printf '%s\n' "$disp" > "$tmp/visited"
+    level=0 toocommon=0
+    while [ -s "$tmp/frontier" ] && [ "$level" -le "$max_levels" ]; do
+      : > "$tmp/next"
+      while IFS=$'\t' read -r qdisp qre; do
+        if ! resolve "$qre" "$qdisp"; then
+          [ "$level" -ne 0 ] || toocommon=1
+          continue
+        fi
+        # The members of harness files that mention this symbol are the next level.
+        grep -nHE -- "$qre" E2E/Harness/*.swift 2> /dev/null | awk -F: '{
+          t = substr($0, length($1) + length($2) + 3)
+          if (t !~ /^[ \t]*\/\//) printf "%s\t%s\n", $1, $2
+        }' | sort -u > "$tmp/hh"
+        while IFS=$'\t' read -r hf hl; do
+          mf=$tmp/members.$(echo "$hf" | tr '/' '_')
+          [ -f "$mf" ] || members_of "$hf" > "$mf"
+          awk -F'\t' -v l="$hl" '$3 == "M" && l >= $1 && l <= $2 { print $4 "\t" $5 }' "$mf"
+        done < "$tmp/hh" | sort -u > "$tmp/up"
+        while IFS=$'\t' read -r mdisp mre; do
+          grep -qxF -- "$mdisp" "$tmp/visited" && continue
+          printf '%s\n' "$mdisp" >> "$tmp/visited"
+          printf '%s\t%s\n' "$mdisp" "$mre" >> "$tmp/next"
+        done < "$tmp/up"
+      done < "$tmp/frontier"
+      level=$((level + 1))
+      after=$(grep -c . "$tmp/found")
+      if [ "$level" -ge 2 ] && [ "$after" -gt "$before" ]; then break; fi
+      mv "$tmp/next" "$tmp/frontier"
+    done
+    after=$(grep -c . "$tmp/found")
+    if [ "$toocommon" -eq 0 ] && [ "$after" -le "$before" ]; then
+      echo "$disp (no test reaches it within $max_levels levels of callers)" >> "$tmp/common"
+    fi
   done < "$tmp/primary"
 
   # Each test with the number of changed symbols that reached it (resolve adds a test once per symbol).
