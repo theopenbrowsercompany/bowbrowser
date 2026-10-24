@@ -24,7 +24,7 @@ final class LittleArcPanel: NSObject, NSWindowDelegate, EngineTabDelegate, NSMen
     private(set) var tab: (any EngineTab)?
     let window: LittleArcWindow
     let toolbar: LittleArcToolbar
-    private let webView: BowWebView
+    private let webView: EngineSurfaceView
     /// The page's alert, confirm and prompt, as sheets on the panel under the same rules as a tab's.
     let dialogs: PageDialogSheets
     /// The page's permission requests: remembered answers of its profile, or the prompt anchored to the page.
@@ -73,7 +73,7 @@ final class LittleArcPanel: NSObject, NSWindowDelegate, EngineTabDelegate, NSMen
             defer: false)
         window.takesFocus = takesFocus
         toolbar = LittleArcToolbar()
-        webView = BowWebView(frame: NSRect(origin: .zero, size: frame.size))
+        webView = EngineSurfaceView(frame: NSRect(origin: .zero, size: frame.size))
         dialogs = PageDialogSheets(window: window, shownTab: tab.tabID)
         // A page whose profile has no permission store has its requests dismissed, as in a browser window.
         prompts = PermissionPrompts { _ in permissions }
@@ -128,7 +128,7 @@ final class LittleArcPanel: NSObject, NSWindowDelegate, EngineTabDelegate, NSMen
         if takesFocus {
             window.makeKeyAndOrderFront(nil)
             NSApp.activate()
-            webView.focusAttachedTab()
+            webView.focusShownTab()
         } else {
             window.orderFrontRegardless()
         }
@@ -220,7 +220,7 @@ final class LittleArcPanel: NSObject, NSWindowDelegate, EngineTabDelegate, NSMen
         if takesFocus {
             controller.window?.deminiaturize(nil)
             controller.showWindow(nil)
-            controller.webView.focusAttachedTab()
+            controller.webView.focusShownTab()
         }
         return true
     }
@@ -368,7 +368,7 @@ final class LittleArcPanel: NSObject, NSWindowDelegate, EngineTabDelegate, NSMen
     private func endAddressEditing() {
         window.makeFirstResponder(nil)
         showHost()
-        if takesFocus { webView.focusAttachedTab() }
+        if takesFocus { webView.focusShownTab() }
     }
 
     // MARK: Keys

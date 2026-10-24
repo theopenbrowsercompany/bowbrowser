@@ -8,7 +8,7 @@ import BowCore
 @MainActor
 final class PeekOverlayView: NSView {
     /// The host view of the Peek's page, inside the card.
-    let webView: BowWebView
+    let webView: EngineSurfaceView
     /// Open as Tab: moves the page into a tab of its own, without reloading it.
     let openButton: NSButton
     /// Close: dismisses the Peek.
@@ -29,7 +29,7 @@ final class PeekOverlayView: NSView {
     static let buttonSize: CGFloat = 26
 
     override init(frame frameRect: NSRect) {
-        webView = BowWebView(frame: NSRect(origin: .zero, size: frameRect.size))
+        webView = EngineSurfaceView(frame: NSRect(origin: .zero, size: frameRect.size))
         openButton = Self.makeButton(symbol: "arrow.up.left.and.arrow.down.right", label: "Open as Tab")
         closeButton = Self.makeButton(symbol: "xmark", label: "Close Peek")
         super.init(frame: frameRect)

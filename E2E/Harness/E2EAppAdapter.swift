@@ -498,7 +498,7 @@ final class E2ETabPage: E2EPage {
     /// The pane's host view while one of the window's panes shows this tab; nil while none does or once the window is
     /// gone.
     var contentView: NSView? { controller.window != nil ? paneView : nil }
-    private var paneView: BowWebView? { controller.paneViews.first { $0.isShowing(tab) } }
+    private var paneView: EngineSurfaceView? { controller.paneViews.first { $0.isShowing(tab) } }
     var isClosed: Bool { tab.isClosed }
     var finishedLoads: Int { loads.count }
 

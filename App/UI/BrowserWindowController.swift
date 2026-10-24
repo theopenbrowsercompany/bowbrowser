@@ -20,9 +20,9 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
 
     /// The first pane's host view, which is the only one while the page area shows one tab. Switching tabs shows
     /// another tab here; pages are never reloaded by a switch.
-    private let primaryView: BowWebView
+    private let primaryView: EngineSurfaceView
     /// The host views of the second to fourth panes, made the first time that many panes show and kept for reuse.
-    private var extraPaneViews: [BowWebView] = []
+    private var extraPaneViews: [EngineSurfaceView] = []
     /// Holds the panes side by side while more than one shows; out of the page area otherwise.
     private var paneContainer: PaneContainer?
     /// The panes the page area shows, nil while it shows no page. Brought up to date after every change.
@@ -166,7 +166,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
                 defer: false
             )
         let contentSize = window.contentRect(forFrameRect: window.frame).size
-        primaryView = BowWebView(frame: NSRect(origin: .zero, size: contentSize))
+        primaryView = EngineSurfaceView(frame: NSRect(origin: .zero, size: contentSize))
         rootView = NSView(frame: NSRect(origin: .zero, size: contentSize))
         pageArea = NSView(frame: NSRect(origin: .zero, size: contentSize))
         pageLeadingConstraint = pageArea.leadingAnchor.constraint(equalTo: rootView.leadingAnchor)
@@ -330,19 +330,19 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
     // `PaneLayout` decides how the panes follow the window's changes; this section only places the views.
 
     /// The host views of the panes the page area shows, leading to trailing: one, or two to four side by side.
-    var paneViews: [BowWebView] {
+    var paneViews: [EngineSurfaceView] {
         guard let paneLayout, paneLayout.isSplit else { return [primaryView] }
         return [primaryView] + extraPaneViews.prefix(paneLayout.tabs.count - 1)
     }
 
     /// The focused pane's host view: where the keyboard, find and the page's prompts go.
-    var focusedPane: BowWebView {
+    var focusedPane: EngineSurfaceView {
         let views = paneViews
         return views[min(paneLayout?.focusedIndex ?? 0, views.count - 1)]
     }
 
     /// The focused pane's host view (see `focusedPane`).
-    var webView: BowWebView { focusedPane }
+    var webView: EngineSurfaceView { focusedPane }
 
     /// The tabs the page area shows, in pane order, read back from the views.
     var shownTabs: [any EngineTab] {
@@ -408,7 +408,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
         let id = paneLayout.tabs[index]
         if paneLayout.focused != id { select(id) }
         guard self.paneLayout?.focused == id else { return false }
-        focusedPane.focusAttachedTab()
+        focusedPane.focusShownTab()
         return true
     }
 
@@ -452,7 +452,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
             showOnePane()
             if let tab = engineTabs[paneLayout.focused] { primaryView.show(tab) }
             if keyboardInPanes, (window?.firstResponder as? NSView)?.isDescendant(of: primaryView) != true {
-                primaryView.focusAttachedTab()
+                primaryView.focusShownTab()
             }
             return
         }
@@ -478,7 +478,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
     private func showSplit(_ layout: PaneLayout<BrowserTabID>) {
         let container = paneContainer ?? makePaneContainer()
         while extraPaneViews.count < layout.tabs.count - 1 {
-            extraPaneViews.append(BowWebView(frame: NSRect(origin: .zero, size: pageArea.bounds.size)))
+            extraPaneViews.append(EngineSurfaceView(frame: NSRect(origin: .zero, size: pageArea.bounds.size)))
         }
         let views = paneViews
         if container.superview == nil {
@@ -495,7 +495,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
         if let responder = window?.firstResponder as? NSView, !responder.isDescendant(of: focused),
             views.contains(where: { responder.isDescendant(of: $0) })
         {
-            focused.focusAttachedTab()
+            focused.focusShownTab()
         }
     }
 

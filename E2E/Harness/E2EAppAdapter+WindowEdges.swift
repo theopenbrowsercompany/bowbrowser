@@ -135,7 +135,7 @@ extension E2EAppAdapter {
             rowCount: controller.tabList.count,
             loadedCount: controller.tabs.count,
             activeItem: controller.store.graph.activeTabID?.rawValue,
-            showsPage: controller.webView.attachedTab != nil,
+            showsPage: controller.webView.showsTab,
             showsEmptyState: shown,
             showsUnloadedTab: shown && empty.showsUnloadedTab,
             activeTitle: controller.tabList.activeTab?.title ?? ""

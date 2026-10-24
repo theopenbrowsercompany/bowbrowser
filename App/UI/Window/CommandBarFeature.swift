@@ -211,7 +211,7 @@ final class CommandBarFeature: NSResponder, BrowserWindowFeature, NSMenuItemVali
     func close() {
         guard isOpen else { return }
         let hadKeyboard = hide()
-        if hadKeyboard { window.webView.focusAttachedTab() }
+        if hadKeyboard { window.webView.focusShownTab() }
     }
 
     /// Hides the bar and stops its query. Returns whether its field had the keyboard.
@@ -360,7 +360,7 @@ final class CommandBarFeature: NSResponder, BrowserWindowFeature, NSMenuItemVali
                 if !tab.isClosed { tab.load(url) }
             }
         }
-        if hadKeyboard { window.webView.focusAttachedTab() }
+        if hadKeyboard { window.webView.focusShownTab() }
     }
 
     /// Shows the tab `id` names, first bringing its Space on screen when it lives in another.

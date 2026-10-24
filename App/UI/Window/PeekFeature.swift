@@ -137,7 +137,7 @@ final class PeekFeature: NSResponder, BrowserWindowFeature {
         window.addPageOverlay(overlay)
         overlay.layoutSubtreeIfNeeded()
         overlay.webView.show(page)
-        if window.window?.isKeyWindow == true { overlay.webView.focusAttachedTab() }
+        if window.window?.isKeyWindow == true { overlay.webView.focusShownTab() }
         return true
     }
 
