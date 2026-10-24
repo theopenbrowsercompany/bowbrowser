@@ -39,7 +39,7 @@ self_tests=(
   "test-verify-plan scripts/verify.sh scripts/test-verify-plan.sh"
   "test-e2e-flakes scripts/e2e-flakes.sh scripts/test-e2e-flakes.sh"
   "test-base-ref scripts/base-ref.sh scripts/test-base-ref.sh"
-  "test-webkit-importsscripts/check-webkit-imports.sh scripts/test-check-webkit-imports.sh"
+  "test-webkit-imports scripts/check-webkit-imports.sh scripts/test-check-webkit-imports.sh"
 )
 script_inputs=(scripts Makefile .githooks)
 base=${VERIFY_BASE:-$(scripts/base-ref.sh 2> /dev/null || echo origin/main)}

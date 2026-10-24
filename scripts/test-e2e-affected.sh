@@ -5,6 +5,8 @@
 # how scripts/check.sh treats a selection that fails or comes back empty, with a fake make.
 # Takes about a second and launches no app.
 set -u
+# The base settings come from each case alone (make done exports them to the self tests it runs).
+unset CHECK_BASE VERIFY_BASE PRIVATE_PATHS_BASE BOW_BASE DONE_BASE
 cd "$(dirname "$0")/.." || exit 1
 
 tmp=$(mktemp -d)
