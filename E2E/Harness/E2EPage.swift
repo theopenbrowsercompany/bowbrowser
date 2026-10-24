@@ -148,27 +148,43 @@ protocol E2EPage: AnyObject {
     func openFindBar() throws -> any E2EFindBar
     /// The permission prompt the page's window shows for this page now, or nil.
     var permissionPrompt: E2EPermissionPrompt? { get }
-    /// Calls a Chrome DevTools protocol method and returns its result object.
-    func devTools(_ method: String, _ params: [String: Any]) async throws -> [String: Any]
     /// The view that shows the page's web content, for screenshots; nil while another tab of its window is shown
     /// and once it is gone.
     var contentView: NSView? { get }
+
+    // The page driver: the only way tests and harness helpers reach into the page. These name no engine, so each
+    // engine's adapter implements them its own way (today over Chromium's DevTools protocol, in
+    // E2EAppAdapter+PageDriver.swift), and the helpers built on them (E2EInput.swift, E2EScreenshot.swift) stay the
+    // same. Every one throws once the page's test has ended, except `screenshot`, which the runner still takes then.
+
+    /// Evaluates the JavaScript `expression` in the page and returns its value as JSON types (nil for undefined or
+    /// null). Each of `arguments` (JSON values, keyed by valid JavaScript identifiers) is bound to a constant of its
+    /// name that the expression can read. A promise is awaited, so an expression can wait on a page state change
+    /// without fixed sleeps. With `userGesture`, the page treats the expression as run from a person's click (it may
+    /// open a popup). Throws with the page's exception text when the expression throws.
+    func evaluate(_ expression: String, arguments: [String: Any], userGesture: Bool) async throws -> Any?
+    /// The page's visible web content, as the engine paints it.
+    func screenshot() async throws -> NSImage
+    /// Makes the page behave as if its window were focused. An e2e window never becomes key, so without this the
+    /// page has no focus: `document.hasFocus()` is false and focus events do not fire. The input helpers call it
+    /// themselves, so tests need not.
+    func emulateFocus() async throws
+    /// Sends one mouse event to the page as real user input, returning once the page has handled it.
+    func dispatchMouse(_ event: E2EMouseEvent) async throws
+    /// Sends one key event to the page's focused element as real user input, so the app sees it before the page
+    /// (`EngineTabDelegate.handleKeyBeforePage`), returning once the page has handled it.
+    func dispatchKey(_ event: E2EKeyEvent) async throws
+    /// Inserts `text` into the focused element, the way text arrives from a keyboard or an input method.
+    func insertText(_ text: String) async throws
+    /// Ends the page's renderer as a crash would, and returns without waiting for it to end.
+    func crash() throws
 }
 
 extension E2EPage {
-    /// Evaluates `expression` in the page and returns its value as JSON types (nil for undefined or null).
-    /// A promise is awaited, so an expression can wait on a page state change without fixed sleeps.
+    /// Evaluates `expression` in the page with no arguments and no user gesture (see
+    /// `evaluate(_:arguments:userGesture:)`).
     func evaluate(_ expression: String) async throws -> Any? {
-        let response = try await devTools(
-            "Runtime.evaluate",
-            ["expression": expression, "returnByValue": true, "awaitPromise": true]
-        )
-        if let details = response["exceptionDetails"] as? [String: Any] {
-            let exception = details["exception"] as? [String: Any]
-            let text = exception?["description"] as? String ?? details["text"] as? String ?? "exception"
-            throw E2EError("\(expression) threw: \(text)")
-        }
-        return (response["result"] as? [String: Any])?["value"]
+        try await evaluate(expression, arguments: [:], userGesture: false)
     }
 
     /// Evaluates `expression` and returns it as a string, throwing when it is something else.

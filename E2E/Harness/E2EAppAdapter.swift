@@ -576,12 +576,11 @@ final class E2ETabPage: E2EPage {
         return try await withCheckedThrowingContinuation { loadWaiters.append((load, $0)) }
     }
 
-    /// DevTools methods that only read the page, which the runner still calls after a test ended (for its
-    /// fail.png), so they are not refused like the rest.
-    private static let readOnlyDevToolsMethods: Set<String> = ["Page.captureScreenshot"]
-
-    func devTools(_ method: String, _ params: [String: Any]) async throws -> [String: Any] {
-        if !Self.readOnlyDevToolsMethods.contains(method) { try requireActive("call \(method)") }
+    /// Calls a Chrome DevTools protocol method on the tab's browser and returns its result object: the CEF side of
+    /// the page driver (E2EAppAdapter+PageDriver.swift). Refused once the page's test has ended unless `readOnly`
+    /// (a method that only reads the page, which the runner still calls then for its fail.png).
+    func devTools(_ method: String, _ params: [String: Any], readOnly: Bool = false) async throws -> [String: Any] {
+        if !readOnly { try requireActive("call \(method)") }
         let response = try await withCheckedThrowingContinuation { continuation in
             devToolsSession.callMethod(method, params: params) { result, error in
                 if let result {

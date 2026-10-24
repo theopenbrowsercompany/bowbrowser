@@ -1,8 +1,9 @@
 import Foundation
 
-// Input inside web pages, sent through the DevTools Input domain: it needs no window focus or accessibility
-// permission, and Chromium treats it as real user input (it grants user activation, which a beforeunload prompt
-// needs). App shortcuts are not page input: tests trigger them through the app's menu, never through DevTools.
+// Input inside web pages, sent through the page driver's input events (`E2EPage.dispatchMouse`, `dispatchKey`,
+// `insertText`): it needs no window focus or accessibility permission, and the engine treats it as real user input
+// (it grants user activation, which a beforeunload prompt needs). App shortcuts are not page input: tests trigger
+// them through the app's menu, never through the page driver.
 
 /// A key `E2EPage.press(_:)` can send.
 enum E2EKey {
@@ -11,14 +12,13 @@ enum E2EKey {
     case backspace
     case escape
 
-    /// The Input.dispatchKeyEvent fields for this key: the Windows key code Chromium uses everywhere, and the
-    /// macOS one (kVK_*) it reads as the native code.
-    fileprivate var event: (key: String, code: String, keyCode: Int, macKeyCode: Int, text: String?) {
+    /// The key's DOM `key` and `code` values, its macOS virtual key code (kVK_*), and the text it types.
+    fileprivate var event: (key: String, code: String, macKeyCode: Int, text: String?) {
         switch self {
-        case .enter: ("Enter", "Enter", 13, 36, "\r")
-        case .tab: ("Tab", "Tab", 9, 48, nil)
-        case .backspace: ("Backspace", "Backspace", 8, 51, nil)
-        case .escape: ("Escape", "Escape", 27, 53, nil)
+        case .enter: ("Enter", "Enter", 36, "\r")
+        case .tab: ("Tab", "Tab", 48, nil)
+        case .backspace: ("Backspace", "Backspace", 51, nil)
+        case .escape: ("Escape", "Escape", 53, nil)
         }
     }
 }
@@ -29,15 +29,41 @@ enum E2EMouseButton: String {
     case left
     case middle
     case right
+}
 
-    /// The Input.dispatchMouseEvent `buttons` bit for this button while it is held.
-    fileprivate var heldBit: Int {
-        switch self {
-        case .left: 1
-        case .right: 2
-        case .middle: 4
-        }
+/// One mouse event for `E2EPage.dispatchMouse`, at a point in the page's viewport (CSS pixels from its top left).
+struct E2EMouseEvent {
+    enum Kind {
+        /// `button` goes down, and stays held until its release.
+        case press
+        /// `button` comes up, leaving no button held.
+        case release
+        /// The pointer moves with no button held (`button` is ignored).
+        case move
     }
+
+    var kind: Kind
+    var x: Double
+    var y: Double
+    var button: E2EMouseButton = .left
+    var modifiers: E2EInputModifiers = []
+}
+
+/// One key event for `E2EPage.dispatchKey`: a key going down or coming up in the page's focused element.
+struct E2EKeyEvent {
+    /// True for the key going down, false for it coming up.
+    var isDown: Bool
+    /// The DOM `key` value ("Enter", "j").
+    var key: String
+    /// The DOM `code` value ("Enter", "KeyJ").
+    var code: String
+    /// The macOS virtual key code (kVK_*), which app shortcuts match on.
+    var macKeyCode: Int
+    /// The text a key down types, nil for a key that types none (or one whose modifiers make it a shortcut).
+    var text: String? = nil
+    /// The characters the key carries without modifiers, which shortcuts match on; nil to leave them out.
+    var unmodifiedText: String? = nil
+    var modifiers: E2EInputModifiers = []
 }
 
 /// Where a page press lands, in the page's viewport, whether the page itself can confirm that it arrived, and the
@@ -50,7 +76,7 @@ struct E2EPressTarget {
     var confirms: Bool
 }
 
-/// Modifier keys held during a page click, as the Input domain's `modifiers` bit field.
+/// Modifier keys held during a page mouse or key event.
 struct E2EInputModifiers: OptionSet {
     let rawValue: Int
     static let option = E2EInputModifiers(rawValue: 1)
@@ -60,13 +86,6 @@ struct E2EInputModifiers: OptionSet {
 }
 
 extension E2EPage {
-    /// Makes the page behave as if its window were focused. An e2e window never becomes key, so without this
-    /// the page has no focus: `document.hasFocus()` is false and focus events do not fire.
-    /// The input helpers call it themselves, so tests need not.
-    func emulateFocus() async throws {
-        _ = try await devTools("Emulation.setFocusEmulationEnabled", ["enabled": true])
-    }
-
     /// Clicks the center of the first element matching `selector` with `button` (the left one by default) while
     /// `modifiers` are held, scrolling it into view first. The keys count as held for this click only, so a Cmd-click
     /// on a link opens it the way Chromium opens a modified click. Throws when no element matches, it has no size, or
@@ -94,7 +113,7 @@ extension E2EPage {
         let center = try await evaluate(
             """
             (() => {
-              const element = document.querySelector(\(Self.jsString(selector)));
+              const element = document.querySelector(selector);
               if (!element) return 'no element matches';
               element.scrollIntoView({ block: 'center', inline: 'center', behavior: 'instant' });
               const rect = element.getBoundingClientRect();
@@ -104,7 +123,8 @@ extension E2EPage {
               if (!element.contains(hit)) return 'another element covers its center';
               return [x, y, ['IFRAME', 'FRAME', 'EMBED', 'OBJECT'].includes(hit.tagName) ? 0 : 1];
             })()
-            """
+            """,
+            arguments: ["selector": selector], userGesture: false
         )
         guard let point = center as? [Double], point.count == 3 else {
             throw E2EError("cannot \(verb) \(selector): \(center as? String ?? "no position")")
@@ -123,18 +143,12 @@ extension E2EPage {
     func confirmedPress(
         at target: E2EPressTarget, button: E2EMouseButton, modifiers: E2EInputModifiers, arriving: [String]
     ) async throws {
-        // `buttons` is the buttons held after the event: the pressed one while held, none once released.
-        func send(_ type: String, buttons: Int) async throws {
-            _ = try await devTools(
-                "Input.dispatchMouseEvent",
-                [
-                    "type": type, "x": target.x, "y": target.y, "button": button.rawValue, "buttons": buttons,
-                    "clickCount": 1, "modifiers": modifiers.rawValue,
-                ]
-            )
+        func send(_ kind: E2EMouseEvent.Kind) async throws {
+            try await dispatchMouse(
+                E2EMouseEvent(kind: kind, x: target.x, y: target.y, button: button, modifiers: modifiers))
         }
-        // Whether the page saw `field` since it was armed. The DevTools call returns once the renderer handled
-        // the event, so its listener has run by then. No record at all means a new document replaced the page,
+        // Whether the page saw `field` since it was armed. The driver returns once the page handled the event, so
+        // its listener has run by then. No record at all means a new document replaced the page,
         // which only input that landed can do, so that counts as seen.
         func missed(_ field: String) async throws -> Bool {
             try await evaluate("window.\(Self.pressRecord)?.\(field)") as? Bool == false
@@ -144,9 +158,9 @@ extension E2EPage {
         var resends = 0
         while true {
             if target.confirms { _ = try await evaluate(arm) }
-            try await send("mousePressed", buttons: button.heldBit)
+            try await send(.press)
             let pressLost = target.confirms ? try await missed("pressed") : false
-            try await send("mouseReleased", buttons: 0)
+            try await send(.release)
             // Only the event decides: when it arrived, nothing is sent again, even if `pointerdown` went unseen.
             guard target.confirms, try await missed("arrived") else { return }
             let lost = pressLost ? "press" : arriving[0]
@@ -173,10 +187,7 @@ extension E2EPage {
         var resends = 0
         while true {
             if target.confirms { _ = try await evaluate(arm) }
-            _ = try await devTools(
-                "Input.dispatchMouseEvent",
-                ["type": "mouseMoved", "x": target.x, "y": target.y, "button": "none", "buttons": 0]
-            )
+            try await dispatchMouse(E2EMouseEvent(kind: .move, x: target.x, y: target.y))
             guard target.confirms, try await evaluate("window.\(Self.pressRecord)?.arrived") as? Bool == false
             else { return }
             resends += 1
@@ -214,27 +225,20 @@ extension E2EPage {
     /// Types `text` into the focused element, the way text arrives from a keyboard or an input method.
     func type(_ text: String) async throws {
         try await emulateFocus()
-        _ = try await devTools("Input.insertText", ["text": text])
+        try await insertText(text)
     }
 
     /// Presses and releases `key` in the focused element.
     func press(_ key: E2EKey) async throws {
         try await emulateFocus()
         let event = key.event
-        var down: [String: Any] = [
-            "key": event.key, "code": event.code,
-            "windowsVirtualKeyCode": event.keyCode, "nativeVirtualKeyCode": event.macKeyCode,
-        ]
+        let down = E2EKeyEvent(
+            isDown: true, key: event.key, code: event.code, macKeyCode: event.macKeyCode, text: event.text)
         var up = down
-        up["type"] = "keyUp"
-        if let text = event.text {
-            down["type"] = "keyDown"
-            down["text"] = text
-        } else {
-            down["type"] = "rawKeyDown"
-        }
-        _ = try await devTools("Input.dispatchKeyEvent", down)
-        _ = try await devTools("Input.dispatchKeyEvent", up)
+        up.isDown = false
+        up.text = nil
+        try await dispatchKey(down)
+        try await dispatchKey(up)
     }
 
     /// Presses and releases the letter key `letter` with `modifiers` held, as a keyboard shortcut arrives at the
@@ -243,26 +247,22 @@ extension E2EPage {
     func press(letter: Character, macKeyCode: Int, modifiers: E2EKeyModifiers) async throws {
         try await emulateFocus()
         let key = String(letter).lowercased()
-        var flags = 0
-        if modifiers.contains(.option) { flags |= 1 }
-        if modifiers.contains(.control) { flags |= 2 }
-        if modifiers.contains(.command) { flags |= 4 }
-        if modifiers.contains(.shift) { flags |= 8 }
-        var down: [String: Any] = [
-            "type": "rawKeyDown", "key": key, "code": "Key\(key.uppercased())",
-            "windowsVirtualKeyCode": Int(key.uppercased().unicodeScalars.first?.value ?? 0),
-            "nativeVirtualKeyCode": macKeyCode, "modifiers": flags,
-            // What a real key press carries as its characters without modifiers, which shortcuts match on.
-            "unmodifiedText": key,
-        ]
+        var held: E2EInputModifiers = []
+        if modifiers.contains(.option) { held.insert(.option) }
+        if modifiers.contains(.control) { held.insert(.control) }
+        if modifiers.contains(.command) { held.insert(.command) }
+        if modifiers.contains(.shift) { held.insert(.shift) }
+        // What a real key press carries as its characters without modifiers, which shortcuts match on.
+        var down = E2EKeyEvent(
+            isDown: true, key: key, code: "Key\(key.uppercased())", macKeyCode: macKeyCode, unmodifiedText: key,
+            modifiers: held)
         var up = down
-        up["type"] = "keyUp"
+        up.isDown = false
         if modifiers.isEmpty || modifiers == .shift {
-            down["type"] = "keyDown"
-            down["text"] = modifiers == .shift ? key.uppercased() : key
+            down.text = modifiers == .shift ? key.uppercased() : key
         }
-        _ = try await devTools("Input.dispatchKeyEvent", down)
-        _ = try await devTools("Input.dispatchKeyEvent", up)
+        try await dispatchKey(down)
+        try await dispatchKey(up)
     }
 
     /// `values` as a JavaScript array of string literals.

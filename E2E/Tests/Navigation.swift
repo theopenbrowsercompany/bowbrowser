@@ -214,8 +214,7 @@ struct NavigationPopupTest: E2ETest {
                 "window.open('child.html?via=open')",
             ] {
                 // As if from a click: pages open popups from user actions.
-                _ = try await page.devTools(
-                    "Runtime.evaluate", ["expression": "void \(open)", "userGesture": true])
+                _ = try await page.evaluate("void \(open)", arguments: [:], userGesture: true)
             }
             // The messages the children posted, once both have arrived or when the step's time is nearly up.
             return try await page.string(

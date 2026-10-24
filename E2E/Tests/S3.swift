@@ -300,7 +300,7 @@ final class S3Session {
         case .wasHidden:
             extra["wasHiddenCalled"] = try parked.map { try app.s3SetWasHidden(true, $0.page) }.allSatisfy { $0 }
         case .frozen:
-            for tab in parked { _ = try await tab.page.devTools("Page.setWebLifecycleState", ["state": "frozen"]) }
+            for tab in parked { try await app.s3SetFrozen(true, tab.page) }
             extra["frozen"] = parked.count
             // A frozen page answers no reads, so its counters run from before the settle to after the measuring.
             extra["pageCountersCover"] = "settle and measuring"
@@ -357,7 +357,7 @@ final class S3Session {
         let topResult = await top.rows()
         self.top = nil
         if frozen {
-            for tab in parked { _ = try await tab.page.devTools("Page.setWebLifecycleState", ["state": "active"]) }
+            for tab in parked { try await app.s3SetFrozen(false, tab.page) }
         }
         let pages = try await takeAll()
         // Undoes the per tab states that would carry into the next pass.
