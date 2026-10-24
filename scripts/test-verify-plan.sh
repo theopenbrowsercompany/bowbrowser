@@ -19,6 +19,7 @@ git -C "$repo" add -A
 git -C "$repo" -c user.name=t -c user.email=t@t commit -q -m base
 
 failed=0
+total=$(grep -c "^  \"test-" scripts/verify.sh)
 # plan [env...]: the "parts" line of verify.sh --plan with the four fixed parts (lint guards test build) removed.
 plan() {
   (cd "$repo" && env -u VERIFY_ALL VERIFY_BASE=HEAD "$@" ./scripts/verify.sh --plan 2>&1 | sed -n 's/^verify: parts lint guards test build *//p')
@@ -53,10 +54,10 @@ check ".githooks/pre-push: the private paths self test" "test-private-paths" "$(
 git -C "$repo" checkout -q -- .githooks/pre-push
 
 echo more >> "$repo/Makefile"
-check "the Makefile: every self test" "10" "$(plan | wc -w | tr -d ' ')"
+check "the Makefile: every self test" "$total" "$(plan | wc -w | tr -d ' ')"
 git -C "$repo" checkout -q -- Makefile
 
-check "VERIFY_ALL=1 with no change: every self test" "10" "$(plan VERIFY_ALL=1 | wc -w | tr -d ' ')"
+check "VERIFY_ALL=1 with no change: every self test" "$total" "$(plan VERIFY_ALL=1 | wc -w | tr -d ' ')"
 
 echo new > "$repo/scripts/done.sh.new"
 echo new > "$repo/scripts/check.sh.new"
@@ -67,7 +68,7 @@ check "a deleted covered script counts" "test-affected" "$(plan)"
 git -C "$repo" reset -q --hard
 
 (cd "$repo" && env -u VERIFY_ALL VERIFY_BASE=nope ./scripts/verify.sh --plan > "$tmp/noref.out" 2>&1)
-check "no base ref: every self test" "10" "$(sed -n 's/^verify: parts lint guards test build *//p' "$tmp/noref.out" | wc -w | tr -d ' ')"
+check "no base ref: every self test" "$total" "$(sed -n 's/^verify: parts lint guards test build *//p' "$tmp/noref.out" | wc -w | tr -d ' ')"
 
 [ "$failed" = 0 ] && echo "verify plan self test: ok" || echo "verify plan self test: FAIL"
 exit "$failed"
