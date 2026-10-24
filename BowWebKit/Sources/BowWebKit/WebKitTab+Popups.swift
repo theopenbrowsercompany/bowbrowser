@@ -58,4 +58,29 @@ extension WebKitTab {
         delegate.tab(self, didOpenPopup: popup, request: request)
         return popup.webView
     }
+
+    /// A modified click on a link that loads in its own frame (`LinkDispositionResponder`), decided as Bow on CEF
+    /// decides one (`OnOpenURLFromTab`). True when the click must not load here: the app blocked it, or took it as a
+    /// tab, panel or Peek, which opens the link in a new tab of the profile with the click's referrer and no
+    /// `window.opener` (a modified click never keeps one), handed to `didOpenPopup` before its first load. False lets
+    /// the link load here, as before: the app chose `.window`, or the tab has no delegate. A popup window's links load
+    /// in it, as a window of CEF's own never asks.
+    func openLinkInNewTab(_ action: WKNavigationAction) -> Bool {
+        guard !isClosed, !isPopupWindow, let delegate, let url = action.request.url else { return false }
+        let request = PopupRequest(linkClick: action)
+        switch delegate.tab(self, decidePopup: request) {
+        case .block: return true
+        case .window: return false
+        case .foregroundTab, .backgroundTab, .popupPanel, .peek: break
+        }
+        let tab = WebKitTab(profile: profile)
+        guard !tab.isClosed else { return true }
+        delegate.tab(self, didOpenPopup: tab, request: request)
+        var load = URLRequest(url: url)
+        if let referrer = action.request.value(forHTTPHeaderField: "Referer") {
+            load.setValue(referrer, forHTTPHeaderField: "Referer")
+        }
+        tab.webView?.load(load)
+        return true
+    }
 }

@@ -58,6 +58,10 @@ enum NavigationResponders {
             // A link that asks for a download downloads instead of navigating, so the app's policy, which is about
             // navigations, is not asked; responses come after every navigation question.
             DownloadResponder(),
+            // A modified link click that opens a new tab, after downloads (it never takes one) and ahead of the app's
+            // policy, which answers every main frame navigation: the new tab's first load asks that policy itself,
+            // and a click left to load here asks it next.
+            LinkDispositionResponder(),
             // The app's policy before the rest: a navigation it cancels reaches no other responder.
             PolicyResponder(),
             // A new document ends the find in progress before the app hears of the commit.
