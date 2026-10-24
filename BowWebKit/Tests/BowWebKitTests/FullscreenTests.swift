@@ -28,6 +28,8 @@ import WebKit
         }
         #expect(tab.webView?.fullscreenState == .notInFullscreen)
         #expect(fullscreenEvents(rig.delegate).isEmpty)
+        // The page may go fullscreen: the tab turned element fullscreen on as it observed the page.
+        #expect(try await PageDriver(tab.webView!).bool("return document.fullscreenEnabled"))
         let tracker = FullscreenTracker()
 
         // In: entering changes nothing, in fullscreen sends true once.

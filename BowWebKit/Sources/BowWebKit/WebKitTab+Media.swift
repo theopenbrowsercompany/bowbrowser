@@ -11,7 +11,8 @@ extension WebKitTab {
     func observeMedia(of webView: WKWebView) {
         // Private: without it the tab never reports sound (WebKitSPI, `_isPlayingAudio`). Every tab's web view is a
         // WebKitWebView.
-        if let webView = webView as? WebKitWebView {
+        // Observed only while WebKit has the key, since key value observation of a key WebKit dropped may raise.
+        if let webView = webView as? WebKitWebView, WebKitWebView.hasPlayingAudioKey {
             observations.append(webView.observe(\.bowIsPlayingAudio) { [weak self] _, _ in self?.mediaDidChange() })
         }
         observations.append(webView.observe(\.cameraCaptureState) { [weak self] _, _ in self?.mediaDidChange() })
@@ -47,6 +48,9 @@ extension WebKitWebView {
     /// The private key WebKit sends change notices for as the page starts and stops playing sound. Key value
     /// observation asks for it as an observation starts, which the tab does on the main thread.
     @objc nonisolated static func keyPathsForValuesAffectingBowIsPlayingAudio() -> Set<String> {
-        MainActor.assumeIsolated { [NSStringFromSelector(WebKitSPI.isPlayingAudio)] }
+        MainActor.assumeIsolated { hasPlayingAudioKey ? [NSStringFromSelector(WebKitSPI.isPlayingAudio)] : [] }
     }
+
+    /// Whether WebKit has its private playing audio key.
+    static var hasPlayingAudioKey: Bool { WebKitSPI.has(WebKitSPI.isPlayingAudio, on: WKWebView.self) }
 }

@@ -71,7 +71,7 @@ import WebKit
             // Mock devices only: a test never opens a real camera or microphone, or asks the person.
             try #require(
                 WebKitSPI.setMockCaptureDevicesEnabled(configuration.preferences, true),
-                "no mock capture devices on this macOS; the check is skipped rather than use a real device")
+                "no mock capture devices on this macOS; the check fails rather than use a real device")
         }
         // Capture permission is the permissions area's to answer; here the test grants it.
         tab.webView?.uiDelegate = grant
