@@ -30,8 +30,11 @@ final class WebKitDownload {
     var isRestarting = false
     /// What WebKit needs to resume where it stopped (`WKWebView.resumeDownload(fromResumeData:)`).
     var resumeData: Data?
+    /// True when no file was at the destination as it was chosen, so whatever is there now is the download's own.
+    /// A file that was there before (WebKit then refuses the download) is the person's and is never deleted.
+    var ownsDestination = false
     /// The WebKit download running it now. Held strongly: the profile's downloads keep a running download, never
-    /// its tab, so it goes on after its tab closed.
+    /// its tab, so it goes on after its tab closed (WebKit keeps a running one alive too, the tests found).
     private(set) var download: WKDownload?
 
     private var observations: [NSKeyValueObservation] = []
@@ -90,9 +93,9 @@ final class WebKitDownload {
         return true
     }
 
-    /// Deletes what was saved so far at the destination, if anything was.
+    /// Deletes what was saved so far at the destination, if anything was, and only when the download made it.
     func removePartialFile() {
-        guard let destination = item.destination else { return }
+        guard ownsDestination, let destination = item.destination else { return }
         try? FileManager.default.removeItem(at: destination)
     }
 }
