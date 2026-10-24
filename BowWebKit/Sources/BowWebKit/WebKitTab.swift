@@ -24,7 +24,7 @@ final class WebKitTab: SPIDelegateBase, EngineTab, WKNavigationDelegate, WKUIDel
 
     /// The page, nil once the tab closed. Replaced only through `install(_:)` and `releaseWebView()`.
     private(set) var webView: WebKitWebView?
-    /// Set only by `refreshState()` (WebKitTab+State.swift).
+    /// Set only by `refreshState()` (WebKitTab+State.swift) and `updatePageSignals(_:)` (WebKitTab+PageSignals.swift).
     var state: EngineTabState
     private(set) var isClosed = false
     private(set) var closeReason: TabCloseReason?
