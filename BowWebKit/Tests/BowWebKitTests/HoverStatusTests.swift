@@ -66,7 +66,7 @@ import WebKit
         let tab = rig.tab("/hover/index.html")
         #expect(tab.hover.source == source)
         do {
-            try await walk(tab, rig, source)
+            try await InputLock.run { try await walk(tab, rig, source) }
             if source == .script { reinstallOnSharedController(tab, rig) }
         } catch {
             try? await rig.finish()
