@@ -76,6 +76,7 @@ final class WebKitTab: SPIDelegateBase, EngineTab, WKNavigationDelegate, WKUIDel
         observeHover(of: webView)
         observeProcessGone()
         observeContextMenu(of: webView)
+        observePageSignals(of: webView)
         committedURL = webView.url
         refreshState()
     }
