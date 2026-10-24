@@ -33,9 +33,11 @@ build: project
 	./scripts/stamp-tree.sh $(dir $(APP)).bow-tree-key ./scripts/xcodebuild.sh -project Bow.xcodeproj -scheme Bow -configuration Debug -derivedDataPath $(BUILD_DIR) -quiet build
 
 # BowCore's unit tests, then BowWebKit's tests, which run real WKWebViews in off screen windows of the test process.
+# BowWebKit runs with --no-parallel: its suites send real input (keys, clicks, pointer moves) to key windows, and
+# suites running side by side steal each other's events, which failed most full runs.
 test:
 	swift test --package-path BowCore --quiet
-	swift test --package-path BowWebKit --quiet
+	swift test --package-path BowWebKit --quiet --no-parallel
 
 # Tests the build lock with fake builds (about 65 seconds). Not part of verify.
 test-lock:
