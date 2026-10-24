@@ -67,12 +67,7 @@ import WebKit
         let rig = try TabRig()
         let url = rig.url("/media/capture.html")
         let grant = GrantCapture()
-        let tab = try tab(rig, "/media/capture.html") { configuration in
-            // Mock devices only: a test never opens a real camera or microphone, or asks the person.
-            try #require(
-                WebKitSPI.setMockCaptureDevicesEnabled(configuration.preferences, true),
-                "no mock capture devices on this macOS; the check fails rather than use a real device")
-        }
+        let tab = try tab(rig, "/media/capture.html") { try MockCapture.enable($0.preferences) }
         // Capture permission is the permissions area's to answer; here the test grants it.
         tab.webView?.uiDelegate = grant
         try await waitUntil("the capture page loaded", timeout: 10) {
@@ -108,27 +103,5 @@ import WebKit
         #expect(WebKitTab.isCapturing(.active))
         #expect(WebKitTab.isCapturing(.muted))
         #expect(!WebKitTab.isCapturing(.none))
-    }
-}
-
-/// Grants every camera and microphone request of the page, recording which it was asked.
-@MainActor
-final class GrantCapture: NSObject, WKUIDelegate {
-    private(set) var asked: [String] = []
-
-    nonisolated func webView(
-        _ webView: WKWebView, requestMediaCapturePermissionFor origin: WKSecurityOrigin,
-        initiatedByFrame frame: WKFrameInfo, type: WKMediaCaptureType,
-        decisionHandler: @escaping @MainActor @Sendable (WKPermissionDecision) -> Void
-    ) {
-        MainActor.assumeIsolated {
-            switch type {
-            case .camera: asked.append("camera")
-            case .microphone: asked.append("microphone")
-            case .cameraAndMicrophone: asked.append("cameraAndMicrophone")
-            @unknown default: asked.append("other")
-            }
-            decisionHandler(.grant)
-        }
     }
 }
