@@ -1,0 +1,8 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Linked page</title>
+<script>
+  // What the new page knows of the page it came from, in the DOM so the tests' own script world reads it.
+  document.documentElement.dataset.referrer = document.referrer || "none";
+  document.documentElement.dataset.opener = window.opener ? "kept" : "none";
+</script>

@@ -26,6 +26,15 @@ extension PopupRequest {
         return 0
     }
 
+    /// The request for a modified click on a link that loads in its own frame (`LinkDispositionResponder`): no
+    /// window features, so the click alone decides where it opens, as CEF's `OnOpenURLFromTab` asks.
+    @MainActor init(linkClick action: WKNavigationAction) {
+        self.init(
+            targetURL: action.request.url, features: PopupWindowFeatures(),
+            isUserGesture: WebKitSPI.isUserInitiated(action) ?? true, modifierFlags: action.modifierFlags,
+            buttonNumber: Self.eventButtonNumber(webKitButtons: action.buttonNumber))
+    }
+
     /// The request for `targetURL` with `features`, from the click's modifier keys and mouse button (NSEvent's
     /// numbering, 2 for the middle button). Without a user gesture no click opened it, so it has no modifiers.
     init(

@@ -1,0 +1,11 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Plain links</title>
+<style>
+  a { display: block; width: 200px; height: 40px; margin: 10px; }
+  iframe { width: 300px; height: 80px; }
+</style>
+<a id="plain" href="linked.html">A plain link</a>
+<a id="noreferrer" href="linked.html?noreferrer" referrerpolicy="no-referrer">A link that sends no referrer</a>
+<a id="framed" href="linked.html?framed" target="inner">A link into the frame</a>
+<iframe name="inner" src="about:blank"></iframe>
