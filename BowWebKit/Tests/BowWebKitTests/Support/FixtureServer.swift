@@ -28,6 +28,14 @@ final class FixtureServer: @unchecked Sendable {
         /// Seconds to hold the answer, as a slow server would; `.infinity` never answers (the connection stays open
         /// until the server stops), for a load that is still going when the test acts.
         var delay: Double = 0
+        /// Sends the body `bytes` at a time, `interval` seconds apart, as a slow network would, so a test can act
+        /// while it is still arriving; nil sends it at once.
+        var pace: Pace?
+
+        struct Pace: Sendable {
+            var bytes: Int
+            var interval: Double
+        }
 
         static func html(_ text: String, status: Int = 200, headers: [String] = []) -> Response {
             Response(
@@ -158,6 +166,7 @@ final class FixtureServer: @unchecked Sendable {
                 let response = self.respond(to: head)
                 guard response.delay.isFinite else { return }
                 let send = {
+                    if let pace = response.pace { return self.send(response, at: pace, on: connection) }
                     connection.send(
                         content: Self.encode(response), completion: .contentProcessed { _ in self.finish(connection) })
                 }
@@ -172,6 +181,25 @@ final class FixtureServer: @unchecked Sendable {
             self.receive(connection, buffer: buffer)
         }
     }
+
+    /// Sends the head with the first piece of the body, then a piece every `pace.interval` seconds; stops when the
+    /// client went away or the server stopped.
+    private func send(_ response: Response, at pace: Pace, on connection: NWConnection) {
+        let data = Self.encode(response)
+        let head = data.count - response.body.count
+        @Sendable func piece(from start: Int) {
+            let end = min(data.count, (start == 0 ? head : start) + max(pace.bytes, 1))
+            connection.send(
+                content: data.subdata(in: start..<end),
+                completion: .contentProcessed { error in
+                    guard error == nil, end < data.count else { return self.finish(connection) }
+                    self.queue.asyncAfter(deadline: .now() + pace.interval) { piece(from: end) }
+                })
+        }
+        piece(from: 0)
+    }
+
+    typealias Pace = Response.Pace
 
     private func respond(to head: String) -> Response {
         let lines = head.components(separatedBy: "\r\n")
