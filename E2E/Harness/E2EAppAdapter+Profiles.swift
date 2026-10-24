@@ -18,8 +18,10 @@ extension E2EAppAdapter {
         return profiles.map { "\($0.id.rawValue):\($0.name)" }
     }
 
-    func registeredStoreIDs() -> [String: String] {
-        let profiles = delegate.appFeatures.require(ProfileRegistryStore.self).registry?.profiles ?? []
+    /// Opens a new `ProfileRegistryStore` on `folder` through the `registry` the app's own store opens with, and
+    /// returns the storage UUIDs it holds by profile ID; the store is let go afterwards.
+    func openProfileStoreIDs(in folder: URL) -> [String: String] {
+        let profiles = ProfileRegistryStore(dataDirectory: folder).registry?.profiles ?? []
         return Dictionary(uniqueKeysWithValues: profiles.map { ($0.id.rawValue, $0.storeID.uuidString) })
     }
 
@@ -127,9 +129,9 @@ extension E2ETestApp: E2EProfilesApp {
         return adapter.registeredProfiles()
     }
 
-    func registeredStoreIDs() throws -> [String: String] {
-        try adapter.requireActive(token, "read the profiles' storage IDs")
-        return adapter.registeredStoreIDs()
+    func openProfileStoreIDs(in folder: URL) throws -> [String: String] {
+        try adapter.requireActive(token, "open a profile store")
+        return adapter.openProfileStoreIDs(in: folder)
     }
 
     func rendererProcessCount() throws -> Int {
