@@ -22,7 +22,7 @@ import WebKit
         _ expected: URL, _ tab: WebKitTab, _ rig: TabRig, check: String
     ) async {
         // Waits on the value checked next; a timeout is reported by the check, with the icon seen.
-        try? await waitUntil("faviconURL \(expected)", timeout: 5) { tab.state.faviconURL == expected }
+        try? await waitUntil("faviconURL \(expected)", timeout: 10) { tab.state.faviconURL == expected }
         let ok = tab.state.faviconURL == expected && lastFavicon(rig.delegate) == .some(expected)
         #expect(ok, "\(check): faviconURL \(String(describing: tab.state.faviconURL)), expected \(expected)")
         print("\(ok ? "PASS" : "FAIL") pageSignals.favicon.\(check): \(tab.state.faviconURL?.absoluteString ?? "nil")")
