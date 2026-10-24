@@ -10,9 +10,18 @@
     p { max-width: 36em; }
   </style>
   <script>
-    // ?title=<name> names the page; ?dark=1 gives it a dark background of its own.
+    // ?title=<name> names the page; ?dark=1 gives it a dark background of its own; ?icon=<name> links
+    // https://bow.test/design/icons/<name>.png as its icon.
     const params = new URLSearchParams(location.search);
     document.title = params.get("title") || "Page";
+    const icon = params.get("icon");
+    if (icon && /^[a-z0-9-]+$/.test(icon)) {
+      const link = document.createElement("link");
+      link.rel = "icon";
+      link.type = "image/png";
+      link.href = `https://bow.test/design/icons/${icon}.png`;
+      document.head.appendChild(link);
+    }
     addEventListener("DOMContentLoaded", () => {
       document.querySelector("h1").textContent = document.title;
       if (params.get("dark")) document.body.classList.add("dark");

@@ -1,9 +1,9 @@
 import Foundation
 
-/// The window's look as a test reads it: the app icon in the bundle, the title bar style, the sidebar's top row,
-/// the page card, the frame color and the active row, plus window size and appearance changes and screenshots for
-/// the maintainer. E2E/Harness/E2EAppAdapter+Design.swift implements it; every action is refused once the test has
-/// ended.
+/// The window's look as a test reads it, one part per surface (`E2EDesignLook`), plus window size and appearance
+/// changes, the design fixture's clock and captures for the maintainer. E2E/Harness/E2EAppAdapter+Design.swift
+/// implements it, with each surface's reading in its own `E2EAppAdapter+Design<Surface>.swift`; every action is
+/// refused once the test has ended.
 @MainActor
 protocol E2EDesignApp: E2EApp {
     /// What `page`'s window and the app bundle look like now. Colors are read in the window's own appearance.
@@ -18,80 +18,30 @@ protocol E2EDesignApp: E2EApp {
     /// Writes a PNG of `page`'s window to `url` (title bar, sidebar, page card and web content), also when the
     /// window shows no page (the empty state), in which case the web content is left out.
     func writeScreenshot(of page: any E2EPage, to url: URL) async throws
+    /// A design capture of `page`'s window as PNG data, at 2 pixels per point on any screen: the whole window with
+    /// the tab it shows now (`window`), or only the sidebar's column from the window's top to its bottom, with no web
+    /// content (`sidebar`). Before drawing it moves the pointer off the sidebar (every row, tile and button shows
+    /// no hover) and hides the text caret, which it shows again after.
+    func capture(of page: any E2EPage, _ region: E2EDesignRegion) async throws -> Data
+    /// Makes the start screen's greeting read `date` as the time of day, or the real clock again with nil. The
+    /// runner goes back to the real clock when the test ends.
+    func useClock(_ date: Date?) throws
+    /// The Spaces, Favorites and tabs `page`'s window holds, as the design fixture checks them.
+    func fixtureState(of page: any E2EPage) throws -> E2EDesignFixtureState
 }
 
-/// The window's look (`E2EDesignApp.look(of:)`). Colors are `#RRGGBB` in sRGB, nil when there is none.
+/// What `E2EDesignApp.capture(of:_:)` draws.
+enum E2EDesignRegion {
+    case window
+    case sidebar
+}
+
+/// The window's look (`E2EDesignApp.look(of:)`), one part per surface, each declared in its own
+/// `E2EDesign<Surface>.swift`. Colors are `#RRGGBB` in sRGB, nil when there is none.
 struct E2EDesignLook {
-    /// The bundle's icon name (CFBundleIconName, else CFBundleIconFile), nil without one.
-    var iconName: String?
-    /// True when the compiled icon (`<name>.icns` and `Assets.car`) is in the app's Resources.
-    var iconFileExists: Bool
-    var fullSizeContent: Bool
-    var titlebarTransparent: Bool
-    /// True when the window has a toolbar.
-    var hasToolbar: Bool
-    var sidebarWidth: Double
-    /// True when the window's close, minimize and zoom buttons sit within the sidebar's width.
-    var windowButtonsOverSidebar: Bool
-    /// True when the back, forward and reload buttons sit in the sidebar, after the window buttons and level with
-    /// them (centers within 2 points).
-    var navigationInSidebarRow: Bool
-    /// True when the navigation buttons draw in the dark appearance, as they must when the window is dark.
-    var navigationDark: Bool
-    /// The page area's insets: top, left, bottom, right.
-    var pageInsets: [Double]
-    var pageCornerRadius: Double
-    var pageCornerContinuous: Bool
-    /// True when a click 4 points below the page card's top edge reaches the page, not the title bar.
-    var pageTopClickable: Bool
-    var pageShadowOpacity: Double
-    var pageShadowRadius: Double
-    /// True when the page shadow has a shadow path the size of its view.
-    var pageShadowHasPath: Bool
-    /// The page area's and the shadow view's frames, in the window's content view.
-    var pageFrame: CGRect
-    var shadowFrame: CGRect
-    /// The window's background, which the frame (sidebar and title bar) shows.
-    var frameColor: String?
-    /// The active tab's row: its lifted background, its shadow opacity, its height, corner radius, and its title's
-    /// color and weight.
-    var selectedRowBackground: String?
-    var selectedRowShadowOpacity: Double
-    var selectedRowHeight: Double
-    var selectedRowCornerRadius: Double
-    var selectedRowText: String?
-    var selectedRowBold: Bool
-    /// The empty state: shown, and its Bow mark's point size (0 without one).
-    var showsEmptyState: Bool
-    var emptyStateMarkSize: Double
-    /// Frames in the sidebar's outline (top left origin, x from the sidebar's leading edge), zero when not shown: the
-    /// first Favorite tile, the Favorites grid, the Space name and the first row of the Space's tabs.
-    var favoriteTileFrame: CGRect
-    var favoritesFrame: CGRect
-    var spaceNameFrame: CGRect
-    var firstTabRowFrame: CGRect
-    /// The leading x of the icon of the first tab directly in a section and of the first tab inside a folder, in the
-    /// outline, and that second row's height; 0 without such a row.
-    var topIconX: Double
-    var childIconX: Double
-    var childRowHeight: Double
-    /// The active Space's dot in the footer: its size, its ring's width and color, and the gap between them.
-    var spaceDotSize: Double
-    var spaceRingWidth: Double
-    var spaceRingGap: Double
-    var spaceRingColor: String?
-    /// The footer: how far the Space dots' middle is from the middle of the gap between the archive button's trailing
-    /// edge and the "+" button's leading edge (0 when centred), and whether the downloads and archive buttons sit
-    /// left of the dots and the "+" right of them.
-    var footerDotsOffset: Double
-    var footerOrder: Bool
-    /// Each Space dot's color in order, `#RRGGBB` (nil for a Space showing an emoji or symbol), and the titles of the
-    /// active dot's context menu ("<submenu>/<item>" after a submenu, "-" for a separator).
-    var footerDotColors: [String?]
-    var footerDotMenu: [String]
-    /// The command bar's panel: the corner radius its content is clipped to, whether it is clipped, and whether the
-    /// panel's shadow has a path the size of the panel (read while the bar shows).
-    var commandBarRadius: Double
-    var commandBarClips: Bool
-    var commandBarShadowHasPath: Bool
+    var frame: E2EDesignFrameLook
+    var sidebar: E2EDesignSidebarLook
+    var favorites: E2EDesignFavoritesLook
+    var footer: E2EDesignFooterLook
+    var commandBar: E2EDesignCommandBarLook
 }

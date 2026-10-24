@@ -64,7 +64,7 @@ final class E2ERunner {
     fileprivate let downloadsDirectory: URL
     private let fixtureDirectory: URL
     private let defaultsSuiteName: String
-    private let output: E2EOutput
+    fileprivate let output: E2EOutput
     private let watchdog: E2EWatchdog
     private let chromiumLog: E2EChromiumLog
     private let crashWatch = E2ERendererCrashWatch()
@@ -655,6 +655,14 @@ final class E2ERun {
     /// `E2ETest.timeLimit`.
     static let testTimeout: TimeInterval = 120
     private var remainingTime: TimeInterval { max(deadline.timeIntervalSinceNow, 0.001) }
+
+    /// Prints `NOTE <text>`, a line for the person reading the run that is never a pass or a failure (for example a
+    /// design capture that could not be written), and keeps it in the test's log.
+    func note(_ text: String) {
+        guard !finished else { return }
+        log.append("note: \(text)")
+        runner.output.line("NOTE \(text)")
+    }
 
     /// Records a check, printing `PASS name: detail` or `FAIL <step>: name: detail`. A check the test does not
     /// declare in `E2ETest.checks` fails, so the run's total stays the same however far tests get. A check recorded
