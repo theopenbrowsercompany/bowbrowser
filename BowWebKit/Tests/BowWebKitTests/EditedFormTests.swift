@@ -23,43 +23,6 @@ import WebKit
         return try #require(try JSONSerialization.jsonObject(with: Data(text.utf8)) as? [String])
     }
 
-    /// A click on `selector` handed straight to the web view, with no pointer move and not through the window:
-    /// a mouse event the window dispatches moves AppKit's idea of where the pointer is, which sends a pointer exit
-    /// to the tracking areas of another suite's window (HoverStatusTests).
-    private func click(_ selector: String, _ driver: PageDriver) async throws {
-        let webView = driver.webView
-        guard let window = webView.window else { throw TestError("the web view is in no window") }
-        let at = driver.windowPoint(try await driver.centre(of: selector))
-        for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
-            guard
-                let event = NSEvent.mouseEvent(
-                    with: type, location: at, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
-                    windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1,
-                    pressure: type == .leftMouseDown ? 1 : 0)
-            else { throw TestError("could not make a \(type) event") }
-            window.sendEvent(event)
-        }
-        _ = await WebKitSPI.afterPendingMouseEvents(webView)
-    }
-
-    /// Key down and up events for `text`, one character at a time, sent to `window` itself.
-    private func type(_ text: String, in window: NSWindow) throws {
-        for character in text {
-            let chars = String(character)
-            guard let code = KeyCodes.code(for: character) else { throw TestError("no key code for \(chars)") }
-            for type in [NSEvent.EventType.keyDown, .keyUp] {
-                guard
-                    let event = NSEvent.keyEvent(
-                        with: type, location: .zero, modifierFlags: character.isUppercase ? .shift : [],
-                        timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber,
-                        context: nil, characters: chars, charactersIgnoringModifiers: chars.lowercased(),
-                        isARepeat: false, keyCode: code)
-                else { throw TestError("could not make a key event") }
-                window.sendEvent(event)
-            }
-        }
-    }
-
     /// Types `text` into the field `selector` with real key events. The window reports key and the web view is its
     /// first responder, so WebKit gives the page focus for the keys. Another suite's `TestHost.show` can take key
     /// from the window between two steps, so each try asserts key again, and a try whose keys did not all reach the
@@ -70,12 +33,22 @@ import WebKit
             window.makeFirstResponder(driver.webView)
             guard try await driver.bool("return document.hasFocus()") else { return nil }
             _ = try await driver.eval("document.querySelector(selector).value = ''", ["selector": selector])
-            try await click(selector, driver)
-            try type(text, in: window)
+            try await driver.click(selector)
+            try driver.type(text)
             return try? await waitFor("the field got \(text)", timeout: 5) {
                 try await driver.string("return document.querySelector(selector).value", ["selector": selector])
                     == text ? true : nil
             }
+        }
+    }
+
+    /// `type(_:into:_:_:)` holding the input lock, giving key up again before letting go of it.
+    private func typeHoldingInput(
+        _ text: String, into selector: String, _ driver: PageDriver, _ window: TestWindow
+    ) async throws {
+        try await InputLock.run {
+            defer { window.reportsKey = false }
+            try await type(text, into: selector, driver, window)
         }
     }
 
@@ -114,7 +87,7 @@ import WebKit
         print("\(scripted ? "PASS" : "FAIL") pageSignals.editedForm.scripted: hasEditedForm=\(tab.state.hasEditedForm)")
 
         // Typing into a field is an edit.
-        try await type("Ab", into: "#name", driver, rig.window)
+        try await typeHoldingInput("Ab", into: "#name", driver, rig.window)
         // Waits on the value checked next.
         try? await waitUntil("hasEditedForm true", timeout: 10) { tab.state.hasEditedForm }
         let typed = tab.state.hasEditedForm && editedStates(rig.delegate).last == true

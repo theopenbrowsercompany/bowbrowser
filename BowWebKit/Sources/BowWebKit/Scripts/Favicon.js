@@ -25,7 +25,9 @@
     } catch {}
   };
   // Only a change that touches a link element can change the icon, so other changes cost one pass over the records.
-  const isLink = (node) => node.nodeName === "LINK";
+  // A link counts inside an added or removed subtree too.
+  const isLink = (node) =>
+    node.nodeName === "LINK" || (node instanceof Element && node.querySelector("link") !== null);
   const touchesLink = (records) =>
     records.some((record) =>
       isLink(record.target) || [...record.addedNodes].some(isLink) || [...record.removedNodes].some(isLink));
