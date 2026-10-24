@@ -186,8 +186,10 @@ prog='
       if ($o eq "PASS") { $r->{pass}++; next }
       if ($o eq "FAIL") { $r->{fail}++ } elsif ($o eq "TIMEOUT") { $r->{timeout}++ } else { $r->{flaky}++ }
       $r->{last} = $e->{date} if $e->{date} gt $r->{last};
+      # Only an exact tree match is on main; a main tree plus a suffix is main with uncommitted edits (tree-key.sh), which is not main.
       (my $base = $e->{tree}) =~ s/-.*//;
-      $e->{onmain} = $base ne "unknown" && $main{$base} ? 1 : 0;
+      $e->{onmain} = $e->{tree} ne "unknown" && $main{$e->{tree}} ? 1 : 0;
+      $e->{edits} = !$e->{onmain} && $base ne "unknown" && $main{$base} ? 1 : 0;
       $r->{onmain}++ if $e->{onmain};
       # A FLAKY outcome passed on the retry of its own tree; a FAIL or TIMEOUT is an event when the same tree passed later.
       my $event = $o !~ /^(FAIL|TIMEOUT)\z/ || grep { $_->{outcome} eq "PASS" && $e->{tree} ne "unknown" && $_->{tree} eq $e->{tree} && $_->{date} ge $e->{date} } @all;
@@ -207,7 +209,7 @@ prog='
     my @bad = grep { $_->{outcome} ne "PASS" } @all;
     for my $e (@bad) {
       (my $short = $e->{tree}) =~ s/-.*//;
-      printf "  %s %s %s tree %s%s\n", $e->{outcome}, $e->{date}, $e->{branch}, substr($short, 0, 8), $e->{onmain} ? " ON MAIN" : "";
+      printf "  %s %s %s tree %s%s\n", $e->{outcome}, $e->{date}, $e->{branch}, substr($short, 0, 8), $e->{onmain} ? " ON MAIN" : $e->{edits} ? " MAIN+EDITS" : "";
     }
     my ($from, $to) = ($bad[0]{date}, $bad[-1]{date});
     my (%share, $n);
