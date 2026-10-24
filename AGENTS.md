@@ -110,7 +110,7 @@ Stop only when a check fails and cannot be fixed, a guess would be costly to und
    If there is no spec, draft one from `spec/_template.md` in your own words as product behavior, grounded in the private `research/` (start with `research/02-arc-feature-triage.md`), copying none of its text.
    Decide the approach, the files that change, and how each "Done when" item will be checked end to end; where the item leaves something open, take the safest choice and note it in the report.
 3. **Build.** Create the worktree or branch, run `make bootstrap`, and follow the working rules.
-4. **Verify.** Check every "Done when" item end to end in the running app, run `make verify`, and run `/code-review` on the diff and fix what it finds.
+4. **Verify.** Check every "Done when" item end to end in the running app, run `make verify`, and run `/code-review` on the diff, fixing a finding only when it is one of the six blocker kinds in `.claude/agents/bow-reviewer.md` and putting every other finding under Later in the report (skip it when the brief says an independent review follows).
    Commit with a message that describes the change, without Plane IDs or private plans, then report what changed, the choices made, and what is still open.
 5. **Close.** Move the item to In Review with a comment naming the branch, the commit, the choices and what the maintainer should check; it moves to Done once its pull request merges.
    If it waits on something outside the project, add the `blocked` label with a comment.

@@ -1,7 +1,7 @@
 #!/bin/bash
 # Tests scripts/e2e-flakes.sh in ledger mode on a canned ledger and a canned list of origin/main's trees (--main-trees),
-# so it touches neither the real ledger nor git: a failure on a tree of origin/main is marked ON MAIN (also when the
-# ledger's tree carries a -<hash> suffix), and a FILE test lists its failures and each branch's share of the test's runs
+# so it touches neither the real ledger nor git: a failure on a tree of origin/main is marked ON MAIN (a main tree plus a
+# -<hash> suffix is MAIN+EDITS and not counted), and a FILE test lists its failures and each branch's share of the test's runs
 # in the failure window (the e2e.isolation case of retro 3: the failures ran on main's tree, and the suspected branch
 # ran 14 of the 20 runs). Takes a second.
 set -u
@@ -36,7 +36,7 @@ line() { # line <test> <outcome> <branch> <tree>: the next minute of the canned 
   printf '%s\t%s\t%s\t%s\t%s\t1.00\t-\tr%d\n' "$(date -u -r $((start + i * 60)) +%Y-%m-%dT%H:%M:%SZ)" "$1" "$2" "$3" "$4" "$i" >> "$ledger"
 }
 # e2e.isolation: 20 runs in the window from its first to its last failure. The first failure ran on main's tree, the
-# last on main's tree with an untracked file suffix; the suspect branch ran 14 of the 20 runs and failed once on its own tree.
+# last on main's tree with uncommitted edits (a suffix); the suspect branch ran 14 of the 20 runs and failed once on its own tree.
 line e2e.isolation FAIL other "$main_tree"
 line e2e.isolation FAIL suspect "$branch_tree"
 for _ in $(seq 13); do line e2e.isolation PASS suspect "$branch_tree"; done
@@ -55,12 +55,12 @@ line t.unknown FLAKY suspect unknown
 
 out=$(./scripts/e2e-flakes.sh --ledger "$ledger" --main-trees "$tmp/main-trees")
 row() { echo "$out" | awk -v t="$1" '$1 == t { print $2, $7, $8, $9 }'; }
-check "e2e.isolation: 20 runs, 3 events, FILE, 2 failures on main" "20 3 FILE 2" "$(row e2e.isolation)"
+check "e2e.isolation: 20 runs, 3 events, FILE, 1 failure on main (the suffixed tree is not counted)" "20 3 FILE 1" "$(row e2e.isolation)"
 check "a test with one event is not filed and has no failures on main" "2 1 - 0" "$(row t.plain)"
 check "failures on the branch's own tree are not on main" "2 2 FILE 0" "$(row t.mine)"
 check "a tree with no stamp is never on main" "2 2 FILE 0" "$(row t.unknown)"
 has "the first failure is marked ON MAIN" "$out" "  FAIL $(date -u -r $((start + 60)) +%Y-%m-%dT%H:%M:%SZ) other tree 0447a8a7 ON MAIN"
-has "a failure on a suffixed main tree is marked ON MAIN" "$out" "other tree 0447a8a7 ON MAIN"$'\n'"  window"
+has "a failure on a main tree plus edits is marked MAIN+EDITS, not ON MAIN" "$out" "other tree 0447a8a7 MAIN+EDITS"$'\n'"  window"
 has "the branch's own failure is not marked" "$out" "  FAIL $(date -u -r $((start + 120)) +%Y-%m-%dT%H:%M:%SZ) suspect tree feedface"$'\n'
 has "the failure window lists each branch's share of the runs" "$out" "suspect 14/20 runs, other 6/20 runs"
 check "only filed tests print a window: 3 windows" "3" "$(echo "$out" | grep -c '^  window ')"
