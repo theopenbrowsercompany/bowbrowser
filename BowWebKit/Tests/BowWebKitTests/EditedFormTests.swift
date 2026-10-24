@@ -42,16 +42,6 @@ import WebKit
         }
     }
 
-    /// `type(_:into:_:_:)` holding the input lock, giving key up again before letting go of it.
-    private func typeHoldingInput(
-        _ text: String, into selector: String, _ driver: PageDriver, _ window: TestWindow
-    ) async throws {
-        try await InputLock.run {
-            defer { window.reportsKey = false }
-            try await type(text, into: selector, driver, window)
-        }
-    }
-
     @Test func typingMarksTheFormEditedAndANewDocumentClearsIt() async throws {
         let rig = try TabRig()
         do {
@@ -87,7 +77,8 @@ import WebKit
         print("\(scripted ? "PASS" : "FAIL") pageSignals.editedForm.scripted: hasEditedForm=\(tab.state.hasEditedForm)")
 
         // Typing into a field is an edit.
-        try await typeHoldingInput("Ab", into: "#name", driver, rig.window)
+        try await type("Ab", into: "#name", driver, rig.window)
+        rig.window.reportsKey = false
         // Waits on the value checked next.
         try? await waitUntil("hasEditedForm true", timeout: 10) { tab.state.hasEditedForm }
         let typed = tab.state.hasEditedForm && editedStates(rig.delegate).last == true
