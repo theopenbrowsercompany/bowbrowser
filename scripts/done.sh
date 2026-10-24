@@ -533,7 +533,7 @@ elif [ "$failed" = 0 ]; then
       # it prints and to results.json); the count comes from that run's results.json, as the block of a fresh run shows.
       case $e2e_line in *"; not ported "*) ;; *)
         reused_np=$(perl -MJSON::PP -e 'local $/; my $d = eval { decode_json(<STDIN>) }; my $n = ref $d eq "HASH" && ref $d->{notPorted} eq "ARRAY" ? scalar @{$d->{notPorted}} : 0; print $n' \
-          < "build/e2e/$reused_run/results.json" 2> /dev/null)
+          2> /dev/null < "build/e2e/$reused_run/results.json")
         case $e2e_line in "E2E: PASS "*) [ "${reused_np:-0}" = 0 ] || e2e_line="$e2e_line; not ported $reused_np" ;; esac
         ;;
       esac
