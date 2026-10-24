@@ -28,6 +28,8 @@ extension WebKitTab {
         observations.append(webView.observe(\.isLoading) { [weak self] _, _ in self?.stateDidChange() })
         observations.append(webView.observe(\.canGoBack) { [weak self] _, _ in self?.stateDidChange() })
         observations.append(webView.observe(\.canGoForward) { [weak self] _, _ in self?.stateDidChange() })
+        observeMedia(of: webView)  // WebKitTab+Media.swift
+        observeFullscreen(of: webView)  // WebKitTab+Fullscreen.swift
     }
 
     nonisolated private func stateDidChange() {
@@ -43,6 +45,7 @@ extension WebKitTab {
         next.isLoading = webView.isLoading
         next.canGoBack = webView.canGoBack
         next.canGoForward = webView.canGoForward
+        readMedia(of: webView, into: &next)
         guard next != state else { return }
         state = next
         send(.stateChanged(next))

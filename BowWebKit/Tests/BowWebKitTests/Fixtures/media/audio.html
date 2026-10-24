@@ -1,0 +1,22 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Audio</title>
+<!-- A looping tone the page generates as a WAV file: a silent one, so a test run never sounds on the machine's
+     speakers, while WebKit still counts the element as playing sound (it reads the element's state, not the
+     samples). -->
+<audio id="tone" loop></audio>
+<script>
+  function wav(seconds) {
+    const rate = 8000, count = rate * seconds;
+    const buffer = new ArrayBuffer(44 + count * 2);
+    const view = new DataView(buffer);
+    const text = (at, s) => { for (let i = 0; i < s.length; i++) view.setUint8(at + i, s.charCodeAt(i)); };
+    text(0, "RIFF"); view.setUint32(4, 36 + count * 2, true); text(8, "WAVE");
+    text(12, "fmt "); view.setUint32(16, 16, true); view.setUint16(20, 1, true); view.setUint16(22, 1, true);
+    view.setUint32(24, rate, true); view.setUint32(28, rate * 2, true); view.setUint16(32, 2, true);
+    view.setUint16(34, 16, true);
+    text(36, "data"); view.setUint32(40, count * 2, true);
+    return buffer;
+  }
+  document.getElementById("tone").src = URL.createObjectURL(new Blob([wav(2)], { type: "audio/wav" }));
+</script>
