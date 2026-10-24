@@ -23,6 +23,25 @@ import WebKit
         return try #require(try JSONSerialization.jsonObject(with: Data(text.utf8)) as? [String])
     }
 
+    /// Types `text` into the field `selector` with real key events. The window reports key and the web view is its
+    /// first responder, so WebKit gives the page focus for the keys. Another suite's `TestHost.show` can take key
+    /// from the window between two steps, so each try asserts key again, and a try whose keys did not all reach the
+    /// field empties it by script (which fires no event) and types again.
+    private func type(_ text: String, into selector: String, _ driver: PageDriver, _ window: TestWindow) async throws {
+        _ = try await waitFor("\(text) typed into \(selector)", timeout: 20) { () -> Bool? in
+            window.reportsKey = true
+            window.makeFirstResponder(driver.webView)
+            guard try await driver.bool("return document.hasFocus()") else { return nil }
+            _ = try await driver.eval("document.querySelector(selector).value = ''", ["selector": selector])
+            try await driver.click(selector)
+            try driver.type(text)
+            return try? await waitFor("the field got \(text)", timeout: 2) {
+                try await driver.string("return document.querySelector(selector).value", ["selector": selector])
+                    == text ? true : nil
+            }
+        }
+    }
+
     @Test func typingMarksTheFormEditedAndANewDocumentClearsIt() async throws {
         let rig = try TabRig()
         do {
@@ -57,16 +76,8 @@ import WebKit
         #expect(scripted, "a page script marked the form edited")
         print("\(scripted ? "PASS" : "FAIL") pageSignals.editedForm.scripted: hasEditedForm=\(tab.state.hasEditedForm)")
 
-        // Typing into a field is an edit. The window reports key and the web view is its first responder, so WebKit
-        // gives the page focus for the keys.
-        rig.window.reportsKey = true
-        rig.window.makeFirstResponder(webView)
-        try await waitUntil("the page has focus", timeout: 5) { try await driver.bool("return document.hasFocus()") }
-        try await driver.click("#name")
-        try driver.type("Ab")
-        try await waitUntil("the field got the typed text", timeout: 5) {
-            try await driver.string("return document.getElementById('name').value") == "Ab"
-        }
+        // Typing into a field is an edit.
+        try await type("Ab", into: "#name", driver, rig.window)
         // Waits on the value checked next.
         try? await waitUntil("hasEditedForm true", timeout: 5) { tab.state.hasEditedForm }
         let typed = tab.state.hasEditedForm && editedStates(rig.delegate).last == true
@@ -80,7 +91,11 @@ import WebKit
         let testWorldSeesHandler = try await driver.string(
             "return typeof window.webkit?.messageHandlers?.bowPageSignals")
         let globals = try await pageGlobals(webView)
-        let (window, bare) = try TestHost.webView()
+        // In a window of its own that is not made key (`TestHost.webView` would take key from other suites).
+        let window = try TestHost.window()
+        let bare = TestWebView(frame: window.contentView?.bounds ?? .zero, configuration: TestHost.configuration())
+        WebKitSPI.setWindowOcclusionDetectionEnabled(bare, false)
+        window.contentView?.addSubview(bare)
         defer {
             _ = bare.dispose()
             TestHost.close(window)
