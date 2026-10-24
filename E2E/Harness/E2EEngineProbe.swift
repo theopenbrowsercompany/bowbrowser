@@ -47,7 +47,7 @@ final class E2EEngineProbe: EngineTabDelegate {
     static func makeProfile() throws -> any EngineProfile {
         guard let app = NSApp.delegate as? AppDelegate else { throw E2EError("the app delegate is not Bow's") }
         let id = ProfileID("e2e-engine-\(UUID().uuidString)")
-        return try app.engine.createProfile(id: id, isPersistent: false)
+        return try app.engine.createProfile(ProfileRef(engineID: id, storeID: UUID(), isPersistent: false))
     }
 
     /// Closes the probe's tab and every popup tab it received, and waits until they are closed.

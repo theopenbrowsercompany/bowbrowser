@@ -5,7 +5,7 @@ import Foundation
 /// what the engine would push with `MockTab.push`, `MockTab.emit` and `MockTab.simulateLoad`.
 @MainActor public final class MockEngine: BrowserEngine {
     public enum Call: Equatable, Sendable {
-        case createProfile(ProfileID, isPersistent: Bool)
+        case createProfile(ProfileRef)
         case quit
     }
 
@@ -27,13 +27,14 @@ import Foundation
         profiles.values.flatMap(\.tabs).filter { !$0.isClosed }.sorted { $0.tabID.rawValue < $1.tabID.rawValue }
     }
 
-    public func createProfile(id: ProfileID, isPersistent: Bool) throws -> any EngineProfile {
-        calls.append(.createProfile(id, isPersistent: isPersistent))
+    public func createProfile(_ ref: ProfileRef) throws -> any EngineProfile {
+        calls.append(.createProfile(ref))
+        let id = ref.engineID
         guard id.isValid else { throw EngineError.invalidProfileID(id) }
         // Matches the engine: IDs that differ only in case would share one folder.
         guard !profiles.keys.contains(where: { $0.rawValue.caseInsensitiveCompare(id.rawValue) == .orderedSame })
         else { throw EngineError.profileExists(id) }
-        let profile = MockProfile(engine: self, id: id, isPersistent: isPersistent)
+        let profile = MockProfile(engine: self, id: id, isPersistent: ref.isPersistent)
         profiles[id] = profile
         return profile
     }

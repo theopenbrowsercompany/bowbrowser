@@ -6,6 +6,13 @@ import Testing
 @MainActor @Suite struct EngineContractTests {
     let example = URL(string: "https://example.com/")!
     let docs = URL(string: "https://example.com/docs")!
+    let workStore = UUID(uuidString: "6B1E0A52-7C0D-4E0B-9F3A-2D8C5E4F1A01")!
+    let privateStore = UUID(uuidString: "6B1E0A52-7C0D-4E0B-9F3A-2D8C5E4F1A02")!
+
+    /// A ref for `id`, with a storage UUID of its own unless one is given.
+    func ref(_ id: ProfileID, _ isPersistent: Bool, store: UUID = UUID()) -> ProfileRef {
+        ProfileRef(engineID: id, storeID: store, isPersistent: isPersistent)
+    }
 
     @Test func defaultProfileAlwaysExistsAndIsPersistent() throws {
         let engine: any BrowserEngine = MockEngine()
@@ -17,27 +24,62 @@ import Testing
     @Test func createsAndLooksUpProfilesByID() throws {
         let mock = MockEngine()
         let engine: any BrowserEngine = mock
-        let work = try engine.createProfile(id: "work", isPersistent: true)
-        let privateProfile = try engine.createProfile(id: "private", isPersistent: false)
+        let work = try engine.createProfile(ref("work", true, store: workStore))
+        let privateProfile = try engine.createProfile(ref("private", false, store: privateStore))
 
         #expect(engine.profile(id: "work") === work)
         #expect(engine.profile(id: "private") === privateProfile)
+        #expect(work.isPersistent)
         #expect(!privateProfile.isPersistent)
         #expect(engine.profile(id: "missing") == nil)
         #expect(throws: EngineError.profileExists("work")) {
-            try engine.createProfile(id: "work", isPersistent: false)
+            try engine.createProfile(ref("work", false, store: privateStore))
         }
         #expect(
             mock.calls == [
-                .createProfile("work", isPersistent: true),
-                .createProfile("private", isPersistent: false),
-                .createProfile("work", isPersistent: false),
+                .createProfile(ref("work", true, store: workStore)),
+                .createProfile(ref("private", false, store: privateStore)),
+                .createProfile(ref("work", false, store: privateStore)),
             ])
+    }
+
+    @Test func aRegistryRecordReachesTheEngineWithItsStorageUUID() throws {
+        let mock = MockEngine()
+        let engine: any BrowserEngine = mock
+        let record = ProfileRecord(id: SidebarProfileID("work"), name: "Work", isPersistent: true, storeID: workStore)
+
+        let profile = try engine.createProfile(record.ref)
+
+        #expect(profile.profileID == "work")
+        #expect(profile.isPersistent)
+        guard case .createProfile(let got) = try #require(mock.calls.last) else {
+            Issue.record("no createProfile call: \(mock.calls)")
+            return
+        }
+        #expect(got == ProfileRef(engineID: "work", storeID: workStore, isPersistent: true))
+        #expect(got.storeID == record.storeID)
+    }
+
+    @Test func restoringDefaultsToCreatingTheTabAtItsURL() async throws {
+        // MockProfile and MockTab, like the CEF engine, keep no session state, so they use the contract's defaults.
+        let engine = MockEngine()
+        let profile: any EngineProfile = engine.defaultProfile
+        let saved = Data("history".utf8)
+
+        let restored = profile.createTab(url: docs, restoring: saved)
+        let fresh = profile.createTab(url: example, restoring: nil)
+
+        #expect(engine.openTabs.map(\.tabID) == [restored.tabID, fresh.tabID])
+        #expect(engine.openTabs.map(\.initialURL) == [docs, example])
+        #expect(restored.profileID == .default)
+        #expect(restored.sessionState == nil)
+        #expect(await restored.unload())
+        #expect(restored.sessionState == nil)
     }
 
     @Test func assignsUniqueTabIDsAcrossProfilesAtCreation() throws {
         let engine = MockEngine()
-        let work = try engine.createProfile(id: "work", isPersistent: true)
+        let work = try engine.createProfile(ref("work", true))
         let first = engine.defaultProfile.createTab(url: example)
         let second = work.createTab(url: docs)
 
@@ -214,7 +256,7 @@ import Testing
 
     @Test func quitClosesEveryTab() async throws {
         let engine = MockEngine()
-        let work = try engine.createProfile(id: "work", isPersistent: true)
+        let work = try engine.createProfile(ref("work", true))
         let first = engine.defaultProfile.createTab(url: example)
         let second = work.createTab(url: docs)
         let delegate = RecordingTabDelegate()
@@ -234,17 +276,17 @@ import Testing
 
     @Test func refusesInvalidAndTakenProfileIDs() throws {
         let engine: any BrowserEngine = MockEngine()
-        _ = try engine.createProfile(id: "work-1.a_b", isPersistent: true)
+        _ = try engine.createProfile(ref("work-1.a_b", true))
 
         for id: ProfileID in ["", ".", "..", "a/b", "spaced id", "caf\u{E9}"] {
             #expect(!id.isValid)
             #expect(throws: EngineError.invalidProfileID(id)) {
-                try engine.createProfile(id: id, isPersistent: false)
+                try engine.createProfile(ref(id, false))
             }
         }
         for id: ProfileID in ["default", "WORK-1.A_B"] {
             #expect(throws: EngineError.profileExists(id)) {
-                try engine.createProfile(id: id, isPersistent: false)
+                try engine.createProfile(ref(id, false))
             }
         }
         #expect(ProfileID("...").isValid)
