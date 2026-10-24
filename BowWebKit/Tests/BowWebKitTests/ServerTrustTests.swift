@@ -43,7 +43,8 @@ import Testing
         #expect(server.requests == ["/secure"])
         #expect(try await pageTitle(tab) == "Secure")
 
-        // The page's own later loads from the same server and certificate go through without a new question.
+        // The page's own later loads from the same server and certificate go through without a new question
+        // (WebKit's network session keeps the proceed for the server, so it does not ask again).
         let text =
             try await tab.webView?.callAsyncJavaScript(
                 "const r = await fetch('/later'); return r.ok ? await r.text() : 'failed ' + r.status",
