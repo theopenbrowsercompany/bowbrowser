@@ -207,6 +207,21 @@ func closedLoopbackPort() throws -> UInt16 {
         try await rig.waitFor("finish \(a)")
         #expect(
             rig.delegate.navigation == ["start \(slow)", "fail \(slow)", "start \(a)", "commit \(a)", "finish \(a)"])
+
+        // A page that committed and still loads (an image that never answers) fails aborted when stopped, before
+        // the next start.
+        rig.server.route("/stalled") { _ in .html("<!doctype html><title>Stalled</title><img src=\"/slow\">") }
+        let stalled = rig.url("/stalled")
+        rig.delegate.reset()
+        tab.load(stalled)
+        try await rig.waitFor("commit \(stalled)")
+        tab.stop()
+        tab.load(a)
+        try await rig.waitFor("finish \(a)")
+        #expect(
+            rig.delegate.navigation == [
+                "start \(stalled)", "commit \(stalled)", "fail \(stalled)", "start \(a)", "commit \(a)", "finish \(a)",
+            ])
         try await rig.finish()
     }
 }
