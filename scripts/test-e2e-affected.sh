@@ -103,6 +103,11 @@ check "a fixture folder no test uses: all" "all" "$(map E2E/Fixtures/orphan/a.ht
 check "docs only: nothing" "" "$(map README.md spec/tabs.md .claude/agents/bow-worker.md)"
 check "BowCore only: smoke" "smoke" "$(map BowCore/Sources/A.swift)"
 check "BowCore and docs: smoke" "smoke" "$(map BowCore/Sources/A.swift AGENTS.md)"
+check "BowWebKit only: nothing (the app does not link it yet)" "" \
+  "$(map BowWebKit/Package.swift BowWebKit/Sources/BowWebKit/WebKitSPI.swift BowWebKit/Tests/BowWebKitTests/Fixtures/host/index.html)"
+check "BowWebKit and BowCore: smoke" "smoke" "$(map BowWebKit/Package.swift BowCore/Sources/A.swift)"
+check "BowWebKit and a test file: that file's areas" "tabs,smoke" "$(map BowWebKit/Package.swift E2E/Tests/Tabs.swift)"
+check "BowWebKit and an unmapped app file: all" "all" "$(map BowWebKit/Package.swift App/UI/AppDelegate.swift)"
 check "a mapped app folder: its table areas plus smoke" "downloads,sidebar,smoke" "$(map App/UI/Downloads/D.swift)"
 check "a mapped app file: its table areas plus smoke" "find,sidebar,smoke" "$(map App/UI/FindBar.swift)"
 check "a file next to a mapped one: all" "all" "$(map App/UI/FindBar2.swift)"
@@ -200,6 +205,13 @@ check "check: an empty selection with a changed app file runs everything" $'e2e:
   "$(check_run "$two" "" 0)"
 check "check: an empty selection on docs only runs no e2e" $'e2e: none)\nno e2e' \
   "$(check_run $'README.md\nspec/tabs.md' "" 0)"
+check "check: an empty selection on BowWebKit and docs runs no e2e" $'e2e: none)\nno e2e' \
+  "$(check_run $'BowWebKit/Package.swift\nREADME.md' "" 0)"
+check "check: BowWebKit runs the package tests" "yes" \
+  "$(check_run BowWebKit/Package.swift "" 0 > /dev/null; grep -qx -- '--no-print-directory test' "$tmp/make.log" && echo yes)"
+check "check: an app change alone runs no package tests" "no" \
+  "$(check_run App/UI/A.swift "tabs,smoke" 0 > /dev/null
+    grep -qx -- '--no-print-directory test' "$tmp/make.log" && echo yes || echo no)"
 check "check: a selection runs it" $'e2e: tabs,smoke)\ne2e-run E2E=tabs,smoke' "$(check_run "$two" "tabs,smoke" 0)"
 
 # 4. check formats exactly the changed Swift files before linting them, with a fake swift that rewrites BAD to GOOD

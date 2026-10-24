@@ -15,6 +15,8 @@
 # The mapping, kept simple: when unsure, all.
 #   docs (*.md anywhere, spec/)                     nothing
 #   BowCore/                                        smoke (make check also runs the BowCore unit tests)
+#   BowWebKit/                                      nothing: the app does not link it yet, and make check runs its
+#                                                   package tests (until the app runs on it, then smoke or more)
 #   E2E/Tests/<File>.swift                          the areas of the tests the file names (`let name = "<area>.x"`),
 #                                                   and those of every test file using a top level name it declares
 #                                                   (a helper such as SidebarWaits), followed through their users;
@@ -145,6 +147,10 @@ while IFS= read -r f; do
       add smoke
       continue
       ;;
+    BowWebKit/*)
+      say "$f: nothing (BowWebKit, not linked into the app yet; make check runs its tests)"
+      continue
+      ;;
     E2E/Tests/*/*) all "$f" ;;
     E2E/Tests/*.swift)
       [ -n "$(areas_in "$f")" ] || all "$f (no test names)"
@@ -188,7 +194,7 @@ while IFS= read -r f; do
   add "$mapped"
 done <<< "$changed"
 
-# Empty when only docs changed; otherwise the areas (sorted, without smoke) followed by smoke.
+# Empty when only docs and BowWebKit/ changed; otherwise the areas (sorted, without smoke) followed by smoke.
 areas=$(echo "$areas" | grep -v '^$' | sort -u)
 if [ -z "$areas" ]; then
   echo ""

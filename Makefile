@@ -4,14 +4,14 @@ export DEVELOPER_DIR ?= /Applications/Xcode.app/Contents/Developer
 BUILD_DIR := build
 APP := $(BUILD_DIR)/Build/Products/Debug/Bow.app
 SMOKE_URL ?= https://example.com
-SWIFT_SOURCES := App/UI E2E BowCore
+SWIFT_SOURCES := App/UI E2E BowCore BowWebKit
 # The e2e tests `make e2e` runs: all, one name such as app.quit, or an area, glob or tag (see scripts/e2e.sh).
 E2E ?= all
 # Kept out of every recipe's environment (xcodebuild reads environment variables as build settings) and handed to
 # scripts/e2e.sh alone, quoted for the shell.
 unexport E2E
 
-.PHONY: bootstrap hooks project build test test-lock test-e2e-wrapper test-prune test-affected test-scripts run smoke e2e e2e-run format lint guards release verify check done test-done test-refcount test-private-paths test-bootstrap-cef test-check-lists test-e2e-bisect test-verify-plan test-e2e-flakes clean
+.PHONY: bootstrap hooks project build test test-lock test-e2e-wrapper test-prune test-affected test-scripts run smoke e2e e2e-run format lint guards release verify check done test-done test-refcount test-private-paths test-bootstrap-cef test-check-lists test-e2e-bisect test-verify-plan test-e2e-flakes test-webkit-imports clean
 
 bootstrap: hooks
 	./scripts/bootstrap-cef.sh
@@ -32,8 +32,10 @@ build: project
 	@mkdir -p $(BUILD_DIR) && : > $(BUILD_DIR)/.metadata_never_index
 	./scripts/stamp-tree.sh $(dir $(APP)).bow-tree-key ./scripts/xcodebuild.sh -project Bow.xcodeproj -scheme Bow -configuration Debug -derivedDataPath $(BUILD_DIR) -quiet build
 
+# BowCore's unit tests, then BowWebKit's tests, which run real WKWebViews in off screen windows of the test process.
 test:
 	swift test --package-path BowCore --quiet
+	swift test --package-path BowWebKit --quiet
 
 # Tests the build lock with fake builds (about 65 seconds). Not part of verify.
 test-lock:
@@ -54,7 +56,7 @@ test-affected:
 
 # Every script self test, one after another (about 70 seconds). make verify runs each one side by side, and only when a
 # script it covers (the table in scripts/verify.sh) or the Makefile differs from origin/main.
-test-scripts: test-e2e-wrapper test-prune test-affected test-done test-refcount test-private-paths test-bootstrap-cef test-check-lists test-e2e-bisect test-verify-plan test-e2e-flakes
+test-scripts: test-e2e-wrapper test-prune test-affected test-done test-refcount test-private-paths test-bootstrap-cef test-check-lists test-e2e-bisect test-verify-plan test-e2e-flakes test-webkit-imports
 
 run: build
 	open $(APP)
@@ -79,13 +81,15 @@ lint:
 	swift format lint --strict --recursive $(SWIFT_SOURCES)
 
 # Boundary checks: app code reaches the e2e harness only through its marked seams, and the headers Swift sees
-# carry no CEF or C++ and no raw browser pointers, and the union-merged lists keep one entry per line, no duplicates.
+# carry no CEF or C++ and no raw browser pointers, the union-merged lists keep one entry per line, no duplicates, and
+# only BowWebKit/ imports WebKit, with its private names in WebKitSPI.swift.
 guards:
 	./scripts/check-e2e-seams.sh
 	./scripts/check-swift-headers.sh
 	./scripts/check-lists.sh
 	./scripts/check-cef-refcount.sh
 	./scripts/check-private-paths.sh
+	./scripts/check-webkit-imports.sh
 
 # Release builds must leave out the e2e harness and its fixtures.
 release: project
@@ -143,6 +147,11 @@ test-verify-plan:
 # Tests scripts/e2e-flakes.sh, the flake ledger reader (a few seconds; throwaway ledgers).
 test-e2e-flakes:
 	./scripts/test-e2e-flakes.sh
+
+# Tests scripts/check-webkit-imports.sh, the guard that keeps WebKit imports in BowWebKit/ and private WebKit names
+# in WebKitSPI.swift, on fixture trees (under a second).
+test-webkit-imports:
+	./scripts/test-check-webkit-imports.sh
 
 clean:
 	rm -rf $(BUILD_DIR) Bow.xcodeproj Generated
