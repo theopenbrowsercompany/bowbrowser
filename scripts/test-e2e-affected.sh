@@ -403,11 +403,29 @@ fi
 [ -z "$FAKE_SELECTION" ] || echo "$FAKE_SELECTION"
 exit "$FAKE_STATUS"
 EOF
+# A fake tree-key.sh: the key is the file FAKE_KEYFILE holds (or "k0").
+cat > "$crepo/scripts/tree-key.sh" << 'EOF'
+#!/bin/sh
+cat "${FAKE_KEYFILE:-/nonexistent}" 2> /dev/null || echo k0
+EOF
+# A fake make that logs what it is asked to run; an e2e-run with FAKE_RUN_SUMMARY set also writes a run folder whose
+# report.txt ends with that summary line, changes the tree key when FAKE_TOUCH is set, and exits FAKE_E2E_EXIT.
 cat > "$tmp/bin/make" << 'EOF'
 #!/bin/bash
 echo "$*" >> "$FAKE_MAKE_LOG"
+case "$*" in
+  *e2e-run*)
+    if [ -n "${FAKE_RUN_SUMMARY:-}" ]; then
+      mkdir -p build/e2e/r1
+      echo "$FAKE_RUN_SUMMARY" > build/e2e/r1/report.txt
+      ln -sfn r1 build/e2e/latest
+      [ -z "${FAKE_TOUCH:-}" ] || echo touched > "$FAKE_KEYFILE"
+      exit "${FAKE_E2E_EXIT:-0}"
+    fi
+    ;;
+esac
 EOF
-chmod +x "$crepo/scripts/e2e-affected.sh" "$tmp/bin/make"
+chmod +x "$crepo/scripts/e2e-affected.sh" "$crepo/scripts/tree-key.sh" "$tmp/bin/make"
 # check_run <changed> <selection> <status>: prints check's last line, then the e2e-run it asked make for (or "no e2e").
 check_run() {
   local log=$tmp/make.log
@@ -436,6 +454,29 @@ check "check: an app change alone runs no package tests" "no" \
   "$(check_run App/UI/A.swift "tabs,smoke" 0 > /dev/null
     grep -qx -- '--no-print-directory test' "$tmp/make.log" && echo yes || echo no)"
 check "check: a selection runs it" $'e2e: tabs,smoke)\ne2e-run E2E=tabs,smoke' "$(check_run "$two" "tabs,smoke" 0)"
+
+# check records a full e2e pass for make done to reuse (build/check-e2e-pass: key, selection, summary, run folder), only
+# for a selection of all that passed on a tree that did not change while it ran; every run deletes the old record.
+# stamp_run <selection> <summary> <e2e exit> <touch the tree during the e2e> <old record: yes|no>
+stamp_run() {
+  rm -rf "$crepo/build"
+  mkdir -p "$crepo/build"
+  echo key1 > "$tmp/key"
+  [ "$5" = no ] || echo old > "$crepo/build/check-e2e-pass"
+  FAKE_CHANGED=App/UI/Z.swift FAKE_SELECTION=$1 FAKE_STATUS=0 FAKE_MAKE_LOG=$tmp/make.log FAKE_RUN_SUMMARY=$2 \
+    FAKE_E2E_EXIT=$3 FAKE_TOUCH=$4 FAKE_KEYFILE=$tmp/key PATH="$tmp/bin:$PATH" "$crepo/scripts/check.sh" > /dev/null 2>&1
+  if [ -f "$crepo/build/check-e2e-pass" ]; then paste -sd'|' - < "$crepo/build/check-e2e-pass"; else echo none; fi
+}
+check "check: a passing full e2e is recorded with its tree key and run folder" "key1|all|E2E: PASS 128/128|r1" \
+  "$(stamp_run all "E2E: PASS 128/128" 0 "" no)"
+check "check: a quarantined pass is recorded too" "key1|all|E2E: PASS 128/128; quarantined flaky tests passed on the retry: a.b|r1" \
+  "$(stamp_run all "E2E: PASS 128/128; quarantined flaky tests passed on the retry: a.b" 0 "" no)"
+check "check: a partial selection records nothing" "none" "$(stamp_run "tabs,smoke" "E2E: PASS 12/12" 0 "" no)"
+check "check: a FLAKY full run records nothing" "none" "$(stamp_run all "E2E: FLAKY 128/128 after retrying a.b" 2 "" no)"
+check "check: a failed full run records nothing" "none" "$(stamp_run all "E2E: FAIL 100/128" 2 "" no)"
+check "check: a full run on a tree that changed while it ran records nothing" "none" "$(stamp_run all "E2E: PASS 128/128" 0 yes no)"
+check "check: a failed run deletes the record of an earlier one" "none" "$(stamp_run all "E2E: FAIL 100/128" 2 "" yes)"
+check "check: a run whose e2e leaves no pass summary deletes the record of an earlier one" "none" "$(stamp_run "" "" 0 "" yes)"
 
 # 4. check formats exactly the changed Swift files before linting them, with a fake swift that rewrites BAD to GOOD
 # on `format --in-place` and logs every call.

@@ -26,8 +26,33 @@ has() { # has <description> <text> <needle>
 
 repo=$tmp/repo
 mkdir -p "$repo/scripts" "$repo/Vendor/cef" "$tmp/bin"
-cp scripts/done.sh scripts/e2e-affected.sh "$repo/scripts/"
+cp scripts/done.sh scripts/e2e-affected.sh scripts/tree-key.sh "$repo/scripts/"
 # A fake make: verify and e2e print the lines the real ones end with, e2e makes the run folder and final.png.
+# A fake swift for the package test repeats: logs the call, counts the runs of the suite its --filter names, and
+# prints the Swift Testing summary line. FAKE_PKG=fail:<suite>:<run> fails that run of the suite (exit 1),
+# FAKE_PKG=zero:<suite> makes it run no test.
+cat > "$tmp/bin/swift" << 'EOF'
+#!/bin/bash
+echo "swift: $*" >> "$FAKE_LOG"
+suite=${!#}
+suite=${suite#\\.}
+suite=${suite%/}
+count=$(( $(cat "$FAKE_LOG.cnt.$suite" 2> /dev/null || echo 0) + 1 ))
+echo "$count" > "$FAKE_LOG.cnt.$suite"
+case "${FAKE_PKG:-}" in
+  "fail:$suite:$count")
+    echo "Test run with 3 tests in 1 suite failed after 0.1 seconds"
+    echo "error: a test failed in $suite"
+    exit 1
+    ;;
+  "zero:$suite")
+    echo "Test run with 0 tests in 0 suites passed after 0.001 seconds"
+    exit 0
+    ;;
+esac
+echo "Test run with 3 tests in 1 suite passed after 0.1 seconds"
+EOF
+chmod +x "$tmp/bin/swift"
 cat > "$tmp/bin/make" << 'EOF'
 #!/bin/bash
 case "$*" in
@@ -170,8 +195,8 @@ g commit -qm two
 
 run() { # run <fake verify> <fake e2e> [fake repeat] [fake release]: the script's output and exit code
   : > "$tmp/log"
-  rm -f "$tmp/log.release-started"
-  (cd "$repo" && DONE_FETCH=${FETCH:-0} FAKE_RELEASE=${4:-0} FAKE_REPEAT=${3:-0} FAKE_VERIFY=$1 FAKE_E2E=$2 \
+  rm -f "$tmp/log.release-started" "$tmp"/log.cnt.*
+  (cd "$repo" && DONE_FETCH=${FETCH:-0} FAKE_RELEASE=${4:-0} FAKE_REPEAT=${3:-0} FAKE_PKG=${FAKE_PKG:-} FAKE_VERIFY=$1 FAKE_E2E=$2 \
     FAKE_LOG=$tmp/log PATH="$tmp/bin:$PATH" ./scripts/done.sh 2>&1)
   echo "exit=$?"
 }
@@ -478,7 +503,7 @@ has "a FLAKY test a changed harness function reaches fails" "$out" "FLAKY test t
 out=$(FAKE_NAMES="d.other" run 0 flaky)
 has "a FLAKY test no changed harness function reaches passes" "$out" "reported: d.other"
 out=$(run 0 0 9)
-has "a failing harness caller fails the run" "$out" "changed tests, repeated: FAIL (changed test c.call passed 19/20 repeats)"
+has "a failing harness caller fails the run" "$out" "harness callers, repeated: FAIL (changed test c.call passed 5/6 repeats)"
 # A name searched in too many test files falls back to the smoke tests and the areas that call the changed file.
 out=$(CALLERS_COMMON=1 run 0 0)
 has "a too common name says so and names the fallback" "$out" "callers: too common to search by name: tap(selector: (1 test files)"
@@ -487,7 +512,7 @@ has "a too common name adds the areas calling the changed file" "$(cat "$tmp/log
 # More callers than the cap are sampled, and the block says so.
 out=$(DONE_REPEAT_CAP=1 run 0 0)
 has "callers over the cap are sampled and the block says so" "$out" "sampled: the best caller of each of 1 areas (of 2 tests"
-check "a sample repeats the best caller of an area, not its other callers" "ran: E2E_REPEAT=20 E2E_SHARDS=3 --no-print-directory e2e-run E2E=c.call,smoke" "$(grep e2e-run "$tmp/log")"
+check "a sample repeats the best caller of an area, not its other callers" "ran: E2E_REPEAT=6 E2E_SHARDS=3 --no-print-directory e2e-run E2E=c.call,smoke" "$(grep e2e-run "$tmp/log")"
 sed -i '' 's/print("o")/print("o", 1)/' "$repo/E2E/Harness/Hlp.swift"
 g commit -qam "changes other too"
 out=$(run 0 0)
@@ -611,6 +636,143 @@ echo x > "$repo/E2E/Fixtures/app/page.html"
 out=$(run 0 0)
 has "a fixture change next to docs keeps the full run" "$out" "make e2e: ok"
 rm -rf "$repo/E2E"
+
+# Callers and changed tests are two runs: the changed tests repeat the full count, a test only a changed harness symbol
+# reaches repeats DONE_REPEAT_CALLERS times (default 6), and more than DONE_REPEAT_CAP callers (default 8) are sampled.
+# Nine callers in three areas (a, b, c) are sampled down to the best of each area; the branch also adds a changed test
+# that calls the helper (x.one), which keeps its 20 repeats and leaves the callers' run.
+g checkout -q -f "$head_two"
+g update-ref refs/remotes/origin/main HEAD
+mkdir -p "$repo/E2E/Harness" "$repo/E2E/Tests"
+printf 'enum Cap {\n    static func capped() {\n        print("a")\n    }\n}\n' > "$repo/E2E/Harness/Cap.swift"
+for area in a b c; do
+  for i in 1 2 3; do
+    printf 'struct %s%sTest: E2ETest {\n    let name = "%s.t%s"\n    func run() { Cap.capped() }\n}\n' "$area" "$i" "$area" "$i"
+  done > "$repo/E2E/Tests/Cap_$area.swift"
+done
+g add -A
+g commit -qm "a harness helper with nine callers"
+g update-ref refs/remotes/origin/main HEAD
+sed -i '' 's/print("a")/print("aa")/' "$repo/E2E/Harness/Cap.swift"
+g commit -qam "changes capped's body"
+out=$(run 0 0)
+has "nine callers over the default cap of 8 are sampled" "$out" \
+  "sampled: the best caller of each of 3 areas (of 9 tests that reach a changed harness symbol, over the cap of 8)"
+check "the sampled callers repeat 6 times, not 20" "ran: E2E_REPEAT=6 E2E_SHARDS=3 --no-print-directory e2e-run E2E=a.t1,b.t1,c.t1" \
+  "$(grep e2e-run "$tmp/log")"
+has "the callers' result is its own block line" "$out" "harness callers, repeated: ok (6 repeats in 3 shards of 3 tests (reached through changed harness symbols: 9 found; sampled:"
+has "no changed e2e test, no changed-test line to run" "$out" "changed tests, repeated: skip (no e2e test added or changed)"
+out=$(DONE_REPEAT_CAP=9 run 0 0)
+check "callers at the cap are all repeated" "1" "$(grep -c 'e2e-run.*E2E=a.t1,a.t2,a.t3,b.t1,b.t2,b.t3,c.t1,c.t2,c.t3' "$tmp/log")"
+out=$(DONE_REPEAT_CALLERS=3 run 0 0)
+has "DONE_REPEAT_CALLERS overrides the callers' repeats" "$(cat "$tmp/log")" "E2E_REPEAT=3 E2E_SHARDS=3 --no-print-directory e2e-run E2E=a.t1,b.t1,c.t1"
+out=$(DONE_REPEAT_CALLERS=1 run 0 0)
+has "DONE_REPEAT_CALLERS=1 is refused" "$out" "exit=2"
+out=$(DONE_REPEAT_CAP=0 run 0 0)
+has "DONE_REPEAT_CAP=0 is refused" "$out" "exit=2"
+printf 'struct OwnTest: E2ETest {\n    let name = "x.one"\n    func run() { Cap.capped() }\n}\n' > "$repo/E2E/Tests/Own.swift"
+g add -A
+g commit -qm "a changed test that calls the helper too"
+out=$(run 0 0)
+check "a changed test repeats 20 times and its callers 6, in two runs" \
+  "ran: E2E_REPEAT=20 E2E_SHARDS=3 --no-print-directory e2e-run E2E=x.one,smoke|ran: E2E_REPEAT=6 E2E_SHARDS=3 --no-print-directory e2e-run E2E=a.t1,b.t1,c.t1" \
+  "$(grep e2e-run "$tmp/log" | paste -sd'|' -)"
+has "the changed test's line is its own" "$out" "changed tests, repeated: ok (20 repeats in 3 shards of x.one)"
+out=$(run 0 0 1)
+has "a failing changed test among callers fails the changed line" "$out" "changed tests, repeated: FAIL"
+check "a failing changed test skips the callers' run" "1" "$(grep -c e2e-run "$tmp/log")"
+has "the callers' line says why it did not run" "$out" "harness callers, repeated: skip (a repeat failed)"
+
+# Package test repeats: a changed test file under BowCore/Tests/ or BowWebKit/Tests/ reruns the suites it holds
+# DONE_PKG_REPEAT times (default 10) with the build skipped; a failing or empty run fails and names the suite and run.
+g checkout -q -f "$head_two"
+g update-ref refs/remotes/origin/main HEAD
+rm -rf "$repo/E2E"
+mkdir -p "$repo/BowWebKit/Tests/BowWebKitTests/Support" "$repo/BowCore/Tests/BowCoreTests"
+printf 'import Testing\n@Suite(.serialized) @MainActor struct FooTests {\n    @Test func one() {}\n}\n' > "$repo/BowWebKit/Tests/BowWebKitTests/FooTests.swift"
+printf 'import Testing\n@Suite struct BarTests {\n    @Test func one() {}\n}\nstruct HelperNoTests {\n    func help() {}\n}\nextension BarTests {\n    @Test func two() {}\n}\n' > "$repo/BowCore/Tests/BowCoreTests/BarTests.swift"
+printf 'import Testing\nstruct Helper {\n    func help() {}\n}\n' > "$repo/BowWebKit/Tests/BowWebKitTests/Support/Helper.swift"
+g add -A
+g commit -qm "package tests"
+out=$(run 0 0)
+swift_calls=$(grep -c '^swift: ' "$tmp/log")
+check "each changed suite runs 10 times (BarTests once though an extension of it is in the file, and FooTests)" "20" "$swift_calls"
+has "a suite runs with the build skipped and a filter on its name" "$(cat "$tmp/log")" \
+  "swift: test --skip-build --package-path BowWebKit --filter \\.FooTests/"
+has "a core suite runs in its own package" "$(cat "$tmp/log")" "swift: test --skip-build --package-path BowCore --filter \\.BarTests/"
+check "a type with no test and a support file add no suite" "" "$(grep 'HelperNoTests\|Helper/' "$tmp/log")"
+has "the block says the package repeat" "$out" "package tests, repeated: ok (10 runs of each: BowCore BarTests; BowWebKit FooTests)"
+has "a package only change has no e2e repeat" "$out" "changed tests, repeated: skip (no e2e test added or changed)"
+has "a passing package repeat passes" "$out" "done: PASS"
+out=$(DONE_PKG_REPEAT=3 run 0 0)
+check "DONE_PKG_REPEAT overrides the runs" "6" "$(grep -c '^swift: ' "$tmp/log")"
+out=$(DONE_PKG_REPEAT=1 run 0 0)
+has "DONE_PKG_REPEAT=1 is refused" "$out" "exit=2"
+out=$(FAKE_PKG=fail:BarTests:4 run 0 0)
+has "a failing package suite fails and names the package, suite and run" "$out" \
+  "package tests, repeated: FAIL (BowCore suite BarTests failed on run 4 of 10 (exit 1))"
+has "a failing package suite shows the swift output" "$out" "error: a test failed in BarTests"
+has "a failing package suite exits 1" "$out" "exit=1"
+check "a failing package suite stops at the failing run" "4" "$(grep -c -- '--package-path BowCore --filter \\.BarTests/' "$tmp/log")"
+has "a failing package suite skips the e2e repeats" "$out" "changed tests, repeated: skip (the package test repeat failed)"
+out=$(FAKE_PKG=zero:FooTests run 0 0)
+has "a suite whose filter runs no test fails" "$out" "package tests, repeated: FAIL (BowWebKit suite FooTests ran no test on run 1 of 10)"
+printf 'import Testing\n@Test func loose() {}\n' > "$repo/BowCore/Tests/BowCoreTests/Loose.swift"
+out=$(run 0 0)
+has "an @Test in no suite fails closed" "$out" "package tests, repeated: FAIL (BowCore: cannot read the suites of BowCore/Tests/BowCoreTests/Loose.swift"
+has "an unreadable package test file exits 1" "$out" "exit=1"
+rm "$repo/BowCore/Tests/BowCoreTests/Loose.swift"
+out=$(run 1 0)
+has "a failing verify skips the package repeat" "$out" "package tests, repeated: skip (the e2e did not pass)"
+rm -rf "$repo/BowCore" "$repo/BowWebKit"
+
+# Reuse of make check's full e2e pass: only on the identical tree key, with a passing full selection and its run folder.
+g checkout -q -f "$head_two"
+g update-ref refs/remotes/origin/main HEAD
+key=$(cd "$repo" && scripts/tree-key.sh)
+mkdir -p "$repo/build/e2e/20260101-9"
+echo png > "$repo/build/e2e/20260101-9/final.png"
+stamp() { # stamp <key> <selection> <summary> <run folder>
+  printf '%s\n%s\n%s\n%s\n' "$1" "$2" "$3" "$4" > "$repo/build/check-e2e-pass"
+}
+full_ran() { grep -c 'ran: --no-print-directory e2e E2E=all' "$tmp/log"; }
+stamp "$key" all "E2E: PASS 128/128" 20260101-9
+out=$(run 0 0)
+has "an identical key reuses check's full pass" "$out" "make e2e: ok (reused make check's pass on tree $key)"
+check "a reused pass runs no full e2e" "0" "$(full_ran)"
+has "a reused pass keeps check's summary line" "$out" "e2e summary: E2E: PASS 128/128"
+has "a reused pass reports check's run folder" "$out" "e2e run folder: build/e2e/20260101-9"
+has "a reused pass reports its final.png" "$out" "/build/e2e/20260101-9/final.png"
+has "a reused pass still runs verify" "$out" "make verify: ok"
+has "a reused pass passes" "$out" "done: PASS"
+stamp "$key-12345678" all "E2E: PASS 128/128" 20260101-9
+out=$(run 0 0)
+check "a different tree key runs the full e2e" "1" "$(full_ran)"
+check "a different tree key says nothing of reuse" "" "$(echo "$out" | grep reused)"
+stamp "$key" "tabs,smoke" "E2E: PASS 12/12" 20260101-9
+out=$(run 0 0)
+check "a partial selection runs the full e2e" "1" "$(full_ran)"
+stamp "$key" all "E2E: FLAKY 128/128 after retrying x.one" 20260101-9
+out=$(run 0 0)
+check "a FLAKY check run runs the full e2e" "1" "$(full_ran)"
+stamp "$key" all "E2E: FAIL 100/128" 20260101-9
+out=$(run 0 0)
+check "a failed check run runs the full e2e" "1" "$(full_ran)"
+stamp "$key" all "E2E: PASS 128/128" 20260101-gone
+out=$(run 0 0)
+check "a missing run folder runs the full e2e" "1" "$(full_ran)"
+stamp "$key" all "E2E: PASS 128/128" 20260101-9
+echo x > "$repo/changed-after-check"
+out=$(run 0 0)
+check "an uncommitted change since check runs the full e2e" "1" "$(full_ran)"
+rm -f "$repo/changed-after-check"
+out=$(DONE_REUSE=0 run 0 0)
+check "DONE_REUSE=0 runs the full e2e" "1" "$(full_ran)"
+rm -f "$repo/build/check-e2e-pass"
+out=$(run 0 0)
+check "no record runs the full e2e" "1" "$(full_ran)"
+has "a run without a record says plain ok" "$out" "make e2e: ok"
+rm -rf "$repo/build/e2e/20260101-9"
 
 if [ "$failed" = 0 ]; then echo "done self test: ok"; else
   echo "done self test: FAIL"

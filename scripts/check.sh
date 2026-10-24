@@ -14,6 +14,9 @@
 #           fails, or prints nothing while a changed file is neither docs nor under BowWebKit/, which the app does
 #           not link yet);
 #   e2e     make e2e-run with the selection scripts/e2e-affected.sh prints, when it is not empty and the build passed.
+# When the e2e selection is all and that run passes (not FLAKY) on a tree that did not change since the build (the key
+# of scripts/tree-key.sh, uncommitted changes included), check records it in build/check-e2e-pass and prints a line
+# saying so; scripts/done.sh reuses it instead of running the full e2e again. Every run deletes the old record first.
 # Each part prints one "check: <part> ok|FAIL|skip ..." line with its seconds, and the last line is
 # "check: PASS <parts> in <seconds>s (e2e: <selection>)" or "check: FAIL <parts> (<seconds>s)".
 # Ctrl-C, TERM or HUP stops the running part (its whole process group) and ends with "check: FAIL interrupted".
@@ -22,6 +25,10 @@ cd "$(dirname "$0")/.." || exit 1
 
 start=$SECONDS
 ran=() failed=()
+# The record of a full e2e pass (4 lines: tree key, selection, summary line, run folder) for scripts/done.sh to reuse.
+# Every check run drops the previous one first, so a partial, failed, flaky or interrupted run leaves none.
+pass_stamp=build/check-e2e-pass
+rm -f "$pass_stamp"
 # Job control gives each part its own process group, so stopping check stops the part's whole tree (scripts/e2e.sh
 # ends the app and its helpers on TERM).
 set -m
@@ -114,10 +121,27 @@ fi
 if [ -z "$selection" ]; then
   skip build "no e2e tests to run"
   skip e2e "no e2e tests to run"
-elif part build make --no-print-directory build; then
-  part e2e make --no-print-directory e2e-run E2E="$selection"
 else
-  skip e2e "the build failed"
+  # The tree the build and the e2e run see: lint's formatting is done, so this is the source they are built from.
+  key_before=$(scripts/tree-key.sh)
+  if part build make --no-print-directory build; then
+    if part e2e make --no-print-directory e2e-run E2E="$selection"; then
+      # A passing full e2e on a tree that did not change while it ran: leave the pass for make done to reuse.
+      key_after=$(scripts/tree-key.sh)
+      latest=$(readlink build/e2e/latest 2> /dev/null || true)
+      summary=""
+      [ -z "$latest" ] || summary=$(grep '^E2E: ' "build/e2e/$latest/report.txt" 2> /dev/null | tail -n 1)
+      case $summary in "E2E: PASS"*)
+        if [ "$selection" = all ] && [ "$key_before" = "$key_after" ] && [ ${#failed[@]} -eq 0 ]; then
+          printf '%s\n%s\n%s\n%s\n' "$key_after" "$selection" "$summary" "$latest" > "$pass_stamp"
+          echo "check: full e2e pass recorded for tree $key_after (make done reuses it while the tree is unchanged)"
+        fi
+        ;;
+      esac
+    fi
+  else
+    skip e2e "the build failed"
+  fi
 fi
 
 if [ ${#failed[@]} -eq 0 ]; then
