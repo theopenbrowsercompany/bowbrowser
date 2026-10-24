@@ -40,9 +40,12 @@ final class DialogRecordingDelegate: EngineTabDelegate {
 
     /// Clicks the page's own button `id` (its handler asks for the dialog) from the test world without waiting, since
     /// the click returns only once the dialog is answered.
-    private func press(_ id: String, in driver: PageDriver) -> Task<Void, any Error> {
+    /// The task returns the JSON the page then wrote for the dialog's return value.
+    private func press(_ id: String, in driver: PageDriver) -> Task<String, any Error> {
         Task { @MainActor in
-            _ = try await driver.eval("document.getElementById(id).click(); return true", ["id": id])
+            try await driver.string(
+                "document.getElementById(id).click(); return document.getElementById('answer').textContent",
+                ["id": id])
         }
     }
 
@@ -68,20 +71,20 @@ final class DialogRecordingDelegate: EngineTabDelegate {
             #expect(alert == PageDialog(kind: .alert, origin: origin, message: "Saved"))
             #expect(alert.title == "127.0.0.1:\(rig.server.port) says")
             delegate.answer(.ok)
-            try await click.value
+            _ = try await click.value
             #expect(try await pageAnswer(driver) == "\"returned\"")
 
             click = press("confirm", in: driver)
             #expect(
                 try await delegate.waitForDialog(2) == PageDialog(kind: .confirm, origin: origin, message: "Leave?"))
             delegate.answer(.cancelled)
-            try await click.value
+            _ = try await click.value
             #expect(try await pageAnswer(driver) == "false", "a declined confirm returns false")
 
             click = press("confirm", in: driver)
             _ = try await delegate.waitForDialog(3)
             delegate.answer(.ok)
-            try await click.value
+            _ = try await click.value
             #expect(try await pageAnswer(driver) == "true")
 
             click = press("prompt", in: driver)
@@ -89,20 +92,20 @@ final class DialogRecordingDelegate: EngineTabDelegate {
                 try await delegate.waitForDialog(4)
                     == PageDialog(kind: .prompt, origin: origin, message: "Your name?", defaultPromptText: "Ada"))
             delegate.answer(PageDialogAnswer(accepted: true, text: "Grace"))
-            try await click.value
+            _ = try await click.value
             #expect(try await pageAnswer(driver) == "\"Grace\"", "prompt returns the typed text")
 
             click = press("prompt", in: driver)
             _ = try await delegate.waitForDialog(5)
             delegate.answer(.cancelled)
-            try await click.value
+            _ = try await click.value
             #expect(try await pageAnswer(driver) == "null", "a cancelled prompt returns null")
 
             // A prompt with no default text starts empty, and OK with no text gives the page an empty string.
             click = press("prompt-empty", in: driver)
             #expect(try await delegate.waitForDialog(6).defaultPromptText == "")
             delegate.answer(.ok)
-            try await click.value
+            _ = try await click.value
             #expect(try await pageAnswer(driver) == "\"\"")
             #expect(tab.webView?.openDialogs.isEmpty == true)
         }
@@ -117,8 +120,7 @@ final class DialogRecordingDelegate: EngineTabDelegate {
             let driver = PageDriver(tab.webView!)
             try await driver.waitForLoad(of: page)
             tab.delegate = nil
-            try await press("confirm", in: driver).value
-            #expect(try await pageAnswer(driver) == "false")
+            #expect(try await press("confirm", in: driver).value == "false")
         }
         try await rig.finish()
     }
@@ -141,9 +143,9 @@ final class DialogRecordingDelegate: EngineTabDelegate {
         #expect(await tab.close())
         // Asked before the web view can go: the close answered the open dialog.
         #expect(released == nil || released?.openDialogs.isEmpty == true, "the open dialog was not answered")
-        // The page's script ends without a value once the web view is gone; either way the click returns.
-        _ = try? await click.value
+        // The delegate answers late, after the close: the page already got Cancel, and keeps it.
         delegate.answer(.ok)
+        #expect(try await click.value == "false", "the page did not get Cancel when its tab closed")
         try await rig.finish()
         try await waitUntil("the web view is released", timeout: 5) { released == nil }
     }
