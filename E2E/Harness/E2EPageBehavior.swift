@@ -36,8 +36,8 @@ protocol E2EImagePasteboard: AnyObject {
 
 @MainActor
 protocol E2EPageBehaviorApp: E2EApp {
-    /// The zoom level of `page`'s tab (0 is 100%), as the engine holds it for the tab's site.
-    func zoomLevel(of page: any E2EPage) throws -> Double
+    /// The zoom factor of `page`'s tab (1 is 100%), as the engine holds it for the tab's site.
+    func zoomFactor(of page: any E2EPage) throws -> Double
     /// The crashed tab page of `page`'s window now.
     func crashedPage(of page: any E2EPage) throws -> E2ECrashedPage
     /// Clicks the crashed tab page's Reload button the way a person does: a click sent to whatever the window has at

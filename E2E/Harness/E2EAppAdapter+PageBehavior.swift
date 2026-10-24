@@ -2,12 +2,12 @@ import AppKit
 import BowCore
 
 // The page behavior area of the adapter: E2EPageBehaviorApp over the window's CrashedTabFeature and
-// ContextMenuFeature, and the tab's zoom level.
+// ContextMenuFeature, and the tab's zoom factor.
 
 extension E2ETestApp: E2EPageBehaviorApp {
-    func zoomLevel(of page: any E2EPage) throws -> Double {
-        try adapter.requireActive(token, "read the zoom level")
-        return try E2EAppAdapter.tabPage(page).tab.zoomLevel
+    func zoomFactor(of page: any E2EPage) throws -> Double {
+        try adapter.requireActive(token, "read the zoom factor")
+        return try E2EAppAdapter.tabPage(page).tab.zoomFactor
     }
 
     func crashedPage(of page: any E2EPage) throws -> E2ECrashedPage {

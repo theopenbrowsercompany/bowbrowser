@@ -107,7 +107,7 @@ public enum ContextMenuCommand: Hashable, Sendable {
     case copy
     case paste
     case selectAll
-    /// Opens DevTools for the tab in a window of its own, inspecting the element at the menu's position.
+    /// Opens the engine's web inspector for the tab, inspecting the element at the menu's position.
     case inspect
     /// A feature's own item, by an identifier it chose. The engine does nothing with it.
     case custom(String)

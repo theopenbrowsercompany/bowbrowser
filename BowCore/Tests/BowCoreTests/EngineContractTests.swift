@@ -131,6 +131,22 @@ import Testing
         #expect(!error.isAborted)
     }
 
+    @Test func everyProcessGoneReasonReachesTheDelegate() {
+        // Chromium's termination statuses and WebKit's termination reasons (a crash, the memory or CPU limit, the
+        // app's own request) each have a reason of their own.
+        let reasons: [ProcessGoneReason] = [
+            .crashed, .killed, .outOfMemory, .exceededCPULimit, .requestedByApp, .launchFailed, .other,
+        ]
+        #expect(Set(reasons) == Set(ProcessGoneReason.allCases))
+        #expect(Set(reasons).count == reasons.count)
+        let engine = MockEngine()
+        let tab = engine.defaultProfile.createTab(url: example)
+        let delegate = RecordingTabDelegate()
+        tab.delegate = delegate
+        for reason in reasons { engine.openTabs[0].emit(.renderProcessGone(reason)) }
+        #expect(delegate.events == reasons.map { .renderProcessGone($0) })
+    }
+
     @Test func onlyTheAbortedReasonCountsAsAborted() {
         for reason in NavigationError.Reason.allCases {
             let error = NavigationError(reason: reason, description: "")

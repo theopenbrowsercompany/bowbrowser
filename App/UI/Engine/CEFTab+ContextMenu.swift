@@ -9,7 +9,8 @@ extension CEFTab {
         static var e2eMenuChooser: ((ContextMenuRequest, [String]) -> String?)?
     #endif
 
-    func showDevTools(inspectingAt point: PagePoint?) {
+    // Chromium's inspector is DevTools, in a window of its own.
+    func showInspector(inspectingAt point: PagePoint?) {
         if let point {
             tab.showDevTools(inspectingAt: CGPoint(x: point.x, y: point.y))
         } else {
@@ -17,8 +18,8 @@ extension CEFTab {
         }
     }
 
-    func closeDevTools() { tab.closeDevTools() }
-    var hasDevTools: Bool { tab.hasDevTools }
+    func closeInspector() { tab.closeDevTools() }
+    var hasInspector: Bool { tab.hasDevTools }
 
     @objc(tab:runContextMenu:completionHandler:)
     func tab(
@@ -95,7 +96,7 @@ extension CEFTab {
         case .back: goBack()
         case .forward: goForward()
         case .reload: reload()
-        case .inspect: showDevTools(inspectingAt: request.position)
+        case .inspect: showInspector(inspectingAt: request.position)
         case .openLinkInNewTab, .copyImage, .custom, .undo, .redo, .cut, .copy, .paste, .selectAll: break
         }
     }

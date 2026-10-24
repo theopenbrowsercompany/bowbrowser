@@ -36,9 +36,9 @@ final class ZoomFeature: NSResponder, BrowserWindowFeature, NSMenuItemValidation
     func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
         guard let tab = zoomableTab else { return false }
         switch menuItem.action {
-        case #selector(zoomIn(_:)): return PageZoom.zoomedIn(from: tab.zoomLevel) != nil
-        case #selector(zoomOut(_:)): return PageZoom.zoomedOut(from: tab.zoomLevel) != nil
-        case #selector(actualSize(_:)): return tab.zoomLevel != PageZoom.actualSize
+        case #selector(zoomIn(_:)): return PageZoom.zoomedIn(from: tab.zoomFactor) != nil
+        case #selector(zoomOut(_:)): return PageZoom.zoomedOut(from: tab.zoomFactor) != nil
+        case #selector(actualSize(_:)): return !PageZoom.isActualSize(tab.zoomFactor)
         default: return true
         }
     }
@@ -57,14 +57,14 @@ final class ZoomFeature: NSResponder, BrowserWindowFeature, NSMenuItemValidation
 
     private func apply(_ shortcut: KeyShortcut) {
         guard let tab = zoomableTab else { return }
-        let level = tab.zoomLevel
+        let factor = tab.zoomFactor
         let next: Double? =
             switch shortcut {
-            case .zoomIn: PageZoom.zoomedIn(from: level)
-            case .zoomOut: PageZoom.zoomedOut(from: level)
+            case .zoomIn: PageZoom.zoomedIn(from: factor)
+            case .zoomOut: PageZoom.zoomedOut(from: factor)
             case .actualSize: PageZoom.actualSize
             default: nil
             }
-        if let next { tab.setZoomLevel(next) }
+        if let next { tab.setZoomFactor(next) }
     }
 }

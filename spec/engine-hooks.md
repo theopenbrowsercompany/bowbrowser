@@ -23,11 +23,12 @@ This spec covers what those hooks promise; the features that use them have their
 - New Tab: choosing New Tab asks the features first (the command bar takes it once it exists); with no taker a new tab opens on the new tab page.
 - Page container: window chrome can inset the page area, round its corners and run the window's content under a transparent title bar without changing the window core; by default the page fills the window beside the sidebar with square corners.
 - Zoom: zooming a page zooms every tab on the same site in that profile, now and later.
+  Bow holds zoom as a factor of the page's size (1 is 100%), whichever engine runs the page, and compares sizes as whole percentages, so an engine that stores zoom in its own unit still lands on the preset sizes.
 - Zoom keys and menu: Cmd+= (also Cmd+plus on a keyboard where plus needs no Shift), Cmd+minus and Cmd+0 are taken before the page, and View > Zoom In, Zoom Out and Actual Size do the same.
   Cmd+Shift+plus (Cmd+Shift+= on a US keyboard) is Arc's Add Split View, not Zoom In (see `split-view.md`).
   Zoom In and Out move to the next preset size (25, 33, 50, 67, 75, 80, 90, 100, 110, 125, 150, 175, 200, 250, 300, 400, 500 percent), Actual Size goes back to 100%, and another site keeps its own zoom.
   The items are disabled at the largest and smallest size, and Actual Size at 100%; the keys are still taken there, so the page never sees them.
-- Crashed page: when a tab's page process ends (a crash, a kill or running out of memory), the page area shows "This page crashed" with a Reload button while that tab is shown.
+- Crashed page: when a tab's page process ends (a crash, a kill, running out of memory, the engine ending it for using too much memory or CPU, or the app asking), the page area shows "This page crashed" with a Reload button while that tab is shown.
   Reload reloads the tab and takes the message away, as does any navigation the tab starts; a tab that crashed in the background shows the message once it is shown.
 - Copy Image: the context menu's Copy Image puts the image itself on the pasteboard, fetched through the tab's own profile; an image that cannot be fetched leaves the pasteboard alone.
 - Unloading: the app can free a page's memory and keep its tab (see `unload.md`).
@@ -45,9 +46,9 @@ This spec covers what those hooks promise; the features that use them have their
   With no feature answering, a window shows Bow's own menu, built the way Chromium based browsers and Arc build theirs: Open Link in New Tab and Copy Link Address on a link, Copy Image and Copy Image Address on an image, editing items in a field, Copy on a selection, Back, Forward and Reload on a bare page, and Inspect last.
   The chosen item goes to the app first and otherwise runs in the engine.
   Open Link in New Tab opens the link as a new today tab right after the tab, in the background, as a Cmd-click does.
-- DevTools: Inspect opens DevTools for the tab and inspects the element under the pointer.
-  It opens in a window of its own, since the engine version Bow uses supports DevTools only as a Chrome style window, which cannot be docked into Bow's window.
-  DevTools closes with its tab, and quitting closes it.
+- Web inspector: Inspect opens the engine's web inspector for the tab and inspects the element under the pointer.
+  On Chromium the inspector is DevTools, in a window of its own, since the engine version Bow uses supports it only as a Chrome style window, which cannot be docked into Bow's window.
+  The inspector closes with its tab, and quitting closes it.
 
 ## Edge cases
 
@@ -69,7 +70,7 @@ This spec covers what those hooks promise; the features that use them have their
 2. `engine.key` prints the keys the page saw: `page-down` and `page-up` hold only `j`, never `k`.
 3. Run `make e2e E2E=window`: a `target="_blank"` link clicked in tab A becomes the sidebar tab after A, shown and still connected to A, printing `PASS window.adopt: tabs=[A,B] opener=kept`.
 4. `make test` checks that no app shortcut is claimed by two features.
-5. Run `make e2e E2E=window`: right clicking a link reaches the app with its address, and choosing Open Link in New Tab opens it as the next tab, printing `PASS window.context-menu: link=opened.html tabs=[A,B]` followed by the items shown; choosing Inspect asks the tab's DevTools to inspect the element under the pointer with nothing shown on screen, printing `PASS window.inspect: requests=1 at-element=true`.
+5. Run `make e2e E2E=window`: right clicking a link reaches the app with its address, and choosing Open Link in New Tab opens it as the next tab, printing `PASS window.context-menu: link=opened.html tabs=[A,B]` followed by the items shown; choosing Inspect asks the tab's inspector to inspect the element under the pointer with nothing shown on screen, printing `PASS window.inspect: requests=1 at-element=true`.
 6. `make test` checks Bow's menu for links, images, fields, selections and bare pages.
 7. Run `make e2e E2E=page`: `PASS page.zoom.keys`, `PASS page.zoom.menu` and `PASS page.zoom.site` for zoom by key and menu with another site keeping its own level; `PASS page.crash.overlay` and `PASS page.crash.reload` for a crashed page and its Reload button; `PASS page.copy-image` for the copied image's data.
 8. Run `make e2e E2E=engine.challenges`: a page answering 401 with a Basic challenge asks the window, whose sign in sheet is cancelled, printing a line starting `PASS engine.auth_hook: questions=[basic auth.bow.test:80 realm=bow answer=cancel] ended=finish http://auth.bow.test/ 401`; a page with a self-signed certificate asks the window, which cancels, printing a line starting `PASS engine.cert_hook: questions=[https://badcert.bow.test/ untrustedAuthority answer=cancel] ended=fail https://badcert.bow.test/ certificate`.
@@ -80,6 +81,6 @@ This spec covers what those hooks promise; the features that use them have their
 - Camera or microphone state has no `make e2e` check yet: no fixture captures media.
 - The sign in sheet and the certificate error page themselves are in `auth.md`.
 - The keys still held when a script opens a page from a click (`window.open` in a click handler) have no `make e2e` check: test clicks come through DevTools, which holds no real keys; modified link clicks are checked in `popups.md`.
-- DevTools opening and closing with its tab has no `make e2e` check: e2e runs record the request instead, because the DevTools window would show on screen and take focus.
-- Docking DevTools inside the window is later work.
+- The inspector opening and closing with its tab has no `make e2e` check: e2e runs record the request instead, because the inspector window would show on screen and take focus.
+- Docking the inspector inside the window is later work.
 - Quitting while an unload is pending has no `make e2e` check: quitting ends the run, and the window in which an unload's answer can race the quit is a fraction of a second that a test cannot hold open.
