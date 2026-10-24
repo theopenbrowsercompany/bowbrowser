@@ -93,7 +93,8 @@ final class TabUnloader: AppFeature {
             }
         }
         let clock = self.clock
-        let policy = UnloadPolicy(configuration: UnloadTuning.policy, abilities: UnloadTuning.engineAbilities, now: { clock.now })
+        let policy = UnloadPolicy(
+            configuration: UnloadTuning.policy, abilities: UnloadTuning.engineAbilities, now: { clock.now })
         let decisions = policy.decide(tabs: tabs, pressure: pressure)
         // Every unload runs at once, so one page's slow beforeunload handler holds no other back.
         var pending: [(id: TabID, task: Task<Bool, Never>)] = []
