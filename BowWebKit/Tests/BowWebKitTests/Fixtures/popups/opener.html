@@ -8,16 +8,17 @@
 <button id="tab" onclick="record(window.open('child.html'))">Open a tab</button>
 <button id="sized" onclick="record(window.open('child.html', 'signin', 'width=480,height=560'))">Open a sized popup</button>
 <button id="closer" onclick="record(window.open('closer.html'))">Open a page that closes itself</button>
-<a id="link" href="child.html" target="_blank" rel="opener">A link with a target</a>
+<button id="nested" onclick="record(window.open('nested.html'))">Open a page that opens a popup</button>
+<a id="link"href="child.html" target="_blank" rel="opener">A link with a target</a>
 <script>
   // What the last window.open returned, in the DOM so the tests' own script world reads it: "window", or "null" when
   // nothing opened.
   function record(opened) {
     document.body.dataset.opened = opened === null ? "null" : "window";
   }
-  // ?auto opens a page as soon as the page loads, with no click, so with no user gesture.
-  if (location.search === "?auto") {
-    window.addEventListener("load", () => record(window.open("child.html")));
+  // ?timer opens a page from a timer the page starts as it loads, with no click, so with no user gesture.
+  if (location.search === "?timer") {
+    window.addEventListener("load", () => setTimeout(() => record(window.open("child.html")), 0));
   }
 </script>
 </body>

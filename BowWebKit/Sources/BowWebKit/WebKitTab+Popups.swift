@@ -7,6 +7,12 @@ import WebKit
 // and hands it to the delegate's `didOpenPopup`, `.window` included (the contract's engine with no windows): the app
 // shows it where it decided. The new tab's web view is built from the configuration WebKit passes, which is what
 // keeps `window.opener`, and it is returned to WebKit synchronously, inside the call.
+//
+// WebKit asks about every new page, with or without a user gesture (`WebKitProfile.makeConfiguration()`), so Bow's
+// popup rules decide one a page opens on its own. Popups opened by a popup are asked about as Bow on CEF asks: a popup
+// the app took as a tab, panel or Peek is a tab like any other and asks its delegate; a popup opened as `.window` (on
+// CEF a window of the engine's own, which never asks) opens its own popups as `.window` too, handed to its delegate
+// through `didOpenPopup` without asking.
 
 extension WebKitTab {
     nonisolated func webView(
@@ -18,8 +24,9 @@ extension WebKitTab {
         }
     }
 
-    /// The page called `window.close()` and WebKit let it (a page a script opened, or one with no history to go back
-    /// to): the tab closes as the page's own close.
+    /// The page called `window.close()` and WebKit let it, by the HTML rule that a page may close itself only in a
+    /// tab a script opened or one whose history has a single entry: the tab closes as the page's own close. A tab
+    /// the person opened that has history to go back to ignores the call, and this is never sent.
     nonisolated func webViewDidClose(_ webView: WKWebView) {
         MainActor.assumeIsolated {
             guard webView === self.webView else { return }
@@ -37,9 +44,11 @@ extension WebKitTab {
     ) -> WKWebView? {
         guard webView === self.webView, !isClosed, let delegate else { return nil }
         let request = PopupRequest(action, features: features)
-        guard delegate.tab(self, decidePopup: request) != .block else { return nil }
+        let decision = isPopupWindow ? .window : delegate.tab(self, decidePopup: request)
+        guard decision != .block else { return nil }
         let popup = profile.createTab(configuration: configuration)
         guard !popup.isClosed else { return nil }
+        popup.isPopupWindow = decision == .window
         // Before WebKit starts the new page's first navigation, so the app's delegate and policy cover it.
         delegate.tab(self, didOpenPopup: popup, request: request)
         return popup.webView

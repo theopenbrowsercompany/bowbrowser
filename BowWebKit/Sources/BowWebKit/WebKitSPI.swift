@@ -87,6 +87,7 @@ enum WebKitSPI {
     static let tryClose = Selector(("_tryClose"))
     static let sessionStateData = Selector(("_sessionStateData"))
     static let actionIsRedirect = Selector(("_isRedirect"))
+    static let actionIsUserInitiated = Selector(("_isUserInitiated"))
 
     nonisolated static let methods: [Entry] = [
         Entry(
@@ -159,6 +160,10 @@ enum WebKitSPI {
             name: "_isRedirect", kind: .method, owner: Owner.navigationAction.rawValue,
             use: "a policy ask for a server redirect (EngineNavigation.isRedirect)",
             fallback: "a redirect asks the policy as a new navigation"),
+        Entry(
+            name: "_isUserInitiated", kind: .method, owner: Owner.navigationAction.rawValue,
+            use: "whether a click or key opened a new page (PopupRequest.isUserGesture)",
+            fallback: "WebKit's own popup blocker refuses a new page with no gesture unasked"),
     ]
 
     // MARK: Private delegate callbacks
@@ -463,6 +468,17 @@ enum WebKitSPI {
         guard action.responds(to: actionIsRedirect) else { return nil }
         typealias Fn = @convention(c) (AnyObject, Selector) -> Bool
         return unsafeBitCast(action.method(for: actionIsRedirect), to: Fn.self)(action, actionIsRedirect)
+    }
+
+    /// Whether WebKit can say if a person's click or key started a navigation action (`isUserInitiated(_:)`).
+    static var readsUserGesture: Bool { has(actionIsUserInitiated, on: WKNavigationAction.self) }
+
+    /// Whether a person's click or key started `action` (WebKit was processing a user gesture when the page asked),
+    /// or nil when absent.
+    static func isUserInitiated(_ action: WKNavigationAction) -> Bool? {
+        guard action.responds(to: actionIsUserInitiated) else { return nil }
+        typealias Fn = @convention(c) (AnyObject, Selector) -> Bool
+        return unsafeBitCast(action.method(for: actionIsUserInitiated), to: Fn.self)(action, actionIsUserInitiated)
     }
 
     /// WebKit's private session state, beside the public `interactionState`. Nil when absent.

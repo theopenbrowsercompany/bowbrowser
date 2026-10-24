@@ -15,6 +15,9 @@ That connection is what sign in popups (for example Google or GitHub sign in) us
 - The new page uses the same profile as the page that opened it.
 - The engine asks the app where each new page goes: a new tab, a tab in the background, a popup panel, a window of its own, or nowhere (blocked).
   The window answers with the rules below, or with a Peek (spec/peek.md).
+- The engine asks about every new page, with or without a click, and says whether a click or key press opened it, so Bow's rules (not the engine's own popup blocker) decide a page that opens one on its own.
+  The WebKit engine reads this from WebKit's own record of whether it was handling a click or key press when the page asked, with WebKit's built in popup blocker off; only on a WebKit that cannot say does that blocker stay on, refusing such pages before the app is asked.
+- A page in a popup window of its own opens its own new pages in popup windows too, without asking; a new page the app took as a tab, a popup panel or a Peek asks like any tab.
 - A link opened with a modified click has no `window.opener`, as in other browsers.
 - A new page the app takes as a tab is still connected to the page that opened it through `window.opener`.
 - The app owns such a tab before its first navigation, so the app's rules for where pages may go apply to that first page too.
@@ -58,6 +61,7 @@ Arc shows sign in popups in a small window of their own, over the browser window
   A window that is closing opens its pages' new pages in popup windows of their own instead of taking tabs.
 - A new tab to a page that cannot load opens and shows the engine's error page, like any tab.
 - Closing a popup window leaves the window that opened it open, and quitting closes popups with everything else.
+- A page may close its own tab with `window.close()` only when a script opened the tab or the tab's history has a single page, as the HTML standard says; a tab you opened that has pages to go back to ignores the call.
 - A popup window has no Bow tab bar or address bar yet.
 
 ## Acceptance checks
