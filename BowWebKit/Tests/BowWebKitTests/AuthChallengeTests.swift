@@ -133,6 +133,19 @@ func finishStatus(_ rig: TabRig, _ url: URL) -> Int? {
             finishStatus(rig, url) == 200 && tab.state.title == "Signed in"
         }
         #expect(delegate.signIns.count == 1)
+
+        // Another profile keeps nothing of it: its tab is asked again.
+        let other = WebKitProfile(profileID: "Other", storeID: UUID(), isPersistent: false, store: .nonPersistent())
+        let otherDelegate = ChallengeDelegate(recorder: RecordingTabDelegate())
+        let otherTab = other.createTab(url: url) as! WebKitTab
+        otherTab.delegate = otherDelegate
+        if let webView = otherTab.webView { WebKitSPI.setWindowOcclusionDetectionEnabled(webView, false) }
+        try await waitUntil("the other profile's tab finished on the 401 page") {
+            otherDelegate.signIns.count == 1 && otherTab.state.title == "Denied" && !otherTab.state.isLoading
+        }
+        let box = otherTab.webView.map(WeakBox.init)
+        _ = await otherTab.close()
+        try await waitUntil("the other profile's web view is released", timeout: 5) { box?.object == nil }
         try await rig.finish()
     }
 
