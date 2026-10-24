@@ -48,7 +48,7 @@ extension WebKitTab {
         // block it everywhere else.
         let decision =
             isPopupWindow
-            ? (request.isUserGesture ? .window : PopupPolicy.noGestureDecision)
+            ? PopupPolicy.fallbackDecision(for: request)
             : delegate.tab(self, decidePopup: request)
         guard decision != .block else { return nil }
         let popup = profile.createTab(configuration: configuration)

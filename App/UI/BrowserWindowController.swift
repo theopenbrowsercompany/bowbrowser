@@ -938,8 +938,9 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
 
     func tab(_ tab: any EngineTab, decidePopup request: PopupRequest) -> PopupDecision {
         // A closing window takes no new tab, so its pages' popups keep the engine's own window.
-        guard modelID(of: tab) != nil, !isClosing else { return .window }
-        return features.lazy.compactMap { $0.decidePopup(request, from: tab) }.first ?? .window
+        guard modelID(of: tab) != nil, !isClosing else { return PopupPolicy.fallbackDecision(for: request) }
+        return features.lazy.compactMap { $0.decidePopup(request, from: tab) }.first
+            ?? PopupPolicy.fallbackDecision(for: request)
     }
 
     func tab(_ tab: any EngineTab, didOpenPopup newTab: any EngineTab, request: PopupRequest) {
