@@ -11,7 +11,7 @@ E2E ?= all
 # scripts/e2e.sh alone, quoted for the shell.
 unexport E2E
 
-.PHONY: bootstrap hooks project build test test-lock test-e2e-wrapper test-prune test-affected test-scripts run smoke e2e e2e-run format lint guards release verify check done test-done test-refcount test-private-paths test-bootstrap-cef test-check-lists test-e2e-bisect test-verify-plan clean
+.PHONY: bootstrap hooks project build test test-lock test-e2e-wrapper test-prune test-affected test-scripts run smoke e2e e2e-run format lint guards release verify check done test-done test-refcount test-private-paths test-bootstrap-cef test-check-lists test-e2e-bisect test-verify-plan test-e2e-flakes clean
 
 bootstrap: hooks
 	./scripts/bootstrap-cef.sh
@@ -54,7 +54,7 @@ test-affected:
 
 # Every script self test, one after another (about 70 seconds). make verify runs each one side by side, and only when a
 # script it covers (the table in scripts/verify.sh) or the Makefile differs from origin/main.
-test-scripts: test-e2e-wrapper test-prune test-affected test-done test-refcount test-private-paths test-bootstrap-cef test-check-lists test-e2e-bisect test-verify-plan
+test-scripts: test-e2e-wrapper test-prune test-affected test-done test-refcount test-private-paths test-bootstrap-cef test-check-lists test-e2e-bisect test-verify-plan test-e2e-flakes
 
 run: build
 	open $(APP)
@@ -138,6 +138,10 @@ test-e2e-bisect:
 # Tests which self tests scripts/verify.sh runs for a change (under a second; a throwaway repository).
 test-verify-plan:
 	./scripts/test-verify-plan.sh
+
+# Tests scripts/e2e-flakes.sh, the flake ledger reader (a few seconds; throwaway ledgers).
+test-e2e-flakes:
+	./scripts/test-e2e-flakes.sh
 
 clean:
 	rm -rf $(BUILD_DIR) Bow.xcodeproj Generated

@@ -384,9 +384,6 @@ out=$(run 0 0)
 has "a fixture change next to docs keeps the full run" "$out" "make e2e: ok"
 rm -rf "$repo/E2E"
 
-# The ledger reader's self test (scripts/test-e2e-flakes.sh) has no make target of its own; it runs here.
-bash scripts/test-e2e-flakes.sh || failed=1
-
 if [ "$failed" = 0 ]; then echo "done self test: ok"; else
   echo "done self test: FAIL"
   exit 1
