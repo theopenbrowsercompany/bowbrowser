@@ -159,7 +159,8 @@ import WebKit
             let delegate = RecordingTabDelegate()
             let fresh = try #require(rig.profile.createTab(url: a, restoring: restoring) as? WebKitTab)
             fresh.delegate = delegate
-            try await waitUntil("a tab restoring \(String(describing: restoring)) loaded a; saw \(delegate.navigation)") {
+            try await waitUntil("a tab restoring \(String(describing: restoring)) loaded a; saw \(delegate.navigation)")
+            {
                 delegate.navigation.contains("finish \(a)") && fresh.state.url == a && !fresh.state.isLoading
             }
             #expect(delegate.navigation == ["start \(a)", "commit \(a)", "finish \(a)"])
