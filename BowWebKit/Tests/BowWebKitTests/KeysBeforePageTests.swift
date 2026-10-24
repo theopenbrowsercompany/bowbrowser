@@ -93,4 +93,44 @@ extension HostTests {
         }
         try await rig.finish()
     }
+
+    /// A claimed shortcut that shows another tab (Control Tab) moves focus before its key up: that key up is the same
+    /// press, so the newly shown page never sees it either.
+    @Test func theKeyUpOfAClaimedKeyThatMovesFocusReachesNoPage() async throws {
+        let rig = try TabRig()
+        let page = rig.url("/keys/index.html")
+        let first = rig.tab("/keys/index.html")
+        let second = rig.tab("/keys/index.html", shown: false)
+        let delegate = KeyRecordingDelegate()
+        delegate.claims = { event in
+            guard KeyShortcuts.shortcut(for: event, claimedBy: .recentTabs) == .recentTabs else { return false }
+            rig.surface.show(second)
+            rig.surface.focusShownTab()
+            return true
+        }
+        first.delegate = delegate
+        second.delegate = delegate
+        do {
+            let one = PageDriver(try #require(first.webView))
+            let two = PageDriver(try #require(second.webView))
+            try await one.waitForLoad(of: page)
+            try await two.waitForLoad(of: page)
+            TestHost.show(rig.surface, in: rig.window)
+            rig.surface.focusShownTab()
+            try await waitUntil("the first page has focus", timeout: 5) {
+                try await one.bool("return document.hasFocus()")
+            }
+            try one.key(KeyCodes.tab, characters: "\t", modifiers: .control)
+            #expect(rig.window.firstResponder === second.webView, "Control Tab did not show the second tab")
+            // An unclaimed key after it, so the claimed key up would have reached the second page before it.
+            try two.key(KeyCodes.code(for: "k")!, characters: "k")
+            let keys = try await waitFor("the second page saw k down and up", timeout: 5) { () -> [String]? in
+                let keys = try await pageKeys(two)
+                return keys.contains("keydown k") && keys.contains("keyup k") ? keys : nil
+            }
+            #expect(keys == ["keydown k", "keyup k"], "the second page saw \(keys)")
+            #expect(try await pageKeys(one).isEmpty)
+        }
+        try await rig.finish()
+    }
 }

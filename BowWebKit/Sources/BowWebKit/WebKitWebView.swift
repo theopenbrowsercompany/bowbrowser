@@ -17,8 +17,10 @@ enum KeyBeforePageKind {
 
 /// The web view of every Bow tab.
 final class WebKitWebView: WKWebView {
-    /// Key codes whose key down was claimed: their key up is the same press, so it never reaches the page either.
-    private var claimedKeyCodes: Set<UInt16> = []
+    /// Key codes whose key down was claimed: their key up is the same press, so it never reaches a page either. Kept
+    /// for every web view at once, because a claimed shortcut often moves focus (Control Tab shows another tab), and
+    /// the key up then reaches another tab's page.
+    private static var claimedKeyCodes: Set<UInt16> = []
     /// The key down asked about last and the answer, so a key down that reaches both `performKeyEquivalent` and
     /// `keyDown` (or that WebKit sends again after the page left it unhandled) is asked about once.
     private var lastAsked: (event: NSEvent, claimed: Bool)?
@@ -52,7 +54,7 @@ final class WebKitWebView: WKWebView {
     }
 
     override func keyUp(with event: NSEvent) {
-        if claimedKeyCodes.remove(event.keyCode) != nil { return }
+        if Self.claimedKeyCodes.remove(event.keyCode) != nil { return }
         if let handler = uiDelegate as? KeyBeforePageHandler,
             handler.handleKeyBeforePage(event, kind: .keyUp, in: self)
         {
@@ -70,9 +72,9 @@ final class WebKitWebView: WKWebView {
             (uiDelegate as? KeyBeforePageHandler)?.handleKeyBeforePage(event, kind: .keyDown, in: self) ?? false
         lastAsked = (event, claimed)
         if claimed {
-            claimedKeyCodes.insert(event.keyCode)
+            Self.claimedKeyCodes.insert(event.keyCode)
         } else {
-            claimedKeyCodes.remove(event.keyCode)
+            Self.claimedKeyCodes.remove(event.keyCode)
         }
         return claimed
     }
