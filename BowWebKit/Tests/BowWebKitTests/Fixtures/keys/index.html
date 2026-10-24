@@ -1,0 +1,15 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Keys</title>
+<p>Records every keydown and keyup the page sees in window.keys, mirrored into #keys for the test world.</p>
+<input id="field">
+<pre id="keys">[]</pre>
+<script>
+  window.keys = [];
+  function record(event) {
+    keys.push(event.type + " " + (event.metaKey ? "Meta+" : "") + event.key);
+    document.getElementById("keys").textContent = JSON.stringify(keys);
+  }
+  addEventListener("keydown", record, true);
+  addEventListener("keyup", record, true);
+</script>
