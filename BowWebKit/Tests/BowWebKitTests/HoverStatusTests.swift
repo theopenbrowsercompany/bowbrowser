@@ -119,7 +119,7 @@ import WebKit
         case .callback:
             // WebKit really calls the private callback (moves it coalesces under load share one call), and the tab
             // added no script.
-            #expect(tab.hover.callbackCount >= expected.count,"hover callbacks: \(tab.hover.callbackCount)")
+            #expect(tab.hover.callbackCount >= expected.count, "hover callbacks: \(tab.hover.callbackCount)")
             #expect(webView.configuration.userContentController.userScripts.isEmpty)
         case .script:
             #expect(tab.hover.callbackCount == 0)
