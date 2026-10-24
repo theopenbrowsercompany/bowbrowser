@@ -99,6 +99,14 @@ public enum PopupPolicy {
         return request.clickModifiers == .none && isIdentityProvider(request.targetURL)
     }
 
+    /// What a request gets when nothing places it: the window cannot take it (its opener is not one of the window's
+    /// tabs, or the window is closing), no window feature answers it, or it comes from a popup window of the engine's
+    /// own. A popup window of its own with a user gesture, blocked without one, so a page never opens a real window
+    /// on its own. The disposition and click modifiers do not matter.
+    public static func fallbackDecision(for request: PopupRequest) -> PopupDecision {
+        request.isUserGesture ? .window : noGestureDecision
+    }
+
     /// Where a tab opened from Today goes.
     public static let todayPlacement = PopupPlacement.afterOpener
     /// Where a tab opened from a pinned tab or a Favorite goes.

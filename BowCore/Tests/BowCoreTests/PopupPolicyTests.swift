@@ -19,6 +19,20 @@ import Testing
         #expect(outcome == PopupOutcome(decision: .block))
     }
 
+    static let dispositions: [PopupDisposition] = [.foregroundTab, .backgroundTab, .popup, .window]
+
+    @Test(arguments: dispositions) func fallbackWithAGestureOpensAWindow(disposition: PopupDisposition) {
+        #expect(PopupPolicy.fallbackDecision(for: request(disposition: disposition)) == .window)
+        let modified = request(disposition: disposition, modifiers: .init(command: true, shift: true))
+        #expect(PopupPolicy.fallbackDecision(for: modified) == .window)
+    }
+
+    @Test(arguments: dispositions) func fallbackWithoutAGestureIsBlocked(disposition: PopupDisposition) {
+        #expect(PopupPolicy.fallbackDecision(for: request(gesture: false, disposition: disposition)) == .block)
+        let sized = request(gesture: false, disposition: disposition, features: .init(width: 500, isPopup: true))
+        #expect(PopupPolicy.fallbackDecision(for: sized) == .block)
+    }
+
     @Test func sizedPopupFromAClickOpensAPanel() {
         let sized = request(disposition: .popup, features: .init(width: 500, height: 600, isPopup: true))
         #expect(PopupPolicy.outcome(for: sized, openerZone: .today) == PopupOutcome(decision: .popupPanel))

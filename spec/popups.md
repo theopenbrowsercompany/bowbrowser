@@ -15,6 +15,7 @@ That connection is what sign in popups (for example Google or GitHub sign in) us
 - The new page uses the same profile as the page that opened it.
 - The engine asks the app where each new page goes: a new tab, a tab in the background, a popup panel, a window of its own, or nowhere (blocked).
   The window answers with the rules below, or with a Peek (spec/peek.md).
+- A new page that no window feature places (its window is closing, its opener is not one of the window's tabs, or no rule answers it) opens in a window of its own only when a click or key press opened it, and is blocked otherwise.
 - The engine asks about every new page, with or without a click, and says whether a click or key press opened it, so Bow's rules (not the engine's own popup blocker) decide a page that opens one on its own.
   The WebKit engine reads this from WebKit's own record of whether it was handling a click or key press when the page asked, with WebKit's built in popup blocker off; only on a WebKit that cannot say does that blocker stay on, refusing such pages before the app is asked.
 - A page in a popup window of its own opens its own new pages in popup windows too, without asking, except one without a click or key press, which is blocked as everywhere; a new page the app took as a tab, a popup panel or a Peek asks like any tab.
