@@ -41,6 +41,8 @@ final class WebKitTab: SPIDelegateBase, EngineTab, WKNavigationDelegate, WKUIDel
     var observations: [NSKeyValueObservation] = []
     /// The status text sent last and where it comes from (WebKitTab+Hover.swift).
     var hover = HoverStatus()
+    /// True for a popup opened as `.window`, whose own popups open as windows unasked (WebKitTab+Popups.swift).
+    var isPopupWindow = false
     /// Addresses the app loaded and WebKit has not asked about yet, which make their navigation `typed`.
     private var appLoads: [URL] = []
 

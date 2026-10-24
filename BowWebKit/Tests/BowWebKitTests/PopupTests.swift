@@ -10,6 +10,8 @@ import WebKit
 @MainActor
 final class PopupRecordingDelegate: EngineTabDelegate {
     var decision: PopupDecision
+    /// Answers with Bow's popup rules for a Today tab instead of `decision`, as the app does.
+    var decidesByPolicy = false
     private(set) var requests: [PopupRequest] = []
     private(set) var opened: [(tab: WebKitTab, request: PopupRequest)] = []
     /// Each opened tab's delegate, by tab ID.
@@ -25,7 +27,7 @@ final class PopupRecordingDelegate: EngineTabDelegate {
 
     func tab(_ tab: any EngineTab, decidePopup request: PopupRequest) -> PopupDecision {
         requests.append(request)
-        return decision
+        return decidesByPolicy ? PopupPolicy.outcome(for: request, openerZone: .today).decision : decision
     }
 
     func tab(_ tab: any EngineTab, didOpenPopup newTab: any EngineTab, request: PopupRequest) {
@@ -180,22 +182,85 @@ final class PopupRecordingDelegate: EngineTabDelegate {
         try await rig.finish()
     }
 
-    /// With no user gesture WebKit's popup blocker refuses `window.open` before the tab is asked: the page gets null
-    /// and `decidePopup` is never called (the answer Bow's rules give such a request).
-    @Test func windowOpenWithoutAGestureReturnsNullUnasked() async throws {
+    /// A `window.open` from a page's timer, with no click, reaches the tab with no user gesture, and Bow's popup rules
+    /// block it, so the page gets null; one from a click has a gesture and opens. WebKit's own blocker stays out of
+    /// it, as Chromium's does on CEF.
+    @Test func aPopupWithoutAGestureReachesTheTabAndBowsRulesBlockIt() async throws {
+        #expect(WebKitSPI.readsUserGesture, "WebKit cannot say whether a click opened a page")
         let rig = try TabRig()
-        let page = rig.url("/popups/opener.html?auto")
-        let opener = rig.tab("/popups/opener.html?auto")
+        let page = rig.url("/popups/opener.html?timer")
+        let child = rig.url("/popups/child.html")
+        let opener = rig.tab("/popups/opener.html?timer")
         let delegate = PopupRecordingDelegate(.foregroundTab)
+        delegate.decidesByPolicy = true
         opener.delegate = delegate
-        try await PageDriver(opener.webView!).waitForLoad(of: page)
-        let result = try await waitFor("the page's automatic window.open returned") {
+        let timed = try await delegate.waitForRequest(1)
+        #expect(timed.targetURL == child && !timed.isUserGesture, "the timer's request: \(timed)")
+        #expect(timed.clickModifiers == .none && timed.disposition == .foregroundTab, "\(timed)")
+        let result = try await waitFor("the timer's window.open returned; asked \(delegate.requests.count)") {
             let value = try await openResult(opener)
             return value == "none" ? nil : value
         }
-        #expect(result == "null", "a window.open without a gesture opened a window")
-        #expect(delegate.requests.isEmpty, "decidePopup was asked about a request without a gesture")
+        #expect(result == "null", "Bow's rules let a popup with no gesture open")
         #expect(delegate.opened.isEmpty)
+
+        try await PageDriver(opener.webView!).waitForLoad(of: page)
+        try await PageDriver(opener.webView!).eval("document.body.dataset.opened = ''")
+        try await click("#tab", in: opener)
+        let (popup, clicked) = try await delegate.waitForPopup(1)
+        #expect(delegate.requests.count == 2)
+        #expect(
+            clicked == PopupRequest(targetURL: child, disposition: .foregroundTab, isUserGesture: true), "\(clicked)")
+        let opened = try await waitFor("the click's window.open returned; opened \(delegate.opened.count)") {
+            let value = try await openResult(opener)
+            return value == "none" ? nil : value
+        }
+        #expect(opened == "window")
+        try await finish([popup])
+        try await rig.finish()
+    }
+
+    /// A popup's own popup is asked about as Bow on CEF asks: a popup the app took as a tab asks its own delegate,
+    /// and a popup opened as `.window` (on CEF a window of the engine's own) opens its popups as `.window` unasked,
+    /// handing them to its delegate. Either way the new page keeps its opener.
+    @Test func aPopupsOwnPopupIsAskedAsOnCEF() async throws {
+        let rig = try TabRig()
+        let page = rig.url("/popups/opener.html")
+        let nested = rig.url("/popups/nested.html")
+        let child = rig.url("/popups/child.html")
+        let opener = rig.tab("/popups/opener.html")
+        let delegate = PopupRecordingDelegate(.foregroundTab)
+        opener.delegate = delegate
+        try await PageDriver(opener.webView!).waitForLoad(of: page)
+
+        for (index, decision) in [PopupDecision.foregroundTab, .window].enumerated() {
+            delegate.decision = decision
+            rig.surface.show(opener)
+            try await click("#nested", in: opener)
+            let popup = try await delegate.waitForPopup(index + 1).tab
+            #expect(popup.isPopupWindow == (decision == .window), "\(decision)")
+            // The app takes the popup and becomes its delegate, which would answer a popup of its own with a tab.
+            let inner = PopupRecordingDelegate(.backgroundTab)
+            popup.delegate = inner
+            rig.surface.show(popup)
+            try await PageDriver(popup.webView!).waitForLoad(of: nested)
+            try await click("#open", in: popup)
+            let (grandchild, request) = try await inner.waitForPopup(1)
+            #expect(request.targetURL == child && request.isUserGesture, "\(decision): \(request)")
+            if decision == .window {
+                #expect(inner.requests.isEmpty, "a popup window's popup was asked about")
+                #expect(grandchild.isPopupWindow, "a popup window's popup did not open as a window")
+            } else {
+                #expect(inner.requests.count == 1, "a popup tab's popup was not asked about")
+                #expect(!grandchild.isPopupWindow)
+            }
+            try await waitUntil(
+                "\(decision): the grandchild loaded with its opener; title \(grandchild.state.title), url \(grandchild.state.url?.absoluteString ?? "nil")"
+            ) {
+                grandchild.state.url == child && grandchild.state.title == "Popup child with opener"
+            }
+            try await finish([grandchild, popup])
+        }
         try await rig.finish()
     }
 
@@ -247,15 +312,78 @@ final class PopupRecordingDelegate: EngineTabDelegate {
         #expect(popup.isClosed && popup.closeReason == .page && popup.webView == nil)
         #expect(!opener.isClosed)
         try await waitUntil("the closed popup's web view is released", timeout: 5) { released == nil }
+        try await rig.finish()
+    }
 
-        // A tab the person opened, with history to go back to, ignores window.close(), as in every browser: WebKit
-        // refuses the close (window.closed stays false) and the tab stays open.
+    /// By the HTML rule a page may close itself only in a tab a script opened or one whose history has a single
+    /// entry: a tab the person opened with more than one entry ignores `window.close()` (window.closed stays false,
+    /// no closed event, the tab stays), while one with a single entry closes as the page's own close.
+    @Test func aPersonOpenedTabWithHistoryIgnoresWindowClose() async throws {
+        let rig = try TabRig()
         let a = rig.url("/navigation/a.html")
-        opener.load(a)
-        try await PageDriver(opener.webView!).waitForLoad(of: a)
-        #expect(try await PageDriver(opener.webView!).bool("window.close(); return window.closed") == false)
-        #expect(try await PageDriver(opener.webView!).string("return document.title") == "A")
-        #expect(!opener.isClosed && opener.closeReason == nil)
+        let b = rig.url("/navigation/b.html")
+        let tab = rig.tab("/navigation/a.html")
+        try await PageDriver(tab.webView!).waitForLoad(of: a)
+        tab.load(b)
+        try await PageDriver(tab.webView!).waitForLoad(of: b)
+        let entries = tab.webView!.backForwardList.backList.count + 1
+        #expect(entries == 2, "history entries \(entries)")
+        #expect(try await PageDriver(tab.webView!).bool("window.close(); return window.closed") == false)
+        #expect(try await PageDriver(tab.webView!).string("return document.title") == "B")
+        #expect(!tab.isClosed && tab.closeReason == nil && !rig.delegate.events.contains(.closed))
+
+        let single = rig.tab("/navigation/a.html")
+        try await PageDriver(single.webView!).waitForLoad(of: a)
+        let delegate = RecordingTabDelegate()
+        single.delegate = delegate
+        try await PageDriver(single.webView!).eval("window.close()")
+        _ = try await delegate.wait(for: "the single entry tab's closed event; saw \(delegate.events)") {
+            $0 == .closed
+        }
+        #expect(single.isClosed && single.closeReason == .page)
+        #expect(!tab.isClosed, "the tab with history closed")
+        try await rig.finish()
+    }
+
+    /// WebKit's `buttonNumber` on a navigation action is a mask of the buttons, as `NSEvent.pressedMouseButtons` is
+    /// (1 the left, 4 the middle), not NSEvent's button number: a plain link's navigation action reports 4 for a
+    /// middle click and 1 for a left one. The popup mapping reads 4 as the middle button, so a middle click on a
+    /// link with a target reaches the tab as a Command click, a background tab.
+    @Test func aMiddleClickReportsTheMiddleButton() async throws {
+        do {
+            let server = try FixtureServer.started()
+            defer { server.stop() }
+            let (window, webView) = try TestHost.webView()
+            let recorder = ButtonRecorder()
+            webView.navigationDelegate = recorder
+            defer {
+                _ = webView.dispose()
+                TestHost.close(window)
+            }
+            let driver = PageDriver(webView)
+            try await driver.load(server.url("/popups/middle.html"))
+            try await driver.middleClick(try await driver.centre(of: "#plain"))
+            let middle = try await waitFor("the middle click's navigation action; saw \(recorder.buttons)") {
+                recorder.buttons.first
+            }
+            #expect(middle == 4, "the middle button reported \(middle)")
+            try await driver.click("#plain")
+            let left = try await waitFor("the left click's navigation action; saw \(recorder.buttons)") {
+                recorder.buttons.count >= 2 ? recorder.buttons[1] : nil
+            }
+            #expect(left == 1, "the left button reported \(left)")
+        }
+
+        let rig = try TabRig()
+        let opener = rig.tab("/popups/opener.html")
+        let delegate = PopupRecordingDelegate(.block)
+        opener.delegate = delegate
+        try await PageDriver(opener.webView!).waitForLoad(of: rig.url("/popups/opener.html"))
+        let link = try await PageDriver(opener.webView!).centre(of: "#link")
+        try await PageDriver(opener.webView!).middleClick(link)
+        let request = try await delegate.waitForRequest(1)
+        #expect(request.clickModifiers == PopupClickModifiers(command: true), "\(request)")
+        #expect(request.disposition == .backgroundTab && request.isUserGesture, "\(request)")
         try await rig.finish()
     }
 
@@ -340,5 +468,60 @@ final class PopupRecordingDelegate: EngineTabDelegate {
         let noGesture = PopupRequest(
             targetURL: url, features: features, isUserGesture: false, modifierFlags: [.command], buttonNumber: 0)
         #expect(noGesture.clickModifiers == .none && noGesture.disposition == .popup && !noGesture.isUserGesture)
+    }
+
+    @Test func webKitsButtonMaskBecomesNSEventsButtonNumber() {
+        #expect(PopupRequest.eventButtonNumber(webKitButtons: 0) == 0, "no click")
+        #expect(PopupRequest.eventButtonNumber(webKitButtons: 1) == 0, "the left button")
+        #expect(PopupRequest.eventButtonNumber(webKitButtons: 2) == 1, "the right button")
+        #expect(PopupRequest.eventButtonNumber(webKitButtons: 4) == 2, "the middle button")
+    }
+}
+
+/// Records the mouse button of every link click WebKit asks about and cancels it, so the page stays; other
+/// navigations (the page's own load) go ahead.
+@MainActor
+final class ButtonRecorder: NSObject, WKNavigationDelegate {
+    private(set) var buttons: [Int] = []
+
+    nonisolated func webView(
+        _ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction,
+        decisionHandler: @escaping @MainActor @Sendable (WKNavigationActionPolicy) -> Void
+    ) {
+        MainActor.assumeIsolated {
+            guard navigationAction.navigationType == .linkActivated else { return decisionHandler(.allow) }
+            buttons.append(navigationAction.buttonNumber)
+            decisionHandler(.cancel)
+        }
+    }
+}
+
+@MainActor private var middleClickEventNumber = 10_000
+
+extension PageDriver {
+    /// A middle click at `point` (page coordinates): a mouse move, then the other button down and up with button
+    /// number 2, sent to the web view's window as a real middle click arrives; returns once WebKit has handled them.
+    func middleClick(_ point: CGPoint) async throws {
+        guard let window = webView.window else { throw TestError("the web view is in no window") }
+        let at = windowPoint(point)
+        for type in [NSEvent.EventType.mouseMoved, .otherMouseDown, .otherMouseUp] {
+            middleClickEventNumber += 1
+            guard
+                let base = NSEvent.mouseEvent(
+                    with: type, location: at, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                    windowNumber: window.windowNumber, context: nil, eventNumber: middleClickEventNumber,
+                    clickCount: type == .mouseMoved ? 0 : 1, pressure: type == .otherMouseDown ? 1 : 0),
+                let cgEvent = base.cgEvent?.copy()
+            else { throw TestError("could not make a \(type) event") }
+            if type != .mouseMoved { cgEvent.setIntegerValueField(.mouseEventButtonNumber, value: 2) }
+            guard let event = NSEvent(cgEvent: cgEvent) else { throw TestError("could not remake a \(type) event") }
+            guard type == .mouseMoved || event.buttonNumber == 2, event.window === window else {
+                throw TestError(
+                    "the \(type) event has button \(event.buttonNumber) in window \(event.windowNumber), not 2 in \(window.windowNumber)"
+                )
+            }
+            window.sendEvent(event)
+        }
+        _ = await WebKitSPI.afterPendingMouseEvents(webView)
     }
 }

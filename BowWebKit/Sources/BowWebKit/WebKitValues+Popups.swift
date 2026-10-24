@@ -6,13 +6,24 @@ import WebKit
 
 extension PopupRequest {
     /// The request WebKit asks about in `createWebViewWith`: the address, where the page asked it to open and the
-    /// window features it passed. WebKit asks only for a request with a user gesture (the profile's configuration
-    /// leaves `javaScriptCanOpenWindowsAutomatically` off, see `WebKitProfile.makeConfiguration()`), so every request
-    /// reports one.
+    /// window features it passed, and whether a click or key opened it, as WebKit's private `_isUserInitiated` says
+    /// (a page's timer or load handler has none). Where WebKit cannot say, its own popup blocker refuses a request
+    /// with no gesture before asking (`WebKitProfile.makeConfiguration()`), so every request it asks about has one.
     @MainActor init(_ action: WKNavigationAction, features: WKWindowFeatures) {
         self.init(
-            targetURL: action.request.url, features: PopupWindowFeatures(features), isUserGesture: true,
-            modifierFlags: action.modifierFlags, buttonNumber: action.buttonNumber)
+            targetURL: action.request.url, features: PopupWindowFeatures(features),
+            isUserGesture: WebKitSPI.isUserInitiated(action) ?? true,
+            modifierFlags: action.modifierFlags,
+            buttonNumber: Self.eventButtonNumber(webKitButtons: action.buttonNumber))
+    }
+
+    /// NSEvent's button number (0 the left, 1 the right, 2 the middle) from a navigation action's `buttonNumber`,
+    /// which WebKit reports as a mask of the buttons, as `NSEvent.pressedMouseButtons` is (1 the left, 2 the right,
+    /// 4 the middle; 0 for no click), whatever its name says.
+    static func eventButtonNumber(webKitButtons mask: Int) -> Int {
+        if mask & (1 << 2) != 0 { return 2 }
+        if mask & (1 << 1) != 0 { return 1 }
+        return 0
     }
 
     /// The request for `targetURL` with `features`, from the click's modifier keys and mouse button (NSEvent's

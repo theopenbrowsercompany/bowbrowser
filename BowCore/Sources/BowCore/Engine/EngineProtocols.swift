@@ -204,8 +204,10 @@ extension EngineTab {
     func tab(_ tab: any EngineTab, decidePermission request: PermissionRequest) async -> PermissionDecision
 
     /// The page is opening a new page (a link with a target, `window.open`): where it goes, decided synchronously.
-    /// Defaults to `.window`, a popup window of its own, which keeps `window.opener`. Popups opened by popups
-    /// and links saved to disk are not asked about.
+    /// Defaults to `.window`, a popup window of its own, which keeps `window.opener`. A popup the app took as a tab
+    /// asks its own delegate; popups opened by a popup shown as `.window` open as `.window` too without asking (an
+    /// engine with no windows hands them to that popup's delegate through `didOpenPopup`), and links saved to disk
+    /// are not asked about.
     func tab(_ tab: any EngineTab, decidePopup request: PopupRequest) -> PopupDecision
 
     /// A popup decided as `.foregroundTab`, `.backgroundTab`, `.popupPanel` or `.peek` arrived as a new tab in the same profile, still

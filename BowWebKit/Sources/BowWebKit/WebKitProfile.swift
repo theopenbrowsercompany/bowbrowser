@@ -42,14 +42,15 @@ final class WebKitProfile: EngineProfile {
     /// A fresh configuration for one tab's web view, on the profile's store. Each web view gets its own, since a
     /// web view keeps the configuration it was made with.
     ///
-    /// Scripts may not open windows without a user gesture: WebKit's popup blocker then refuses such a
-    /// `window.open` (it returns null) before asking the tab, which is the answer Bow's popup rules give a request
-    /// with no gesture (`PopupPolicy.noGestureDecision`), so every request the tab asks about has one (WebKit has no
-    /// public way to tell the tab whether a request had a gesture).
+    /// Scripts may open windows without a user gesture, so WebKit's own popup blocker stays out of the way and the
+    /// tab is asked about every new page, with whether a click or key opened it (`WebKitSPI.isUserInitiated`); Bow's
+    /// popup rules then decide a request with no gesture (`PopupPolicy.noGestureDecision`), as on Chromium. Only when
+    /// WebKit cannot say whether a request had a gesture does its blocker stay on, refusing such a `window.open`
+    /// (null) before asking the tab, which is the answer those rules give.
     func makeConfiguration() -> WKWebViewConfiguration {
         let configuration = WKWebViewConfiguration()
         configuration.websiteDataStore = store
-        configuration.preferences.javaScriptCanOpenWindowsAutomatically = false
+        configuration.preferences.javaScriptCanOpenWindowsAutomatically = WebKitSPI.readsUserGesture
         return configuration
     }
 
