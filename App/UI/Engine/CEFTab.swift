@@ -64,8 +64,12 @@ final class CEFTab: NSObject, EngineTab {
         }
     }
 
-    var zoomLevel: Double { tab.zoomLevel }
-    func setZoomLevel(_ level: Double) { tab.zoomLevel = level }
+    // Chromium keeps zoom as a level: 0 is 100% and each step of 1 is 1.2 times larger.
+    var zoomFactor: Double { pow(1.2, tab.zoomLevel) }
+    func setZoomFactor(_ factor: Double) {
+        guard factor.isFinite, factor > 0 else { return }
+        tab.zoomLevel = factor == 1 ? 0 : log(factor) / log(1.2)
+    }
     func exitFullscreen() { tab.exitFullscreen() }
 
     func send(_ event: TabEvent) {

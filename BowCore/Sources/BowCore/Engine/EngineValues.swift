@@ -226,12 +226,21 @@ public struct PopupRequest: Equatable, Sendable {
     }
 }
 
-/// Why a tab's render process ended.
-public enum ProcessGoneReason: Equatable, Sendable {
+/// Why the process running a tab's page ended. Each engine maps its own termination reasons to these.
+public enum ProcessGoneReason: Hashable, Sendable, CaseIterable {
+    /// The process crashed.
     case crashed
+    /// Something outside the engine killed it (the system, or a person in Activity Monitor).
     case killed
+    /// It ran out of memory, or the engine ended it for using more memory than its limit.
     case outOfMemory
+    /// The engine ended it for using too much CPU in the background.
+    case exceededCPULimit
+    /// The app asked the engine to end it.
+    case requestedByApp
+    /// It could not start.
     case launchFailed
+    /// Any other reason.
     case other
 }
 
@@ -271,11 +280,12 @@ public enum TabEvent: Equatable, Sendable {
     case didFinish(EngineNavigation, httpStatus: Int)
     /// The navigation failed or was aborted (`NavigationError.isAborted`).
     case didFail(EngineNavigation, NavigationError)
-    /// The page opened a new tab or window. This only informs the app: the engine opens the page itself, in a
-    /// popup window of its own, so it keeps `window.opener`; the app must not open `targetURL` again.
+    /// The page opened a popup window (`PopupDecision.window`). This only informs the app: the page is already on
+    /// its way into that window, connected to its opener (`window.opener`), so the app must not open `targetURL`
+    /// again.
     case popupRequested(PopupRequest)
     case fullscreenChanged(Bool)
-    /// The render process ended; the page is gone until the tab reloads.
+    /// The process running the page ended; the page is gone until the tab reloads.
     case renderProcessGone(ProcessGoneReason)
     /// A search started by `EngineTab.find` found matches or moved the active one. One search can
     /// report several times as the engine counts; the last has `isFinal`.

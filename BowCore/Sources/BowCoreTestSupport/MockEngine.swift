@@ -98,9 +98,9 @@ import Foundation
         case stopFind
         case close
         case unload
-        case setZoomLevel(Double)
-        case showDevTools(PagePoint?)
-        case closeDevTools
+        case setZoomFactor(Double)
+        case showInspector(PagePoint?)
+        case closeInspector
     }
 
     public let tabID: TabID
@@ -116,10 +116,10 @@ import Foundation
     public private(set) var closeReason: TabCloseReason?
     /// Whether the page's beforeunload handler keeps the tab open when `close()` or `unload()` is called.
     public var beforeUnloadCancelsClose = false
-    /// The zoom level last set; the mock keeps it per tab, not per site.
-    public private(set) var zoomLevel: Double = 0
-    /// True between `showDevTools` and `closeDevTools` or the tab closing.
-    public private(set) var hasDevTools = false
+    /// The zoom factor last set; the mock keeps it per tab, not per site.
+    public private(set) var zoomFactor: Double = PageZoom.actualSize
+    /// True between `showInspector` and `closeInspector` or the tab closing.
+    public private(set) var hasInspector = false
 
     fileprivate init(id: TabID, profileID: ProfileID, initialURL: URL) {
         self.tabID = id
@@ -150,24 +150,24 @@ import Foundation
         calls.append(.unload)
         guard !isClosed, !beforeUnloadCancelsClose else { return false }
         isClosed = true
-        hasDevTools = false
+        hasInspector = false
         delegate?.tab(self, didReceive: .unloaded)
         return true
     }
 
-    public func setZoomLevel(_ level: Double) {
-        calls.append(.setZoomLevel(level))
-        zoomLevel = level
+    public func setZoomFactor(_ factor: Double) {
+        calls.append(.setZoomFactor(factor))
+        zoomFactor = factor
     }
 
-    public func showDevTools(inspectingAt point: PagePoint?) {
-        calls.append(.showDevTools(point))
-        if !isClosed { hasDevTools = true }
+    public func showInspector(inspectingAt point: PagePoint?) {
+        calls.append(.showInspector(point))
+        if !isClosed { hasInspector = true }
     }
 
-    public func closeDevTools() {
-        calls.append(.closeDevTools)
-        hasDevTools = false
+    public func closeInspector() {
+        calls.append(.closeInspector)
+        hasInspector = false
     }
 
     /// Marks the tab closed for `reason` and sends `TabEvent.closed`, as the engine does whoever closed
@@ -176,7 +176,7 @@ import Foundation
         guard !isClosed else { return }
         isClosed = true
         closeReason = reason
-        hasDevTools = false
+        hasInspector = false
         delegate?.tab(self, didReceive: .closed)
     }
 

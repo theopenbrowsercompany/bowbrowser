@@ -182,17 +182,19 @@ struct EngineHooksTest: E2ETest {
             let before = probe.loads.count
             probe.tab.load(E2EFixture.url("engine/index.html"))
             _ = try await probe.waitForLoad(before + 1)
-            probe.tab.setZoomLevel(1)
-            try await probe.until("the zoom level") { probe.tab.zoomLevel == 1 }
+            probe.tab.setZoomFactor(1.2)
+            try await probe.until("the zoom factor") { PageZoom.percent(forFactor: probe.tab.zoomFactor) == 120 }
             let second = try E2EEngineProbe.open(E2EFixture.url("engine/opened.html"), in: profile)
             track(second)
             _ = try await second.waitForLoad(1)
-            try await second.until("the second tab's zoom") { second.tab.zoomLevel == 1 }
-            return (probe.tab.zoomLevel, second)
+            try await second.until("the second tab's zoom") {
+                PageZoom.percent(forFactor: second.tab.zoomFactor) == 120
+            }
+            return (PageZoom.percent(forFactor: probe.tab.zoomFactor), second)
         }
         run.check(
-            "engine.zoom", passed: zoom.0 == 1 && zoom.1.tab.zoomLevel == 1,
-            "first=\(zoom.0) second=\(zoom.1.tab.zoomLevel)")
+            "engine.zoom", passed: zoom.0 == 120 && PageZoom.percent(forFactor: zoom.1.tab.zoomFactor) == 120,
+            "first=\(zoom.0)% second=\(PageZoom.percent(forFactor: zoom.1.tab.zoomFactor))%")
         return zoom.1
     }
 

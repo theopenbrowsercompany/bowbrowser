@@ -25,9 +25,9 @@ enum PageTests {
         return try condition()
     }
 
-    /// The level of `percent` as the engine reports it, to compare with a tolerance.
+    /// The zoom factor of `percent`, to compare with what the engine reports with a tolerance.
     static func level(_ percent: Int) -> Double {
-        percent == 100 ? 0 : log(Double(percent) / 100) / log(1.2)
+        Double(percent) / 100
     }
 }
 
@@ -45,7 +45,7 @@ struct PageZoomTest: E2ETest {
             _ = try await page.waitForLoad(after: 0)
             return page
         }
-        func level(_ page: any E2EPage) throws -> Double { try app.zoomLevel(of: page) }
+        func level(_ page: any E2EPage) throws -> Double { try app.zoomFactor(of: page) }
         func waitForLevel(_ percent: Int, _ page: any E2EPage) async throws -> Bool {
             try await PageTests.until { abs(try level(page) - PageTests.level(percent)) < 0.001 }
         }
@@ -98,7 +98,7 @@ struct PageZoomTest: E2ETest {
         }
         run.check(
             "page.zoom.site",
-            passed: abs(site.0) < 0.001 && abs(site.1 - PageTests.level(110)) < 0.001
+            passed: abs(site.0 - 1) < 0.001 && abs(site.1 - PageTests.level(110)) < 0.001
                 && abs(site.2 - PageTests.level(90)) < 0.001,
             "other-opened=\(site.0) first=\(site.1) other=\(site.2)")
     }

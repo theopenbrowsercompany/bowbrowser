@@ -4,7 +4,7 @@ import Foundation
 import Testing
 
 // The menu variants the e2e check does not reach (it right clicks a link): editable fields, images, a bare page, and
-// the mock's DevTools and context menu plumbing.
+// the mock's inspector and context menu plumbing.
 @Suite @MainActor struct ContextMenuPolicyTests {
     let link = URL(string: "https://example.com/a")!
     let image = URL(string: "https://example.com/i.png")!
@@ -52,15 +52,15 @@ import Testing
         #expect(ContextMenuPolicy.defaultDecision(for: request) == .show(ContextMenuPolicy.items(for: request)))
     }
 
-    @Test func mockAsksTheDelegateAndTracksDevTools() {
+    @Test func mockAsksTheDelegateAndTracksTheInspector() {
         let engine = MockEngine()
         let tab = engine.defaultProfile.createTab(url: link) as! MockTab
         #expect(tab.decideContextMenu(request()) == .engineDefault)
         #expect(!tab.chooseContextMenuCommand(.inspect, request: request()))
-        tab.showDevTools(inspectingAt: PagePoint(x: 1, y: 2))
-        #expect(tab.hasDevTools)
+        tab.showInspector(inspectingAt: PagePoint(x: 1, y: 2))
+        #expect(tab.hasInspector)
         tab.markClosed()
-        #expect(!tab.hasDevTools)
-        #expect(tab.calls.last == .showDevTools(PagePoint(x: 1, y: 2)))
+        #expect(!tab.hasInspector)
+        #expect(tab.calls.last == .showInspector(PagePoint(x: 1, y: 2)))
     }
 }

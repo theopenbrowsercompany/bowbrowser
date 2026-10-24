@@ -138,36 +138,37 @@ extension EngineDownloadsDelegate {
     /// last event is `TabEvent.unloaded`, not `closed`. Defaults to false (the engine cannot unload).
     func unload() async -> Bool
 
-    /// The page's zoom level: 0 is 100%, and each step of 1 is 20% larger (negative is smaller). The engine
-    /// remembers zoom per site in the profile, so setting it changes every tab on the same site, now and later.
-    var zoomLevel: Double { get }
-    /// Sets the zoom level of the page's site (see `zoomLevel`). Defaults to doing nothing.
-    func setZoomLevel(_ level: Double)
+    /// The page's zoom factor, a multiplier of its size: 1 is 100%, 1.1 is 110% (`PageZoom`). An engine may hand
+    /// back a factor a hair off the one it was given, so compare sizes with `PageZoom.percent(forFactor:)`. Zoom
+    /// applies to the page's site: setting it changes every tab on the same site in the profile, now and later.
+    var zoomFactor: Double { get }
+    /// Sets the zoom factor of the page's site (see `zoomFactor`). Defaults to doing nothing.
+    func setZoomFactor(_ factor: Double)
 
     /// Asks the page to leave fullscreen (the Fullscreen API's, entered with `element.requestFullscreen()`), as
     /// Escape or switching tabs does; `TabEvent.fullscreenChanged(false)` follows once it has. Does nothing when the
     /// page is not fullscreen or the tab is closed. Defaults to doing nothing.
     func exitFullscreen()
 
-    /// Opens DevTools for the page in a window of its own, inspecting the element at `point` when given (and only
-    /// focusing it when it is open already). DevTools closes with the tab, and quitting closes it. Does nothing once
-    /// the tab is closed. Defaults to doing nothing.
-    func showDevTools(inspectingAt point: PagePoint?)
-    /// Closes the page's DevTools, if open. Defaults to doing nothing.
-    func closeDevTools()
-    /// True while the page's DevTools is open. Defaults to false.
-    var hasDevTools: Bool { get }
+    /// Opens the engine's web inspector for the page, inspecting the element at `point` when given (and only
+    /// focusing it when it is open already). The inspector closes with the tab, and quitting closes it. Does nothing
+    /// once the tab is closed. Defaults to doing nothing.
+    func showInspector(inspectingAt point: PagePoint?)
+    /// Closes the page's inspector, if open. Defaults to doing nothing.
+    func closeInspector()
+    /// True while the page's inspector is open. Defaults to false.
+    var hasInspector: Bool { get }
 }
 
 extension EngineTab {
     public var closeReason: TabCloseReason? { nil }
     public func unload() async -> Bool { false }
-    public var zoomLevel: Double { 0 }
-    public func setZoomLevel(_ level: Double) {}
+    public var zoomFactor: Double { PageZoom.actualSize }
+    public func setZoomFactor(_ factor: Double) {}
     public func exitFullscreen() {}
-    public func showDevTools(inspectingAt point: PagePoint?) {}
-    public func closeDevTools() {}
-    public var hasDevTools: Bool { false }
+    public func showInspector(inspectingAt point: PagePoint?) {}
+    public func closeInspector() {}
+    public var hasInspector: Bool { false }
 }
 
 /// Receives a tab's events on the main actor, in the order the engine produced them.
@@ -183,7 +184,7 @@ extension EngineTab {
     func tab(_ tab: any EngineTab, decidePermission request: PermissionRequest) async -> PermissionDecision
 
     /// The page is opening a new page (a link with a target, `window.open`): where it goes, decided synchronously.
-    /// Defaults to `.window`, the engine's own popup window, which keeps `window.opener`. Popups opened by popups
+    /// Defaults to `.window`, a popup window of its own, which keeps `window.opener`. Popups opened by popups
     /// and links saved to disk are not asked about.
     func tab(_ tab: any EngineTab, decidePopup request: PopupRequest) -> PopupDecision
 

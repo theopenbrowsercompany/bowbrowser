@@ -16,7 +16,9 @@ public enum PopupDecision: Equatable, Sendable {
     /// creates the page as it does for `.foregroundTab` and hands it over the same way; the app shows it in the card
     /// and may later promote it to a tab without reloading it.
     case peek
-    /// A separate window the engine opens itself. Today's behavior and the default.
+    /// A separate popup window, not a sidebar tab, connected to its opener (`window.opener`). The default. The window
+    /// is the app's: the engine reports it with `TabEvent.popupRequested` and the app never opens the page again.
+    /// (The CEF engine still builds this window itself; an engine that hands pages to the app builds it as the app's.)
     case window
     /// Nothing opens.
     case block
