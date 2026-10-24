@@ -105,6 +105,7 @@ check:
 # The final check of a branch: warns when it is behind origin/main (refuses on a conflict), then make verify and the
 # full make e2e with make release beside it when app sources changed, then one block for the report (result lines,
 # e2e summary and run folder, final.png, diff stat, tree hash).
+# A FLAKY test the branch does not add or change is reported and does not fail it.
 # Run it after the last commit and a rebase onto origin/main. scripts/done.sh says how.
 done:
 	@./scripts/done.sh
