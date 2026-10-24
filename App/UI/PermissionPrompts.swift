@@ -172,6 +172,8 @@ final class PermissionPrompts {
                 self?.answer(decision, entryID: entryID)
             }
             visiblePrompts[entryID] = prompt
+            // Mission Control hides the prompt when it hides its window (as it does an e2e run's windows).
+            if window.collectionBehavior.contains(.transient) { prompt.collectionBehavior.insert(.transient) }
             window.addChildWindow(prompt, ordered: .above)
         }
         placePrompts()

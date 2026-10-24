@@ -45,6 +45,7 @@ enum E2EOffscreenFrame {
     /// `shadowMargin` of a screen. Otherwise the move is refused: the window keeps its place with the new size, or
     /// goes to the e2e windows' place far from every screen if even that would come close.
     static func kept(_ frame: NSRect, for window: NSWindow) -> NSRect {
+        hideFromMissionControl(window)
         let current = window.frame
         func shows(_ candidate: NSRect) -> Bool {
             let dx = candidate.minX - current.minX
@@ -58,5 +59,17 @@ enum E2EOffscreenFrame {
         let resized = NSRect(origin: current.origin, size: frame.size)
         for candidate in [frame, resized] where !shows(candidate) { return candidate }
         return NSRect(origin: E2EAppAdapter.windowFrame.origin, size: frame.size)
+    }
+
+    /// Keeps `window` out of Mission Control, which shows every window of every app as a thumbnail on the screen,
+    /// off screen windows included: in loaded runs the window server reported e2e windows far off every screen as
+    /// drawn, scaled down, in the middle of the built-in display whenever Mission Control opened, and `e2e.isolation`
+    /// failed. A transient window is one Mission Control hides. Every e2e window passes through `kept(_:for:)` when its
+    /// frame is first set, before it is ordered in, so this is the one place that marks them all.
+    static func hideFromMissionControl(_ window: NSWindow) {
+        guard !window.collectionBehavior.contains(.transient) else { return }
+        // Mission Control's three behaviors exclude each other.
+        window.collectionBehavior.subtract([.managed, .stationary])
+        window.collectionBehavior.insert(.transient)
     }
 }
