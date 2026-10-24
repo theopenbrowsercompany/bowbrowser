@@ -237,9 +237,7 @@ struct SplitCrashPaneTest: E2ETest {
         let url = E2EFixture.url("page/page.html")
         let (a, b) = try await SplitPanesTests.twoPanes(url, url, app: app, run: run)
         let crashed = try await run.step("crash pane B", timeout: E2ETimeouts.firstLoad) {
-            // The call never answers once the page is gone, so it is not waited for.
-            let call = Task { _ = try? await b.devTools("Page.crash", [:]) }
-            defer { call.cancel() }
+            try b.crash()
             guard try await PageTests.until({ try behavior.crashedPage(of: b).isShown }) else {
                 throw E2EError("the crashed tab page never showed")
             }

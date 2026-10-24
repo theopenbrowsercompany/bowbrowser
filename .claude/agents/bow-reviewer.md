@@ -53,7 +53,7 @@ Each row's source names the file and section that states the rule; find the line
 | --- | --- | --- |
 | T-WAIT-1 | A test waits through `E2EWaits` (it gives up shortly before the step's limit and names what it saw), for a specific URL, ID or event, never for a fixed time (blocker 5). | `E2E/README.md` "Tests and checks" (`E2EWaits`) |
 | T-CHECK-1 | Each test declares its checks and records each check once. | `E2E/README.md` "Tests and checks" |
-| T-INPUT-1 | Page input goes through the DevTools Input domain with focus emulation on; app shortcuts go through the app's menu, never DevTools. | `AGENTS.md` Layout, `E2E/Harness/` |
+| T-INPUT-1 | Page input goes through the `E2EPage` page driver's input events with focus emulation on, and only the adapter and `E2EEngineProbe` call DevTools; app shortcuts go through the app's menu, never the page driver. | `AGENTS.md` Layout, `E2E/Harness/` |
 | T-FLAKY-1 | A FLAKY run (failed, then passed on the retry) is not a pass unless every such test is on the unexpired quarantine list. | `AGENTS.md` Commands, `make e2e` |
 | S-SEAM-1 | `App/` and `BowCore/` reach `E2E/` only through `BowE2EHooks.h` and lines marked `E2E seam` inside an `#if BOW_E2E` block; Release builds leave the harness out. | `AGENTS.md` Layout, `App/Engine/BowE2EHooks.h` |
 | S-LIST-1 | A feature is its own files plus one line in its list; the window core and central list expressions do not grow. | `AGENTS.md` Working rules |

@@ -54,19 +54,6 @@ enum UnloadTests {
         try items.filter { try app.unloadTabState($0, besides: page).isLoaded }.count
     }
 
-    /// Presses and releases a character key in `page`'s focused element through the DevTools Input domain, as a
-    /// keyboard does, so the app sees the key before the page.
-    static func pressCharacter(_ character: String, keyCode: Int, macKeyCode: Int, in page: any E2EPage) async throws {
-        var down: [String: Any] = [
-            "type": "keyDown", "key": character, "code": "Key\(character.uppercased())", "text": character,
-            "windowsVirtualKeyCode": keyCode, "nativeVirtualKeyCode": macKeyCode,
-        ]
-        _ = try await page.devTools("Input.dispatchKeyEvent", down)
-        down["type"] = "keyUp"
-        down["text"] = nil
-        _ = try await page.devTools("Input.dispatchKeyEvent", down)
-    }
-
     static func describe(_ state: E2EUnloadTabState) -> String {
         state.isLoaded ? "live" : (state.isListed ? "unloaded" : "gone")
     }
@@ -439,7 +426,7 @@ struct UnloadTypedTest: E2ETest {
             var value = ""
             while value.isEmpty {
                 guard Date() < deadline else { throw E2EError("the field never got the typed text") }
-                try await UnloadTests.pressCharacter("u", keyCode: 85, macKeyCode: 32, in: form)
+                try await form.press(letter: "u", macKeyCode: 32, modifiers: [])
                 value = try await form.string("document.getElementById('field').value")
             }
             return value

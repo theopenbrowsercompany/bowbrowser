@@ -131,14 +131,8 @@ enum E2EScreenshot {
         return nil
     }
 
-    /// The page's visible web content, from DevTools.
+    /// The page's visible web content, from the page driver.
     private static func webContent(_ page: any E2EPage) async throws -> NSImage {
-        let response = try await page.devTools("Page.captureScreenshot", ["format": "png"])
-        guard let base64 = response["data"] as? String, let data = Data(base64Encoded: base64),
-            let image = NSImage(data: data)
-        else {
-            throw E2EError("Page.captureScreenshot returned no image")
-        }
-        return image
+        try await page.screenshot()
     }
 }

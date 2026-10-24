@@ -30,6 +30,11 @@ extension E2ETestApp: E2ES3App {
         return E2ES3TaskSample(cpu: cpu, memory: sample.memory, gpuMemory: sample.gpuMemory)
     }
 
+    func s3SetFrozen(_ frozen: Bool, _ page: any E2EPage) async throws {
+        let state = frozen ? "frozen" : "active"
+        _ = try await E2EAppAdapter.tabPage(page).devTools("Page.setWebLifecycleState", ["state": state])
+    }
+
     private static func s3TabID(_ page: any E2EPage) throws -> UInt64 {
         try E2EAppAdapter.tabPage(page).tab.tabID.rawValue
     }

@@ -32,9 +32,7 @@ struct EngineUndeclaredCrashTest: E2ETest {
             return page
         }
         let shown = try await run.step("crash the page", timeout: E2ETimeouts.firstLoad) {
-            // The call never answers once the page is gone, so it is not waited for.
-            let call = Task { _ = try? await page.devTools("Page.crash", [:]) }
-            defer { call.cancel() }
+            try page.crash()
             return try await E2EWaits.until { try app.crashedPage(of: page).isShown }
         }
         run.check(name, passed: shown, "crashed-page-shown=\(shown)")
@@ -150,13 +148,13 @@ struct EngineHooksTest: E2ETest {
             try await probe.until("a J key in the page") {
                 keys.down.contains("j") && keys.up.contains("j")
             } refresh: {
-                try await probe.pressKey("j", keyCode: 74, macKeyCode: 38)
+                try await probe.pressKey("j", macKeyCode: 38)
                 try await readKeys()
             }
             let seen = (down: keys.down.count, up: keys.up.count)
             probe.claimsKey = { $0.modifiers.contains(.command) && $0.keyCode == 40 }
-            try await probe.pressKey("k", keyCode: 75, macKeyCode: 40, command: true)
-            try await probe.pressKey("j", keyCode: 74, macKeyCode: 38)
+            try await probe.pressKey("k", macKeyCode: 40, command: true)
+            try await probe.pressKey("j", macKeyCode: 38)
             try await probe.until("the J key after Command+K in the page") {
                 keys.down.count > seen.down && keys.up.count > seen.up
             } refresh: {

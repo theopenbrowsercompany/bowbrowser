@@ -16,6 +16,8 @@ protocol E2ES3App: E2EApp {
     func s3SetWindowlessFrameRate(_ rate: Int, _ page: any E2EPage) throws -> Bool
     /// Chromium's task manager reading for the page's main task, nil when it has none.
     func s3TaskSample(_ page: any E2EPage) throws -> E2ES3TaskSample?
+    /// Freezes the page (Chromium's frozen web lifecycle state), or makes it active again.
+    func s3SetFrozen(_ frozen: Bool, _ page: any E2EPage) async throws
 }
 
 /// One task manager reading: CPU (0 to processors × 100) and memory in bytes (-1 for no value yet).

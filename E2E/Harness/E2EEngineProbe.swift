@@ -78,7 +78,9 @@ final class E2EEngineProbe: EngineTabDelegate {
         return loads[count - 1]
     }
 
-    func devTools(_ method: String, _ params: [String: Any] = [:]) async throws -> [String: Any] {
+    /// Calls a Chrome DevTools protocol method on the probe's browser: the CEF side of the probe's page calls below,
+    /// which tests use instead.
+    private func devTools(_ method: String, _ params: [String: Any] = [:]) async throws -> [String: Any] {
         let response = try await withCheckedThrowingContinuation { continuation in
             devToolsSession.callMethod(method, params: params) { result, error in
                 if let result {
@@ -114,12 +116,13 @@ final class E2EEngineProbe: EngineTabDelegate {
         }
     }
 
-    /// Presses and releases a character key, with Command when `command` is true.
-    /// Call `focusPage` first, so the page can receive it.
-    func pressKey(_ character: String, keyCode: Int, macKeyCode: Int, command: Bool = false) async throws {
+    /// Presses and releases the character key `character` (a letter), whose macOS virtual key code is `macKeyCode`
+    /// (kVK_*), with Command when `command` is true. Call `focusPage` first, so the page can receive it.
+    func pressKey(_ character: String, macKeyCode: Int, command: Bool = false) async throws {
         var down: [String: Any] = [
             "type": "keyDown", "key": character, "code": "Key\(character.uppercased())",
-            "windowsVirtualKeyCode": keyCode, "nativeVirtualKeyCode": macKeyCode, "modifiers": command ? 4 : 0,
+            "windowsVirtualKeyCode": E2ETabPage.windowsKeyCode(character), "nativeVirtualKeyCode": macKeyCode,
+            "modifiers": command ? 4 : 0,
         ]
         if !command { down["text"] = character }
         var up = down
