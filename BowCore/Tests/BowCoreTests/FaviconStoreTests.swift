@@ -174,6 +174,12 @@ import Testing
         for id in live { #expect(icons.icon(itemID: id) != nil) }
     }
 
+    @Test func theIconJustSavedSurvivesTheCapEvenWhenNoItemIsListedInUse() {
+        let icons = store(cap: 10)
+        #expect(icons.save(png(50), itemID: "new"))
+        #expect(icons.icon(itemID: "new") != nil)
+    }
+
     @Test func removeDropsOnlyTheItemsOwnIcon() {
         let icons = store()
         icons.save(png(7), itemID: "a", pageURL: "https://a.test/x")

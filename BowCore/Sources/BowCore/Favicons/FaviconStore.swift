@@ -61,17 +61,18 @@ public struct FaviconStore: Sendable {
     @discardableResult
     public func save(_ png: Data, itemID: String, pageURL: String? = nil) -> Bool {
         guard png.count <= maxIconBytes, Self.isWholePNG(png) else { return false }
-        var saved = false
+        var itemSaved = false
         for source in FaviconLookup.sources(itemID: itemID, pageURL: pageURL) {
             do {
                 try storage.write(profile: profile, name: FaviconLookup.fileName(for: source), data: png)
-                saved = true
+                if case .item = source { itemSaved = true }
             } catch {
                 continue
             }
         }
-        if saved { evictToCap() }
-        return saved
+        // The item just saved exists, so its icon is never the one the cap evicts, whatever `inUse` says.
+        evictToCap(alsoKeeping: itemID)
+        return itemSaved
     }
 
     /// The icon for the item: its own, else the exact page's, else the host's, else nil.
@@ -97,11 +98,12 @@ public struct FaviconStore: Sendable {
 
     /// Brings the folder under the cap. Order: item icons of items that no longer exist, then page and host icons,
     /// each oldest first. Icons of items in use stay even when that leaves the folder over the cap.
-    public func evictToCap() {
+    public func evictToCap(alsoKeeping itemID: String? = nil) {
         var files = storage.list(profile: profile)
         var total = files.reduce(0) { $0 + $1.bytes }
         guard total > capBytes else { return }
-        let live = inUse()
+        var live = inUse()
+        if let itemID { live.insert(itemID) }
         func rank(_ file: FaviconFile) -> Int? {
             if let id = FaviconLookup.itemID(fromFileName: file.name) { return live.contains(id) ? nil : 0 }
             return 1
