@@ -174,6 +174,7 @@ enum WebKitSPI {
         case processTerminated = "_webView:webContentProcessDidTerminateWithReason:"
         case becameUnresponsive = "_webViewWebProcessDidBecomeUnresponsive:"
         case becameResponsive = "_webViewWebProcessDidBecomeResponsive:"
+        case getContextMenu = "_webView:getContextMenuFromProposedMenu:forElement:userInfo:completionHandler:"
 
         var selector: Selector { Selector(rawValue) }
 
@@ -216,6 +217,10 @@ enum WebKitSPI {
                 Entry(
                     name: rawValue, kind: .callback, owner: "WKNavigationDelegatePrivate",
                     use: "a hung page recovered", fallback: "no hang detection")
+            case .getContextMenu:
+                Entry(
+                    name: rawValue, kind: .callback, owner: "WKUIDelegatePrivate",
+                    use: "the context menu before it opens", fallback: "willOpenMenu")
             }
         }
     }
@@ -578,6 +583,21 @@ class SPIDelegateBase: NSObject {
     @objc(_webView:webContentProcessDidTerminateWithReason:)
     nonisolated func spiProcessTerminated(_ webView: WKWebView, webContentProcessDidTerminateWithReason reason: Int) {
         MainActor.assumeIsolated { onProcessTerminated?(SPIProcessTerminationReason(rawValue: reason)) }
+    }
+
+    var onGetContextMenu: ((NSMenu, WKWebView, @escaping (NSMenu?) -> Void) -> Void)?
+
+    @objc(_webView:getContextMenuFromProposedMenu:forElement:userInfo:completionHandler:)
+    nonisolated func spiGetContextMenu(
+        _ webView: WKWebView, getContextMenuFromProposedMenu menu: NSMenu, forElement element: NSObject,
+        userInfo: AnyObject?, completionHandler: @escaping (NSMenu?) -> Void
+    ) {
+        nonisolated(unsafe) let menu = menu
+        nonisolated(unsafe) let completionHandler = completionHandler
+        MainActor.assumeIsolated {
+            guard let onGetContextMenu else { return completionHandler(menu) }
+            onGetContextMenu(menu, webView, completionHandler)
+        }
     }
 
     @objc(_webViewWebProcessDidBecomeUnresponsive:)
