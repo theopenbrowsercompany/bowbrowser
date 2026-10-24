@@ -19,29 +19,20 @@ public enum CertificateEnforcement: Equatable, Sendable {
 /// The certificate errors a person chose to go past this session, per host and certificate. Kept in memory only and never saved: it
 /// is deliberately not `Codable`, and a new session starts with none.
 public struct CertificateAllowances: Equatable, Sendable {
-    /// The engine's certificate error codes Chrome lets a person go past when the host is not strict: an untrusted
-    /// authority, a name or date mismatch, and the other errors that do not prove the certificate is bad. Revoked,
-    /// invalid and pinned key errors, codes not listed (unknown or newer ones), and known interception (which Chrome
+    /// The certificate errors Chrome lets a person go past when the host is not strict: an untrusted authority, a
+    /// name or date mismatch, and the other errors that do not prove the certificate is bad. Malformed, revoked,
+    /// invalid and distrusted certificates, reasons Bow does not know (`other`), and known interception (which Chrome
     /// shows its own blocking page for) are never offered.
-    public static let overridableCodes: Set<Int> = [
-        -200,  // ERR_CERT_COMMON_NAME_INVALID
-        -201,  // ERR_CERT_DATE_INVALID
-        -202,  // ERR_CERT_AUTHORITY_INVALID
-        -204,  // ERR_CERT_NO_REVOCATION_MECHANISM
-        -205,  // ERR_CERT_UNABLE_TO_CHECK_REVOCATION
-        -208,  // ERR_CERT_WEAK_SIGNATURE_ALGORITHM
-        -210,  // ERR_CERT_NON_UNIQUE_NAME
-        -211,  // ERR_CERT_WEAK_KEY
-        -212,  // ERR_CERT_NAME_CONSTRAINT_VIOLATION
-        -213,  // ERR_CERT_VALIDITY_TOO_LONG
-        -214,  // ERR_CERTIFICATE_TRANSPARENCY_REQUIRED
-        -219,  // ERR_CERT_SELF_SIGNED_LOCAL_NETWORK
+    public static let overridableReasons: Set<CertificateError.Reason> = [
+        .nameMismatch, .dateInvalid, .untrustedAuthority, .noRevocationMechanism, .unableToCheckRevocation,
+        .weakSignature, .nonUniqueName,
+        .weakKey, .nameConstraintViolation, .validityTooLong, .notPubliclyLogged, .selfSignedLocalNetwork,
     ]
 
-    /// One allowance: an error code for one certificate, which the caller names by its bytes (for example the DER
+    /// One allowance: an error reason for one certificate, which the caller names by its bytes (for example the DER
     /// encoding of the server's certificate or its SHA-256 fingerprint).
     private struct Allowance: Hashable, Sendable {
-        var code: Int
+        var reason: CertificateError.Reason
         var certificate: Data
     }
 
@@ -50,10 +41,10 @@ public struct CertificateAllowances: Equatable, Sendable {
 
     public init() {}
 
-    /// True when the error page may offer to go on past `error`: its code is overridable, the engine said the host
+    /// True when the error page may offer to go on past `error`: its reason is overridable, the engine said the host
     /// is not strict, and the error names a host.
     public static func mayOffer(_ error: CertificateError, enforcement: CertificateEnforcement) -> Bool {
-        enforcement == .standard && overridableCodes.contains(error.code) && host(of: error) != nil
+        enforcement == .standard && overridableReasons.contains(error.reason) && host(of: error) != nil
     }
 
     /// Remembers, for this session, that the person chose to go on past `error` on its host with the server's
@@ -66,7 +57,7 @@ public struct CertificateAllowances: Equatable, Sendable {
     ) -> Bool {
         guard Self.mayOffer(error, enforcement: enforcement), !certificate.isEmpty, let host = Self.host(of: error)
         else { return false }
-        allowed[host, default: []].insert(Allowance(code: error.code, certificate: certificate))
+        allowed[host, default: []].insert(Allowance(reason: error.reason, certificate: certificate))
         return true
     }
 
@@ -77,7 +68,7 @@ public struct CertificateAllowances: Equatable, Sendable {
         for error: CertificateError, certificate: Data, enforcement: CertificateEnforcement
     ) -> CertificateErrorDecision? {
         guard Self.mayOffer(error, enforcement: enforcement), let host = Self.host(of: error),
-            allowed[host]?.contains(Allowance(code: error.code, certificate: certificate)) == true
+            allowed[host]?.contains(Allowance(reason: error.reason, certificate: certificate)) == true
         else { return nil }
         return .proceed
     }

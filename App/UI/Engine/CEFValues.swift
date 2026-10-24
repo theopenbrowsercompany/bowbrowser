@@ -122,7 +122,61 @@ extension AuthChallenge {
 
 extension CertificateError {
     init(_ error: BowCertificateError) {
-        self.init(url: error.url, code: error.code)
+        self.init(url: error.url, reason: Reason(chromiumCode: error.code))
+    }
+}
+
+extension CertificateError.Reason {
+    /// The reason for one of Chromium's certificate error codes (`net/base/net_error_list.h`).
+    init(chromiumCode code: Int) {
+        self =
+            switch code {
+            case -200: .nameMismatch  // ERR_CERT_COMMON_NAME_INVALID
+            case -201: .dateInvalid  // ERR_CERT_DATE_INVALID
+            case -202: .untrustedAuthority  // ERR_CERT_AUTHORITY_INVALID
+            case -203: .containsErrors  // ERR_CERT_CONTAINS_ERRORS
+            case -204: .noRevocationMechanism  // ERR_CERT_NO_REVOCATION_MECHANISM
+            case -205: .unableToCheckRevocation  // ERR_CERT_UNABLE_TO_CHECK_REVOCATION
+            case -206: .revoked  // ERR_CERT_REVOKED
+            case -207: .invalid  // ERR_CERT_INVALID
+            case -208: .weakSignature  // ERR_CERT_WEAK_SIGNATURE_ALGORITHM
+            case -210: .nonUniqueName  // ERR_CERT_NON_UNIQUE_NAME
+            case -211: .weakKey  // ERR_CERT_WEAK_KEY
+            case -212: .nameConstraintViolation  // ERR_CERT_NAME_CONSTRAINT_VIOLATION
+            case -213: .validityTooLong  // ERR_CERT_VALIDITY_TOO_LONG
+            case -214: .notPubliclyLogged  // ERR_CERTIFICATE_TRANSPARENCY_REQUIRED
+            case -217: .distrustedAuthority  // ERR_CERT_SYMANTEC_LEGACY
+            case -219: .selfSignedLocalNetwork  // ERR_CERT_SELF_SIGNED_LOCAL_NETWORK
+            default: .other
+            }
+    }
+}
+
+extension NavigationError {
+    init(_ error: BowNavigationError) {
+        self.init(reason: Reason(chromiumCode: error.code), description: error.errorText)
+    }
+}
+
+extension NavigationError.Reason {
+    /// The reason for one of Chromium's network error codes (`net/base/net_error_list.h`).
+    init(chromiumCode code: Int) {
+        self =
+            switch code {
+            case -3: .aborted  // ERR_ABORTED
+            case -105, -137: .nameNotResolved  // ERR_NAME_NOT_RESOLVED, ERR_NAME_RESOLUTION_FAILED
+            // ERR_CONNECTION_REFUSED, ERR_CONNECTION_FAILED, ERR_ADDRESS_INVALID, ERR_ADDRESS_UNREACHABLE
+            case -102, -104, -108, -109: .cannotConnect
+            // ERR_CONNECTION_CLOSED, ERR_CONNECTION_RESET, ERR_CONNECTION_ABORTED, ERR_EMPTY_RESPONSE
+            case -100, -101, -103, -324: .connectionLost
+            case -7, -118: .timedOut  // ERR_TIMED_OUT, ERR_CONNECTION_TIMED_OUT
+            case -106: .offline  // ERR_INTERNET_DISCONNECTED
+            case -299 ... -200: .certificate  // the ERR_CERT_* range
+            case -300, -301, -302: .badAddress  // ERR_INVALID_URL, ERR_DISALLOWED_URL_SCHEME, ERR_UNKNOWN_URL_SCHEME
+            // ERR_BLOCKED_BY_CLIENT, ERR_BLOCKED_BY_ADMINISTRATOR, ERR_BLOCKED_BY_RESPONSE
+            case -20, -22, -27: .blocked
+            default: .other
+            }
     }
 }
 

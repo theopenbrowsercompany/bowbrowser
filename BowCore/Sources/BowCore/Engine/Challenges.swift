@@ -37,13 +37,50 @@ public struct AuthCredentials: Equatable, Sendable {
 
 /// A page's certificate failed to verify.
 public struct CertificateError: Equatable, Sendable {
-    public var url: URL?
-    /// The engine's network error code (for example -202 for an untrusted authority).
-    public var code: Int
+    /// What is wrong with a certificate. Each engine maps its own verification results to these.
+    public enum Reason: Hashable, Sendable, CaseIterable {
+        /// It names a different site than the one loaded.
+        case nameMismatch
+        /// It has expired or is not valid yet.
+        case dateInvalid
+        /// It is not from an authority the Mac trusts (self-signed, or an unknown authority).
+        case untrustedAuthority
+        /// It is malformed.
+        case containsErrors
+        /// It names no way to check whether it was revoked.
+        case noRevocationMechanism
+        /// Whether it was revoked could not be checked.
+        case unableToCheckRevocation
+        /// Its authority revoked it.
+        case revoked
+        /// It is not valid for another reason.
+        case invalid
+        /// It is signed with a weak algorithm.
+        case weakSignature
+        /// It names a site whose name is not unique (an internal name or a private address).
+        case nonUniqueName
+        /// Its key is too weak.
+        case weakKey
+        /// It names a site its authority may not certify.
+        case nameConstraintViolation
+        /// It is valid for longer than allowed.
+        case validityTooLong
+        /// It was not publicly logged, as Certificate Transparency requires.
+        case notPubliclyLogged
+        /// Its authority is no longer trusted.
+        case distrustedAuthority
+        /// It is self-signed by a device on the local network.
+        case selfSignedLocalNetwork
+        /// The engine gave no reason Bow knows.
+        case other
+    }
 
-    public init(url: URL?, code: Int) {
+    public var url: URL?
+    public var reason: Reason
+
+    public init(url: URL?, reason: Reason) {
         self.url = url
-        self.code = code
+        self.reason = reason
     }
 }
 

@@ -215,7 +215,9 @@ import Testing
     @Test func placeholderEndsWhenThePageLoadsOrCannot() {
         let navigation = EngineNavigation(url: URL(string: "https://example.com")!, isRedirect: false)
         #expect(UnloadPlaceholder.ends(on: .didFinish(navigation, httpStatus: 200)))
-        #expect(UnloadPlaceholder.ends(on: .didFail(navigation, NavigationError(code: -105, description: "x"))))
+        #expect(
+            UnloadPlaceholder.ends(
+                on: .didFail(navigation, NavigationError(reason: .nameNotResolved, description: "x"))))
         #expect(UnloadPlaceholder.ends(on: .renderProcessGone(.crashed)))
         #expect(UnloadPlaceholder.ends(on: .closed))
         #expect(UnloadPlaceholder.ends(on: .unloaded))

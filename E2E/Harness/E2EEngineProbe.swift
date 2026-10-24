@@ -13,7 +13,7 @@ final class E2EEngineProbe: EngineTabDelegate {
     private let devToolsSession: BowDevToolsSession
     /// Every event the tab sent, in order.
     private(set) var events: [TabEvent] = []
-    /// HTTP status of every load that finished; a failed load records its negative error code.
+    /// HTTP status of every load that finished; a failed load records -1.
     private(set) var loads: [Int] = []
 
     /// Where popups go; every request is recorded in `popupRequests`.
@@ -138,7 +138,7 @@ final class E2EEngineProbe: EngineTabDelegate {
         events.append(event)
         switch event {
         case .didFinish(_, let status): loads.append(status)
-        case .didFail(_, let error) where !error.isAborted: loads.append(-abs(error.code))
+        case .didFail(_, let error) where !error.isAborted: loads.append(-1)
         case .closed, .unloaded: devToolsSession.close()
         default: break
         }

@@ -28,6 +28,6 @@ extension CEFTab: BowTabNavigationDelegate {
     }
 
     func tab(_ tab: BowTab, didFail navigation: BowNavigation, error: BowNavigationError) {
-        send(.didFail(EngineNavigation(navigation), NavigationError(code: error.code, description: error.errorText)))
+        send(.didFail(EngineNavigation(navigation), NavigationError(error)))
     }
 }

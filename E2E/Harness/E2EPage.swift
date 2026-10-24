@@ -230,12 +230,16 @@ struct E2ENavigationEvent: Equatable, CustomStringConvertible {
     var kind: Kind
     /// The navigation's URL: for a redirect the URL redirected to, for a commit the URL committed.
     var url: URL
-    /// The HTTP status for finish, the network error code for fail (negative), 0 otherwise.
+    /// The HTTP status for finish, 0 otherwise.
     var code: Int = 0
+    /// For fail, the name of the failure's reason (BowCore's `NavigationError.Reason`, for example `cannotConnect`);
+    /// empty otherwise.
+    var failure: String = ""
 
     var description: String {
         let path = url.host == "bow.test" ? url.path : url.absoluteString
-        return code == 0 ? "\(kind.rawValue) \(path)" : "\(kind.rawValue) \(path) \(code)"
+        let result = failure.isEmpty ? (code == 0 ? "" : " \(code)") : " \(failure)"
+        return "\(kind.rawValue) \(path)\(result)"
     }
 }
 

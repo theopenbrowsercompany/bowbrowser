@@ -3,7 +3,7 @@ import Foundation
 // The certificate error page: what it says, which tabs show it, and where Go back goes.
 
 /// The page a tab shows instead of a page whose certificate failed to verify, in plain words: a short title,
-/// the host, what is wrong with its certificate, and the engine's error name for anyone who needs it. Its only
+/// the host, what is wrong with its certificate, and the error's name as Chrome (and so Arc) prints it. Its only
 /// action is Go back; it offers no way on to the site (a way past waits until the engine can say whether the site
 /// requires HTTPS, see `CertificateEnforcement`).
 public struct CertificateErrorPage: Equatable, Sendable {
@@ -30,38 +30,49 @@ public struct CertificateErrorPage: Equatable, Sendable {
 
     /// What is wrong with the certificate, in one plain sentence.
     public var reason: String {
-        switch error.code {
-        case -200: "Its certificate belongs to a different site."
-        case -201: "Its certificate has expired or is not valid yet."
-        case -202: "Its certificate is not from an authority this Mac trusts."
-        case -203: "Its certificate contains errors."
-        case -204, -205: "Its certificate could not be checked for revocation."
-        case -206: "Its certificate has been revoked by the authority that issued it."
-        case -207: "Its certificate is not valid."
-        case -208: "Its certificate uses a weak signature."
-        case -210: "Its certificate names a site that is not unique."
-        case -211: "Its certificate uses a weak key."
-        case -212: "Its certificate names a site its authority may not certify."
-        case -213: "Its certificate is valid for longer than allowed."
-        case -214: "Its certificate was not publicly logged."
-        case -217: "Its certificate is from an authority that is no longer trusted."
-        case -219: "Its certificate is self-signed on the local network."
-        default: "Its certificate could not be verified."
+        switch error.reason {
+        case .nameMismatch: "Its certificate belongs to a different site."
+        case .dateInvalid: "Its certificate has expired or is not valid yet."
+        case .untrustedAuthority: "Its certificate is not from an authority this Mac trusts."
+        case .containsErrors: "Its certificate contains errors."
+        case .noRevocationMechanism, .unableToCheckRevocation: "Its certificate could not be checked for revocation."
+        case .revoked: "Its certificate has been revoked by the authority that issued it."
+        case .invalid: "Its certificate is not valid."
+        case .weakSignature: "Its certificate uses a weak signature."
+        case .nonUniqueName: "Its certificate names a site that is not unique."
+        case .weakKey: "Its certificate uses a weak key."
+        case .nameConstraintViolation: "Its certificate names a site its authority may not certify."
+        case .validityTooLong: "Its certificate is valid for longer than allowed."
+        case .notPubliclyLogged: "Its certificate was not publicly logged."
+        case .distrustedAuthority: "Its certificate is from an authority that is no longer trusted."
+        case .selfSignedLocalNetwork: "Its certificate is self-signed on the local network."
+        case .other: "Its certificate could not be verified."
         }
     }
 
-    /// The engine's name for the error, as Chrome prints it under its own page (for example
-    /// `NET::ERR_CERT_AUTHORITY_INVALID`), or the bare code when it is not a known certificate error.
+    /// The error's name as Chrome prints it under its own page, and so as Arc shows it (for example
+    /// `NET::ERR_CERT_AUTHORITY_INVALID`), from the reason whichever engine reported it. A reason Bow does not know
+    /// has no Chrome name, so the line says the certificate is invalid in Chrome's words.
     public var errorName: String {
-        let names: [Int: String] = [
-            -200: "COMMON_NAME_INVALID", -201: "DATE_INVALID", -202: "AUTHORITY_INVALID", -203: "CONTAINS_ERRORS",
-            -204: "NO_REVOCATION_MECHANISM", -205: "UNABLE_TO_CHECK_REVOCATION", -206: "REVOKED", -207: "INVALID",
-            -208: "WEAK_SIGNATURE_ALGORITHM", -210: "NON_UNIQUE_NAME", -211: "WEAK_KEY",
-            -212: "NAME_CONSTRAINT_VIOLATION", -213: "VALIDITY_TOO_LONG", -214: "TRANSPARENCY_REQUIRED",
-            -217: "SYMANTEC_LEGACY", -219: "SELF_SIGNED_LOCAL_NETWORK",
-        ]
-        guard let name = names[error.code] else { return "Error \(error.code)" }
-        return error.code == -214 ? "NET::ERR_CERTIFICATE_\(name)" : "NET::ERR_CERT_\(name)"
+        switch error.reason {
+        case .nameMismatch: "NET::ERR_CERT_COMMON_NAME_INVALID"
+        case .dateInvalid: "NET::ERR_CERT_DATE_INVALID"
+        case .untrustedAuthority: "NET::ERR_CERT_AUTHORITY_INVALID"
+        case .containsErrors: "NET::ERR_CERT_CONTAINS_ERRORS"
+        case .noRevocationMechanism: "NET::ERR_CERT_NO_REVOCATION_MECHANISM"
+        case .unableToCheckRevocation: "NET::ERR_CERT_UNABLE_TO_CHECK_REVOCATION"
+        case .revoked: "NET::ERR_CERT_REVOKED"
+        case .invalid: "NET::ERR_CERT_INVALID"
+        case .weakSignature: "NET::ERR_CERT_WEAK_SIGNATURE_ALGORITHM"
+        case .nonUniqueName: "NET::ERR_CERT_NON_UNIQUE_NAME"
+        case .weakKey: "NET::ERR_CERT_WEAK_KEY"
+        case .nameConstraintViolation: "NET::ERR_CERT_NAME_CONSTRAINT_VIOLATION"
+        case .validityTooLong: "NET::ERR_CERT_VALIDITY_TOO_LONG"
+        case .notPubliclyLogged: "NET::ERR_CERTIFICATE_TRANSPARENCY_REQUIRED"
+        case .distrustedAuthority: "NET::ERR_CERT_SYMANTEC_LEGACY"
+        case .selfSignedLocalNetwork: "NET::ERR_CERT_SELF_SIGNED_LOCAL_NETWORK"
+        case .other: "NET::ERR_CERT_INVALID"
+        }
     }
 
     /// What the URL field shows while the tab shows this page: the address that failed, marked not secure, as

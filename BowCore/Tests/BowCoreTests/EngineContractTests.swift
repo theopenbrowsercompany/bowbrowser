@@ -122,14 +122,25 @@ import Testing
         let delegate = RecordingTabDelegate()
         tab.delegate = delegate
         let navigation = EngineNavigation(url: example)
-        let error = NavigationError(code: -105, description: "ERR_NAME_NOT_RESOLVED")
+        let error = NavigationError(reason: .nameNotResolved, description: "the name did not resolve")
 
         engine.openTabs[0].simulateFailedLoad(navigation, error: error)
 
         #expect(delegate.events.contains(.didFail(navigation, error)))
         #expect(!tab.state.isLoading)
         #expect(!error.isAborted)
-        #expect(NavigationError(code: NavigationError.abortedCode, description: "ERR_ABORTED").isAborted)
+    }
+
+    @Test func onlyTheAbortedReasonCountsAsAborted() {
+        for reason in NavigationError.Reason.allCases {
+            let error = NavigationError(reason: reason, description: "")
+            #expect(error.isAborted == (reason == .aborted), "\(reason)")
+        }
+        // The engine's text is kept for logs but never decides anything.
+        #expect(
+            NavigationError(reason: .cannotConnect, description: "a")
+                != NavigationError(reason: .cannotConnect, description: "b"))
+        #expect(!NavigationError(reason: .other, description: "aborted").isAborted)
     }
 
     @Test func deliversPopupAndProcessGoneEvents() {

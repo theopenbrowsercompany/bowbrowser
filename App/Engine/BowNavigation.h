@@ -51,8 +51,9 @@ __attribute__((objc_subclassing_restricted))
 @end
 
 /// A failed navigation: the engine's network error code (a negative Chromium net error, for example -105 for a
-/// name that does not resolve) and its readable text. Immutable. Mirrors BowCore's `NavigationError`, whose
-/// `description` is `errorText` here (NSObject's `description` stays the object's debug text).
+/// name that does not resolve) and its readable text. Immutable. The Swift adapter maps the code to BowCore's
+/// `NavigationError.Reason`, and `NavigationError.description` is
+/// `errorText` here (NSObject's `description` stays the object's debug text).
 NS_SWIFT_SENDABLE
 __attribute__((objc_subclassing_restricted))
 @interface BowNavigationError : NSObject

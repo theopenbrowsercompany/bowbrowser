@@ -300,8 +300,8 @@ struct EngineChallengesTest: E2ETest {
         run.check(
             "engine.cert_hook",
             passed: certificate.questions.count == 1 && error?.url?.host == E2ELoopback.certificateHost
-                && error?.code == -202 && error?.proceeded == false && certificate.ended.kind == .fail
-                && certificate.ended.code == -202 && fixtures.certificateRequests == 0,
+                && error?.reason == "untrustedAuthority" && error?.proceeded == false && certificate.ended.kind == .fail
+                && certificate.ended.failure == "certificate" && fixtures.certificateRequests == 0,
             "questions=\(certificate.questions) ended=\(certificate.ended) served=\(fixtures.certificateRequests)")
     }
 

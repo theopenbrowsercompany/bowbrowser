@@ -66,7 +66,7 @@ final class E2EChallengeRecorder: EngineTabDelegate {
 
     func tab(_ tab: any EngineTab, decideCertificateError error: CertificateError) async -> CertificateErrorDecision {
         let index = certificates.count
-        certificates.append(E2ECertificateQuestion(url: error.url, code: error.code, proceeded: nil))
+        certificates.append(E2ECertificateQuestion(url: error.url, reason: "\(error.reason)", proceeded: nil))
         let decision = await window?.tab(tab, decideCertificateError: error) ?? .cancel
         certificates[index].proceeded = decision == .proceed
         return decision

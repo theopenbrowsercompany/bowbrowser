@@ -706,7 +706,7 @@ extension AppDelegate {
             // An aborted load was replaced (a script navigation or a meta refresh) or left no page; the result is
             // the load that follows, or the timeout.
             if error.isAborted { return }
-            let line = "error=\(error.code) \(error.description) url=\(navigation.url.absoluteString)"
+            let line = "error=\(error.reason) \(error.description) url=\(navigation.url.absoluteString)"
             finishSmokeTest(line, exitCode: 1)
         default:
             break
