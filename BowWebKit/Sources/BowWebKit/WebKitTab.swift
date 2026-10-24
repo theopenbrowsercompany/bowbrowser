@@ -9,8 +9,8 @@ import WebKit
 @MainActor
 final class WebKitTab: SPIDelegateBase, EngineTab, WKNavigationDelegate, WKUIDelegate {
     /// The private delegate callbacks a tab answers, chosen before its web view takes it as a delegate (see
-    /// `SPIDelegateBase`); none yet.
-    static let privateCallbacks: Set<WebKitSPI.Callback> = []
+    /// `SPIDelegateBase`).
+    static let privateCallbacks: Set<WebKitSPI.Callback> = [.mouseDidMoveOverElement]
 
     /// Tab IDs are unique for the life of the process, so for the life of any engine in it.
     private static var lastTabID: UInt64 = 0
@@ -35,6 +35,8 @@ final class WebKitTab: SPIDelegateBase, EngineTab, WKNavigationDelegate, WKUIDel
     var committedURL: URL?
     /// The web view's key value observations, ended when it is released.
     var observations: [NSKeyValueObservation] = []
+    /// The status text sent last and where it comes from (WebKitTab+Hover.swift).
+    var hover = HoverStatus()
     /// Addresses the app loaded and WebKit has not asked about yet, which make their navigation `typed`.
     private var appLoads: [URL] = []
 
@@ -58,6 +60,7 @@ final class WebKitTab: SPIDelegateBase, EngineTab, WKNavigationDelegate, WKUIDel
         webView.navigationDelegate = self
         webView.uiDelegate = self
         observeState(of: webView)
+        observeHover(of: webView)
         committedURL = webView.url
         refreshState()
     }
